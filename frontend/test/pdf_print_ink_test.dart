@@ -61,6 +61,12 @@ void main() {
     expect(color.rule(0.35), 0.35);
   });
 
+  test('the SAR symbol: ink on paper, white on a black band', () {
+    expect(bw.sarTints.gold.luminance, lessThan(0.05), reason: 'not gold in black and white');
+    expect(bw.sarTints.onBand, PdfColors.white);
+    expect(color.sarTints.onBand.luminance, lessThan(0.05), reason: 'dark on a light band');
+  });
+
   test('a color print is unchanged', () {
     const gold = PdfColor.fromInt(0xFF8B6914);
     expect(color.ink(gold), gold);

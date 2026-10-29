@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:frontend/pdf/pdf_text_utils.dart';
 import 'package:frontend/pdf/statement_print_facts.dart';
 
 /// The printed account statement (the owner, 28 Oct 2026): a balance says
@@ -18,6 +19,11 @@ void main() {
     test('nothing has no word', () {
       expect(statementBalance(0, decimals: 2), '0.00');
       expect(statementBalance(-0.0001, decimals: 3), '0.000');
+    });
+
+    test('its size and whose it is, apart, for the currency between them', () {
+      expect(statementBalanceParts(-4277.95, decimals: 2), (size: '4,277.95', whose: 'له'));
+      expect(statementBalanceParts(0, decimals: 2), (size: '0.00', whose: ''));
     });
 
     test('whose it is reads back', () {
@@ -50,6 +56,20 @@ void main() {
       final rows = edges(false);
       expect((rows.first.label, rows.last.label), ('رصيد افتتاحي', 'رصيد ختامي'));
       expect((rows.last.gold, rows.last.cash, rows.last.date), (-101.359, -4277.95, to));
+    });
+  });
+
+  group('the period, as printed', () {
+    test('from the older day to the newer', () {
+      expect(statementPeriodText(DateTime(2026, 6, 1), DateTime(2026, 10, 28)),
+          'من 2026-06-01 إلى 2026-10-28');
+      expect(statementPeriodText(null, null), isNull);
+    });
+
+    test('on paper, read right to left, the older day comes first', () {
+      final v = pdfVisualArabic;
+      expect(v(statementPeriodText(DateTime(2026, 6, 1), DateTime(2026, 10, 28))!),
+          '2026-10-28 ${v('إلى')} 2026-06-01 ${v('من')}');
     });
   });
 }

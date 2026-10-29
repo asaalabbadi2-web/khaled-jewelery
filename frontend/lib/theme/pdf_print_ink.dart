@@ -32,4 +32,16 @@ class PdfInk {
 
   /// A rule's width: no hairline in black and white, where it vanishes.
   double rule(double width) => blackAndWhite && width < 0.8 ? 0.8 : width;
+
+  /// The SAR symbol's tints: [gold] for amounts (ink in black and white),
+  /// [dark] for body text, [onBand] for a table's head -- white on its black
+  /// band in black and white, dark on its light band in color.
+  ({PdfColor gold, PdfColor dark, PdfColor onBand}) get sarTints {
+    const dark = PdfColor.fromInt(0xFF1A1A1A);
+    return (
+      gold: blackAndWhite ? dark : const PdfColor.fromInt(0xFF8B6914),
+      dark: dark,
+      onBand: blackAndWhite ? PdfColors.white : dark,
+    );
+  }
 }

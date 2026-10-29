@@ -21,6 +21,7 @@ import '../models/account_statement_model.dart';
 import '../models/statement_period.dart';
 import '../pdf/account_statement_pdf_builder.dart';
 import '../pdf/pdf_sar_cache.dart';
+import '../theme/pdf_print_ink.dart';
 import '../widgets/cancelled_vouchers_bar.dart';
 import '../theme/app_semantic_colors.dart';
 import '../utils/bidi.dart';
@@ -107,7 +108,6 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
   /// The less-used filters' panel, closed until asked for.
   bool _filtersOpen = false;
 
-  bool _pdfIncludeValuation = true;
   int? _pdfViewModeOverride;
   bool _pdfLandscape = false;
 
@@ -154,6 +154,9 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
       showCompanyLogo: showCompanyLogo,
       companyLogoBase64: companyLogoBase64,
       currencySymbol: settingsProvider?.currencySymbol ?? 'ر.س',
+      // The new SAR symbol, as the invoice draws it (the owner, 28 Oct 2026:
+      // the statement's cash said no currency).
+      isNewSar: settingsProvider?.currencyIsNewSar ?? false,
       blackAndWhite: bw,
     );
   }
@@ -779,7 +782,9 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
   Future<({bool includeValuation, int? viewModeOverride, bool landscape})?>
   _askPdfOptions() async {
     final currentViewMode = _viewMode;
-    var includeValuation = _pdfIncludeValuation;
+    // The valuation is off each time the print is asked for, never carried
+    // over from the last (the owner, 29 Oct 2026).
+    var includeValuation = false;
     var viewModeOverride = _pdfViewModeOverride;
     var landscape = _pdfLandscape;
 
@@ -805,7 +810,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                         value: includeValuation,
                         onChanged: (value) {
                           setStateDialog(() {
-                            includeValuation = value ?? true;
+                            includeValuation = value ?? false;
                           });
                         },
                         title: const Text(
@@ -879,7 +884,6 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     if (result == null) return null;
 
     setState(() {
-      _pdfIncludeValuation = result.includeValuation;
       _pdfViewModeOverride = result.viewModeOverride;
       _pdfLandscape = result.landscape;
     });
@@ -890,7 +894,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
   Future<Uint8List> _buildStatementPdfBytes(
     pdf.PdfPageFormat pageFormat, {
     int? viewModeOverride,
-    bool includeValuation = true,
+    bool includeValuation = false,
     required AccountStatementPdfBranding branding,
   }) async {
     if (_statement == null) return Uint8List(0);
@@ -960,6 +964,19 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
         : null;
 
     final newestFirst = _byDate && !_sortAscending;
+
+    // The SAR symbol, tinted here on the main isolate (the build runs where
+    // rootBundle is not): gold -- ink in black and white -- for amounts, dark
+    // for body text, and for the table's head white on its black band in
+    // black and white, dark on its light band in color.
+    Uint8List? sarGoldBytes, sarDarkBytes, sarOnBandBytes;
+    if (branding.isNewSar) {
+      final tints = PdfInk(blackAndWhite: branding.blackAndWhite).sarTints;
+      await Future.wait([tints.gold, tints.dark, tints.onBand].map(PdfSarCache.tinted));
+      sarGoldBytes = PdfSarCache.tintedBytes(tints.gold);
+      sarDarkBytes = PdfSarCache.tintedBytes(tints.dark);
+      sarOnBandBytes = PdfSarCache.tintedBytes(tints.onBand);
+    }
     Future<Uint8List> buildPdf() => AccountStatementPdfBuilder.build(
       fmt,
       statement: statement,
@@ -974,6 +991,9 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
       branding: branding,
       // The balance row at the top: the closing one when newest first.
       newestFirst: newestFirst,
+      sarGoldBytes: sarGoldBytes,
+      sarDarkBytes: sarDarkBytes,
+      sarOnBandBytes: sarOnBandBytes,
       preloadedRegularFont: fontBytes,
       preloadedBoldFont: boldFontBytes,
       preloadedFallbackLogo: fallbackLogoBytes,

@@ -9,6 +9,7 @@ import 'package:pdf/widgets.dart' as pw;
 import '../models/account_statement_model.dart';
 import '../models/statement_period.dart';
 import '../theme/pdf_print_ink.dart';
+import '../utils/currency_utils.dart' show isNewSarSymbol;
 import 'pdf_text_utils.dart';
 import 'statement_print_facts.dart';
 
@@ -70,6 +71,10 @@ class AccountStatementPdfBranding {
     this.blackAndWhite = false,
   });
 }
+
+// The unit line of a cash column's head: its currency, drawn as the SAR
+// symbol when the settings use the new one, else written.
+const _currencyUnit = '¤';
 
 // A number in a cell is set smaller to fit it, never cut; a description
 // wraps instead.
@@ -136,6 +141,9 @@ class AccountStatementPdfBuilder {
     // Pre-tinted SAR symbol bytes (gold tone for amounts, dark for body text).
     Uint8List? sarGoldBytes,
     Uint8List? sarDarkBytes,
+    // The SAR symbol for the table's head: white on its black band in black
+    // and white, dark on its light band in color.
+    Uint8List? sarOnBandBytes,
     void Function({
       required bool valuationBannerRendered,
       required bool goldPriceChipRendered,
@@ -158,12 +166,15 @@ class AccountStatementPdfBuilder {
     final mainKarat = statement.mainKarat;
     final isMerged = statement.isMerged;
     final cashLabel = isMerged ? 'قيمة' : 'نقد';
-    final currencySymbol = branding.currencySymbol;
-    final isNewSar = branding.isNewSar;
+    // The settings name the new SAR symbol by a token (__SAR_NEW__): it is
+    // drawn, and written «ر.س» where it cannot be -- never the token itself.
+    final isNewSar = branding.isNewSar || isNewSarSymbol(branding.currencySymbol);
+    final currencySymbol = isNewSarSymbol(branding.currencySymbol) ? 'ر.س' : branding.currencySymbol;
 
     // SAR image providers (null when not using new symbol).
     final sarGoldImg = sarGoldBytes != null ? pw.MemoryImage(sarGoldBytes) : null;
     final sarDarkImg = sarDarkBytes != null ? pw.MemoryImage(sarDarkBytes) : null;
+    final sarOnBandImg = sarOnBandBytes != null ? pw.MemoryImage(sarOnBandBytes) : null;
 
     // Inline cash amount widget — shows SAR image when isNewSar is true.
     pw.Widget buildCashAmt(
@@ -174,24 +185,21 @@ class AccountStatementPdfBuilder {
       bool useDark = false,
     }) {
       final sarImg = useDark ? sarDarkImg : sarGoldImg;
-      if (isNewSar && sarImg != null) {
-        // Page is RTL so pw.Row reverses child order automatically.
-        // [num, spacer, img] → RTL flip → num RIGHT, img LEFT → number first (correct).
-        return pw.Row(
-          mainAxisSize: pw.MainAxisSize.min,
-          children: [
-            pw.Text(numStr,
-                textDirection: pw.TextDirection.ltr,
-                style: pw.TextStyle(font: font, fontSize: fontSize, color: color)),
-            pw.SizedBox(width: 2),
-            pw.Image(sarImg, width: fontSize * 0.72, height: fontSize),
-          ],
-        );
-      }
-      return pw.Text(
-        '$numStr $currencySymbol',
-        textDirection: pw.TextDirection.ltr,
-        style: pw.TextStyle(font: font, fontSize: fontSize, color: color),
+      final style = pw.TextStyle(font: font, fontSize: fontSize, color: color);
+      // Page is RTL so pw.Row reverses child order automatically.
+      // [num, spacer, currency] → RTL flip → num RIGHT, currency LEFT → number
+      // first (correct). The currency's name is shaped as Arabic apart from
+      // the number: «ر.س» set left to right with it printed «س.ر».
+      return pw.Row(
+        mainAxisSize: pw.MainAxisSize.min,
+        children: [
+          pw.Text(numStr, textDirection: pw.TextDirection.ltr, style: style),
+          pw.SizedBox(width: 2),
+          if (isNewSar && sarImg != null)
+            pw.Image(sarImg, width: fontSize * 0.72, height: fontSize)
+          else
+            pw.Text(pdfVisualArabic(currencySymbol), textDirection: pw.TextDirection.ltr, style: style),
+        ],
       );
     }
 
@@ -240,9 +248,7 @@ class AccountStatementPdfBuilder {
     final issuedAtText = DateFormat('yyyy-MM-dd').format(now);
     final statementId =
         'ST-${DateFormat('yyyyMMdd-HHmmss').format(now)}-$accountId';
-    final dateRangeText = dateRange == null
-        ? '—'
-        : '${DateFormat('yyyy-MM-dd').format(dateRange.start)} – ${DateFormat('yyyy-MM-dd').format(dateRange.end)}';
+    final dateRangeText = statementPeriodText(dateRange?.start, dateRange?.end) ?? '—';
 
     final viewModeLabel = switch (viewMode) {
       1 => 'ذهب فقط',
@@ -349,9 +355,11 @@ class AccountStatementPdfBuilder {
     }
     if (viewMode != 1) {
       valueColumns.addAll([
-        (key: cashDebitKey, header: '$cashLabel مدين'),
-        (key: cashCreditKey, header: '$cashLabel دائن'),
-        (key: cashBalKey, header: 'رصيد $cashLabel'),
+        // Each cash column says its currency under its title, as the gold
+        // ones their karat (the owner, 28 Oct 2026: «النقد غير معرّف بعملته»).
+        (key: cashDebitKey, header: '$cashLabel مدين\n$_currencyUnit'),
+        (key: cashCreditKey, header: '$cashLabel دائن\n$_currencyUnit'),
+        (key: cashBalKey, header: 'رصيد $cashLabel\n$_currencyUnit'),
       ]);
     }
 
@@ -371,12 +379,20 @@ class AccountStatementPdfBuilder {
         i: columns[i].key == descKey
             ? const pw.FlexColumnWidth(1)
             : columns[i].key == refKey
-                ? const pw.FixedColumnWidth(78)
+                ? const pw.FixedColumnWidth(66)
                 : columns[i].key == dateKey
-                    ? const pw.FixedColumnWidth(56)
-                    : cashCols.contains(columns[i].key)
-                        ? const pw.FixedColumnWidth(60)
-                        : const pw.FixedColumnWidth(48),
+                    ? const pw.FixedColumnWidth(52)
+                    // A balance says whose it is too («23.430 عليه»): its
+                    // column is the wider; the debits and credits, short
+                    // figures set smaller to fit, give the room -- the
+                    // description keeps more than it had (the owner, 29 Oct).
+                    : columns[i].key == cashBalKey
+                        ? const pw.FixedColumnWidth(66)
+                        : columns[i].key == goldBalKey
+                            ? const pw.FixedColumnWidth(60)
+                            : cashCols.contains(columns[i].key)
+                                ? const pw.FixedColumnWidth(54)
+                                : const pw.FixedColumnWidth(42),
     };
 
     // ─────────────────────────────────────────────────────────────
@@ -428,7 +444,8 @@ class AccountStatementPdfBuilder {
         );
 
     // Filter strip chip — no border box, just label + value separated by bullet
-    pw.Widget filterChip({required String label, required String value}) =>
+    // [figure] in place of [value]: an amount, drawn with its currency.
+    pw.Widget filterChip({required String label, String value = '', pw.Widget? figure}) =>
         pw.Row(
           mainAxisSize: pw.MainAxisSize.min,
           children: [
@@ -438,18 +455,33 @@ class AccountStatementPdfBuilder {
               style: pw.TextStyle(
                   font: baseFont, fontSize: 7.5, color: _PdfColors.muted),
             ),
-            pw.Text(
-              pdfVisualArabic(value),
-              textDirection: pw.TextDirection.ltr,
-              style: pw.TextStyle(
-                  font: boldFont, fontSize: 7.5, color: _PdfColors.dark),
-            ),
+            figure ??
+                pw.Text(
+                  pdfVisualArabic(value),
+                  textDirection: pw.TextDirection.ltr,
+                  style: pw.TextStyle(
+                      font: boldFont, fontSize: 7.5, color: _PdfColors.dark),
+                ),
           ],
         );
 
     // ── Balance summary: borderless luxury card ──
+    // A cash figure as a card says it: its size, its currency, whose it is.
+    pw.Widget cashFigure(String size, pdf.PdfColor color, {String whose = ''}) => pw.Row(
+          mainAxisSize: pw.MainAxisSize.min,
+          children: [
+            buildCashAmt(size, font: boldFont, fontSize: 14, color: color, useDark: true),
+            if (whose.isNotEmpty) ...[
+              pw.SizedBox(width: 3),
+              pw.Text(pdfVisualArabic(whose),
+                  textDirection: pw.TextDirection.ltr,
+                  style: pw.TextStyle(font: boldFont, fontSize: 14, color: color)),
+            ],
+          ],
+        );
+
     pw.Widget balCell(String label, String value, pdf.PdfColor valueColor,
-        {bool highlighted = false}) =>
+        {bool highlighted = false, pw.Widget Function(pdf.PdfColor color)? figure}) =>
         pw.Container(
           height: 54,
           padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 9),
@@ -481,11 +513,12 @@ class AccountStatementPdfBuilder {
                 child: pw.Center(
                   child: pw.FittedBox(
                     fit: pw.BoxFit.scaleDown,
-                    child: pw.Text(
-                      pdfVisualArabic(value),
-                      textDirection: pw.TextDirection.ltr,
-                      style: pw.TextStyle(font: boldFont, fontSize: 14, color: valueColor),
-                    ),
+                    child: figure?.call(valueColor) ??
+                        pw.Text(
+                          pdfVisualArabic(value),
+                          textDirection: pw.TextDirection.ltr,
+                          style: pw.TextStyle(font: boldFont, fontSize: 14, color: valueColor),
+                        ),
                   ),
                 ),
               ),
@@ -520,7 +553,9 @@ class AccountStatementPdfBuilder {
           crossAxisAlignment:
               isDesc ? pw.CrossAxisAlignment.end : pw.CrossAxisAlignment.center,
           children: [
-            pw.Text(
+            // One line, set smaller when the column is narrow: «رصيد الذهب»
+            // broke into «رصيد» under «الذهب» (the owner, 29 Oct 2026).
+            _fitUnlessWrapping(isDesc, pw.Text(
               pdfVisualArabic(title),
               textDirection: pw.TextDirection.ltr,
               textAlign: isDesc ? pw.TextAlign.right : pw.TextAlign.center,
@@ -529,11 +564,14 @@ class AccountStatementPdfBuilder {
                 fontSize: isDesc ? 8 : 7.5,
                 color: onBand ?? _PdfColors.dark,
               ),
-            ),
-            if (unit != null) ...[
+            )),
+            if (unit == _currencyUnit && isNewSar && sarOnBandImg != null) ...[
+              pw.SizedBox(height: 2),
+              pw.Image(sarOnBandImg, width: 9 * 0.72, height: 9),
+            ] else if (unit != null) ...[
               pw.SizedBox(height: 2),
               pw.Text(
-                unit,
+                unit == _currencyUnit ? '($currencySymbol)' : unit,
                 textDirection: pw.TextDirection.rtl,
                 textAlign: pw.TextAlign.center,
                 style: pw.TextStyle(
@@ -749,7 +787,7 @@ class AccountStatementPdfBuilder {
                         color: _paint.ink(pdf.PdfColor.fromHex('#444444'))),
                   ),
                   buildCashAmt(
-                    pdfVisualArabic((pricePerGram ?? 0).toStringAsFixed(2)),
+                    commaFmt.format(pricePerGram ?? 0),
                     font: boldFont,
                     fontSize: 8.5,
                     color: _paint.ink(pdf.PdfColor.fromHex('#222222')),
@@ -1153,12 +1191,14 @@ class AccountStatementPdfBuilder {
                     'مدين نقد',
                     commaFmt.format(totals.cashDebit),
                     _PdfColors.positive,
+                    figure: (color) => cashFigure(commaFmt.format(totals.cashDebit), color),
                   )),
                   pw.SizedBox(width: 6),
                   pw.Expanded(child: balCell(
                     'دائن نقد',
                     commaFmt.format(totals.cashCredit),
                     _PdfColors.negative,
+                    figure: (color) => cashFigure(commaFmt.format(totals.cashCredit), color),
                   )),
                   pw.SizedBox(width: 6),
                   pw.Expanded(child: balCell(
@@ -1166,6 +1206,10 @@ class AccountStatementPdfBuilder {
                     statementBalance(periodClosingCash, decimals: 2),
                     periodClosingCash < 0 ? _PdfColors.negative : _PdfColors.positive,
                     highlighted: true,
+                    figure: (color) {
+                      final parts = statementBalanceParts(periodClosingCash, decimals: 2);
+                      return cashFigure(parts.size, color, whose: parts.whose);
+                    },
                   )),
                 ],
               ),
@@ -1199,7 +1243,11 @@ class AccountStatementPdfBuilder {
                       pw.SizedBox(width: 4),
                       filterSeparator(),
                       pw.SizedBox(width: 4),
-                      filterChip(label: 'سعر الجرام', value: pricePerGram!.toStringAsFixed(2)),
+                      filterChip(
+                        label: 'سعر الجرام',
+                        figure: buildCashAmt(commaFmt.format(pricePerGram!),
+                            font: boldFont, fontSize: 7.5, color: _PdfColors.dark, useDark: true),
+                      ),
                     ],
                   ],
                 ),
