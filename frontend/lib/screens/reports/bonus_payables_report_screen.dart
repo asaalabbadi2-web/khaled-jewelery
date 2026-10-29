@@ -230,7 +230,7 @@ class _BonusPayablesReportScreenState extends State<BonusPayablesReportScreen> {
             Row(
               children: [
                 Icon(
-                  Icons.savings,
+                  Icons.card_giftcard,
                   color: Theme.of(context).colorScheme.primary,
                 ),
                 const SizedBox(width: 12),

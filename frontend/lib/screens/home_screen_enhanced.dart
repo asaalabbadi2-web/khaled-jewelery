@@ -1401,7 +1401,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.point_of_sale,
       title: isAr ? 'فاتورة بيع' : 'Sales Invoice',
-      color: _tone.sectionGreen.fg,
+      color: _tone.invoice(InvoiceKind.sale).fg,
       onSelected: () async {
         final result = await Navigator.push(
           context,
@@ -1419,7 +1419,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       icon: Icons.recycling_outlined,
       title: isAr ? 'بيع ذهب كسر' : 'Scrap Gold Sale',
       keywords: const ['فاتورة بيع كسر'],
-      color: _tone.sectionOrange.fg,
+      color: _tone.invoice(InvoiceKind.saleScrap).fg,
       onSelected: () async {
         final result = await Navigator.push(
           context,
@@ -1438,7 +1438,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       icon: Icons.shopping_basket,
       title: isAr ? 'شراء كسر' : 'Buy Scrap from Customer',
       keywords: const ['فاتورة شراء كسر'],
-      color: _tone.sectionAmber.fg,
+      color: _tone.invoice(InvoiceKind.purchaseScrap).fg,
       onSelected: () async {
         final result = await Navigator.push(
           context,
@@ -1455,7 +1455,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       icon: Icons.business,
       title: isAr ? 'شراء جديد' : 'Purchase Invoice',
       keywords: const ['فاتورة شراء', 'مورد'],
-      color: _tone.sectionBlue.fg,
+      color: _tone.invoice(InvoiceKind.purchase).fg,
       onSelected: () async {
         final result = await Navigator.push(
           context,
@@ -1500,7 +1500,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       icon: Icons.keyboard_return,
       title: isAr ? 'مرتجع بيع' : 'Sales Return',
       keywords: const ['فاتورة مرتجع'],
-      color: _tone.sectionRed.fg,
+      color: _tone.invoice(InvoiceKind.returned).fg,
       onSelected: () async {
         final result = await Navigator.push(
           context,
@@ -1516,7 +1516,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       icon: Icons.undo,
       title: isAr ? 'مرتجع شراء كسر' : 'Scrap Purchase Return',
       keywords: const ['فاتورة مرتجع'],
-      color: _tone.sectionRed.fg,
+      color: _tone.invoice(InvoiceKind.returned).fg,
       onSelected: () async {
         final result = await Navigator.push(
           context,
@@ -1532,7 +1532,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       icon: Icons.assignment_return,
       title: isAr ? 'مرتجع شراء جديد' : 'Supplier Return',
       keywords: const ['فاتورة مرتجع', 'مورد'],
-      color: _tone.sectionRed.fg,
+      color: _tone.invoice(InvoiceKind.returned).fg,
       onSelected: () async {
         // One form for a supplier's return, the purchase screen's (25 Oct
         // 2026): the general return form refunded the gold's value in cash.
@@ -2002,7 +2002,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     // hold safe_boxes.view only to pick a safe in an invoice (ADR-036).
     if (auth.hasPermission('safe_boxes.transfer')) {
       addDestination(
-        icon: Icons.savings,
+        icon: Icons.wallet,
         title: isAr ? 'إدارة الخزائن' : 'Safe Boxes',
         keywords: const ['خزنة', 'صندوق', 'نقدية'],
         color: _tone.sectionAmber.fg,
@@ -4516,7 +4516,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     required ThemeData theme,
     bool compact = false,
   }) {
-    final color = action.getColor();
+    final color = action.colorIn(_tone);
     final isDark = theme.brightness == Brightness.dark;
     final subtitle = compact ? null : _getActionSubtitle(action.route);
     final iconBoxSize = compact ? 32.0 : 38.0;

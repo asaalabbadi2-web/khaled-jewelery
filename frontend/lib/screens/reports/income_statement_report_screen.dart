@@ -387,7 +387,7 @@ class _IncomeStatementReportScreenState
       _SummaryMetric(
         label: isArabic ? 'صافي الربح (مالي)' : 'Net Profit (Cash)',
         value: _formatCurrency(_asDouble(summary['net_profit'])),
-        icon: Icons.savings,
+        icon: Icons.monetization_on,
         color: Colors.teal,
       ),
       _SummaryMetric(

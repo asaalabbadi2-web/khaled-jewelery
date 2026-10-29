@@ -531,7 +531,7 @@ class _AddOfficeScreenState extends State<AddOfficeScreen> {
             valueText: _selectedGoldSafe?.name,
             hintText: isAr ? 'اضغط لاختيار وديعة ذهب' : 'Tap to pick a gold deposit',
             helperText: _isLoadingGoldSafeBoxes ? (isAr ? 'جارٍ تحميل الودائع...' : 'Loading deposits...') : null,
-            prefixIcon: Icons.savings_outlined,
+            prefixIcon: Icons.move_to_inbox_outlined,
             onTap: () => _pickGoldSafeBox(isAr: isAr),
             enabled: !_isLoadingGoldSafeBoxes,
           ),

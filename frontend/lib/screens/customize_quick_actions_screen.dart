@@ -385,10 +385,10 @@ class _CustomizeQuickActionsScreenState
               leading: Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: action.getColor().withValues(alpha: 0.1),
+                  color: action.colorIn(_tone).withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Icon(action.icon, color: action.getColor(), size: 22),
+                child: Icon(action.icon, color: action.colorIn(_tone), size: 22),
               ),
               title: Text(action.label, style: theme.textTheme.titleSmall),
               trailing: Icon(Icons.drag_handle, color: theme.hintColor),
@@ -409,7 +409,7 @@ class _CustomizeQuickActionsScreenState
     required bool active,
     Future<bool> Function()? onToggleOverride,
   }) {
-    final color = action.getColor();
+    final color = action.colorIn(_tone);
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       color: theme.cardColor,
@@ -581,7 +581,7 @@ class _CustomizeQuickActionsScreenState
                                     const SizedBox(height: 8),
                                 itemBuilder: (_, index) {
                                   final action = filtered[index];
-                                  final actionColor = action.getColor();
+                                  final actionColor = action.colorIn(_tone);
 
                                   Future<void> handleTap() async {
                                     final status =

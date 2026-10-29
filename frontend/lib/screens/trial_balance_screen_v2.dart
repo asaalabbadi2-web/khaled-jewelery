@@ -281,7 +281,7 @@ class _TrialBalanceScreenV2State extends State<TrialBalanceScreenV2> {
             'الدائن: ${_formatWeight(goldCredit)}',
             'الرصيد: ${_formatWeight(goldBalance)}',
             goldBalance >= 0 ? Colors.green.shade700 : Colors.red.shade700,
-            Icons.savings,
+            Icons.diamond,
           ),
         ),
         SizedBox(width: 12),

@@ -263,7 +263,7 @@ class _SettlementScheduleEditorState extends State<SettlementScheduleEditor> {
           SegmentedButton<bool>(
             segments: const [
               ButtonSegment(value: false, label: Text('ثابتة'), icon: Icon(Icons.event_repeat)),
-              ButtonSegment(value: true, label: Text('مرنة'), icon: Icon(Icons.savings_outlined)),
+              ButtonSegment(value: true, label: Text('مرنة'), icon: Icon(Icons.hourglass_bottom)),
             ],
             selected: {_v.flexible},
             onSelectionChanged: (s) => _set(_v.copyWith(flexible: s.first)),

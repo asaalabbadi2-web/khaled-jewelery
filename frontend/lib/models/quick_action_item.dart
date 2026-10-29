@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/app_semantic_colors.dart';
+
 enum QuickActionGroup { sales, accounting, admin }
 
 /// نموذج بيانات لعناصر الوصول السريع في الشاشة الرئيسية
@@ -99,6 +101,28 @@ class QuickActionItem {
     return Color(int.parse(colorHex.replaceFirst('#', '0xFF')));
   }
 
+  /// The invoice this action opens, if it opens one: its icon is in that
+  /// invoice's color, as its screen is -- one color an invoice is known by
+  /// (the owner, 29 Oct 2026).
+  InvoiceKind? get invoiceKind => switch (id) {
+    'sales_invoice' => InvoiceKind.sale,
+    'scrap_sales_invoice' => InvoiceKind.saleScrap,
+    'purchase_invoice' => InvoiceKind.purchase,
+    'scrap_purchase_invoice' => InvoiceKind.purchaseScrap,
+    'return_sales' ||
+    'return_purchase' ||
+    'return_purchase_supplier' ||
+    'return_invoice' => InvoiceKind.returned,
+    _ => null,
+  };
+
+  /// The action's color: an invoice's from the theme, never the hex a
+  /// device kept from before; any other action's its own.
+  Color colorIn(AppSemanticColors tones) {
+    final kind = invoiceKind;
+    return kind == null ? getColor() : tones.invoice(kind).fg;
+  }
+
   QuickActionItem copyWith({
     String? id,
     IconData? icon,
@@ -189,7 +213,6 @@ class QuickActionItem {
     Icons.scale.codePoint: Icons.scale,
     Icons.print.codePoint: Icons.print,
     Icons.trending_up.codePoint: Icons.trending_up,
-    Icons.savings.codePoint: Icons.savings,
     Icons.restore.codePoint: Icons.restore,
     Icons.info_outline.codePoint: Icons.info_outline,
     Icons.check_circle_outline.codePoint: Icons.check_circle_outline,
@@ -614,7 +637,7 @@ class DefaultQuickActions {
     ),
     QuickActionItem(
       id: 'safe_boxes',
-      icon: Icons.savings,
+      icon: Icons.wallet,
       label: 'إدارة الخزائن',
       route: 'safe_boxes',
       colorHex: '#FFA000',

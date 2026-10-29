@@ -3364,7 +3364,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           Icon(
             exceedsBalance
                 ? Icons.warning_amber_rounded
-                : Icons.savings_outlined,
+                : Icons.wallet_outlined,
             color: textColor,
             size: 20,
           ),

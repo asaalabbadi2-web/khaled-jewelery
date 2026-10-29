@@ -40,7 +40,7 @@ class _GoldPositionReportScreenState extends State<GoldPositionReportScreen> {
   String _currencySymbol = '';
 
   final List<_SafeTypeOption> _safeTypeOptions = const [
-    _SafeTypeOption('cash', Icons.savings_outlined),
+    _SafeTypeOption('cash', Icons.payments_outlined),
     _SafeTypeOption('bank', Icons.account_balance_outlined),
     _SafeTypeOption('gold', Icons.scale_outlined),
     _SafeTypeOption('check', Icons.receipt_long),
