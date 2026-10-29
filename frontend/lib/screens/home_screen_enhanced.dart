@@ -237,9 +237,11 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       if (!auth.isAuthenticated) return;
       await _loadGoldPrice();
 
-      // sparkline يتحدّث كل 15 دقيقة فقط
+      // sparkline يتحدّث كل 15 دقيقة فقط -- بعدد النبضات في 15 دقيقة، والنبضة
+      // فترة التحديث (15 ثانية، PRICE-LIVE-1)، لا دقيقة كما كانت.
       _sparklineTickCounter++;
-      if (_sparklineTickCounter >= 15) {
+      final ticksIn15Minutes = (const Duration(minutes: 15).inSeconds / interval.inSeconds).ceil();
+      if (_sparklineTickCounter >= ticksIn15Minutes) {
         _sparklineTickCounter = 0;
         await _loadSparklineData();
       }

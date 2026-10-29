@@ -15,6 +15,7 @@ import '../widgets/invoice_settings_sheet.dart';
 import '../widgets/pay_box.dart';
 import '../widgets/scrap_purchase_entry_row.dart';
 import '../models/gold_prices.dart';
+import '../utils/live_gold_prices.dart';
 import '../utils/payment_fee.dart';
 import '../utils/scrap_purchase_readiness.dart';
 import '../widgets/invoice_review_dialog.dart';
@@ -79,12 +80,21 @@ class ScrapPurchaseInvoiceScreen extends StatefulWidget {
 }
 
 class _ScrapPurchaseInvoiceScreenState
-    extends State<ScrapPurchaseInvoiceScreen> {
+    extends State<ScrapPurchaseInvoiceScreen>
+    with LiveGoldPrices<ScrapPurchaseInvoiceScreen> {
   // ADR-049: colors from the theme, so the screen reads in both modes.
   ColorScheme get _cs => Theme.of(context).colorScheme;
   AppSemanticColors get _tone => AppSemanticColors.of(context);
 
   late final ApiService _api = widget.apiService ?? ApiService();
+
+  @override
+  Future<Map<String, dynamic>> fetchLiveGoldPrice() => _api.getGoldPrice();
+
+  // What the strip shows: the live buy price, once it has one (PRICE-LIVE-1);
+  // the lines keep the price they were added at.
+  GoldPrices get _stripBuy => liveBuy.known ? liveBuy : _marketBuy;
+  GoldPrices get _stripSell => liveSell.known ? liveSell : _goldPrices;
   // ==================== State Variables ====================
   final _smartInputController = TextEditingController();
   final _smartInputFocus = FocusNode();
@@ -174,6 +184,9 @@ class _ScrapPurchaseInvoiceScreenState
     _loadInvoiceUiSettingsFromPrefs();
     _loadSettings();
     _loadBranches();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) startLiveGoldPrices();
+    });
     _loadPaymentMethods(); // 🆕 جلب وسائل الدفع
     _loadDefaultSafeBox(); // 🆕 تحميل الخزينة النقدية
     _loadPurchaseBaseline();
@@ -466,6 +479,7 @@ class _ScrapPurchaseInvoiceScreenState
 
   @override
   void dispose() {
+    stopLiveGoldPrices();
     _smartInputController.dispose();
     _smartInputFocus.dispose();
     _customAmountController.dispose(); // 🆕
@@ -482,6 +496,7 @@ class _ScrapPurchaseInvoiceScreenState
       setState(() {
         _goldPrices = GoldPrices.fromResponse(priceData);
         _marketBuy = GoldPrices.fromResponse(priceData, buy: true);
+        WidgetsBinding.instance.addPostFrameCallback((_) => showLiveGoldPrice(priceData));
       });
     } catch (e) {
       _showError(e, title: 'فشل تحميل سعر الذهب');
@@ -769,6 +784,7 @@ class _ScrapPurchaseInvoiceScreenState
           setState(() {
             _goldPrices = fresh;
             _marketBuy = GoldPrices.fromResponse(priceData, buy: true);
+        WidgetsBinding.instance.addPostFrameCallback((_) => showLiveGoldPrice(priceData));
           });
         }
         debugPrint(
@@ -985,6 +1001,7 @@ class _ScrapPurchaseInvoiceScreenState
         setState(() {
           _goldPrices = fresh;
           _marketBuy = GoldPrices.fromResponse(priceData, buy: true);
+        WidgetsBinding.instance.addPostFrameCallback((_) => showLiveGoldPrice(priceData));
         });
       }
     } catch (_) {
@@ -1860,7 +1877,7 @@ class _ScrapPurchaseInvoiceScreenState
                 ),
                 child: Directionality(
                   textDirection: TextDirection.ltr,
-                  child: _goldPrice24k > 0
+                  child: _stripSell.known
                       ? Row(
                           children: [
                             Icon(
@@ -1870,7 +1887,7 @@ class _ScrapPurchaseInvoiceScreenState
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              'أونصة: \$${formatAmount(_goldPrices.ounceUsd, decimals: 0)}',
+                              'أونصة: \$${formatAmount(_stripSell.ounceUsd, decimals: 0)}',
                               style: Theme.of(context).textTheme.labelSmall?.copyWith(color: AppSemanticColors.invoiceBar(context, InvoiceKind.purchaseScrap).foreground, fontWeight: FontWeight.w700,),
                             ),
                             Padding(
@@ -1882,7 +1899,7 @@ class _ScrapPurchaseInvoiceScreenState
                             ),
                             ...([24, 22, 21, 18].map((k) {
                               // A purchase shows the market's buy price (the owner, 29 Oct 2026).
-                              final gp = _marketBuy.of(k);
+                              final gp = _stripBuy.of(k);
                               final isMain = k == _settingsProvider.mainKarat;
                               return Padding(
                                 padding: const EdgeInsets.only(right: 10),

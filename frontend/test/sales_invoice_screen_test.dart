@@ -15,6 +15,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/fake_sales_api.dart';
+import 'support/gold_price_answer.dart';
 import 'support/payload_witness.dart';
 import 'support/shots.dart';
 import 'support/dark_text.dart';
@@ -1432,4 +1433,29 @@ void main() {
     expect(find.descendant(of: field, matching: find.text('الفرع الرئيسي')), findsOneWidget);
     expect(find.descendant(of: field, matching: find.byIcon(Icons.account_tree)), findsOneWidget);
   });
+
+  // PRICE-LIVE-1 (the owner, 29 Oct 2026: «الخيار الأول»): the price strip
+  // above the invoice moves at the server's interval, without a reload; the
+  // lines keep the price they were added at.
+  testWidgets('the price strip moves by itself, every 15 seconds', (tester) async {
+    final api = _MovingPriceApi();
+    await open(tester, api: api, appSettings: const {
+      'gold_price_auto_update_enabled': true,
+      'gold_price_auto_update_mode': 'interval',
+      'gold_price_auto_update_interval_seconds': 15,
+    });
+    expect(find.textContaining('21k: 420'), findsOneWidget);
+    api.price24k = 504.0;                       // 21k 441
+    await tester.pump(const Duration(seconds: 16));
+    await tester.pump();
+    expect(find.textContaining('21k: 441'), findsOneWidget);
+    expect(find.textContaining('21k: 420'), findsNothing);
+  });
+}
+
+class _MovingPriceApi extends FakeSalesApi {
+  double price24k = 480.0;
+
+  @override
+  Future<Map<String, dynamic>> getGoldPrice() async => goldPriceAnswer(price24k);
 }

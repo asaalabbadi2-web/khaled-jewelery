@@ -28,6 +28,7 @@ import '../utils/invoice_direct_print.dart';
 import '../utils/currency_utils.dart' as cu;
 import '../utils/invoice_saved_facts.dart';
 import '../models/gold_prices.dart';
+import '../utils/live_gold_prices.dart';
 import '../utils/payment_fee.dart';
 import '../utils/sales_readiness.dart';
 import '../widgets/app_feedback.dart';
@@ -71,12 +72,16 @@ class SalesInvoiceScreenV2 extends StatefulWidget {
   State<SalesInvoiceScreenV2> createState() => _SalesInvoiceScreenV2State();
 }
 
-class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
+class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
+    with LiveGoldPrices<SalesInvoiceScreenV2> {
   // ADR-049: colors from the theme, so the screen reads in both modes.
   ColorScheme get _cs => Theme.of(context).colorScheme;
   AppSemanticColors get _tone => AppSemanticColors.of(context);
 
   late final ApiService _api = widget.apiService ?? ApiService();
+
+  @override
+  Future<Map<String, dynamic>> fetchLiveGoldPrice() => _api.getGoldPrice();
 
   // Where each readiness reason is fixed, to bring it into view.
   final _customerSectionKey = GlobalKey();
@@ -116,7 +121,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
   // Gold Price & Settings
   // Each karat's price as the server makes it -- the closing office's (OFFICE-PRICE-1).
   GoldPrices _goldPrices = GoldPrices.none;
-  double get _goldPrice24k => _goldPrices.k24;
+  // What the strip shows: the live price, once it has one (PRICE-LIVE-1).
+  GoldPrices get _stripPrices => liveSell.known ? liveSell : _goldPrices;
 
   // Settings - accessible throughout the class
   late SettingsProvider _settingsProvider;
@@ -546,6 +552,10 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     }
     _loadInvoiceUiSettingsFromPrefs();
     _loadSettings();
+    // The price strip, live; the lines keep the price they were added at (PRICE-LIVE-1).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) startLiveGoldPrices();
+    });
     _loadBranches();
     if (widget.scrap && !_isEditMode) _loadScrapSafeBox();
     _ensureCategoriesLoaded();
@@ -687,6 +697,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
 
   @override
   void dispose() {
+    stopLiveGoldPrices();
     _smartInputController.dispose();
     _smartInputFocus.dispose();
     _customAmountController.dispose(); // 🆕
@@ -705,6 +716,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       setState(() {
         _goldPrices = GoldPrices.fromResponse(priceData);
       });
+      showLiveGoldPrice(priceData);
       _applyGoldPriceToItems();
     } catch (e) {
       _showError(e, title: 'فشل تحميل سعر الذهب');
@@ -1465,6 +1477,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
             _goldPrices = fresh;
           });
         }
+        showLiveGoldPrice(priceData);
       }
     } catch (_) {
       // الاستمرار باستخدام السعر الحالي في حال فشل التحديث
@@ -3159,7 +3172,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                 ),
                 child: Directionality(
                   textDirection: TextDirection.ltr,
-                  child: _goldPrice24k > 0
+                  child: _stripPrices.known
                       ? Row(
                           children: [
                             Icon(
@@ -3169,7 +3182,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              'أونصة: \$${cu.formatAmount(_goldPrices.ounceUsd, decimals: 0)}',
+                              'أونصة: \$${cu.formatAmount(_stripPrices.ounceUsd, decimals: 0)}',
                               style: Theme.of(context).textTheme.labelSmall?.copyWith(color: invoiceBar.foreground, fontWeight: FontWeight.w700,),
                             ),
                             Padding(
@@ -3180,7 +3193,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                               ),
                             ),
                             ...([24, 22, 21, 18].map((k) {
-                              final gp = _goldPrices.of(k);
+                              final gp = _stripPrices.of(k);
                               final isMain = k == _settingsProvider.mainKarat;
                               return Padding(
                                 padding: const EdgeInsets.only(right: 10),

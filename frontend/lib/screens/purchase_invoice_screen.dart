@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../api_service.dart';
 import '../models/category_model.dart';
 import '../models/gold_prices.dart';
+import '../utils/live_gold_prices.dart';
 import '../models/safe_box_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/settings_provider.dart';
@@ -122,12 +123,20 @@ class PurchaseInvoiceScreen extends StatefulWidget {
   State<PurchaseInvoiceScreen> createState() => _PurchaseInvoiceScreenState();
 }
 
-class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
+class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
+    with LiveGoldPrices<PurchaseInvoiceScreen> {
   // ADR-049: colors from the theme, so the screen reads in both modes.
   ColorScheme get _cs => Theme.of(context).colorScheme;
   AppSemanticColors get _tone => AppSemanticColors.of(context);
 
   late final ApiService _api = widget.apiService ?? ApiService();
+
+  @override
+  Future<Map<String, dynamic>> fetchLiveGoldPrice() => _api.getGoldPrice();
+
+  // What the strip shows: the live price, once it has one (PRICE-LIVE-1); the
+  // lines' gold value keeps the screen's own price.
+  GoldPrices get _stripPrices => liveSell.known ? liveSell : _goldPrices;
 
   bool _applyVatOnGold = false;
 
@@ -1423,6 +1432,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) startLiveGoldPrices();
+    });
     _selectedSupplierId = widget.supplierId;
     _cashPaidController.text = '0.00';
     _goldPaidWeightController.text = '0.000';
@@ -1630,6 +1642,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
 
   @override
   void dispose() {
+    stopLiveGoldPrices();
     _previewTimer?.cancel();
     _cashPaidController.dispose();
     _goldPaidWeightController.dispose();
@@ -1999,6 +2012,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
         _goldPrices = prices;
         _applyCombinedTotals();
       });
+      showLiveGoldPrice(price);
     } catch (e) {
       if (!mounted) return;
       AppFeedback.error(context, e);
@@ -3049,10 +3063,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
           preferredSize: const Size.fromHeight(26.0),
           child: Builder(
             builder: (context) {
-              final gp24 =
-                  (_goldPrice?['price_24k'] as num?)?.toDouble() ?? 0.0;
-              final gpOz =
-                  (_goldPrice?['price_usd_per_oz'] as num?)?.toDouble() ?? 0.0;
+              final gp24 = _stripPrices.k24;
+              final gpOz = _stripPrices.ounceUsd;
               final mk = _mainKaratFromSettings();
               return Container(
                 color: _cs.shadow.withValues(alpha: 0.20),
@@ -3087,7 +3099,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                               return Padding(
                                 padding: const EdgeInsets.only(right: 10),
                                 child: Text(
-                                  '${k}k: ${formatAmount(_goldPrices.of(k))}',
+                                  '${k}k: ${formatAmount(_stripPrices.of(k))}',
                                   style: Theme.of(context).textTheme.labelSmall?.copyWith(color: invoiceBar.foreground, decoration: isMain ? TextDecoration.underline : null, fontWeight: isMain
                                         ? FontWeight.w800
                                         : FontWeight.w500,),
