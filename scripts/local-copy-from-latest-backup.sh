@@ -100,7 +100,13 @@ case "$DATABASE_URL" in */"$DB") ;; *) echo "❌ DATABASE_URL في backend/.env 
 export DATABASE_URL
 
 echo "⏳ الترحيلات..."
-(cd "$BACKEND" && "$VENV/bin/alembic" upgrade head 2>&1 | grep -E 'Running upgrade|ERROR' || true)
+# A failed migration stops here: the server would add the columns itself and
+# the next upgrade fail on them (29 Oct 2026) -- --fresh restores the database.
+if ! (cd "$BACKEND" && "$VENV/bin/alembic" upgrade head >"$WORK/migrate.log" 2>&1); then
+  echo "❌ فشل الترحيل -- انظر $WORK/migrate.log، أو شغّل بـ --fresh لاستعادة القاعدة من جديد" >&2
+  exit 1
+fi
+grep -E 'Running upgrade' "$WORK/migrate.log" || true
 echo "✔︎ $DB على $(psql -d "$DB" -Atc 'select version_num from alembic_version'): $(psql -d "$DB" -Atc 'select count(*) from journal_entry') قيدًا، آخرها $(psql -d "$DB" -Atc 'select max(date)::date from journal_entry')"
 
 stop_port() {
@@ -118,6 +124,13 @@ for _ in $(seq 1 60); do curl -s -o /dev/null -m 2 "http://127.0.0.1:$API_PORT/a
 curl -s -o /dev/null -m 2 "http://127.0.0.1:$API_PORT/api/settings" \
   || { echo "❌ الخادم لم يبدأ -- انظر $WORK/backend.log" >&2; exit 1; }
 echo "✔︎ الخادم على :$API_PORT ($WORK/backend.log)"
+
+# The gold price moves as on production: its scheduler alone (PRICE-LIVE-1).
+if [ -f "$WORK/gold-scheduler.pid" ]; then kill -TERM "$(cat "$WORK/gold-scheduler.pid")" 2>/dev/null || true; fi
+nohup "$VENV/bin/python" -u "$CODE/scripts/local_gold_price_scheduler.py" >"$WORK/gold-scheduler.log" 2>&1 </dev/null &
+echo $! >"$WORK/gold-scheduler.pid"
+disown
+echo "✔︎ مُجدوِل سعر الذهب ($WORK/gold-scheduler.log)"
 
 echo "⏳ بناء الواجهة..."
 (cd "$FRONTEND" && "$FLUTTER" build web --release --dart-define=API_BASE_URL="http://127.0.0.1:$API_PORT/api" -o "$WEB_OUT" >"$WORK/web-build.log" 2>&1) \
