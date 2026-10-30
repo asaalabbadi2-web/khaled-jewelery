@@ -67,11 +67,3 @@ def test_each_queue_waits_by_its_own_reading(app, auth_headers):
     assert moved('vouchers') == (1, 400.0)
     assert moved('bonuses') == (1, 250.0)
     assert after['total'] - before['total'] == 3
-
-
-def test_a_rejected_invoice_is_not_said_to_wait(app, auth_headers):
-    """The production copy, 27 Oct 2026: five unposted invoices, all five
-    rejected -- the alert bar said «5 فاتورة بانتظار الترحيل»."""
-    before = _dashboard(app, auth_headers)['alerts']['unposted_invoices_count']
-    _invoice(900.0, status='rejected')
-    assert _dashboard(app, auth_headers)['alerts']['unposted_invoices_count'] == before

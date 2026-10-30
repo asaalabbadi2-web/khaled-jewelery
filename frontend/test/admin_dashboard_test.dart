@@ -100,7 +100,6 @@ final _dashboard = <String, dynamic>{
       {'id': 7, 'name': 'سارة', 'count': 2, 'loss_cash': -150.0},
     ],
   },
-  'alerts': [],
   'sensitive_operations': [],
   'sales_purchases_summary': {
     'today': _period(),
