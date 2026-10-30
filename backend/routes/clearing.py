@@ -266,9 +266,12 @@ def _create_clearing_settlement_voucher(
     # Optional idempotency for scheduler jobs
     prior_vouchers_same_reference = []
     if ensure_unique_reference and reference_number:
-        prior_vouchers_same_reference = Voucher.query.filter_by(
-            reference_type='clearing_settlement',
-            reference_number=reference_number,
+        # A cancelled settlement holds no batch: its payments are unsettled
+        # again and are settled again (31 Oct 2026 -- the batch was skipped for ever).
+        prior_vouchers_same_reference = Voucher.query.filter(
+            Voucher.reference_type == 'clearing_settlement',
+            Voucher.reference_number == reference_number,
+            Voucher.status != 'cancelled',
         ).order_by(Voucher.id.asc()).all()
         if prior_vouchers_same_reference and not allow_continuation:
             existing = prior_vouchers_same_reference[0]

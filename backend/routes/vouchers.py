@@ -1463,7 +1463,15 @@ def cancel_voucher(voucher_id):
     if _standing:
         return jsonify({'error': 'voucher_state_inconsistent', 'message': LEGACY_VOUCHER_MESSAGE,
                         'detail': _standing}), 409
-    
+
+    # A settled payment is put right through its settlement, not by cancelling
+    # its voucher (the owner, 31 Oct 2026).
+    from settlement_state_service import settled_payment_message, settlements_holding
+    _held = settlements_holding(voucher.id)
+    if _held:
+        return jsonify({'error': 'payment_settled', 'message': settled_payment_message('إلغاء سند', _held),
+                        'settlements': _held}), 409
+
     data = request.get_json() or {}
     reason = data.get('reason', 'No reason provided')
     cancelled_by = data.get('cancelled_by', 'system')

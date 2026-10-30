@@ -67,3 +67,38 @@ def is_locked(invoice_payment_id: int) -> bool:
     """True لو أي مبلغ من هذه الدفعة دخل تسوية فعلية (بغض النظر عن حالة
     السند -- مطابق لحارس routes.py:9266-9281 الحالي حرفياً)."""
     return get_settled_amount(invoice_payment_id) > SETTLEMENT_EPSILON
+
+
+# ======================================================================
+# A settled payment is put right through its settlement (31 Oct 2026)
+# ======================================================================
+
+def settlements_holding(voucher_id: int) -> list[str]:
+    """The live settlement vouchers holding a payment *voucher_id* records, by
+    number -- none for a voucher that is not a payment's, or whose payments'
+    settlements were cancelled (their lines are removed then; the historical
+    orphans of a cancelled settlement do not hold).
+
+    The owner, 31 Oct 2026: «إلغاء سند التسوية أولًا ثم التصحيح، وليس سند
+    الدفعة» -- cancelling a settled payment's voucher drove the 31 Oct copy's
+    Mada to -7,200 and its cash customer into a debt he had paid."""
+    from models import InvoicePayment, SafeBoxTransaction, Voucher
+    payment_ids = {p.id for p in InvoicePayment.query.filter_by(source_voucher_id=voucher_id)}
+    payment_ids |= {t.invoice_payment_id for t in SafeBoxTransaction.query.filter(
+        SafeBoxTransaction.ref_type == 'invoice_payment', SafeBoxTransaction.ref_id == voucher_id,
+        SafeBoxTransaction.invoice_payment_id.isnot(None))}
+    if not payment_ids:
+        return []
+    rows = (db.session.query(Voucher.voucher_number)
+            .join(SettlementLine, SettlementLine.voucher_id == Voucher.id)
+            .filter(SettlementLine.invoice_payment_id.in_(payment_ids),
+                    Voucher.status != 'cancelled')
+            .distinct().order_by(Voucher.voucher_number).all())
+    return [number for (number,) in rows]
+
+
+def settled_payment_message(action: str, settlements: list[str]) -> str:
+    """The one wording for "the payment is in a settlement", for every path."""
+    held = '، '.join(settlements) if settlements else 'سند تسوية'
+    return (f'لا يمكن {action} دفعة دخلت تسوية مع البنك ({held}). '
+            'ألغِ سند التسوية أولًا، ثم صحّح، ثم تُسوّى من جديد.')

@@ -1911,15 +1911,14 @@ def correct_invoice_payment_method(invoice_id: int, payment_id: int):
         return jsonify({'error': 'not_found', 'message': 'الدفعة غير موجودة'}), 404
 
     # Block if already settled -- payment_method_id is now a historical fact.
+    # Its settlement is cancelled first, then it is corrected and settled again
+    # (the owner, 31 Oct 2026) -- the one wording the voucher's cancel says too.
     if is_locked(payment_id):
+        from settlement_state_service import settled_payment_message, settlements_holding
         return jsonify({
             'error': 'already_settled',
-            'message': (
-                'لا يمكن تصحيح وسيلة الدفع بعد دخول الدفعة في سلسلة تسوية فعلية '
-                '(InvoicePayment → SettlementLine → سند تسوية → تحويل بنكي). '
-                'أي تصحيح اقتصادي مطلوب يجب أن يتم بقيد تحويل/مطابقة مستقل '
-                'لا يغيّر تصنيف هذه الدفعة.'
-            ),
+            'message': settled_payment_message(
+                'تصحيح وسيلة', settlements_holding(ip.source_voucher_id) if ip.source_voucher_id else []),
         }), 409
 
     data = request.get_json(silent=True) or {}
