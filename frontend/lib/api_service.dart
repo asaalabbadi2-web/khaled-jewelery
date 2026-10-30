@@ -1726,6 +1726,16 @@ class ApiService {
   }
 
   /// آخر 24 ساعة من أسعار الذهب — للـ sparkline
+  /// The day's gold price in Riyadh (DASH-11): its points with the main karat's
+  /// price a gram, and the day's high and low -- the server's.
+  Future<Map<String, dynamic>> getGoldPriceToday() async {
+    final response = await _authedGet(Uri.parse('$_baseUrl/gold_price/24h?day=today'));
+    if (response.statusCode == 200) {
+      return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    }
+    throw _apiError(response);
+  }
+
   Future<List<Map<String, dynamic>>> getGoldPrice24h() async {
     try {
       final response =

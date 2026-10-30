@@ -47,9 +47,9 @@ class DashboardBalancePanel extends StatelessWidget {
         children: [
           Row(
             children: [
-              _Legend(color: tones.debit.fg, label: isArabic ? 'لنا' : 'Ours'),
+              _Legend(color: dashboardMark(context, tones.debit.fg), label: isArabic ? 'لنا' : 'Ours'),
               const Spacer(),
-              _Legend(color: tones.credit.fg, label: isArabic ? 'علينا' : 'We owe'),
+              _Legend(color: dashboardMark(context, tones.credit.fg), label: isArabic ? 'علينا' : 'We owe'),
             ],
           ),
           for (final (name, s) in parties) ...[
@@ -59,8 +59,8 @@ class DashboardBalancePanel extends StatelessWidget {
             _Balance(
               ours: largest > 0 ? dashboardNum(s['owe_us_cash']) / largest : 0,
               theirs: largest > 0 ? dashboardNum(s['we_owe_cash']) / largest : 0,
-              oursColor: tones.debit.fg,
-              theirsColor: tones.credit.fg,
+              oursColor: dashboardMark(context, tones.debit.fg),
+              theirsColor: dashboardMark(context, tones.credit.fg),
               track: scheme.surfaceContainerHighest,
             ),
             const SizedBox(height: 6),
@@ -194,7 +194,8 @@ class DashboardClearingPanel extends StatelessWidget {
     final tones = AppSemanticColors.of(context);
     final safes = ((clearing['safes'] as List?) ?? const []).whereType<Map>().toList();
     final palette = [tones.info.fg, tones.sectionTeal.fg, tones.sectionPurple.fg, tones.sectionIndigo.fg, tones.cash.fg];
-    Color colorOf(int i, Map s) => s['overdue'] == true ? tones.blocked.fg : palette[i % palette.length];
+    Color colorOf(int i, Map s) =>
+        dashboardMark(context, s['overdue'] == true ? tones.blocked.fg : palette[i % palette.length]);
     final muted = theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant);
 
     return DashboardPanel(

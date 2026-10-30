@@ -124,22 +124,40 @@ def get_gold_price_public():
 
 @pricing_bp.route('/gold_price/24h', methods=['GET'])
 def get_gold_price_24h():
-    """آخر 24 ساعة من أسعار الذهب (حد أقصى 48 نقطة)."""
+    """آخر 24 ساعة من أسعار الذهب (حد أقصى 48 نقطة).
+
+    ?day=today: the day in Riyadh instead (DASH-11, the owner 30 Oct 2026: the
+    manager's gold price card says the day's move). Each point then carries
+    the main karat's selling price a gram -- the office's, by its row's own
+    terms (OFFICE-PRICE-1); the screen does not make it from the ounce -- and
+    the day's high and low are over every row, before the points are thinned.
+    """
     try:
-        cutoff = price_clock.utc_now() - timedelta(hours=24)
-        rows = (
-            GoldPrice.query
-            .filter(GoldPrice.date >= cutoff)
-            .order_by(GoldPrice.date.asc())
-            .all()
-        )
+        today = (request.args.get('day') or '').strip().lower() == 'today'
+        now = price_clock.utc_now()
+        if today:
+            start, end = price_clock.riyadh_day_bounds_utc(price_clock.riyadh_today(now))
+            query = GoldPrice.query.filter(GoldPrice.date >= start, GoldPrice.date < end)
+        else:
+            query = GoldPrice.query.filter(GoldPrice.date >= now - timedelta(hours=24))
+        rows = query.order_by(GoldPrice.date.asc()).all()
+        out = {}
+        if today:
+            from pricing.office_price import row_gram_price
+            main_karat = int(get_main_karat())
+            grams = [row_gram_price(r, main_karat) for r in rows]
+            out = {'main_karat': main_karat,
+                   'high_main_karat': round(max(grams), 2) if grams else None,
+                   'low_main_karat': round(min(grams), 2) if grams else None}
+            gram_of = dict(zip((r.id for r in rows), grams))
         # At most 48 points spread over the whole day, ending at the latest --
         # .limit(48) on the ascending rows showed only the day's first 48 minutes.
         if len(rows) > 48:
             step = (len(rows) - 1) / 47.0
             rows = [rows[round(i * step)] for i in range(48)]
-        points = [{'timestamp': price_clock.iso_utc(r.date), 'price_usd_per_oz': float(r.price or 0)} for r in rows]
-        return jsonify({'points': points, 'count': len(points)}), 200
+        points = [{'timestamp': price_clock.iso_utc(r.date), 'price_usd_per_oz': float(r.price or 0),
+                   **({'price_main_karat': round(gram_of[r.id], 2)} if today else {})} for r in rows]
+        return jsonify({'points': points, 'count': len(points), **out}), 200
     except Exception as e:
         current_app.logger.error(f'Error fetching 24h gold price: {e}')
         return jsonify({'points': [], 'count': 0, 'error': str(e)}), 500

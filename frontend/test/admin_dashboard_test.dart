@@ -138,6 +138,38 @@ class _Api extends ApiService {
     return jsonDecode(jsonEncode(_standing)) as Map<String, dynamic>;
   }
 
+  // DASH-11: the live price, as /gold_price answers -- the main karat the settings'.
+  @override
+  Future<Map<String, dynamic>> getGoldPrice() async => {
+        'main_karat': 21,
+        'date': '2026-10-30T11:32:05Z',
+        'price_usd_per_oz': 4012.5,
+        'prices_per_gram': {
+          '24': {'sell': 452.10, 'buy': 434.02},
+          '22': {'sell': 414.40, 'buy': 397.82},
+          '21': {'sell': 395.12, 'buy': 380.10},
+          '18': {'sell': 339.08, 'buy': 325.52},
+        },
+        'opening_prices_per_gram': {
+          '21': {'sell': 393.47, 'buy': 378.51},
+        },
+      };
+
+  // DASH-11: the day's move, as /gold_price/24h?day=today answers.
+  @override
+  Future<Map<String, dynamic>> getGoldPriceToday() async => {
+        'main_karat': 21,
+        'high_main_karat': 396.20,
+        'low_main_karat': 392.10,
+        'points': [
+          {'price_main_karat': 393.47},
+          {'price_main_karat': 392.10},
+          {'price_main_karat': 396.20},
+          {'price_main_karat': 395.12},
+        ],
+        'count': 4,
+      };
+
   // DASH-9: the race's own reading.
   @override
   Future<Map<String, dynamic>> getHomeLeaderboard({String period = 'today', String metric = 'weight'}) async => {
@@ -433,15 +465,34 @@ void main() {
     expect(find.byKey(const Key('dashboard-positions')), findsOneWidget);
   });
 
-  testWidgets('three sections: now, the performance with its period, the month and quarter', (tester) async {
+  // The owner, 30 Oct 2026: «الآن ثم بعده مباشرة الأداء ثم البقية، والخزائن تكون
+  // أسفل الصفحة».
+  testWidgets('now, the performance straight after it, the month and quarter, the safes at the foot', (tester) async {
+    final saved = jsonDecode(jsonEncode(_dashboard)) as Map<String, dynamic>;
+    addTearDown(() => _dashboard..clear()..addAll(saved));
+    _dashboard['safe_boxes'] = [
+      {'id': 1, 'name': 'الصندوق الرئيسي', 'safe_type': 'cash', 'balance_cash': 1200.0,
+       'weight_balance': {}, 'total_weight_main_karat': 0.0, 'main_karat': 21},
+    ];
     await open(tester);
     final now = tester.getTopLeft(find.text('الآن')).dy;
     final performance = tester.getTopLeft(find.text('الأداء')).dy;
     final period = tester.getTopLeft(find.byKey(const Key('dashboard-period'))).dy;
     final month = tester.getTopLeft(find.text('هذا الشهر وهذا الربع')).dy;
+    final safes = tester.getTopLeft(find.text('توزيع العهد والخزائن')).dy;
     expect(now, lessThan(performance));
     expect((period - performance).abs(), lessThan(60), reason: 'the period sits on its section');
     expect(performance, lessThan(month));
+    expect(month, lessThan(safes), reason: 'the safes at the foot');
+  });
+
+  // The owner, 30 Oct 2026: «أزرار الفترات ليست في مركز الشاشة بل مسحوبة على اليسار».
+  testWidgets('the period\'s buttons sit in the screen\'s middle, wide and narrow', (tester) async {
+    for (final width in [1440.0, 390.0]) {
+      await open(tester, width: width);
+      final selector = tester.getCenter(find.byKey(const Key('dashboard-period'))).dx;
+      expect((selector - width / 2).abs(), lessThan(4), reason: 'at $width');
+    }
   });
 
   // DASH-10: the screen drawn, for looking at (SHOT_DIR; nothing without it).
@@ -455,5 +506,25 @@ void main() {
       await open(tester, theme: theme, width: 390);
       await shot(tester, 'dashboard_${name}_phone');
     }
+  });
+
+  // DASH-11 (the owner, 30 Oct 2026): «بطاقة سعر الذهب ارتفاعها أكبر من بطاقة المركز
+  // المالي ... ما الذي ينقصها لنكتفي به من سعر الذهب» -- the main karat selling
+  // and buying, live with its time, the day's move, the ounce; one height.
+  testWidgets('the gold price card says enough, at the financial position\'s height', (tester) async {
+    await open(tester);
+    final card = find.byKey(const Key('dashboard-gold-price'));
+    expect(card, findsOneWidget);
+    expect(find.descendant(of: card, matching: find.text('عيار 21')), findsOneWidget, reason: 'the main karat');
+    expect(find.descendant(of: card, matching: find.textContaining('395.12')), findsOneWidget, reason: 'selling');
+    expect(find.descendant(of: card, matching: find.textContaining('380.10')), findsOneWidget, reason: 'buying');
+    expect(find.descendant(of: card, matching: find.byKey(const Key('dashboard-gold-price-at'))), findsOneWidget);
+    final move = find.descendant(of: card, matching: find.byKey(const Key('dashboard-gold-price-move')));
+    expect(find.descendant(of: move, matching: find.textContaining('0.42%')), findsOneWidget,
+        reason: '395.12 against the opening 393.47');
+    expect(find.descendant(of: card, matching: find.textContaining('396.20')), findsOneWidget, reason: 'the high');
+    expect(find.descendant(of: card, matching: find.textContaining('4,012.50')), findsOneWidget, reason: 'the ounce');
+    expect(tester.getSize(card).height,
+        moreOrLessEquals(tester.getSize(find.byKey(const Key('dashboard-net-position'))).height, epsilon: 0.5));
   });
 }

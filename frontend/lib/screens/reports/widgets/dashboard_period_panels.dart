@@ -255,7 +255,8 @@ class DashboardEmployeesPanel extends StatelessWidget {
                     Container(
                       width: 3,
                       height: 30,
-                      decoration: BoxDecoration(color: scheme.error, borderRadius: BorderRadius.circular(AppRadius.pill)),
+                      decoration: BoxDecoration(
+                          color: dashboardMark(context, scheme.error), borderRadius: BorderRadius.circular(AppRadius.pill)),
                     ),
                     const SizedBox(width: AppSpace.md),
                     Expanded(
@@ -268,7 +269,9 @@ class DashboardEmployeesPanel extends StatelessWidget {
                       ),
                     ),
                     money.text(dashboardNum(e['loss_cash']),
-                        style: dashboardFigure(theme.textTheme.bodyMedium, color: scheme.error)),
+                        // The loss is the rail's and its minus sign's to say; the
+                        // figure in the text's colour (the owner: the red too strong).
+                        style: dashboardFigure(theme.textTheme.bodyMedium)),
                   ],
                 ),
               ),

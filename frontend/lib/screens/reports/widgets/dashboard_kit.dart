@@ -33,6 +33,13 @@ class DashboardMoney {
 
 double dashboardNum(dynamic v) => v is num ? v.toDouble() : 0.0;
 
+/// A drawn mark -- a bar, a segment, a dot -- in a tone's colour. The light
+/// theme's tones are text colours, strong enough to read at 4.5:1; a whole bar
+/// of one is loud (the owner, 30 Oct 2026: «اللون الأحمر في الوضع الفاتح قوي
+/// جداً»), so a mark wears it softened there. The dark theme's are soft already.
+Color dashboardMark(BuildContext context, Color tone) =>
+    Theme.of(context).brightness == Brightness.light ? tone.withValues(alpha: 0.55) : tone;
+
 /// Figures read in columns: the same width for every digit.
 TextStyle? dashboardFigure(TextStyle? base, {FontWeight weight = FontWeight.w700, Color? color}) =>
     base?.copyWith(fontWeight: weight, color: color, fontFeatures: const [FontFeature.tabularFigures()]);

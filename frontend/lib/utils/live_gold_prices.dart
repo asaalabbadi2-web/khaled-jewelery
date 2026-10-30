@@ -18,6 +18,13 @@ mixin LiveGoldPrices<T extends StatefulWidget> on State<T> {
   GoldPrices liveSell = GoldPrices.none;
   GoldPrices liveBuy = GoldPrices.none;
 
+  /// The same answer's day opening, when the price was saved, and the main
+  /// karat it was asked for (the settings', the server's) -- for the manager's
+  /// gold price card (DASH-11); the invoices' strips read only the two above.
+  GoldPrices liveOpening = GoldPrices.none;
+  DateTime? liveAt;
+  int? liveMainKarat;
+
   /// The price answer the strip reads -- the screen's api (a fake in tests).
   Future<Map<String, dynamic>> fetchLiveGoldPrice();
 
@@ -28,6 +35,9 @@ mixin LiveGoldPrices<T extends StatefulWidget> on State<T> {
     setState(() {
       liveSell = sell;
       liveBuy = GoldPrices.fromResponse(answer, buy: true);
+      liveOpening = GoldPrices.openingFromResponse(answer);
+      liveAt = DateTime.tryParse('${answer['date'] ?? ''}');
+      liveMainKarat = (answer['main_karat'] as num?)?.toInt();
     });
   }
 

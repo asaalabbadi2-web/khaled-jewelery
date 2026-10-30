@@ -13,6 +13,7 @@ import '../../app_events.dart';
 import '../../providers/settings_provider.dart';
 import '../../utils/party_balance.dart';
 import '../../utils/currency_utils.dart' as cu;
+import '../../utils/live_gold_prices.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/app_state_views.dart';
 import '../../widgets/weight_position_summary_card.dart';
@@ -20,6 +21,7 @@ import '../safe_boxes_screen.dart';
 import 'gold_price_history_report_screen.dart';
 import 'safe_box_hero_details_screen.dart';
 import 'widgets/dashboard_attention_bar.dart';
+import 'widgets/dashboard_gold_price_card.dart';
 import 'widgets/dashboard_kit.dart';
 import 'widgets/dashboard_period_panels.dart';
 import 'widgets/dashboard_standing_panels.dart';
@@ -41,7 +43,7 @@ class AdminDashboardScreen extends StatefulWidget {
   State<AdminDashboardScreen> createState() => _AdminDashboardScreenState();
 }
 
-class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
+class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGoldPrices {
   // The theme's colours only (DASH-2): the fixed AppColors did not follow the
   // dark theme -- the text and the cards lost each other.
   ColorScheme get _scheme => Theme.of(context).colorScheme;
@@ -109,7 +111,33 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     _loadData();
     _loadGramProfit();
     _loadLeaders();
+    _loadGoldPrice();
     AppEvents.vaultRefreshSignal.addListener(_onVaultRefresh);
+  }
+
+  // The gold price card (DASH-11): the server's price, live at its interval --
+  // the invoices' strip's own reading -- and the day's move, read with the page.
+  Map<String, dynamic> _goldToday = const {};
+
+  @override
+  Future<Map<String, dynamic>> fetchLiveGoldPrice() => widget.api.getGoldPrice();
+
+  Future<void> _loadGoldPrice() async {
+    try {
+      showLiveGoldPrice(await fetchLiveGoldPrice());
+    } catch (e) {
+      debugPrint('❌ Gold price load error: $e');
+    }
+    if (mounted) startLiveGoldPrices();
+  }
+
+  Future<void> _loadGoldToday() async {
+    try {
+      final data = await widget.api.getGoldPriceToday();
+      if (mounted) setState(() => _goldToday = data);
+    } catch (e) {
+      debugPrint('❌ Gold price today load error: $e');
+    }
   }
 
   void _onVaultRefresh() {
@@ -119,6 +147,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   @override
   void dispose() {
     AppEvents.vaultRefreshSignal.removeListener(_onVaultRefresh);
+    stopLiveGoldPrices();
     _vaultScrollController.dispose();
     super.dispose();
   }
@@ -213,6 +242,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       _positionEpoch++;   // the «التسكير الآن» card reloads with the dashboard
     });
     _loadStanding();   // beside it, not after it (DASH-10)
+    _loadGoldToday();
 
     try {
       final result = await widget.api.getAdminDashboard();
@@ -465,13 +495,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             ),
           ),
 
-          // === Now: what stands at this moment -- no period changes it ===
+          // === Now: what stands at this moment -- no period changes it; the
+          // performance straight beneath it ===
           SliverToBoxAdapter(
             child: sectionHead(isArabic ? 'الآن' : 'Now',
                 isArabic ? 'حالة اللحظة، لا تتغير بالفترة' : 'As it stands; no period changes it'),
           ),
           SliverToBoxAdapter(child: Padding(padding: gutter, child: DashboardGrid(children: nowTiles))),
-          SliverToBoxAdapter(child: _buildVaultsSection(safeBoxes)),
 
           // === The performance: the period's, and its selector above it alone ===
           SliverPersistentHeader(
@@ -537,6 +567,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             ),
           ],
 
+          // === The safes, at the page's foot (the owner, 30 Oct 2026: «الآن ثم بعده
+          // مباشرة الأداء ثم البقية، والخزائن تكون أسفل الصفحة») ===
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.only(top: AppSpace.lg),
+              child: _buildVaultsSection(safeBoxes),
+            ),
+          ),
+
           const SliverToBoxAdapter(child: SizedBox(height: AppSpace.xl)),
         ],
       ),
@@ -567,13 +606,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     final head = DashboardSection(
       title: isArabic ? 'الأداء' : 'Performance',
       subtitle: isNarrow ? null : (isArabic ? 'ما تغيّره الفترة' : 'What the period changes'),
-      trailing: isNarrow ? null : selector,
     );
-    if (!isNarrow) return head;
+    // The selector in the screen's middle, the title at its side (the owner,
+    // 30 Oct 2026: «أزرار الفترات ليست في مركز الشاشة بل مسحوبة على اليسار»).
+    if (!isNarrow) {
+      return Stack(alignment: Alignment.center, children: [head, selector]);
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
-      children: [head, const SizedBox(height: AppSpace.sm), Align(alignment: AlignmentDirectional.centerStart, child: selector)],
+      children: [head, const SizedBox(height: AppSpace.sm), Center(child: selector)],
     );
   }
 
@@ -589,18 +631,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     final isArabic = widget.isArabic;
 
     final netPosition = _asDouble(snapshot['net_financial_position']);
-    final goldPrice = _asDouble(snapshot['gold_price_24k']);
-    final goldChange = snapshot['gold_price_change_pct'];
-
-    final changeValue = goldChange is num ? goldChange.toDouble() : null;
-    final isPositive = (changeValue ?? 0) >= 0;
-
-    final goldPriceSeries = _extractSeries(series, const [
-      'gold_price',
-      'gold_price_24k',
-      'gold_price_series',
-      'gold_price_trend',
-    ]);
+    final goldCard = DashboardGoldPriceCard(
+      sell: liveSell,
+      buy: liveBuy,
+      opening: liveOpening,
+      mainKarat: liveMainKarat ?? context.read<SettingsProvider>().mainKarat,
+      at: liveAt,
+      today: _goldToday,
+      isArabic: isArabic,
+      money: _money,
+      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => GoldPriceHistoryReportScreen(api: widget.api, isArabic: isArabic),
+      )),
+    );
 
     final isCompact = MediaQuery.of(context).size.width < 700;
     final isDark = theme.brightness == Brightness.dark;
@@ -644,54 +687,52 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           SizedBox(height: 16),
 
           // Main Snapshot Row
-          if (isCompact)
-            Column(
-              children: [
-                _buildNetPositionCard(theme, isArabic, netPosition),
-                SizedBox(height: 12),
-                _buildGoldPriceCard(
-                  theme,
-                  isPositive,
-                  goldPrice,
-                  changeValue,
-                  goldPriceSeries: goldPriceSeries,
-                ),
-              ],
-            )
-          else
-            Row(
-              children: [
-                Expanded(
-                  flex: 3,
-                  child: _buildNetPositionCard(theme, isArabic, netPosition),
-                ),
-                SizedBox(width: 12),
-                Expanded(
-                  flex: 2,
-                  child: _buildGoldPriceCard(
-                    theme,
-                    isPositive,
-                    goldPrice,
-                    changeValue,
-                    goldPriceSeries: goldPriceSeries,
+          LayoutBuilder(builder: (context, constraints) {
+            if (isCompact) {
+              return Column(
+                children: [
+                  _buildNetPositionCard(theme, isArabic, netPosition, isWide: constraints.maxWidth >= 500),
+                  SizedBox(height: 12),
+                  goldCard,
+                ],
+              );
+            }
+            // One height for both (the owner, 30 Oct 2026: the gold price card
+            // stood taller than the financial position's).
+            final netWidth = (constraints.maxWidth - 12) * 3 / 5;
+            return IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: _buildNetPositionCard(theme, isArabic, netPosition, isWide: netWidth >= 500),
                   ),
-                ),
-              ],
-            ),
+                  SizedBox(width: 12),
+                  Expanded(flex: 2, child: goldCard),
+                ],
+              ),
+            );
+          }),
         ],
       ),
     );
   }
 
+  /// [isWide]: the card's own width is 500 or more -- measured by the
+  /// header's row, outside the one height the two cards share (an
+  /// IntrinsicHeight cannot hold a LayoutBuilder).
   Widget _buildNetPositionCard(
     ThemeData theme,
     bool isArabic,
-    double netPosition,
-  ) {
+    double netPosition, {
+    required bool isWide,
+  }) {
     final isDark = theme.brightness == Brightness.dark;
     final isPositive = netPosition >= 0;
     final accentColor = isPositive ? _scheme.primary : _scheme.error;
     return Container(
+      key: const Key('dashboard-net-position'),
       padding: EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: theme.cardColor,
@@ -701,9 +742,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           width: 1.2,
         ),
       ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final isWide = constraints.maxWidth >= 500;
+      child: Builder(
+        builder: (context) {
 
           return Row(
             children: [
@@ -829,205 +869,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         ),
       ],
     );
-  }
-
-  Widget _buildGoldPriceCard(
-    ThemeData theme,
-    bool isPositive,
-    double goldPrice,
-    double? changeValue, {
-    List<double>? goldPriceSeries,
-  }) {
-    return GestureDetector(
-      onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => GoldPriceHistoryReportScreen(
-              api: widget.api,
-              isArabic: widget.isArabic,
-            ),
-          ),
-        );
-      },
-      child: Container(
-        padding: EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: theme.cardColor,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: (isPositive ? _tones.ready.fg : _scheme.error).withValues(
-              alpha: theme.brightness == Brightness.dark ? 0.40 : 0.55,
-            ),
-            width: 1.2,
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: (isPositive ? _tones.ready.fg : _scheme.error)
-                        .withValues(alpha: 0.12),
-                  ),
-                  child: Icon(
-                    Icons.show_chart,
-                    color: isPositive ? _tones.ready.fg : _scheme.error,
-                    size: 20,
-                  ),
-                ),
-                SizedBox(width: 8),
-                Text(
-                  '24K',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const Spacer(),
-                if (changeValue != null)
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        isPositive
-                            ? Icons.arrow_upward
-                            : Icons.arrow_downward,
-                        size: 13,
-                        color: isPositive
-                            ? _tones.ready.fg
-                            : _scheme.error,
-                      ),
-                      Text(
-                        '${changeValue.abs().toStringAsFixed(1)}%',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: isPositive
-                              ? _tones.ready.fg
-                              : _scheme.error,
-                        ),
-                      ),
-                    ],
-                  ),
-              ],
-            ),
-            SizedBox(height: 6),
-            _currencyAwareText(
-              goldPrice > 0
-                  ? '${goldPrice.toStringAsFixed(0)} $_currencySymbol'
-                  : '-',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-                fontSize: 20,
-              ),
-            ),
-            if ((goldPriceSeries ?? const []).isNotEmpty) ...[
-              SizedBox(height: 10),
-              SizedBox(
-                height: 44,
-                child: LineChart(
-                  LineChartData(
-                    gridData: const FlGridData(show: false),
-                    titlesData: const FlTitlesData(show: false),
-                    borderData: FlBorderData(show: false),
-                    lineTouchData: const LineTouchData(enabled: false),
-                    lineBarsData: [
-                      LineChartBarData(
-                        spots: _toSpots(
-                          goldPriceSeries!.take(24).toList(),
-                          goldPriceSeries.take(24).length,
-                        ),
-                        isCurved: true,
-                        color: isPositive ? _tones.ready.fg : _scheme.error,
-                        barWidth: 2,
-                        dotData: const FlDotData(show: false),
-                        belowBarData: BarAreaData(
-                          show: true,
-                          color: (isPositive ? _tones.ready.fg : _scheme.error)
-                              .withValues(alpha: 0.12),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-            SizedBox(height: 8),
-            Text(
-              widget.isArabic ? 'اضغط للتفاصيل' : 'Tap for details',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.hintColor,
-                fontSize: 11,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  List<double> _extractSeries(
-    Map<String, dynamic> series,
-    List<String> directKeys,
-  ) {
-    // 1) direct keys
-    for (final key in directKeys) {
-      final list = _castNumberList(series[key]);
-      if (list.isNotEmpty) return list;
-    }
-
-    // 2) common composite container
-    final composite = series['sales_vs_purchases'];
-    if (composite is Map<String, dynamic>) {
-      final list = _extractSeries(composite, directKeys);
-      if (list.isNotEmpty) return list;
-    }
-
-    // 3) range keyed containers
-    for (final rangeKey in _rangeKeyCandidates(_timeRange)) {
-      final ranged = series[rangeKey];
-      if (ranged is Map<String, dynamic>) {
-        final list = _extractSeries(ranged, directKeys);
-        if (list.isNotEmpty) return list;
-      }
-    }
-
-    return const [];
-  }
-
-  List<String> _rangeKeyCandidates(_TimeRange range) {
-    switch (range) {
-      case _TimeRange.today:
-        return const ['today', '1d', 'day', 'last_1_day', 'last_24_hours'];
-      case _TimeRange.month:
-        return const ['month', '30d', 'last_30_days', 'last30', 'last_month'];
-      case _TimeRange.year:
-        return const ['year', '12m', 'last_year', 'ytd', 'annual'];
-    }
-  }
-
-  List<double> _castNumberList(dynamic value) {
-    if (value is List) {
-      return value
-          .map((e) => e is num ? e.toDouble() : null)
-          .whereType<double>()
-          .toList();
-    }
-    return const [];
-  }
-
-  List<FlSpot> _toSpots(List<double> series, int length) {
-    if (series.isEmpty) return const [];
-    final spots = <FlSpot>[];
-    for (var i = 0; i < length; i++) {
-      final value = i < series.length ? series[i] : series.last;
-      spots.add(FlSpot(i.toDouble(), value));
-    }
-    return spots;
   }
 
   // Karat Distribution Donut Card
