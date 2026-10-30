@@ -309,22 +309,15 @@ void main() {
     await tester.tap(find.text('المصروفات').first);
     await tester.pump(const Duration(seconds: 1));
 
-    Color? bandOf(int i) {
-      final band = find.byKey(ValueKey('summary-row-$i'));
-      expect(band, findsOneWidget, reason: 'row $i has its band');
-      final box = tester.widget<Container>(band).decoration as BoxDecoration?;
-      return box?.color;
-    }
-
-    for (final (i, name) in [(0, 'رواتب الموظفين'), (1, 'إيجار المعرض')]) {
-      final band = find.byKey(ValueKey('summary-row-$i'));
-      bandOf(i);
-      expect(find.descendant(of: band, matching: find.text(name)), findsOneWidget);
-      final amount = find.descendant(
-        of: band,
-        matching: find.byWidgetPredicate((w) => w is RichText && RegExp(r'\d').hasMatch(w.text.toPlainText())),
-      );
-      expect(amount, findsWidgets, reason: '$name and its amount share the band');
+    // The accounts are one table (DASH-12): each row its band, its name on its amount's line.
+    final table = tester.widget<Table>(
+        find.descendant(of: find.byKey(const Key('summary-accounts')), matching: find.byType(Table)));
+    Color? bandOf(int i) => (table.children[i].decoration as BoxDecoration?)?.color;
+    for (final (i, name, amount) in [(0, 'رواتب الموظفين', '466,131.05'), (1, 'إيجار المعرض', '310,754.04')]) {
+      expect(bandOf(i), isNotNull, reason: 'row $i has its band');
+      final nameY = tester.getCenter(find.text(name)).dy;
+      final amountY = tester.getCenter(find.textContaining(amount, findRichText: true).first).dy;
+      expect((nameY - amountY).abs(), lessThan(2), reason: '$name and its amount share the band');
     }
     expect(bandOf(0), isNot(bandOf(1)), reason: 'neighbouring rows are told apart');
   });
@@ -345,15 +338,21 @@ void main() {
     for (final grams in ['1,234.5', '987.6', '456.7']) {
       expect(find.descendant(of: card, matching: find.textContaining(grams)), findsOneWidget, reason: grams);
     }
-    // The owner, 30 Oct 2026: «فاصل بين الوزن والمبلغ» -- each weight in its own
-    // chip, a hairline between it and its amount, never one run of text.
-    for (final grams in ['1,234.5', '987.6', '456.7']) {
-      final pair = find.ancestor(
-          of: find.descendant(of: card, matching: find.textContaining(grams)),
-          matching: find.byType(DashboardWeightBeside));
-      expect(find.descendant(of: pair, matching: find.byKey(const Key('weight-amount-divider'))), findsOneWidget,
-          reason: grams);
-    }
+    // The owner, 30-31 Oct 2026: «فاصل بين الوزن والمبلغ ... الأوزان بعدت عن
+    // المبالغ ... المسافة بين كلمة "جرام" وأكبر مبلغ إلى الفاصل بنفس المسافة».
+    final dividers = find.descendant(of: card, matching: find.byKey(const Key('weight-amount-divider')));
+    expect(dividers, findsNWidgets(3), reason: 'one hairline for each weight');
+    final xs = [for (final d in dividers.evaluate()) tester.getCenter(find.byWidget(d.widget)).dx];
+    expect(xs.every((x) => (x - xs.first).abs() < 0.5), isTrue, reason: 'the hairlines in one column: $xs');
+    // The widest amount (the sales) and its weight, either side of its hairline, right to left.
+    final word = tester.getRect(find.descendant(of: card, matching: find.textContaining('1,234.5')));
+    final line = tester.getRect(dividers.first);
+    final widest = tester.getRect(
+        find.descendant(of: card, matching: find.textContaining('11,602,016.09', findRichText: true)).first);
+    final toWord = word.left - line.right;
+    final toAmount = line.left - widest.right;
+    expect(toWord, moreOrLessEquals(toAmount, epsilon: 1), reason: 'word $toWord, amount $toAmount');
+    expect(toAmount, lessThan(24), reason: 'the weight near its amount');
   });
 
   // DASH-4 (the owner, 30 Oct 2026): what is ours and what we owe, in riyals and

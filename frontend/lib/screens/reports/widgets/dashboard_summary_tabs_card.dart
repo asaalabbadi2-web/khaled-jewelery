@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 
-import '../../../theme/app_semantic_colors.dart';
 import '../../../theme/app_theme.dart';
 import '../../../utils/currency_utils.dart' as cu;
 import 'dashboard_kit.dart';
@@ -754,30 +753,37 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
   bool _isLedgerTab(_SummaryTab tab) =>
       tab == _SummaryTab.expenses || tab == _SummaryTab.revenues;
 
+  /// Every account -- the expenses' list is short, and a cut list hides where
+  /// they went -- each in its band (the owner, 12 Oct 2026), its grams beside
+  /// its riyals when it has any (DASH-3), set apart in columns (DASH-12).
   Widget _buildAccountsList(List items, Color accent, ThemeData theme) {
-    var index = 0;
-    return Column(
-      // Every account: the expenses' list is short, and a cut list hides where they went.
-      children: items.map((e) {
-        final acc = (e['account'] ?? '—').toString();
-        return _summaryRow(
-          index++,
-          leading: Icon(
-            Icons.receipt_outlined,
-            size: 13,
-            color: accent.withValues(alpha: 0.6),
+    return DashboardAmountTable(
+      key: const Key('summary-accounts'),
+      edge: AppSpace.sm,
+      rows: [
+        for (final (index, e) in items.indexed)
+          DashboardAmountRow(
+            decoration: BoxDecoration(
+              color: index.isEven ? _scheme.surfaceContainerHighest.withValues(alpha: 0.6) : _scheme.surface,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            label: Row(
+              children: [
+                Icon(Icons.receipt_outlined, size: 13, color: accent.withValues(alpha: 0.6)),
+                const SizedBox(width: AppSpace.sm),
+                Flexible(
+                  child: Text('${e['account'] ?? '—'}',
+                      style: theme.textTheme.bodySmall, overflow: TextOverflow.ellipsis),
+                ),
+              ],
+            ),
+            amount: _currencyAwareText(
+              _formatCurrency(_asDouble(e['value'])),
+              style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700, color: accent),
+            ),
+            weight: _asDouble(e['weight']).abs() >= 0.0005 ? _formatWeight(_asDouble(e['weight'])) : null,
           ),
-          label: Text(
-            acc,
-            style: TextStyle(fontSize: 11.5),
-            overflow: TextOverflow.ellipsis,
-          ),
-          // Its grams beside its riyals, when it has any (DASH-3), set apart.
-          amount: _formatCurrency(_asDouble(e['value'])),
-          weight: _asDouble(e['weight']).abs() >= 0.0005 ? _formatWeight(_asDouble(e['weight'])) : null,
-          accent: accent,
-        );
-      }).toList(),
+      ],
     );
   }
 
@@ -790,7 +796,6 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
     required Widget label,
     required String amount,
     required Color accent,
-    String? weight,
   }) {
     final money = _currencyAwareText(
       amount,
@@ -815,7 +820,7 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
           leading,
           SizedBox(width: 8),
           Expanded(child: label),
-          if (weight != null) DashboardWeightBeside(weight: weight, amount: money, amountWidth: 110) else money,
+          money,
         ],
       ),
     );

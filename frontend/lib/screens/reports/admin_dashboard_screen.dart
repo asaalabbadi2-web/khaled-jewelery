@@ -1189,27 +1189,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
       _TimeRange.year => isArabic ? 'السنة' : 'Year',
     };
 
-    // Its weight beside its amount (the owner, 30 Oct 2026).
-    Widget row(String name, double amount, Color color, [double grams = 0]) => Padding(
-          padding: EdgeInsets.only(top: 8),
-          child: Row(
-            children: [
-              Expanded(child: Text(name, style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant))),
-              Builder(builder: (context) {
-                final money = _currencyAwareText(
-                  _formatCurrency(amount),
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: color,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
-                );
-                return grams.abs() >= 0.0005
-                    ? DashboardWeightBeside(weight: _formatWeight(grams), amount: money, amountWidth: 150)
-                    : money;
-              }),
-            ],
+    // Its weight beside its amount, set apart, in columns (the owner, 30-31 Oct 2026).
+    DashboardAmountRow row(String name, double amount, Color color, [double grams = 0]) => DashboardAmountRow(
+          label: Text(name, style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+          amount: _currencyAwareText(
+            _formatCurrency(amount),
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: color,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
           ),
+          weight: grams.abs() >= 0.0005 ? _formatWeight(grams) : null,
         );
 
     return Container(
@@ -1231,18 +1222,29 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
               child: Text(isArabic ? 'لا توجد عمليات بعد' : 'No activity yet',
                   style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
             )
-          else ...[
-            row(isArabic ? 'المبيعات' : 'Sales', sales, tones.ready.fg, weight('sales')),
-            row(isArabic ? 'شراء جديد (موردون)' : 'New gold (suppliers)', purchases, tones.cash.fg,
-                weight('purchases')),
-            row(isArabic ? 'شراء كسر (عملاء)' : 'Scrap (customers)', scrap, tones.cash.fg, weight('scrap_customers')),
-            row(isArabic ? 'تسكيرات (مكاتب)' : 'Settlements (offices)', settlements, tones.cash.fg,
-                weight('office_settlements')),
-            row(isArabic ? 'المصروفات التشغيلية' : 'Operating expenses', expenses, tones.warning.fg,
-                weight('expenses')),
-          ],
+          else
+            Padding(
+              padding: const EdgeInsets.only(top: AppSpace.xs),
+              child: DashboardAmountTable(
+                rowPadding: const EdgeInsets.symmetric(vertical: AppSpace.xs),
+                rows: [
+                  row(isArabic ? 'المبيعات' : 'Sales', sales, tones.ready.fg, weight('sales')),
+                  row(isArabic ? 'شراء جديد (موردون)' : 'New gold (suppliers)', purchases, tones.cash.fg,
+                      weight('purchases')),
+                  row(isArabic ? 'شراء كسر (عملاء)' : 'Scrap (customers)', scrap, tones.cash.fg,
+                      weight('scrap_customers')),
+                  row(isArabic ? 'تسكيرات (مكاتب)' : 'Settlements (offices)', settlements, tones.cash.fg,
+                      weight('office_settlements')),
+                  row(isArabic ? 'المصروفات التشغيلية' : 'Operating expenses', expenses, tones.warning.fg,
+                      weight('expenses')),
+                ],
+              ),
+            ),
           Divider(height: 20, color: scheme.outlineVariant),
-          row(isArabic ? 'السيولة الآن' : 'Cash now', cash, scheme.onSurface),
+          DashboardAmountTable(
+            rowPadding: EdgeInsets.zero,
+            rows: [row(isArabic ? 'السيولة الآن' : 'Cash now', cash, scheme.onSurface)],
+          ),
         ],
       ),
     );

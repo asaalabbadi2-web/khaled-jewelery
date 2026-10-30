@@ -231,50 +231,102 @@ class DashboardGrid extends StatelessWidget {
   }
 }
 
-/// A weight beside its amount, set apart (the owner, 30 Oct 2026: «يحبذ أن يكون
-/// هناك فاصل بين الوزن والمبلغ حتى تنتظم شكلًا وتتميز بصريًا»): the weight in a
-/// quiet chip of its own, a hairline, then the amount -- one look wherever the
-/// dashboard says both. [amountWidth]: the amount's slot, the same down a list,
-/// so the chips and their hairlines stand in one column whatever the amounts'
-/// lengths.
-class DashboardWeightBeside extends StatelessWidget {
-  const DashboardWeightBeside({super.key, required this.weight, required this.amount, this.amountWidth});
+/// One line of a [DashboardAmountTable]: its name, its amount, and its weight
+/// when it has one; [decoration] its band.
+class DashboardAmountRow {
+  const DashboardAmountRow({required this.label, required this.amount, this.weight, this.decoration});
 
-  final String weight;
+  final Widget label;
   final Widget amount;
-  final double? amountWidth;
+  final String? weight;
+  final Decoration? decoration;
+}
+
+/// Amounts with their weights beside them, set apart and in columns (the
+/// owner, 30-31 Oct 2026: «فاصل بين الوزن والمبلغ ... الأوزان بعدت عن المبالغ
+/// ... المسافة بين كلمة "جرام" وأكبر مبلغ إلى الفاصل بنفس المسافة»). A table:
+/// the weights' column as wide as its widest chip, the amounts' as wide as the
+/// widest amount, so each hairline stands in one column and the widest amount
+/// sits as far from it as the word «جم» does -- the chip's own padding counted.
+class DashboardAmountTable extends StatelessWidget {
+  const DashboardAmountTable({
+    super.key,
+    required this.rows,
+    this.rowPadding = const EdgeInsets.symmetric(vertical: 6),
+    this.edge = 0,
+  });
+
+  final List<DashboardAmountRow> rows;
+  final EdgeInsets rowPadding;
+
+  /// Inside a band, the room at its two ends.
+  final double edge;
+
+  /// Between the chip's edge and the hairline; the chip's own padding makes
+  /// the word's distance [_chipPadding] + this, and the amount's is the same.
+  static const _gap = AppSpace.sm;
+  static const _chipPadding = AppSpace.sm;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
+    final anyWeight = rows.any((r) => r.weight != null);
+    return Table(
+      defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+      columnWidths: {
+        0: const FlexColumnWidth(),
+        1: const IntrinsicColumnWidth(),
+        2: FixedColumnWidth(anyWeight ? _gap + 1 + _chipPadding + _gap : 0),
+        3: const IntrinsicColumnWidth(),
+      },
       children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: AppSpace.sm, vertical: 2),
-          decoration: BoxDecoration(
-            color: scheme.surfaceContainerHighest.withValues(alpha: 0.7),
-            borderRadius: BorderRadius.circular(AppRadius.chip),
-          ),
-          child: Text(
-            weight,
-            style: dashboardFigure(theme.textTheme.bodySmall, weight: FontWeight.w600, color: scheme.onSurfaceVariant),
-          ),
-        ),
-        Container(
-          key: const Key('weight-amount-divider'),
-          width: 1,
-          height: 16,
-          margin: const EdgeInsets.symmetric(horizontal: AppSpace.sm + 2),
-          color: scheme.outlineVariant,
-        ),
-        if (amountWidth == null)
-          amount
-        else
-          ConstrainedBox(
-            constraints: BoxConstraints(minWidth: amountWidth!),
-            child: Align(alignment: AlignmentDirectional.centerEnd, widthFactor: 1, child: amount),
+        for (final r in rows)
+          TableRow(
+            decoration: r.decoration,
+            children: [
+              Padding(
+                padding: rowPadding.add(EdgeInsetsDirectional.only(start: edge)),
+                child: Align(alignment: AlignmentDirectional.centerStart, child: r.label),
+              ),
+              r.weight == null
+                  ? const SizedBox.shrink()
+                  : Padding(
+                      padding: rowPadding.add(const EdgeInsetsDirectional.only(start: AppSpace.sm)),
+                      child: Align(
+                        alignment: AlignmentDirectional.centerEnd,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: _chipPadding, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: scheme.surfaceContainerHighest.withValues(alpha: 0.7),
+                            borderRadius: BorderRadius.circular(AppRadius.chip),
+                          ),
+                          child: Text(
+                            r.weight!,
+                            style: dashboardFigure(theme.textTheme.bodySmall,
+                                weight: FontWeight.w600, color: scheme.onSurfaceVariant),
+                          ),
+                        ),
+                      ),
+                    ),
+              r.weight == null
+                  ? const SizedBox.shrink()
+                  : Padding(
+                      padding: const EdgeInsetsDirectional.only(start: _gap, end: _chipPadding + _gap),
+                      child: Center(
+                        child: Container(
+                          key: const Key('weight-amount-divider'),
+                          width: 1,
+                          height: 16,
+                          color: scheme.outlineVariant,
+                        ),
+                      ),
+                    ),
+              Padding(
+                padding: rowPadding.add(EdgeInsetsDirectional.only(end: edge)),
+                child: Align(alignment: AlignmentDirectional.centerEnd, child: r.amount),
+              ),
+            ],
           ),
       ],
     );
