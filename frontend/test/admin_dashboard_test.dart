@@ -345,6 +345,15 @@ void main() {
     for (final grams in ['1,234.5', '987.6', '456.7']) {
       expect(find.descendant(of: card, matching: find.textContaining(grams)), findsOneWidget, reason: grams);
     }
+    // The owner, 30 Oct 2026: «فاصل بين الوزن والمبلغ» -- each weight in its own
+    // chip, a hairline between it and its amount, never one run of text.
+    for (final grams in ['1,234.5', '987.6', '456.7']) {
+      final pair = find.ancestor(
+          of: find.descendant(of: card, matching: find.textContaining(grams)),
+          matching: find.byType(DashboardWeightBeside));
+      expect(find.descendant(of: pair, matching: find.byKey(const Key('weight-amount-divider'))), findsOneWidget,
+          reason: grams);
+    }
   });
 
   // DASH-4 (the owner, 30 Oct 2026): what is ours and what we owe, in riyals and
@@ -503,6 +512,10 @@ void main() {
       await tester.tap(find.byKey(const Key('dashboard-wrong-now')));
       await tester.pump(const Duration(milliseconds: 300));
       await shot(tester, 'dashboard_${name}_alerts_open');
+      await tester.ensureVisible(find.text('هذه السنة').first);
+      await tester.tap(find.text('هذه السنة').first);
+      await tester.pump(const Duration(seconds: 1));
+      await shot(tester, 'dashboard_${name}_year');
       await open(tester, theme: theme, width: 390);
       await shot(tester, 'dashboard_${name}_phone');
     }

@@ -230,3 +230,53 @@ class DashboardGrid extends StatelessWidget {
     });
   }
 }
+
+/// A weight beside its amount, set apart (the owner, 30 Oct 2026: «يحبذ أن يكون
+/// هناك فاصل بين الوزن والمبلغ حتى تنتظم شكلًا وتتميز بصريًا»): the weight in a
+/// quiet chip of its own, a hairline, then the amount -- one look wherever the
+/// dashboard says both. [amountWidth]: the amount's slot, the same down a list,
+/// so the chips and their hairlines stand in one column whatever the amounts'
+/// lengths.
+class DashboardWeightBeside extends StatelessWidget {
+  const DashboardWeightBeside({super.key, required this.weight, required this.amount, this.amountWidth});
+
+  final String weight;
+  final Widget amount;
+  final double? amountWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: AppSpace.sm, vertical: 2),
+          decoration: BoxDecoration(
+            color: scheme.surfaceContainerHighest.withValues(alpha: 0.7),
+            borderRadius: BorderRadius.circular(AppRadius.chip),
+          ),
+          child: Text(
+            weight,
+            style: dashboardFigure(theme.textTheme.bodySmall, weight: FontWeight.w600, color: scheme.onSurfaceVariant),
+          ),
+        ),
+        Container(
+          key: const Key('weight-amount-divider'),
+          width: 1,
+          height: 16,
+          margin: const EdgeInsets.symmetric(horizontal: AppSpace.sm + 2),
+          color: scheme.outlineVariant,
+        ),
+        if (amountWidth == null)
+          amount
+        else
+          ConstrainedBox(
+            constraints: BoxConstraints(minWidth: amountWidth!),
+            child: Align(alignment: AlignmentDirectional.centerEnd, widthFactor: 1, child: amount),
+          ),
+      ],
+    );
+  }
+}

@@ -4,6 +4,7 @@ import 'package:intl/intl.dart' hide TextDirection;
 import '../../../theme/app_semantic_colors.dart';
 import '../../../theme/app_theme.dart';
 import '../../../utils/currency_utils.dart' as cu;
+import 'dashboard_kit.dart';
 
 // Three purchases apart, and the revenues (DASH-3, the owner 30 Oct 2026).
 enum _SummaryTab { sales, purchases, scrap, settlements, expenses, revenues }
@@ -771,10 +772,9 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
             style: TextStyle(fontSize: 11.5),
             overflow: TextOverflow.ellipsis,
           ),
-          // Its grams beside its riyals, when it has any (DASH-3).
-          amount: _asDouble(e['weight']).abs() >= 0.0005
-              ? '${_formatWeight(_asDouble(e['weight']))}   ${_formatCurrency(_asDouble(e['value']))}'
-              : _formatCurrency(_asDouble(e['value'])),
+          // Its grams beside its riyals, when it has any (DASH-3), set apart.
+          amount: _formatCurrency(_asDouble(e['value'])),
+          weight: _asDouble(e['weight']).abs() >= 0.0005 ? _formatWeight(_asDouble(e['weight'])) : null,
           accent: accent,
         );
       }).toList(),
@@ -790,7 +790,16 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
     required Widget label,
     required String amount,
     required Color accent,
+    String? weight,
   }) {
+    final money = _currencyAwareText(
+      amount,
+      style: TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
+        color: accent,
+      ),
+    );
     return Container(
       key: ValueKey('summary-row-$index'),
       margin: EdgeInsets.only(bottom: 2),
@@ -806,14 +815,7 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
           leading,
           SizedBox(width: 8),
           Expanded(child: label),
-          _currencyAwareText(
-            amount,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: accent,
-            ),
-          ),
+          if (weight != null) DashboardWeightBeside(weight: weight, amount: money, amountWidth: 110) else money,
         ],
       ),
     );

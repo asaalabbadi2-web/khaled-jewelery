@@ -1195,24 +1195,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
           child: Row(
             children: [
               Expanded(child: Text(name, style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant))),
-              if (grams.abs() >= 0.0005) ...[
-                Text(
-                  _formatWeight(grams),
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
+              Builder(builder: (context) {
+                final money = _currencyAwareText(
+                  _formatCurrency(amount),
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: color,
                     fontFeatures: const [FontFeature.tabularFigures()],
                   ),
-                ),
-                const SizedBox(width: 10),
-              ],
-              _currencyAwareText(
-                _formatCurrency(amount),
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: color,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
-              ),
+                );
+                return grams.abs() >= 0.0005
+                    ? DashboardWeightBeside(weight: _formatWeight(grams), amount: money, amountWidth: 150)
+                    : money;
+              }),
             ],
           ),
         );
