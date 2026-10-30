@@ -20,6 +20,11 @@ Two questions, answered here once and asked by every retraction path:
       purchase consumed it and booked its cost of sale. Rejecting and unposting
       are refused while any stands -- a return reverses it, not a retraction.
 
+  posted_returns_of(invoice_id)
+      Its returns still posted. Rejecting and unposting are refused while any
+      stands -- the return is taken back first (the owner, 31 Oct 2026: sale
+      1785 was unposted while its return 12 stood posted against it).
+
   retracted_posting_refusal(invoice)
       A rejected invoice is not posted again, from any door (10 Oct 2026: the
       posting screen listed rejected 3303 and posted it -- a second sale of the
@@ -208,6 +213,26 @@ def live_payments_message(action: str, labels: list[str]) -> str:
     return (
         f'لا يمكن {action} فاتورة عليها سداد قائم: ' + '، '.join(labels) + '. '
         'ألغِ السداد أولًا، أو انقل نسبته إلى الفاتورة الصحيحة، ثم أعد المحاولة.'
+    )
+
+
+def posted_returns_of(invoice_id: int, besides=frozenset()) -> list[str]:
+    """Its returns still posted, by number -- those in *besides* (unposted in the
+    same batch, before it) left out."""
+    from models import Invoice
+    from services.gold_allocation_service import RETRACTED_INVOICE_STATUSES
+    rows = (Invoice.query
+            .filter(Invoice.original_invoice_id == invoice_id, Invoice.is_posted.is_(True),
+                    sa.or_(Invoice.status.is_(None), Invoice.status.notin_(RETRACTED_INVOICE_STATUSES)))
+            .order_by(Invoice.id).all())
+    return [f'{r.invoice_type} #{r.invoice_type_id}' for r in rows if r.id not in besides]
+
+
+def posted_returns_message(action: str, labels: list[str]) -> str:
+    """The one wording for "refused: its return stands posted", for every path."""
+    return (
+        f'لا يمكن {action} فاتورة مرتجعها ما زال مرحّلًا: ' + '، '.join(labels) + '. '
+        'ألغِ ترحيل المرتجع أولًا، ثم أعد المحاولة.'
     )
 
 

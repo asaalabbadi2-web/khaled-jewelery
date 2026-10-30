@@ -2282,7 +2282,12 @@ def unpost_invoice(invoice_id: int):
     # back (1641/1779/2204/2478, 92,385.00). See invoice_retraction_guard.
     from services.invoice_retraction_guard import (
         closing_executions_message, closing_executions_of, live_payments_message, live_payments_of,
+        posted_returns_message, posted_returns_of,
     )
+    returns = posted_returns_of(invoice_id)
+    if returns:
+        return jsonify({'error': 'has_posted_returns', 'message': posted_returns_message('إلغاء ترحيل', returns),
+                        'returns': returns}), 409
     closed = closing_executions_of(invoice_id)
     if closed > 0:
         return jsonify({'error': 'has_closing_executions',
@@ -2375,12 +2380,15 @@ def _add_payment_lines_to_consolidated_je(
     # voucher that produced it — several vouchers share this one JE, and
     # without the tag, cancelling any one of them would reverse every line,
     # including other payments' (see _reverse_voucher_journal_entry).
+    # Its method by name, not «نقد» whatever it was (31 Oct 2026).
+    from services.payment_line_descriptions import method_word
+    method = method_word(payment_id)
     if direction == 'in':
         db.session.add(JournalEntryLine(
             journal_entry_id=consolidated_je.id,
             account_id=int(safe_account_id),
             cash_debit=float(amount),
-            description=f'استلام نقد - دفعة #{payment_id} ({voucher_number})',
+            description=f'استلام {method} - دفعة #{payment_id} ({voucher_number})',
             source_voucher_id=voucher.id,
         ))
         db.session.add(JournalEntryLine(
@@ -2402,7 +2410,7 @@ def _add_payment_lines_to_consolidated_je(
             journal_entry_id=consolidated_je.id,
             account_id=int(safe_account_id),
             cash_credit=float(amount),
-            description=f'صرف نقد - دفعة #{payment_id} ({voucher_number})',
+            description=f'صرف {method} - دفعة #{payment_id} ({voucher_number})',
             source_voucher_id=voucher.id,
         ))
 

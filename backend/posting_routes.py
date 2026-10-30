@@ -512,10 +512,12 @@ def _create_deferred_payment_entries(invoice: Invoice, posted_by: str) -> None:
     db.session.add(je)
     db.session.flush()
 
+    from services.payment_line_descriptions import method_word
     for line_info in lines_to_create:
         sa_id = line_info['safe_account_id']
         amt = line_info['amount_cash']
         pid = line_info['pay_id']
+        method = method_word(pid)   # its method by name, not «نقد» (31 Oct 2026)
 
         if direction == 'in':
             # بيع: مدين خزينة ← دائن ذمم عميل
@@ -523,7 +525,7 @@ def _create_deferred_payment_entries(invoice: Invoice, posted_by: str) -> None:
                 journal_entry_id=je.id,
                 account_id=sa_id,
                 cash_debit=amt,
-                description=f'استلام نقد - دفعة #{pid}',
+                description=f'استلام {method} - دفعة #{pid}',
             ))
             credit_acc = party_account_id or sa_id
             db.session.add(JournalEntryLine(
@@ -545,7 +547,7 @@ def _create_deferred_payment_entries(invoice: Invoice, posted_by: str) -> None:
                 journal_entry_id=je.id,
                 account_id=sa_id,
                 cash_credit=amt,
-                description=f'صرف نقد - دفعة #{pid}',
+                description=f'صرف {method} - دفعة #{pid}',
             ))
 
     _write_payment_vouchers(invoice, lines_to_create, je, direction, posted_by)
@@ -2582,7 +2584,12 @@ def unpost_invoice(invoice_id):
         # cash and Mada statements. See services/invoice_retraction_guard.py.
         from services.invoice_retraction_guard import (
             closing_executions_message, closing_executions_of, live_payments_message, live_payments_of,
+            posted_returns_message, posted_returns_of,
         )
+        returns = posted_returns_of(invoice_id)
+        if returns:
+            return jsonify({'success': False, 'error': 'has_posted_returns',
+                            'message': posted_returns_message('إلغاء ترحيل', returns), 'returns': returns}), 409
         closed = closing_executions_of(invoice_id)
         if closed > 0:
             return jsonify({'success': False, 'error': 'has_closing_executions',
@@ -3020,14 +3027,19 @@ def unpost_invoices_batch():
         # All or nothing, asked before anything is written: one invoice with a
         # standing payment stops the batch, and the reply names it.
         from services.invoice_retraction_guard import (
-            closing_executions_of, live_payments_message, live_payments_of,
+            closing_executions_of, live_payments_message, live_payments_of, posted_returns_of,
         )
+        # A return in the same batch is unposted before its original (the owner,
+        # 31 Oct 2026): only a return left posted outside the batch stops it.
+        in_batch = {invoice.id for invoice in invoices}
+        invoices.sort(key=lambda inv: 0 if inv.original_invoice_id else 1)
         blocked = {}
         for invoice in invoices:
             standing = live_payments_of(invoice.id)
             closed = closing_executions_of(invoice.id)
             if closed > 0:
                 standing = list(standing) + [f'تسكير منفَّذ {closed:.3f} جم']
+            standing = list(standing) + [f'مرتجع مرحّل {r}' for r in posted_returns_of(invoice.id, besides=in_batch)]
             if standing:
                 blocked[str(invoice.id)] = standing
         if blocked:

@@ -25,7 +25,7 @@ def reject_invoice_document(invoice, *, by, now) -> dict:
     from routes.office_reservations import reverse_office_reservation_settlement_for_invoice
     from services.invoice_retraction_guard import (
         closing_executions_message, closing_executions_of, draft_payments_of, live_payments_message,
-        live_payments_of, withdraw_closing_order,
+        live_payments_of, posted_returns_message, posted_returns_of, withdraw_closing_order,
     )
     from services.gold_allocation_service import release_invoice_gold_evidence
     from models import SystemAlert
@@ -64,6 +64,10 @@ def reject_invoice_document(invoice, *, by, now) -> dict:
     if standing:
         return {'refusal': {'error': 'has_live_payments', 'message': live_payments_message('رفض', standing),
                             'payments': standing}}
+    returns = posted_returns_of(invoice_id)
+    if returns:
+        return {'refusal': {'error': 'has_posted_returns', 'message': posted_returns_message('رفض', returns),
+                            'returns': returns}}
 
     # Rejected 2821, 3123 and 3303 kept their closing orders open -- 5,706 g
     # waiting to take real purchases for sales that never were.

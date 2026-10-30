@@ -160,6 +160,11 @@ def get_account_statement(account_id):
     journal_lines, cancelled_hidden = without_cancelled_pairs(
         journal_lines, include=include_cancelled_requested(request.args))
 
+    # An invoice payment's line said by its own payment -- its method, its
+    # invoice, its voucher -- not the entry all its payments share (31 Oct 2026).
+    from services.payment_line_descriptions import describe as _describe_payment_lines
+    payment_described = _describe_payment_lines(journal_lines)
+
     statement_lines = []
     total_cash_debit = 0
     total_cash_credit = 0
@@ -200,7 +205,7 @@ def get_account_statement(account_id):
         statement_lines.append({
             'id': line.id,
             'date': _iso_or_none(_effective_entry_dt(je)),
-            'description': je.description,
+            'description': payment_described.get(line.id) or je.description,
             'journal_entry_id': line.journal_entry_id,
             'entry_number': je.entry_number,
             'entry_type': je.entry_type,
@@ -412,9 +417,18 @@ def get_account_statement_merged(account_id):
     journal_lines, cancelled_hidden = without_cancelled_pairs(
         journal_lines, include=include_cancelled_requested(request.args))
 
+    # An invoice payment's lines on these accounts said by their own payments
+    # -- the bank's row its transfer, not the entry's every voucher (31 Oct 2026).
+    from services.payment_line_descriptions import describe as _describe_payment_lines
+    payment_described = _describe_payment_lines(journal_lines)
+
     lines_by_entry = {}
     for line in journal_lines:
         entry_id = line.journal_entry_id
+        if entry_id in lines_by_entry and line.id in payment_described:
+            said = lines_by_entry[entry_id]['description'] or ''
+            if payment_described[line.id] not in said:
+                lines_by_entry[entry_id]['description'] = f"{said}، {payment_described[line.id]}"
         if entry_id not in lines_by_entry:
             je = getattr(line, 'journal_entry', None)
             dt = _effective_entry_dt(je)
@@ -423,7 +437,7 @@ def get_account_statement_merged(account_id):
                 'entry_id': entry_id,
                 'entry_number': je.entry_number if je else None,
                 'entry_type': je.entry_type if je else None,
-                'description': je.description if je else None,
+                'description': (payment_described.get(line.id) or je.description) if je else None,
                 'reference_type': je.reference_type if je else None,
                 'reference_id': je.reference_id if je else None,
                 'reference_number': je.reference_number if je else None,
