@@ -4103,8 +4103,20 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                               final notes = (payment['notes'] ?? '')
                                   .toString()
                                   .trim();
+                              // A cancelled payment stays, its history, said so --
+                              // struck through, its voucher named, no correction
+                              // (the owner, 31 Oct 2026): the server's word.
+                              final cancelled = payment['cancelled'] == true;
+                              final voucherNo =
+                                  (payment['voucher_number'] ?? '').toString();
+                              final struck = cancelled
+                                  ? TextDecoration.lineThrough
+                                  : null;
 
-                              return Padding(
+                              return Opacity(
+                                key: ValueKey('invoice-payment-$paymentId'),
+                                opacity: cancelled ? 0.6 : 1,
+                                child: Padding(
                                 padding: const EdgeInsets.only(bottom: 10),
                                 child: Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -4133,11 +4145,43 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                                                       ?.copyWith(
                                                         fontWeight:
                                                             FontWeight.w800,
+                                                        decoration: struck,
                                                       ),
                                                   overflow:
                                                       TextOverflow.ellipsis,
                                                 ),
                                               ),
+                                              if (cancelled) ...[
+                                                Container(
+                                                  key: const Key(
+                                                      'invoice-payment-cancelled'),
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                    horizontal: 8,
+                                                    vertical: 2,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    color: _tone
+                                                        .blocked.container,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            AppRadius.chip),
+                                                  ),
+                                                  child: Text(
+                                                    isAr
+                                                        ? 'ملغاة${voucherNo.isEmpty ? '' : ' · $voucherNo'}'
+                                                        : 'Cancelled${voucherNo.isEmpty ? '' : ' · $voucherNo'}',
+                                                    style: textTheme.labelSmall
+                                                        ?.copyWith(
+                                                      color: _tone
+                                                          .blocked.onContainer,
+                                                      fontWeight:
+                                                          FontWeight.w800,
+                                                    ),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 8),
+                                              ],
                                               Text(
                                                 NumberFormat(
                                                   '#,##0.00',
@@ -4147,8 +4191,11 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                                                     ?.copyWith(
                                                       fontWeight:
                                                           FontWeight.w800,
-                                                      color:
-                                                          colorScheme.primary,
+                                                      color: cancelled
+                                                          ? colorScheme
+                                                              .onSurfaceVariant
+                                                          : colorScheme.primary,
+                                                      decoration: struck,
                                                     ),
                                               ),
                                             ],
@@ -4201,7 +4248,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                                         color: colorScheme.primary,
                                       ),
                                     ),
-                                    if (auth.isManager && paymentId != null)
+                                    if (auth.isManager && paymentId != null && !cancelled)
                                       IconButton(
                                         onPressed: () =>
                                             _showCorrectPaymentMethodDialog(
@@ -4223,6 +4270,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                                       ),
                                   ],
                                 ),
+                              ),
                               );
                             }).toList(),
                           ),

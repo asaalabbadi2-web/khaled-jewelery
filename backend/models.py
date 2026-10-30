@@ -1420,11 +1420,28 @@ class Invoice(db.Model):
         
         # 🆕 إضافة دفعات متعددة (الميزة الجديدة)
         if self.payments:
-            result['payments'] = [payment.to_dict() for payment in self.payments]
-            # حساب إجماليات الدفعات (حماية من None)
-            result['total_payments_amount'] = sum((p.amount or 0.0) for p in self.payments)
-            result['total_commission'] = sum((p.commission_amount or 0.0) for p in self.payments)
-            result['total_net'] = sum((p.net_amount or 0.0) for p in self.payments)
+            # Each payment with its voucher, and whether that voucher was
+            # cancelled -- the one rule the payment state counts by
+            # (payment_voucher_not_cancelled): a cancelled payment stays in the
+            # list, its history, said so; the totals are the standing ones
+            # (the owner, 31 Oct 2026: 1785's three cancelled payments read as
+            # 11,100 paid beside «المدفوع 0»).
+            ids = {p.source_voucher_id for p in self.payments if p.source_voucher_id}
+            vouchers = {v.id: v for v in Voucher.query.filter(Voucher.id.in_(ids)).all()} if ids else {}
+            result['payments'] = []
+            standing = []
+            for payment in self.payments:
+                row = payment.to_dict()
+                voucher = vouchers.get(payment.source_voucher_id)
+                row['voucher_number'] = voucher.voucher_number if voucher else None
+                row['cancelled'] = bool(voucher is not None and voucher.status == 'cancelled')
+                result['payments'].append(row)
+                if not row['cancelled']:
+                    standing.append(payment)
+            # حساب إجماليات الدفعات القائمة (حماية من None)
+            result['total_payments_amount'] = sum((p.amount or 0.0) for p in standing)
+            result['total_commission'] = sum((p.commission_amount or 0.0) for p in standing)
+            result['total_net'] = sum((p.net_amount or 0.0) for p in standing)
         else:
             result['payments'] = []
         
