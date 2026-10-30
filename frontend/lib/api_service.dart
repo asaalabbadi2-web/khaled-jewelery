@@ -2707,6 +2707,20 @@ class ApiService {
     }
   }
 
+  /// Where the business stands, beside the dashboard (DASH-10): its own
+  /// request, so the dashboard draws without waiting for it.
+  Future<Map<String, dynamic>> getAdminDashboardStanding() async {
+    final uri = Uri.parse('$_baseUrl/dashboard/admin/standing');
+    final response = await _authedGet(uri);
+
+    if (response.statusCode == 200) {
+      return json.decode(utf8.decode(response.bodyBytes))
+          as Map<String, dynamic>;
+    } else {
+      throw _apiError(response);
+    }
+  }
+
   Future<Map<String, dynamic>> getSystemAlerts({
     String? severity,
     bool? reviewed,

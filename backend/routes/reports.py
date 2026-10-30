@@ -5275,6 +5275,60 @@ def get_dashboard_summary_debug():
         'month_purchases': _try_summary(purchase_types, month_start, tomorrow_start),
     })
 
+@reports_bp.route('/dashboard/admin/standing', methods=['GET'])
+@require_permission('dashboard.admin')
+def get_admin_dashboard_standing():
+    """Where the business stands, beside the dashboard (DASH-10).
+
+    The owner, 30 Oct 2026: «الشاشة أصبحت تأخذ وقتًا طويلًا في التحميل». The
+    six readers DASH-4..9 added were summed onto the dashboard's one request,
+    and the screen waited for all of it: they are their own request now, asked
+    beside it, so the two take the longer one's time and the screen draws as
+    soon as the dashboard's own arrives. Each section by its own reader; one
+    that fails is null, and the others stand.
+
+      positions  what is ours and what we owe (DASH-4)
+      clearing   what the banks and the instalment companies owe us (DASH-5)
+      approvals  what waits for the manager (DASH-6)
+      wrong_now  the open findings and a safe below zero (DASH-7)
+      vat        this quarter, the last one, what is owed (DASH-8)
+      deficits   the month's losing invoices by employee (DASH-9)
+    """
+    from services.dashboard_alerts import alerts
+    from services.dashboard_approvals import approvals
+    from services.dashboard_clearing import clearing_pending
+    from services.dashboard_deficits import deficits
+    from services.dashboard_positions import positions
+    from services.dashboard_vat import vat_due
+
+    now = datetime.now()
+
+    def safe_rows():
+        safes = SafeBox.query.filter(SafeBox.is_active.is_(True)).all()
+        balances = safe_box_balances_bulk(safes, main_karat=get_main_karat())
+        return [{'name': sb.name, 'balance_cash': (balances.get(sb.id) or {}).get('cash', 0.0),
+                 'total_weight_main_karat': ((balances.get(sb.id) or {}).get('weight') or {}).get('total', 0.0)}
+                for sb in safes]
+
+    sections = {
+        'positions': positions,
+        'clearing': lambda: clearing_pending(now.date()),
+        'approvals': approvals,
+        'wrong_now': lambda: alerts(safe_rows()),
+        'vat': lambda: vat_due(now.date()),
+        'deficits': lambda: deficits(datetime(now.year, now.month, 1), now + timedelta(seconds=1)),
+    }
+    out = {}
+    for name, read in sections.items():
+        try:
+            out[name] = read()
+        except Exception as err:
+            db.session.rollback()
+            print(f'[dashboard standing] {name} error: {err}')
+            out[name] = None
+    return jsonify(out), 200
+
+
 @reports_bp.route('/dashboard/admin', methods=['GET'])
 @require_permission('dashboard.admin')   # the manager's alone (DASH-3, the owner 30 Oct 2026)
 def get_admin_dashboard():
@@ -5283,7 +5337,8 @@ def get_admin_dashboard():
     Response shape (stable contract for Flutter):
       - kpis: cash_balance, gold_by_karat, gold_pure_24k, sales_today
       - series: last_7_days_sales (net_value/net_weight per day)
-      - what is wrong now: wrong_now (DASH-7). The old alerts -- the critical
+      - where the business stands is its own request, /dashboard/admin/standing
+        (DASH-10). The old alerts -- the critical
         bar, the last shift's differences, the sensitive operations -- went
         from the screen on 2 Jun 2026 (448e4758) and from here on 30 Oct (the
         owner: «حذف بقايا الخادم القديمة»).
@@ -5479,52 +5534,6 @@ def get_admin_dashboard():
     if avg_cost_per_gram and spot_price_24k_per_gram and avg_cost_per_gram > 0:
         profit_margin = ((spot_price_24k_per_gram - avg_cost_per_gram) / avg_cost_per_gram) * 100
 
-    # --- What is ours and what we owe (DASH-4) ---
-    # One reading by the ledger's own readers: the customers, the suppliers and
-    # the offices' deposits, in cash and grams. What we owe the suppliers was
-    # read from customers typed «مورد» -- the suppliers are their own table: it
-    # read nothing, and the coverage ratio with it (30 Oct 2026).
-    try:
-        from services.dashboard_positions import positions as _positions
-        party_positions = _positions()
-    except Exception as _pos_err:
-        print(f'[dashboard] positions error: {_pos_err}')
-        party_positions = None
-    payables_due_7_days = float(((party_positions or {}).get('suppliers') or {}).get('we_owe_cash') or 0.0)
-    # What the banks and the instalment companies still owe us (DASH-5).
-    try:
-        from services.dashboard_clearing import clearing_pending as _clearing_pending
-        clearing_waiting = _clearing_pending(now.date())
-    except Exception as _clr_err:
-        print(f'[dashboard] clearing error: {_clr_err}')
-        clearing_waiting = None
-    # What waits for the manager (DASH-6).
-    try:
-        from services.dashboard_approvals import approvals as _approvals
-        approvals_waiting = _approvals()
-    except Exception as _apr_err:
-        print(f'[dashboard] approvals error: {_apr_err}')
-        approvals_waiting = None
-    # The VAT: this quarter's, the last one's, and what the returns left owed (DASH-8).
-    try:
-        from services.dashboard_vat import vat_due as _vat_due
-        vat_waiting = _vat_due(now.date())
-    except Exception as _vat_err:
-        print(f'[dashboard] vat error: {_vat_err}')
-        vat_waiting = None
-    # The month's losing invoices, by employee (DASH-9); who leads is the race's.
-    try:
-        from services.dashboard_deficits import deficits as _deficits
-        month_deficits = _deficits(datetime(now.year, now.month, 1), now + timedelta(seconds=1))
-    except Exception as _dfc_err:
-        print(f'[dashboard] deficits error: {_dfc_err}')
-        month_deficits = None
-    receivables_due_7_days = float(((party_positions or {}).get('customers') or {}).get('owe_us_cash') or 0.0)
-
-    liquidity_coverage_ratio = None
-    if payables_due_7_days > 0:
-        liquidity_coverage_ratio = (cash_balance / payables_due_7_days) * 100
-
     # --- Safe boxes summary ---
     # مصدر الرصيد الرسمي الوحيد: safe_box_balances_bulk (دفتر الأستاذ مباشرة)
     # -- نفس الدالة التي تستخدمها /safe-boxes/balances و/safe-boxes/<id>/balance،
@@ -5703,14 +5712,6 @@ def get_admin_dashboard():
             safe_boxes_enhanced.append(sb_data)
     except Exception:
         safe_boxes_enhanced = safe_boxes_summary
-
-    # What is wrong now (DASH-7): the nightly check's open findings, a safe below zero.
-    try:
-        from services.dashboard_alerts import alerts as _alerts
-        wrong_now = _alerts(safe_boxes_summary)
-    except Exception as _alr_err:
-        print(f'[dashboard] alerts error: {_alr_err}')
-        wrong_now = None
 
     # --- Liquidity breakdown (Cash vs Banks) ---
     cash_in_hand = 0.0
@@ -6121,17 +6122,7 @@ def get_admin_dashboard():
             'cash_available': round(cash_balance, 2),
             'cash_in_hand': round(cash_in_hand, 2),
             'cash_in_banks': round(cash_in_banks, 2),
-            'receivables': round(receivables_due_7_days, 2),
-            'payables_due_7_days': round(payables_due_7_days, 2),
-            'receivables_due_7_days': round(receivables_due_7_days, 2),
-            'coverage_ratio_pct': round(liquidity_coverage_ratio, 1) if liquidity_coverage_ratio is not None else None,
         },
-        'positions': party_positions,
-        'clearing': clearing_waiting,
-        'approvals': approvals_waiting,
-        'wrong_now': wrong_now,
-        'vat': vat_waiting,
-        'deficits': month_deficits,
         'safe_boxes': safe_boxes_enhanced,
         'sales_purchases_summary': sales_purchases_summary,
     }), 200

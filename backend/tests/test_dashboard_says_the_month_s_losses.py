@@ -23,7 +23,7 @@ def rollback_after_each(app, db_fence):
 
 
 def _deficits(app, headers):
-    return app.test_client().get('/api/dashboard/admin', headers=headers).get_json()['deficits']
+    return app.test_client().get('/api/dashboard/admin/standing', headers=headers).get_json()['deficits']
 
 
 def _invoice(invoice_type, profit, employee, posted=True):

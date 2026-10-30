@@ -21,7 +21,7 @@ from tests.retraction_world import world  # noqa: F401 (fixture)
 def _clearing(app, headers):
     from flask import g
     g.pop('current_user', None)
-    return app.test_client().get('/api/dashboard/admin', headers=headers).get_json()['clearing']
+    return app.test_client().get('/api/dashboard/admin/standing', headers=headers).get_json()['clearing']
 
 
 def test_a_card_payment_waiting_for_its_deposit_is_said(app, auth_headers, mada):

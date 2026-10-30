@@ -25,7 +25,7 @@ def rollback_after_each(app, db_fence):
 
 
 def _wrong_now(app, headers):
-    return app.test_client().get('/api/dashboard/admin', headers=headers).get_json()['wrong_now']
+    return app.test_client().get('/api/dashboard/admin/standing', headers=headers).get_json()['wrong_now']
 
 
 def _count(wrong, kind):

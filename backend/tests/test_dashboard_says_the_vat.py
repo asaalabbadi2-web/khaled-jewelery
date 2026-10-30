@@ -43,5 +43,5 @@ def test_the_quarter_the_last_one_and_what_is_owed(books):  # noqa: F811
 
 
 def test_the_dashboard_carries_it(app, auth_headers):
-    vat = app.test_client().get('/api/dashboard/admin', headers=auth_headers).get_json()['vat']
+    vat = app.test_client().get('/api/dashboard/admin/standing', headers=auth_headers).get_json()['vat']
     assert vat and {'quarter', 'last_quarter', 'owed', 'policy'} <= set(vat)

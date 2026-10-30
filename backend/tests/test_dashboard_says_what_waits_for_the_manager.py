@@ -24,7 +24,7 @@ def rollback_after_each(app, db_fence):
 
 
 def _dashboard(app, headers):
-    return app.test_client().get('/api/dashboard/admin', headers=headers).get_json()
+    return app.test_client().get('/api/dashboard/admin/standing', headers=headers).get_json()
 
 
 def _approvals(app, headers):

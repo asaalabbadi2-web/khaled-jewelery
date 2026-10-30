@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -9,9 +10,12 @@ import 'package:frontend/providers/settings_provider.dart';
 import 'package:frontend/screens/reports/admin_dashboard_screen.dart';
 import 'package:frontend/screens/reports/income_statement_report_screen.dart';
 import 'package:frontend/screens/reports/weight_position_screen.dart';
+import 'package:frontend/screens/reports/widgets/dashboard_kit.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'support/shots.dart';
 
 /// The admin dashboard says the server's figures (the owner, 11 Oct 2026).
 ///
@@ -51,6 +55,16 @@ final _dashboard = <String, dynamic>{
   'valuation': {},
   'series': {},
   'safe_boxes': [],
+  'sales_purchases_summary': {
+    'today': _period(),
+    'month': _period(sales: 338940.10, purchases: 339579.02, expenses: 62074.22),
+    'year': _period(sales: 11602016.09, purchases: 13552408.09, expenses: 776885.09,
+        scrap: 7100000.0, settlements: 2400000.0),
+  },
+};
+
+// DASH-10: where the business stands -- its own request, beside the dashboard's.
+final _standing = <String, dynamic>{
   // DASH-4: the production copy's, 27 Oct 2026.
   'positions': {
     'customers': {'owe_us_cash': 0.0, 'we_owe_cash': 0.0, 'owe_us_gold': 0.0, 'we_owe_gold': 0.0},
@@ -100,19 +114,14 @@ final _dashboard = <String, dynamic>{
       {'id': 7, 'name': 'سارة', 'count': 2, 'loss_cash': -150.0},
     ],
   },
-  'sensitive_operations': [],
-  'sales_purchases_summary': {
-    'today': _period(),
-    'month': _period(sales: 338940.10, purchases: 339579.02, expenses: 62074.22),
-    'year': _period(sales: 11602016.09, purchases: 13552408.09, expenses: 776885.09,
-        scrap: 7100000.0, settlements: 2400000.0),
-  },
 };
 
 class _Api extends ApiService {
-  _Api({this.gramProfit = const {}});
+  _Api({this.gramProfit = const {}, this.standingGate});
 
   final Map<String, dynamic> gramProfit;
+  // Holds where the business stands until the test lets it come.
+  final Future<void>? standingGate;
   int invoiceCalls = 0;
 
   // «التسكير الآن» has its own test (weight_position_summary_card_test.dart).
@@ -122,6 +131,12 @@ class _Api extends ApiService {
   @override
   Future<Map<String, dynamic>> getAdminDashboard() async =>
       jsonDecode(jsonEncode(_dashboard)) as Map<String, dynamic>;
+
+  @override
+  Future<Map<String, dynamic>> getAdminDashboardStanding() async {
+    await standingGate;
+    return jsonDecode(jsonEncode(_standing)) as Map<String, dynamic>;
+  }
 
   // DASH-9: the race's own reading.
   @override
@@ -149,8 +164,7 @@ class _Api extends ApiService {
 }
 
 void main() {
-  Future<_Api> open(WidgetTester tester,
-      {double width = 1440, ThemeData? theme, Map<String, dynamic> gramProfit = const {}}) async {
+  Future<_Api> mount(WidgetTester tester, _Api api, {double width = 1440, ThemeData? theme}) async {
     final cairo = FontLoader('Cairo');
     for (final f in ['Regular', 'SemiBold', 'Bold']) {
       cairo.addFont(rootBundle.load('assets/fonts/Cairo-$f.ttf'));
@@ -162,7 +176,6 @@ void main() {
     addTearDown(tester.view.reset);
     final settings = SettingsProvider();
     await settings.loadSettings(fetchRemote: false);
-    final api = _Api(gramProfit: gramProfit);
     await tester.pumpWidget(ChangeNotifierProvider.value(
       value: settings,
       child: MaterialApp(
@@ -175,6 +188,10 @@ void main() {
     return api;
   }
 
+  Future<_Api> open(WidgetTester tester,
+          {double width = 1440, ThemeData? theme, Map<String, dynamic> gramProfit = const {}}) =>
+      mount(tester, _Api(gramProfit: gramProfit), width: width, theme: theme);
+
   testWidgets('a quiet morning asks the server once -- the screen sums no invoices', (tester) async {
     final api = await open(tester);
     expect(api.invoiceCalls, 0, reason: 'three requests of up to 1,000 invoices each, every load');
@@ -183,6 +200,7 @@ void main() {
 
   testWidgets('the period\'s activity, nothing subtracted: no profit, no loss of millions', (tester) async {
     await open(tester);
+    await tester.ensureVisible(find.text('هذه السنة'));
     await tester.tap(find.text('هذه السنة'));
     await tester.pump(const Duration(seconds: 1));
 
@@ -225,6 +243,7 @@ void main() {
     // The owner (12 Oct 2026): «هناك تكرار لرمز العملة في حركة اليوم» -- the
     // row added the symbol to an amount _formatCurrency had already given it.
     await open(tester);
+    await tester.ensureVisible(find.text('هذه السنة'));
     await tester.tap(find.text('هذه السنة'));
     await tester.pump(const Duration(seconds: 1));
     final card = find.byKey(const Key('dashboard-period-movement'));
@@ -237,6 +256,7 @@ void main() {
     // The owner (12 Oct 2026): «المصروفات أيضًا في تبويبها ليس هناك تفاصيل لها»
     // -- the server sent no count and the tab read empty.
     await open(tester);
+    await tester.ensureVisible(find.text('هذه السنة'));
     await tester.tap(find.text('هذه السنة'));
     await tester.pump(const Duration(seconds: 1));
     await tester.tap(find.text('المصروفات').first);
@@ -251,6 +271,7 @@ void main() {
     // لعدم وجود تمييز بين كل صف وآخر» -- the name sat at one edge, the amount
     // at the other, nothing between them.
     await open(tester);
+    await tester.ensureVisible(find.text('هذه السنة'));
     await tester.tap(find.text('هذه السنة'));
     await tester.pump(const Duration(seconds: 1));
     await tester.tap(find.text('المصروفات').first);
@@ -281,6 +302,7 @@ void main() {
   // and each line its weight beside its amount.
   testWidgets('the period says each purchase, and the weight beside the amount', (tester) async {
     await open(tester);
+    await tester.ensureVisible(find.text('هذه السنة'));
     await tester.tap(find.text('هذه السنة'));
     await tester.pump(const Duration(seconds: 1));
     final card = find.byKey(const Key('dashboard-period-movement'));
@@ -299,13 +321,11 @@ void main() {
     await open(tester);
     final card = find.byKey(const Key('dashboard-positions'));
     expect(card, findsOneWidget);
-    expect(find.descendant(of: card, matching: find.text('للموردين')), findsOneWidget);
+    expect(find.descendant(of: card, matching: find.text('الموردون')), findsOneWidget);
     expect(find.descendant(of: card, matching: find.textContaining('84,471.39')), findsOneWidget);
     expect(find.descendant(of: card, matching: find.textContaining('505.874')), findsOneWidget);
     expect(find.descendant(of: card, matching: find.text('ذهبنا لدى المكاتب')), findsOneWidget);
     expect(find.descendant(of: card, matching: find.textContaining('396.404')), findsOneWidget);
-    expect(find.descendant(of: card, matching: find.text('على العملاء')), findsNothing,
-        reason: 'a line with nothing in it is not said');
   });
 
   // DASH-5: what the banks and the instalment companies still owe us, and the late one.
@@ -315,17 +335,23 @@ void main() {
     expect(card, findsOneWidget);
     expect(find.descendant(of: card, matching: find.textContaining('7,112.00')), findsOneWidget);
     expect(find.descendant(of: card, matching: find.text('تمارا')), findsOneWidget);
-    expect(find.descendant(of: card, matching: find.text('متأخر')), findsOneWidget, reason: 'Tamara only');
+    expect(find.descendant(of: card, matching: find.textContaining('متأخر', findRichText: true)), findsOneWidget,
+        reason: 'Tamara only');
   });
 
-  // DASH-6: what waits for the manager, and only the queues that wait.
+  // DASH-6/10: what waits for the manager -- a pill; its rows when opened, only the queues that wait.
   testWidgets('the dashboard says what waits for the manager', (tester) async {
     await open(tester);
-    final card = find.byKey(const Key('dashboard-approvals'));
-    expect(card, findsOneWidget);
-    expect(find.descendant(of: card, matching: find.text('فواتير')), findsOneWidget);
-    expect(find.descendant(of: card, matching: find.text('سندات')), findsOneWidget);
-    expect(find.descendant(of: card, matching: find.text('مكافآت')), findsNothing, reason: 'none waits');
+    final pill = find.byKey(const Key('dashboard-approvals'));
+    expect(pill, findsOneWidget);
+    expect(find.descendant(of: pill, matching: find.text('3')), findsOneWidget);
+    expect(find.byKey(const Key('dashboard-attention-detail')), findsNothing, reason: 'closed until asked');
+    await tester.tap(pill);
+    await tester.pump(const Duration(milliseconds: 300));
+    final detail = find.byKey(const Key('dashboard-attention-detail'));
+    expect(find.descendant(of: detail, matching: find.text('1 فواتير')), findsOneWidget);
+    expect(find.descendant(of: detail, matching: find.text('2 سندات')), findsOneWidget);
+    expect(find.descendant(of: detail, matching: find.textContaining('مكافآت')), findsNothing, reason: 'none waits');
   });
 
   // The owner, 30 Oct 2026: the gram profit card opened the weight close -- it
@@ -346,14 +372,28 @@ void main() {
     expect(find.byType(WeightPositionScreen), findsNothing);
   });
 
-  // DASH-7: what is wrong now, named, and the safe below zero in its grams.
+  // DASH-7/10: what is wrong now -- a pill, not a block; named, and the safe below zero in its grams.
   testWidgets('the dashboard says what is wrong now', (tester) async {
+    await open(tester, theme: DarkTheme.theme);
+    final pill = find.byKey(const Key('dashboard-wrong-now'));
+    expect(pill, findsOneWidget);
+    expect(tester.getSize(pill).height, lessThan(48), reason: 'a line, not a card (the owner)');
+    await tester.tap(pill);
+    await tester.pump(const Duration(milliseconds: 300));
+    final detail = find.byKey(const Key('dashboard-attention-detail'));
+    expect(find.descendant(of: detail, matching: find.text('ذهب الخزينة في حركاتها يخالف دفترها')), findsOneWidget);
+    expect(find.descendant(of: detail, matching: find.text('خزينة ذهب الكسر مؤقتة تحت الصفر')), findsOneWidget);
+    expect(find.descendant(of: detail, matching: find.text('-446.672 جم')), findsOneWidget);
+  });
+
+  testWidgets('nothing needing the manager is one quiet pill', (tester) async {
+    final saved = jsonDecode(jsonEncode(_standing)) as Map<String, dynamic>;
+    addTearDown(() => _standing..clear()..addAll(saved));
+    _standing['wrong_now'] = {'findings': [], 'negative_safes': [], 'total': 0};
+    _standing['approvals'] = {'total': 0};
     await open(tester);
-    final card = find.byKey(const Key('dashboard-wrong-now'));
-    expect(card, findsOneWidget);
-    expect(find.descendant(of: card, matching: find.text('ذهب الخزينة في حركاتها يخالف دفترها')), findsOneWidget);
-    expect(find.descendant(of: card, matching: find.text('خزينة ذهب الكسر مؤقتة تحت الصفر')), findsOneWidget);
-    expect(find.descendant(of: card, matching: find.text('-446.672 جم')), findsOneWidget);
+    expect(find.byKey(const Key('dashboard-all-clear')), findsOneWidget);
+    expect(find.byKey(const Key('dashboard-wrong-now')), findsNothing);
   });
 
   // DASH-8: the VAT by its direction, the unfiled quarter, and why no output.
@@ -373,8 +413,47 @@ void main() {
     await open(tester);
     final card = find.byKey(const Key('dashboard-employees'));
     expect(card, findsOneWidget);
-    expect(find.descendant(of: card, matching: find.text('1. خالد')), findsOneWidget);
+    expect(find.descendant(of: card, matching: find.text('خالد')), findsOneWidget);
     expect(find.descendant(of: card, matching: find.textContaining('فهد')), findsNothing, reason: 'three lead');
     expect(find.descendant(of: card, matching: find.text('2 فاتورة')), findsOneWidget);
+  });
+
+  // DASH-10 (the owner, 30 Oct 2026): «تعتمد حلقة الانتظار بدل الشكل الذي اعتمدناه
+  // في الثيم» -- the first load is the page's shape in grey, not a spinner; and
+  // the screen does not wait for where the business stands.
+  testWidgets('the first load is the page\'s shape, and the standing does not hold it', (tester) async {
+    final gate = Completer<void>();
+    await mount(tester, _Api(standingGate: gate.future));
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.byKey(const Key('dashboard-period-movement')), findsOneWidget,
+        reason: 'the dashboard is drawn while the standing is on its way');
+    expect(find.byType(DashboardPanelSkeleton), findsWidgets, reason: 'its panels wait in grey');
+    gate.complete();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byKey(const Key('dashboard-positions')), findsOneWidget);
+  });
+
+  testWidgets('three sections: now, the performance with its period, the month and quarter', (tester) async {
+    await open(tester);
+    final now = tester.getTopLeft(find.text('الآن')).dy;
+    final performance = tester.getTopLeft(find.text('الأداء')).dy;
+    final period = tester.getTopLeft(find.byKey(const Key('dashboard-period'))).dy;
+    final month = tester.getTopLeft(find.text('هذا الشهر وهذا الربع')).dy;
+    expect(now, lessThan(performance));
+    expect((period - performance).abs(), lessThan(60), reason: 'the period sits on its section');
+    expect(performance, lessThan(month));
+  });
+
+  // DASH-10: the screen drawn, for looking at (SHOT_DIR; nothing without it).
+  testWidgets('the dashboard drawn, light and dark, wide and narrow', (tester) async {
+    for (final (name, theme) in [('light', LightTheme.theme), ('dark', DarkTheme.theme)]) {
+      await open(tester, theme: theme);
+      await shot(tester, 'dashboard_${name}_desktop');
+      await tester.tap(find.byKey(const Key('dashboard-wrong-now')));
+      await tester.pump(const Duration(milliseconds: 300));
+      await shot(tester, 'dashboard_${name}_alerts_open');
+      await open(tester, theme: theme, width: 390);
+      await shot(tester, 'dashboard_${name}_phone');
+    }
   });
 }

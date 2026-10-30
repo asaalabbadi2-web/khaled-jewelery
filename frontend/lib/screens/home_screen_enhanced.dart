@@ -954,14 +954,18 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
 
     drawerChildren.add(const SizedBox(height: 12));
 
-    // Home as a fixed top action (not a collapsible section)
-    final bool isHomeSelected = _selectedNavIndex == 0;
-    drawerChildren.add(
-      Padding(
+    // Home, and the manager's dashboard for whoever holds it, as fixed top
+    // actions -- not collapsible sections (DASH-3, the owner 30 Oct 2026: «لوحة
+    // تحكم المدير لم تظهر في القائمة الجانبية»).
+    Widget fixedAction(String navKey, IconData icon, String label) {
+      final index = _bottomNavItems.indexOf(navKey);
+      final selected = _selectedNavIndex == index;
+      return Padding(
+        key: ValueKey('drawer-fixed-$navKey'),
         padding: const EdgeInsetsDirectional.fromSTEB(12, 0, 12, 10),
         child: Card(
           elevation: 0,
-          color: isHomeSelected
+          color: selected
               ? gold.withValues(alpha: 0.12)
               : theme.colorScheme.surface,
           shape: RoundedRectangleBorder(
@@ -979,23 +983,29 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                 color: gold.withValues(alpha: 0.14),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: Icon(Icons.home_outlined, color: gold, size: 20),
+              child: Icon(icon, color: gold, size: 20),
             ),
             minLeadingWidth: 34,
             title: Text(
-              isAr ? 'الرئيسية' : 'Home',
-              style: isHomeSelected
+              label,
+              style: selected
                   ? baseLabelStyle.copyWith(fontWeight: FontWeight.bold)
                   : baseLabelStyle,
             ),
             onTap: () async {
               Navigator.of(context).pop();
-              setState(() => _selectedNavIndex = 0);
+              setState(() => _selectedNavIndex = index);
             },
           ),
         ),
-      ),
-    );
+      );
+    }
+
+    drawerChildren.add(fixedAction('home', Icons.home_outlined, isAr ? 'الرئيسية' : 'Home'));
+    if (_bottomNavItems.contains('dashboard')) {
+      drawerChildren.add(fixedAction(
+          'dashboard', Icons.dashboard_customize_outlined, isAr ? 'لوحة تحكم المدير' : "Manager's dashboard"));
+    }
     final sections = _menuSections(isAr, gold);
     // Build section widgets as collapsible ExpansionTiles (card style)
     for (final sec in sections) {

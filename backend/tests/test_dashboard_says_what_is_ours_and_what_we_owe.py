@@ -26,7 +26,7 @@ def rollback_after_each(app, db_fence):
 
 
 def _positions(app, headers):
-    return app.test_client().get('/api/dashboard/admin', headers=headers).get_json()['positions']
+    return app.test_client().get('/api/dashboard/admin/standing', headers=headers).get_json()['positions']
 
 
 def _line(account, *, supplier=None, customer=None, cash_debit=0.0, cash_credit=0.0, debit_21k=0.0, credit_21k=0.0):
