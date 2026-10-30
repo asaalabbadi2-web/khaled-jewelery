@@ -20,9 +20,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// its own: three more requests on every load. The gram profit beside it is
 /// the dashboard's profit; the card says the period's activity.
 
-Map<String, dynamic> _period({double sales = 0, double purchases = 0, double expenses = 0}) => {
-      'sales': {'total_value': sales, 'docs': sales > 0 ? 3 : 0, 'by_user': [], 'by_karat': []},
+Map<String, dynamic> _period({double sales = 0, double purchases = 0, double expenses = 0,
+        double scrap = 0, double settlements = 0}) => {
+      'sales': {'total_value': sales, 'total_weight': sales > 0 ? 1234.5 : 0, 'docs': sales > 0 ? 3 : 0,
+                'by_user': [], 'by_karat': []},
       'purchases': {'total_value': purchases, 'docs': 0, 'by_user': [], 'by_karat': []},
+      'scrap_customers': {'total_value': scrap, 'total_weight': scrap > 0 ? 987.6 : 0, 'docs': scrap > 0 ? 9 : 0,
+                          'by_user': [], 'by_karat': []},
+      'office_settlements': {'total_value': settlements, 'total_weight': settlements > 0 ? 456.7 : 0,
+                             'docs': settlements > 0 ? 2 : 0, 'by_user': [], 'by_karat': []},
       'expenses': {
         'total_value': expenses,
         'docs': expenses == 0 ? 0 : 41,
@@ -33,7 +39,6 @@ Map<String, dynamic> _period({double sales = 0, double purchases = 0, double exp
                 {'account': 'إيجار المعرض', 'value': expenses * 0.4},
               ],
       },
-      'scrap_purchases': {'total_value': 0.0, 'docs': 0, 'by_user': [], 'by_karat': []},
     };
 
 final _dashboard = <String, dynamic>{
@@ -49,7 +54,8 @@ final _dashboard = <String, dynamic>{
   'sales_purchases_summary': {
     'today': _period(),
     'month': _period(sales: 338940.10, purchases: 339579.02, expenses: 62074.22),
-    'year': _period(sales: 11602016.09, purchases: 13552408.09, expenses: 776885.09),
+    'year': _period(sales: 11602016.09, purchases: 13552408.09, expenses: 776885.09,
+        scrap: 7100000.0, settlements: 2400000.0),
   },
 };
 
@@ -203,5 +209,22 @@ void main() {
       expect(amount, findsWidgets, reason: '$name and its amount share the band');
     }
     expect(bandOf(0), isNot(bandOf(1)), reason: 'neighbouring rows are told apart');
+  });
+
+  // DASH-3 (the owner, 30 Oct 2026): the period's card says the three purchases
+  // apart -- a supplier's new gold, a customer's scrap, an office's settlement --
+  // and each line its weight beside its amount.
+  testWidgets('the period says each purchase, and the weight beside the amount', (tester) async {
+    await open(tester);
+    await tester.tap(find.text('هذه السنة'));
+    await tester.pump(const Duration(seconds: 1));
+    final card = find.byKey(const Key('dashboard-period-movement'));
+    for (final name in ['شراء جديد (موردون)', 'شراء كسر (عملاء)', 'تسكيرات (مكاتب)']) {
+      expect(find.descendant(of: card, matching: find.text(name)), findsOneWidget, reason: name);
+    }
+    expect(find.descendant(of: card, matching: find.textContaining('7,100,000.00')), findsOneWidget);
+    for (final grams in ['1,234.5', '987.6', '456.7']) {
+      expect(find.descendant(of: card, matching: find.textContaining(grams)), findsOneWidget, reason: grams);
+    }
   });
 }

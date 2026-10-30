@@ -180,6 +180,7 @@ class PermissionCodes {
   static const String itemsAdjust = 'items.adjust';
   static const String goldPriceView = 'gold_price.view';
   static const String goldPriceUpdate = 'gold_price.update';
+  static const String dashboardAdmin = 'dashboard.admin';   // the manager's alone
 
   // المحاسبة
   static const String accountsView = 'accounts.view';

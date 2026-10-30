@@ -1,7 +1,9 @@
 import 'reconciliation_findings_screen.dart';
 import 'vat_returns_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../api_service.dart';
+import '../../providers/auth_provider.dart';
 import '../../models/report_catalog.dart';
 import '../../models/report_models.dart';
 import '../../widgets/report_category_section.dart';
@@ -187,6 +189,11 @@ class _ReportsMainScreenState extends State<ReportsMainScreen> {
   Iterable<ReportCategory> get _filteredCategories sync* {
     for (final category in _allCategories) {
       final filteredReports = category.reports.where((report) {
+        // The manager's dashboard is the manager's alone (DASH-3, 30 Oct 2026).
+        if (report.id == 'admin_dashboard' &&
+            !Provider.of<AuthProvider>(context, listen: false).hasPermission('dashboard.admin')) {
+          return false;
+        }
         final matchesType =
             _selectedType == null || report.type == _selectedType;
         final query = _searchQuery.toLowerCase();

@@ -66,7 +66,7 @@ MATRIX = {
     'supplier_settlement_adjustments.approve': 'MC', 'supplier_settlement_adjustments.approve_other': 'M',
     'supplier_settlement_adjustments.post': 'MC', 'supplier_settlement_adjustments.reverse': 'MC',
     'supplier_settlement_adjustments.cancel': 'MC',
-    'reports.financial': 'MC', 'reports.inventory': 'MCS', 'reports.sales': 'MC', 'reports.purchases': 'MC',
+    'reports.financial': 'MC', 'dashboard.admin': 'M', 'reports.inventory': 'MCS', 'reports.sales': 'MC', 'reports.purchases': 'MC',
     'reports.customers': 'MC', 'reports.employees': 'M', 'reports.gold_position': 'MC',
     'print.invoices': 'MCE', 'print.reports': 'MCS', 'print.statements': 'MC',
 }

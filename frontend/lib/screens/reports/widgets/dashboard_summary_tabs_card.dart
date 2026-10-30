@@ -5,7 +5,8 @@ import '../../../theme/app_semantic_colors.dart';
 import '../../../theme/app_theme.dart';
 import '../../../utils/currency_utils.dart' as cu;
 
-enum _SummaryTab { sales, purchases, scrap, expenses }
+// Three purchases apart, and the revenues (DASH-3, the owner 30 Oct 2026).
+enum _SummaryTab { sales, purchases, scrap, settlements, expenses, revenues }
 
 typedef _SummaryTabInfo = ({
   String label,
@@ -98,9 +99,13 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
       case _SummaryTab.purchases:
         return _asDouble((prev['purchases'] as Map?)?['total_value']);
       case _SummaryTab.scrap:
-        return _asDouble((prev['scrap_purchases'] as Map?)?['total_value']);
+        return _asDouble((prev['scrap_customers'] as Map?)?['total_value']);
+      case _SummaryTab.settlements:
+        return _asDouble((prev['office_settlements'] as Map?)?['total_value']);
       case _SummaryTab.expenses:
         return _asDouble((prev['expenses'] as Map?)?['total_value']);
+      case _SummaryTab.revenues:
+        return _asDouble((prev['revenues'] as Map?)?['total_value']);
     }
   }
 
@@ -112,8 +117,12 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
         return _tones.info.fg;
       case _SummaryTab.scrap:
         return theme.colorScheme.secondary;
+      case _SummaryTab.settlements:
+        return theme.colorScheme.tertiary;
       case _SummaryTab.expenses:
         return _tones.warning.fg;
+      case _SummaryTab.revenues:
+        return _tones.gold.fg;
     }
   }
 
@@ -134,7 +143,7 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
       case _SummaryTab.purchases:
         final d = (_periodData['purchases'] as Map<String, dynamic>?) ?? {};
         return (
-          label: isAr ? 'المشتريات' : 'Purchases',
+          label: isAr ? 'شراء جديد' : 'New gold',
           count: (d['docs'] as int?) ?? 0,
           value: _asDouble(d['total_value']),
           weight: _asDouble(d['total_weight']),
@@ -144,14 +153,26 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
         );
       case _SummaryTab.scrap:
         final d =
-            (_periodData['scrap_purchases'] as Map<String, dynamic>?) ?? {};
+            (_periodData['scrap_customers'] as Map<String, dynamic>?) ?? {};
         return (
-          label: isAr ? 'الكسر' : 'Scrap',
+          label: isAr ? 'كسر' : 'Scrap',
           count: (d['docs'] as int?) ?? 0,
           value: _asDouble(d['total_value']),
           weight: _asDouble(d['total_weight']),
           color: _tabColor(tab, theme),
           icon: Icons.recycling_rounded,
+          data: d,
+        );
+      case _SummaryTab.settlements:
+        final d =
+            (_periodData['office_settlements'] as Map<String, dynamic>?) ?? {};
+        return (
+          label: isAr ? 'تسكيرات' : 'Settlements',
+          count: (d['docs'] as int?) ?? 0,
+          value: _asDouble(d['total_value']),
+          weight: _asDouble(d['total_weight']),
+          color: _tabColor(tab, theme),
+          icon: Icons.handshake_outlined,
           data: d,
         );
       case _SummaryTab.expenses:
@@ -160,9 +181,20 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
           label: isAr ? 'المصروفات' : 'Expenses',
           count: (d['docs'] as int?) ?? 0,
           value: _asDouble(d['total_value']),
-          weight: 0,
+          weight: _asDouble(d['total_weight']),
           color: _tabColor(tab, theme),
           icon: Icons.receipt_long_rounded,
+          data: d,
+        );
+      case _SummaryTab.revenues:
+        final d = (_periodData['revenues'] as Map<String, dynamic>?) ?? {};
+        return (
+          label: isAr ? 'الإيرادات' : 'Revenues',
+          count: (d['docs'] as int?) ?? 0,
+          value: _asDouble(d['total_value']),
+          weight: _asDouble(d['total_weight']),
+          color: _tabColor(tab, theme),
+          icon: Icons.paid_outlined,
           data: d,
         );
     }
@@ -333,20 +365,19 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
       children: [
         _buildTopMetrics(info, tab, theme, isAr),
         SizedBox(height: 14),
-        if (tab != _SummaryTab.expenses && byKarat.isNotEmpty) ...[
+        if (!_isLedgerTab(tab) && byKarat.isNotEmpty) ...[
           _buildSectionHeader(isAr ? 'توزيع العيارات' : 'By Karat', theme),
           _buildKaratList(byKarat, info.color, theme, isAr),
           SizedBox(height: 14),
         ],
-        if ((tab == _SummaryTab.sales || tab == _SummaryTab.purchases) &&
-            byUser.isNotEmpty) ...[
+        if (!_isLedgerTab(tab) && byUser.isNotEmpty) ...[
           _buildSectionHeader(
             isAr ? 'أداء الموظفين' : 'Staff Performance',
             theme,
           ),
           _buildUsersList(byUser, info.color, theme, isAr),
         ],
-        if (tab == _SummaryTab.expenses && byAccount.isNotEmpty) ...[
+        if (_isLedgerTab(tab) && byAccount.isNotEmpty) ...[
           _buildSectionHeader(isAr ? 'حسب الحساب' : 'By Account', theme),
           _buildAccountsList(byAccount, info.color, theme),
         ],
@@ -465,7 +496,7 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
         Expanded(
           child: metric(
             // The expenses count entries, not invoices (12 Oct 2026).
-            label: tab == _SummaryTab.expenses
+            label: _isLedgerTab(tab)
                 ? (isAr ? 'القيود' : 'Entries')
                 : (isAr ? 'الفواتير' : 'Docs'),
             value: '${info.count}',
@@ -718,6 +749,10 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
     );
   }
 
+  /// The expenses and the revenues are read from the books: their entries, by account.
+  bool _isLedgerTab(_SummaryTab tab) =>
+      tab == _SummaryTab.expenses || tab == _SummaryTab.revenues;
+
   Widget _buildAccountsList(List items, Color accent, ThemeData theme) {
     var index = 0;
     return Column(
@@ -736,7 +771,10 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
             style: TextStyle(fontSize: 11.5),
             overflow: TextOverflow.ellipsis,
           ),
-          amount: _formatCurrency(_asDouble(e['value'])),
+          // Its grams beside its riyals, when it has any (DASH-3).
+          amount: _asDouble(e['weight']).abs() >= 0.0005
+              ? '${_formatWeight(_asDouble(e['weight']))}   ${_formatCurrency(_asDouble(e['value']))}'
+              : _formatCurrency(_asDouble(e['value'])),
           accent: accent,
         );
       }).toList(),

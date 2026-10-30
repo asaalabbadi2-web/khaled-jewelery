@@ -1276,8 +1276,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     final isArabic = widget.isArabic;
     final period = (salesPurchasesSummary[_summaryPeriod] as Map<String, dynamic>?) ?? {};
     double value(String key) => _asDouble(((period[key] as Map<String, dynamic>?) ?? {})['total_value']);
+    double weight(String key) => _asDouble(((period[key] as Map<String, dynamic>?) ?? {})['total_weight']);
     final sales = value('sales');
+    // Three purchases, apart (DASH-3, the owner 30 Oct 2026): a supplier's new
+    // gold, a customer's scrap, an office's settlement.
     final purchases = value('purchases');
+    final scrap = value('scrap_customers');
+    final settlements = value('office_settlements');
     final expenses = value('expenses');
     final cash = _asDouble(liquidity['cash_available']);
     final label = switch (_timeRange) {
@@ -1286,11 +1291,22 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       _TimeRange.year => isArabic ? 'السنة' : 'Year',
     };
 
-    Widget row(String name, double amount, Color color) => Padding(
+    // Its weight beside its amount (the owner, 30 Oct 2026).
+    Widget row(String name, double amount, Color color, [double grams = 0]) => Padding(
           padding: EdgeInsets.only(top: 8),
           child: Row(
             children: [
               Expanded(child: Text(name, style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant))),
+              if (grams.abs() >= 0.0005) ...[
+                Text(
+                  _formatWeight(grams),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+                const SizedBox(width: 10),
+              ],
               _currencyAwareText(
                 _formatCurrency(amount),
                 style: theme.textTheme.titleSmall?.copyWith(
@@ -1316,16 +1332,21 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         children: [
           Text(isArabic ? 'حركة $label' : '$label activity',
               style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800)),
-          if (sales == 0 && purchases == 0 && expenses == 0)
+          if (sales == 0 && purchases == 0 && scrap == 0 && settlements == 0 && expenses == 0)
             Padding(
               padding: EdgeInsets.only(top: 8),
               child: Text(isArabic ? 'لا توجد عمليات بعد' : 'No activity yet',
                   style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
             )
           else ...[
-            row(isArabic ? 'المبيعات' : 'Sales', sales, tones.ready.fg),
-            row(isArabic ? 'المشتريات' : 'Purchases', purchases, tones.cash.fg),
-            row(isArabic ? 'المصروفات التشغيلية' : 'Operating expenses', expenses, tones.warning.fg),
+            row(isArabic ? 'المبيعات' : 'Sales', sales, tones.ready.fg, weight('sales')),
+            row(isArabic ? 'شراء جديد (موردون)' : 'New gold (suppliers)', purchases, tones.cash.fg,
+                weight('purchases')),
+            row(isArabic ? 'شراء كسر (عملاء)' : 'Scrap (customers)', scrap, tones.cash.fg, weight('scrap_customers')),
+            row(isArabic ? 'تسكيرات (مكاتب)' : 'Settlements (offices)', settlements, tones.cash.fg,
+                weight('office_settlements')),
+            row(isArabic ? 'المصروفات التشغيلية' : 'Operating expenses', expenses, tones.warning.fg,
+                weight('expenses')),
           ],
           Divider(height: 20, color: scheme.outlineVariant),
           row(isArabic ? 'السيولة الآن' : 'Cash now', cash, scheme.onSurface),

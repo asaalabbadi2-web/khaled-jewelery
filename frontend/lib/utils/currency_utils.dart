@@ -182,8 +182,9 @@ class CurrencyText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final effectiveStyle =
-        style ?? DefaultTextStyle.of(context).style.copyWith(inherit: true);
+    // The theme's text, with the style on it: RichText takes no color from the
+    // theme, and a style without one drew black on a dark card (30 Oct 2026).
+    final effectiveStyle = DefaultTextStyle.of(context).style.merge(style);
     final fontSize = effectiveStyle.fontSize ?? 14.0;
     final color = effectiveStyle.color ?? Colors.black;
     final numStr = _fmtNum(
@@ -298,8 +299,9 @@ class SarAwareText extends StatelessWidget {
       );
     }
 
-    final effectiveStyle =
-        style ?? DefaultTextStyle.of(context).style.copyWith(inherit: true);
+    // The theme's text, with the style on it: RichText takes no color from the
+    // theme, and a style without one drew black on a dark card (30 Oct 2026).
+    final effectiveStyle = DefaultTextStyle.of(context).style.merge(style);
 
     return RichText(
       text: TextSpan(

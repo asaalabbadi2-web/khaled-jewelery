@@ -5279,7 +5279,7 @@ def get_dashboard_summary_debug():
     })
 
 @reports_bp.route('/dashboard/admin', methods=['GET'])
-@require_permission('reports.financial')
+@require_permission('dashboard.admin')   # the manager's alone (DASH-3, the owner 30 Oct 2026)
 def get_admin_dashboard():
     """Admin dashboard aggregates for KPIs, charts, and alerts.
 
@@ -5953,7 +5953,7 @@ def get_admin_dashboard():
         except Exception:
             pass
 
-        def _build_inv_summary(inv_types_dict, start, end, exclude_gold_type=None):
+        def _build_inv_summary(inv_types_dict, start, end, exclude_gold_type=None, where=None):
             # Uses Invoice.query directly (same proven pattern as today_invoices/series_invoices).
             try:
                 inv_types = [str(t).strip() for t in inv_types_dict.keys() if str(t).strip()]
@@ -5967,6 +5967,9 @@ def get_admin_dashboard():
                     .filter(Invoice.date >= start)
                     .filter(Invoice.date < end)
                 )
+
+                if where is not None:
+                    q = q.filter(where)
 
                 if exclude_gold_type:
                     try:
@@ -6122,59 +6125,115 @@ def get_admin_dashboard():
                     {'account': (name or number or '?').strip(), 'value': round(float(net or 0.0), 2)}
                     for _id, name, number, net in rows if abs(float(net or 0.0)) >= 0.005
                 ]
+                # Its grams too: the weight twins' lines (DASH-3, the owner 30 Oct 2026).
+                weight, weight_by = _grams_of(ids, start, end)
+                for a in by_account:
+                    a['weight'] = weight_by.get(a['account'], 0.0)
+                for name, grams in weight_by.items():
+                    if not any(a['account'] == name for a in by_account):
+                        by_account.append({'account': name, 'value': 0.0, 'weight': grams})
                 return {
                     'total_value': round(sum(a['value'] for a in by_account), 2),
+                    'total_weight': weight,
                     'by_account': sorted(by_account, key=lambda x: -x['value']),
                     'docs': int(docs),
                 }
             except Exception:
-                return {'total_value': 0.0, 'by_account': [], 'docs': 0}
+                return {'total_value': 0.0, 'total_weight': 0.0, 'by_account': [], 'docs': 0}
 
-        def _build_scrap_summary(start, end):
-            """مشتريات الكسر والتسكير فقط (gold_type='scrap')."""
+        def _grams_of(account_ids, start, end, *, credit_side=False):
+            """(main-karat grams, {account name: grams}) the weight lines of
+            *account_ids* and their weight twins carry in the period (DASH-3) --
+            an expense's debits, a revenue's credits, net of their reversals."""
+            from accounting.balances import counted_line_filters
+            from pricing.gold_price_service import get_main_karat
+            if not account_ids:
+                return 0.0, {}
+            main = float(get_main_karat())
+            owner_of = {}
+            for acc in AccModel.query.filter(AccModel.id.in_(list(account_ids))).all():
+                owner_of[acc.id] = acc
+                if acc.memo_account_id:
+                    owner_of[int(acc.memo_account_id)] = acc
+            grams = sum(
+                (getattr(JELine, f'debit_{k}k') - getattr(JELine, f'credit_{k}k')) * (k / main)
+                for k in (18, 21, 22, 24))
+            rows = (
+                db.session.query(JELine.account_id, db.func.coalesce(db.func.sum(grams), 0.0))
+                .join(JE2, JELine.journal_entry_id == JE2.id)
+                .filter(JELine.account_id.in_(list(owner_of)))
+                .filter(*counted_line_filters())
+                .filter(JE2.date >= start)
+                .filter(JE2.date < end)
+                .group_by(JELine.account_id)
+                .all()
+            )
+            by_owner = {}
+            for account_id, net in rows:
+                value = float(net or 0.0) * (-1.0 if credit_side else 1.0)
+                owner = owner_of.get(int(account_id))
+                name = ((owner.name if owner else None) or '?').strip()
+                by_owner[name] = by_owner.get(name, 0.0) + value
+            return round(sum(by_owner.values()), 3), {k: round(v, 3) for k, v in by_owner.items() if abs(v) >= 0.0005}
+
+        def _build_revenues_summary(start, end):
+            """The revenues the gram profit counts -- the owner's marks (ADR-048) --
+            in riyals and in grams (DASH-3, the owner 30 Oct 2026)."""
             try:
-                scrap_inv_types = {'شراء من عميل': 1, 'شراء': 1, 'مرتجع شراء': -1}
-                invs = (
-                    Invoice.query
-                    .filter(Invoice.invoice_type.in_(list(scrap_inv_types.keys())))
-                    .filter(Invoice.gold_type == 'scrap')
-                    .filter(Invoice.is_posted.is_(True))
-                    .filter(Invoice.date >= start)
-                    .filter(Invoice.date < end)
+                from accounting.balances import counted_line_filters
+                from services.gram_profit_accounts import gram_profit_accounts
+                ids, _ = gram_profit_accounts()
+                if not ids:
+                    return {'total_value': 0.0, 'total_weight': 0.0, 'by_account': [], 'docs': 0}
+                docs = (
+                    db.session.query(db.func.count(db.func.distinct(JE2.id)))
+                    .join(JELine, JELine.journal_entry_id == JE2.id)
+                    .filter(JELine.account_id.in_(list(ids)))
+                    .filter(*counted_line_filters())
+                    .filter(JE2.date >= start)
+                    .filter(JE2.date < end)
+                    .scalar()
+                ) or 0
+                rows = (
+                    db.session.query(AccModel.name, AccModel.account_number,
+                                     db.func.coalesce(db.func.sum(JELine.cash_credit), 0.0)
+                                     - db.func.coalesce(db.func.sum(JELine.cash_debit), 0.0))
+                    .join(JELine, JELine.account_id == AccModel.id)
+                    .join(JE2, JELine.journal_entry_id == JE2.id)
+                    .filter(AccModel.id.in_(list(ids)))
+                    .filter(*counted_line_filters())
+                    .filter(JE2.date >= start)
+                    .filter(JE2.date < end)
+                    .group_by(AccModel.name, AccModel.account_number)
                     .all()
                 )
-                total_value = 0.0
-                total_weight = 0.0
-                for inv in invs:
-                    sign = scrap_inv_types.get(inv.invoice_type, 1)
-                    total_value += float(inv.total or 0) * sign
-                    total_weight += float(inv.total_weight or 0) * sign
-                # Current scrap moving average
-                from models import InventoryCostingConfig as ICC
-                scrap_cfg = ICC.query.filter_by(costing_type='scrap').first()
-                avg_rate = float(scrap_cfg.avg_total_cost_per_gram or 0.0) if scrap_cfg else 0.0
-                avg_gold = float(scrap_cfg.avg_gold_price_per_gram or 0.0) if scrap_cfg else 0.0
-                cum_weight = float(scrap_cfg.total_inventory_weight or 0.0) if scrap_cfg else 0.0
+                weight, weight_by = _grams_of(ids, start, end, credit_side=True)
+                by_account = [{'account': (name or number or '?').strip(), 'value': round(float(net or 0.0), 2)}
+                              for name, number, net in rows if abs(float(net or 0.0)) >= 0.005]
+                for a in by_account:
+                    a['weight'] = weight_by.get(a['account'], 0.0)
                 return {
-                    'total_value': round(total_value, 2),
-                    'total_weight': round(total_weight, 3),
-                    'docs': len(invs),
-                    'avg_rate': round(avg_rate, 4),
-                    'avg_gold': round(avg_gold, 4),
-                    'cumulative_weight': round(cum_weight, 3),
+                    'total_value': round(sum(a['value'] for a in by_account), 2),
+                    'total_weight': weight,
+                    'by_account': sorted(by_account, key=lambda x: -x['value']),
+                    'docs': int(docs),
                 }
             except Exception:
-                return {'total_value': 0.0, 'total_weight': 0.0, 'docs': 0, 'avg_rate': 0.0, 'avg_gold': 0.0, 'cumulative_weight': 0.0}
+                return {'total_value': 0.0, 'total_weight': 0.0, 'by_account': [], 'docs': 0}
 
         for period_key, (p_start, p_end) in _summary_periods.items():
             try:
                 sales_purchases_summary[period_key] = {
                     'sales': _build_inv_summary(sale_types, p_start, p_end),
-                    # Exclude scrap invoices to avoid double-counting:
-                    # scrap is tracked separately in scrap_purchases.
-                    'purchases': _build_inv_summary(purchase_types, p_start, p_end, exclude_gold_type='scrap'),
+                    # Three purchases, apart (DASH-3, the owner 30 Oct 2026): a
+                    # supplier's, a customer's scrap, an office's settlement.
+                    'purchases': _build_inv_summary({'شراء': 1, 'مرتجع شراء (مورد)': -1}, p_start, p_end,
+                                                    where=Invoice.office_id.is_(None)),
+                    'scrap_customers': _build_inv_summary({'شراء من عميل': 1, 'مرتجع شراء': -1}, p_start, p_end),
+                    'office_settlements': _build_inv_summary({'شراء': 1}, p_start, p_end,
+                                                             where=Invoice.office_id.isnot(None)),
                     'expenses': _build_expenses_summary(p_start, p_end),
-                    'scrap_purchases': _build_scrap_summary(p_start, p_end),
+                    'revenues': _build_revenues_summary(p_start, p_end),
                 }
             except Exception as _period_err:
                 import traceback

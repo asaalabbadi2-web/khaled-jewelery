@@ -188,13 +188,17 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
   /// The side menu's sections left open, on this device (ADR-057 ق٠).
   static const _openSectionsKey = 'drawer_open_sections';
   Set<String> _openDrawerSections = {};
-  final List<String> _bottomNavItems = [
-    'home',
-    'invoices',
-    'customers',
-    'items',
-    'settings',
-  ];
+  /// The fixed menu. The manager's dashboard is in it for whoever holds it
+  /// (DASH-3, the owner 30 Oct 2026: the manager's alone).
+  List<String> get _bottomNavItems => [
+        'home',
+        if (Provider.of<AuthProvider>(context, listen: false).hasPermission('dashboard.admin'))
+          'dashboard',
+        'invoices',
+        'customers',
+        'items',
+        'settings',
+      ];
 
   bool isLoading = true;
 
@@ -2659,6 +2663,11 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
   List<BottomNavigationBarItem> _getBottomNavItems(bool isAr) {
     final Map<String, Map<String, dynamic>> availableItems = {
       'home': {'icon': Icons.home, 'label_ar': 'الرئيسية', 'label_en': 'Home'},
+      'dashboard': {
+        'icon': Icons.dashboard_customize,
+        'label_ar': 'لوحة المدير',
+        'label_en': 'Dashboard',
+      },
       'invoices': {
         'icon': Icons.receipt_long,
         'label_ar': 'الفواتير',
@@ -2698,13 +2707,16 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
 
   // Build content based on selected bottom nav tab
   Widget _buildSelectedTabContent(bool isAr) {
-    final navKey = _bottomNavItems[_selectedNavIndex];
+    final items = _bottomNavItems;
+    final navKey = items[_selectedNavIndex.clamp(0, items.length - 1)];
     final isHomeTab = navKey == 'home';
 
     Widget tab;
     switch (navKey) {
       case 'home':
         tab = _buildHomeTabContent(isAr);
+      case 'dashboard':
+        tab = AdminDashboardScreen(api: api, isArabic: isAr);
       case 'invoices':
         tab = InvoicesListScreen(isArabic: isAr, embedded: true);
       case 'customers':
@@ -4675,6 +4687,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     // تقارير
     'reports_center':          'ANY_REPORT',
     'gold_price_history':      'reports.financial',
+    'admin_dashboard':         'dashboard.admin',   // the manager's alone (DASH-3)
     // أدوات تشغيلية
     'clearing_settlement':     'MANAGER_ONLY',
     // مستخدمون وإعدادات النظام

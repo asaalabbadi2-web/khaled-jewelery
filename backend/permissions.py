@@ -142,6 +142,8 @@ ACCOUNTING_PERMISSIONS = {
 # 7. التقارير
 REPORTS_PERMISSIONS = {
     'reports.financial': 'التقارير المالية',
+    # لوحة تحكم المدير للمدير وحده (DASH-3، المالك 30 أكتوبر 2026): المحاسب يرى التقارير المالية لا اللوحة
+    'dashboard.admin': 'لوحة تحكم المدير',
     'reports.inventory': 'تقارير المخزون',
     'reports.sales': 'تقارير المبيعات',
     'reports.purchases': 'تقارير المشتريات',
@@ -207,6 +209,7 @@ ROLE_PERMISSIONS = {
         'supplier_settlement_adjustments.post',
         'supplier_settlement_adjustments.reverse',
         'supplier_settlement_adjustments.cancel',
+        'dashboard.admin',
         'reports.financial', 'reports.inventory', 'reports.sales', 'reports.purchases',
         'reports.customers', 'reports.employees', 'reports.gold_position',
         'print.invoices', 'print.reports', 'print.statements',
