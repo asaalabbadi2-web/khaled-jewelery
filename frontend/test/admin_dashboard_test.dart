@@ -72,13 +72,17 @@ final _standing = <String, dynamic>{
     'offices_gold': 396.404,
     'offices': [],
   },
-  // DASH-5: the production copy's, 27 Oct 2026.
+  // DASH-5: the production copy's, 31 Oct 2026 -- by the scheduler's reading.
   'clearing': {
-    'total': 7112.0,
+    'total': 75312.0,
     'overdue': 1,
     'safes': [
-      {'safe': 'مدى', 'amount': 3650.0, 'payments': 3, 'next_deposit': '2026-10-28', 'overdue': false},
-      {'safe': 'تمارا', 'amount': 2762.0, 'payments': 3, 'next_deposit': '2026-10-21', 'overdue': true},
+      {'safe': 'مدى', 'amount': 12000.0, 'payments': 5, 'next_deposit': '2026-10-31', 'below_minimum': false,
+       'overdue': true, 'overdue_since': '2026-10-31'},
+      {'safe': 'تابي', 'amount': 35000.0, 'payments': 2, 'next_deposit': '2026-11-02', 'below_minimum': false,
+       'overdue': false, 'overdue_since': null},
+      {'safe': 'تمارا', 'amount': 28312.0, 'payments': 7, 'next_deposit': '2026-11-04', 'below_minimum': false,
+       'overdue': false, 'overdue_since': null},
     ],
   },
   // DASH-6: one held invoice and one voucher.
@@ -373,10 +377,26 @@ void main() {
     await open(tester);
     final card = find.byKey(const Key('dashboard-clearing'));
     expect(card, findsOneWidget);
-    expect(find.descendant(of: card, matching: find.textContaining('7,112.00')), findsOneWidget);
+    expect(find.descendant(of: card, matching: find.textContaining('75,312.00')), findsOneWidget);
     expect(find.descendant(of: card, matching: find.text('تمارا')), findsOneWidget);
     expect(find.descendant(of: card, matching: find.textContaining('متأخر', findRichText: true)), findsOneWidget,
-        reason: 'Tamara only');
+        reason: 'Mada only, as the alarm says');
+    expect(find.descendant(of: card, matching: find.textContaining('الإيداع 2026-11-04', findRichText: true)),
+        findsOneWidget, reason: "Tamara's next deposit, by its schedule");
+  });
+
+  // The 31 Oct copy: what waits below its method's minimum is not late -- it waits.
+  testWidgets('what waits below its minimum is said so, not late', (tester) async {
+    final saved = jsonDecode(jsonEncode(_standing)) as Map<String, dynamic>;
+    addTearDown(() => _standing..clear()..addAll(saved));
+    ((_standing['clearing'] as Map)['safes'] as List)[2] = {
+      'safe': 'تمارا', 'amount': 2392.0, 'payments': 2, 'next_deposit': null, 'below_minimum': true,
+      'overdue': false, 'overdue_since': null,
+    };
+    await open(tester);
+    final card = find.byKey(const Key('dashboard-clearing'));
+    expect(find.descendant(of: card, matching: find.textContaining('دون الحد الأدنى للإيداع', findRichText: true)),
+        findsOneWidget);
   });
 
   // DASH-6/10: what waits for the manager -- a pill; its rows when opened, only the queues that wait.

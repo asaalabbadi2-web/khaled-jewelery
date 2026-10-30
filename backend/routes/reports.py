@@ -5312,7 +5312,7 @@ def get_admin_dashboard_standing():
 
     sections = {
         'positions': positions,
-        'clearing': lambda: clearing_pending(now.date()),
+        'clearing': lambda: clearing_pending(now),
         'approvals': approvals,
         'wrong_now': lambda: alerts(safe_rows()),
         'vat': lambda: vat_due(now.date()),

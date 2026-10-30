@@ -252,10 +252,16 @@ class DashboardClearingPanel extends StatelessWidget {
                                 text: isArabic ? 'متأخر' : 'Late',
                                 style: TextStyle(color: tones.blocked.fg, fontWeight: FontWeight.w800),
                               ),
+                            // Late, below its minimum, or its deposit's day -- the
+                            // scheduler's own reading, the server's (the 31 Oct copy).
                             TextSpan(
                               text: s['overdue'] == true
-                                  ? (isArabic ? ' — كان ${s['next_deposit'] ?? '—'}' : ' — due ${s['next_deposit'] ?? '—'}')
-                                  : (isArabic ? 'الإيداع ${s['next_deposit'] ?? '—'}' : 'deposit ${s['next_deposit'] ?? '—'}'),
+                                  ? (isArabic
+                                      ? ' — كان ${s['overdue_since'] ?? s['next_deposit'] ?? '—'}'
+                                      : ' — due ${s['overdue_since'] ?? s['next_deposit'] ?? '—'}')
+                                  : s['below_minimum'] == true
+                                      ? (isArabic ? 'دون الحد الأدنى للإيداع' : 'below its minimum to deposit')
+                                      : (isArabic ? 'الإيداع ${s['next_deposit'] ?? '—'}' : 'deposit ${s['next_deposit'] ?? '—'}'),
                             ),
                           ]),
                           style: muted,
