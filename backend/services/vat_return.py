@@ -82,6 +82,14 @@ def _moved(account_ids, start: date, end: date) -> dict[int, float]:
     return {i: float(v or 0) for i, v in rows}
 
 
+def period_vat(start: date, end: date) -> tuple[dict, dict]:
+    """({output account: what the period credited}, {input account: what it debited}),
+    filings left out -- the one reading, for a return and for the manager's
+    dashboard (DASH-8). Nothing here writes."""
+    return ({i: -v for i, v in _moved(sales_vat_account_ids(), start, end).items()},
+            _moved(_input_vat_account_ids(), start, end))
+
+
 def file_vat_return(*, start: date, end: date, by: str, now, dry_run: bool = False) -> dict:
     if start > end:
         raise VatReturnRefused('INVALID_PERIOD', 'بداية الفترة بعد نهايتها')
@@ -92,8 +100,7 @@ def file_vat_return(*, start: date, end: date, by: str, now, dry_run: bool = Fal
         raise VatReturnRefused('PERIOD_OVERLAPS', f'الفترة تتداخل مع إقرار {overlap.period_start} – {overlap.period_end}')
 
     number = dict(Account.query.with_entities(Account.id, Account.account_number).all())
-    output = {i: -v for i, v in _moved(sales_vat_account_ids(), start, end).items()}        # credited
-    input_ = _moved(_input_vat_account_ids(), start, end)                                    # debited
+    output, input_ = period_vat(start, end)                                                 # credited, debited
     lines = defaultdict(float)
     for i, v in output.items():
         lines[i] += v                     # debit what the period credited

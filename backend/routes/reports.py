@@ -5543,31 +5543,47 @@ def get_admin_dashboard():
     if avg_cost_per_gram and spot_price_24k_per_gram and avg_cost_per_gram > 0:
         profit_margin = ((spot_price_24k_per_gram - avg_cost_per_gram) / avg_cost_per_gram) * 100
 
-    # --- Liquidity Coverage (7 days) ---
-    from models import Customer
-    payables_due_7_days = 0.0
-    receivables_due_7_days = 0.0
+    # --- What is ours and what we owe (DASH-4) ---
+    # One reading by the ledger's own readers: the customers, the suppliers and
+    # the offices' deposits, in cash and grams. What we owe the suppliers was
+    # read from customers typed «مورد» -- the suppliers are their own table: it
+    # read nothing, and the coverage ratio with it (30 Oct 2026).
     try:
-        # Get suppliers with credit balances (we owe them)
-        # The ledger's balance, read one way (BALANCE-001 B1) -- not the cached column.
-        from services.party_live_balances import compute_live_customer_balances
-        suppliers = Customer.query.filter(Customer.customer_type == 'مورد').all()
-        live = compute_live_customer_balances(suppliers)
-        for supplier in suppliers:
-            balance = float((live.get(int(supplier.id)) or {}).get('cash', 0.0))
-            if balance < 0:
-                payables_due_7_days += abs(balance)
-
-        # Get customers with debit balances (they owe us)
-        customers = Customer.query.filter(Customer.customer_type == 'عميل').all()
-        live = compute_live_customer_balances(customers)
-        for customer in customers:
-            balance = float((live.get(int(customer.id)) or {}).get('cash', 0.0))
-            if balance > 0:
-                receivables_due_7_days += balance
-    except Exception:
-        payables_due_7_days = 0.0
-        receivables_due_7_days = 0.0
+        from services.dashboard_positions import positions as _positions
+        party_positions = _positions()
+    except Exception as _pos_err:
+        print(f'[dashboard] positions error: {_pos_err}')
+        party_positions = None
+    payables_due_7_days = float(((party_positions or {}).get('suppliers') or {}).get('we_owe_cash') or 0.0)
+    # What the banks and the instalment companies still owe us (DASH-5).
+    try:
+        from services.dashboard_clearing import clearing_pending as _clearing_pending
+        clearing_waiting = _clearing_pending(now.date())
+    except Exception as _clr_err:
+        print(f'[dashboard] clearing error: {_clr_err}')
+        clearing_waiting = None
+    # What waits for the manager (DASH-6).
+    try:
+        from services.dashboard_approvals import approvals as _approvals
+        approvals_waiting = _approvals()
+    except Exception as _apr_err:
+        print(f'[dashboard] approvals error: {_apr_err}')
+        approvals_waiting = None
+    # The VAT: this quarter's, the last one's, and what the returns left owed (DASH-8).
+    try:
+        from services.dashboard_vat import vat_due as _vat_due
+        vat_waiting = _vat_due(now.date())
+    except Exception as _vat_err:
+        print(f'[dashboard] vat error: {_vat_err}')
+        vat_waiting = None
+    # The month's losing invoices, by employee (DASH-9); who leads is the race's.
+    try:
+        from services.dashboard_deficits import deficits as _deficits
+        month_deficits = _deficits(datetime(now.year, now.month, 1), now + timedelta(seconds=1))
+    except Exception as _dfc_err:
+        print(f'[dashboard] deficits error: {_dfc_err}')
+        month_deficits = None
+    receivables_due_7_days = float(((party_positions or {}).get('customers') or {}).get('owe_us_cash') or 0.0)
 
     liquidity_coverage_ratio = None
     if payables_due_7_days > 0:
@@ -5647,7 +5663,8 @@ def get_admin_dashboard():
     # --- Unposted invoices count ---
     unposted_invoices_count = 0
     try:
-        unposted_invoices_count = Invoice.query.filter(Invoice.is_posted.is_(False)).count()
+        # A rejected invoice does not wait (DASH-6): the approvals' reading, the bell's.
+        unposted_invoices_count = Invoice.query.filter(Invoice.is_posted.is_(False), Invoice.status != 'rejected').count()
     except Exception:
         unposted_invoices_count = 0
 
@@ -5758,6 +5775,14 @@ def get_admin_dashboard():
             safe_boxes_enhanced.append(sb_data)
     except Exception:
         safe_boxes_enhanced = safe_boxes_summary
+
+    # What is wrong now (DASH-7): the nightly check's open findings, a safe below zero.
+    try:
+        from services.dashboard_alerts import alerts as _alerts
+        wrong_now = _alerts(safe_boxes_summary)
+    except Exception as _alr_err:
+        print(f'[dashboard] alerts error: {_alr_err}')
+        wrong_now = None
 
     # --- Sensitive Operations (Last 5 important actions) ---
     sensitive_operations = []
@@ -6335,6 +6360,12 @@ def get_admin_dashboard():
             'receivables_due_7_days': round(receivables_due_7_days, 2),
             'coverage_ratio_pct': round(liquidity_coverage_ratio, 1) if liquidity_coverage_ratio is not None else None,
         },
+        'positions': party_positions,
+        'clearing': clearing_waiting,
+        'approvals': approvals_waiting,
+        'wrong_now': wrong_now,
+        'vat': vat_waiting,
+        'deficits': month_deficits,
         'safe_boxes': safe_boxes_enhanced,
         'sensitive_operations': sensitive_operations,
         'sales_purchases_summary': sales_purchases_summary,

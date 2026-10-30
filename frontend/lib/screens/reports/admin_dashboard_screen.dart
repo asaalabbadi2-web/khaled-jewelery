@@ -2,7 +2,7 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'weight_position_screen.dart';
+import 'income_statement_report_screen.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 import 'package:provider/provider.dart';
@@ -55,6 +55,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   // ── Gram Profit KPI ─────────────────────────────────────────────────────
   Map<String, dynamic>? _gramProfitData;
+  // The month's race, by points -- its own reading (DASH-9).
+  List<Map<String, dynamic>> _leaders = const [];
   bool _gramProfitLoading = false;
 
   // ── Vault ordering ────────────────────────────────────────────────────────
@@ -99,6 +101,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     _loadVaultOrder();
     _loadData();
     _loadGramProfit();
+    _loadLeaders();
     AppEvents.vaultRefreshSignal.addListener(_onVaultRefresh);
   }
 
@@ -219,25 +222,36 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
 
+  /// Who leads the month (DASH-9): the race's own reading, its points with the
+  /// losses already off them (POINTS-DEFICIT-1).
+  Future<void> _loadLeaders() async {
+    try {
+      final data = await widget.api.getHomeLeaderboard(period: 'month', metric: 'points');
+      final ranking = ((data['ranking'] as List?) ?? const []).whereType<Map<String, dynamic>>().toList();
+      if (mounted) setState(() => _leaders = ranking);
+    } catch (e) {
+      debugPrint('❌ Leaderboard load error: $e');
+    }
+  }
+
+  /// The period the gram profit card says, and its report opens on.
+  DateTimeRange _gramProfitRange() {
+    final now = DateTime.now();
+    final start = switch (_timeRange) {
+      _TimeRange.today => DateTime(now.year, now.month, now.day),
+      _TimeRange.month => DateTime(now.year, now.month, 1),
+      _TimeRange.year => DateTime(now.year, 1, 1),
+    };
+    return DateTimeRange(start: start, end: now);
+  }
+
   Future<void> _loadGramProfit() async {
     try {
       setState(() => _gramProfitLoading = true);
-      final now = DateTime.now();
-      final DateTime start;
-      switch (_timeRange) {
-        case _TimeRange.today:
-          start = DateTime(now.year, now.month, now.day);
-          break;
-        case _TimeRange.month:
-          start = DateTime(now.year, now.month, 1);
-          break;
-        case _TimeRange.year:
-          start = DateTime(now.year, 1, 1);
-          break;
-      }
+      final range = _gramProfitRange();
       final data = await widget.api.getGramProfitReport(
-        startDate: start,
-        endDate: now,
+        startDate: range.start,
+        endDate: range.end,
       );
       if (mounted) setState(() => _gramProfitData = data);
     } catch (e) {
@@ -331,6 +345,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     final kpis = (_response?['kpis'] as Map<String, dynamic>?) ?? {};
     final valuation = (_response?['valuation'] as Map<String, dynamic>?) ?? {};
     final liquidity = (_response?['liquidity'] as Map<String, dynamic>?) ?? {};
+    final positions = (_response?['positions'] as Map<String, dynamic>?) ?? {};
+    final clearing = (_response?['clearing'] as Map<String, dynamic>?) ?? {};
+    final approvals = (_response?['approvals'] as Map<String, dynamic>?) ?? {};
+    final wrongNow = (_response?['wrong_now'] as Map<String, dynamic>?) ?? {};
+    final vat = (_response?['vat'] as Map<String, dynamic>?) ?? {};
+    final deficits = (_response?['deficits'] as Map<String, dynamic>?) ?? {};
     final safeBoxes = (_response?['safe_boxes'] as List?) ?? [];
     final series = (_response?['series'] as Map<String, dynamic>?) ?? {};
     final salesPurchasesSummary =
@@ -421,6 +441,42 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     liquidity: liquidity,
                   ),
                 ),
+                // What is wrong now (DASH-7)
+                if (((wrongNow['total'] as num?) ?? 0) > 0)
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: _buildWrongNowCard(wrongNow),
+                  ),
+                // What waits for the manager (DASH-6)
+                if (approvals.isNotEmpty)
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: _buildApprovalsCard(approvals),
+                  ),
+                // What is ours and what we owe (DASH-4)
+                if (positions.isNotEmpty)
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: _buildPositionsCard(positions),
+                  ),
+                // What the banks and the instalment companies still owe us (DASH-5)
+                if (((clearing['safes'] as List?) ?? const []).isNotEmpty)
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: _buildClearingCard(clearing),
+                  ),
+                // The VAT (DASH-8)
+                if (vat.isNotEmpty)
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: _buildVatCard(vat),
+                  ),
+                // The employees: who leads the month, and its losses (DASH-9)
+                if (_leaders.isNotEmpty || ((deficits['count'] as num?) ?? 0) > 0)
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: _buildEmployeesCard(deficits),
+                  ),
                 // Sales / Purchases / Expenses Summary
                 Padding(
                   padding: EdgeInsets.symmetric(
@@ -1179,6 +1235,438 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
   }
 
+  /// What is ours and what we owe (DASH-4, the owner 30 Oct 2026): the
+  /// customers', the suppliers' and our gold at the offices -- the ledger's own
+  /// readers, in riyals and grams. A line with nothing in it is not said.
+  Widget _buildPositionsCard(Map<String, dynamic> positions) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isArabic = widget.isArabic;
+    final customers = (positions['customers'] as Map?) ?? const {};
+    final suppliers = (positions['suppliers'] as Map?) ?? const {};
+    final officesGold = _asDouble(positions['offices_gold']);
+
+    Widget line(String name, double cash, double grams) => Padding(
+          padding: EdgeInsets.only(top: 6),
+          child: Row(
+            children: [
+              Expanded(child: Text(name, style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant))),
+              if (grams.abs() >= 0.0005)
+                Text(_formatWeight(grams),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w700, fontFeatures: const [FontFeature.tabularFigures()])),
+              if (grams.abs() >= 0.0005 && cash.abs() >= 0.005) const SizedBox(width: 10),
+              if (cash.abs() >= 0.005)
+                _currencyAwareText(_formatCurrency(cash),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w700, fontFeatures: const [FontFeature.tabularFigures()])),
+            ],
+          ),
+        );
+    bool any(double cash, double grams) => cash.abs() >= 0.005 || grams.abs() >= 0.0005;
+
+    Widget column(String title, Color color, List<(String, double, double)> rows) {
+      final shown = rows.where((r) => any(r.$2, r.$3)).toList();
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(title, style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800, color: color)),
+          if (shown.isEmpty)
+            Padding(
+              padding: EdgeInsets.only(top: 6),
+              child: Text(isArabic ? 'لا شيء' : 'Nothing',
+                  style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+            ),
+          for (final r in shown) line(r.$1, r.$2, r.$3),
+        ],
+      );
+    }
+
+    final ours = column(isArabic ? 'لنا' : 'Ours', _tones.ready.fg, [
+      (isArabic ? 'على العملاء' : 'Customers owe', _asDouble(customers['owe_us_cash']), _asDouble(customers['owe_us_gold'])),
+      (isArabic ? 'على الموردين' : 'Suppliers owe', _asDouble(suppliers['owe_us_cash']), _asDouble(suppliers['owe_us_gold'])),
+      (isArabic ? 'ذهبنا لدى المكاتب' : 'Our gold at offices', 0.0, officesGold),
+    ]);
+    final theirs = column(isArabic ? 'علينا' : 'We owe', _tones.blocked.fg, [
+      (isArabic ? 'للموردين' : 'To suppliers', _asDouble(suppliers['we_owe_cash']), _asDouble(suppliers['we_owe_gold'])),
+      (isArabic ? 'للعملاء' : 'To customers', _asDouble(customers['we_owe_cash']), _asDouble(customers['we_owe_gold'])),
+    ]);
+
+    return Container(
+      key: const Key('dashboard-positions'),
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(isArabic ? 'ما لنا وما علينا' : 'Ours and owed',
+              style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800)),
+          SizedBox(height: 8),
+          LayoutBuilder(
+            builder: (context, constraints) => constraints.maxWidth >= 560
+                ? Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [Expanded(child: ours), SizedBox(width: 20), Expanded(child: theirs)],
+                  )
+                : Column(children: [ours, SizedBox(height: 12), theirs]),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// What is wrong now (DASH-7, the owner 30 Oct 2026): the nightly check's
+  /// open findings by kind, named by the server, and a safe below zero. Only
+  /// what is news -- the server leaves out the accepted and the retired.
+  Widget _buildWrongNowCard(Map<String, dynamic> wrong) {
+    final theme = Theme.of(context);
+    final isArabic = widget.isArabic;
+    final findings = ((wrong['findings'] as List?) ?? const []).whereType<Map>().toList();
+    final safes = ((wrong['negative_safes'] as List?) ?? const []).whereType<Map>().toList();
+    final tone = _tones.blocked;
+    Widget row(String label, Widget value) => Padding(
+          padding: EdgeInsets.only(top: 8),
+          child: Row(
+            children: [
+              Expanded(child: Text(label, style: theme.textTheme.bodyMedium?.copyWith(color: tone.onContainer))),
+              value,
+            ],
+          ),
+        );
+    final figure = theme.textTheme.bodyMedium?.copyWith(
+        color: tone.onContainer, fontWeight: FontWeight.w800, fontFeatures: const [FontFeature.tabularFigures()]);
+    return Container(
+      key: const Key('dashboard-wrong-now'),
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: tone.container,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: tone.fg.withValues(alpha: 0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(isArabic ? 'تنبيهات' : 'Alerts',
+              style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800, color: tone.onContainer)),
+          for (final f in findings) row('${f['title'] ?? f['kind']}', Text('${f['count'] ?? 0}', style: figure)),
+          for (final s in safes)
+            row(
+              isArabic ? '${s['safe']} تحت الصفر' : '${s['safe']} below zero',
+              s['cash'] != null
+                  ? _currencyAwareText(_formatCurrency(_asDouble(s['cash'])), style: figure)
+                  : Text('${_weightFormat.format(_asDouble(s['grams']))} ${isArabic ? 'جم' : 'g'}',
+                      textDirection: TextDirection.ltr, style: figure),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// The employees (DASH-9, the owner 30 Oct 2026): the month's three leaders
+  /// by the race's points, and the month's losing invoices by employee -- the
+  /// server's.
+  Widget _buildEmployeesCard(Map<String, dynamic> deficits) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isArabic = widget.isArabic;
+    final losers = ((deficits['employees'] as List?) ?? const []).whereType<Map>().toList();
+    final figure = theme.textTheme.bodyMedium
+        ?.copyWith(fontWeight: FontWeight.w700, fontFeatures: const [FontFeature.tabularFigures()]);
+    final heading = theme.textTheme.labelLarge?.copyWith(color: scheme.onSurfaceVariant, fontWeight: FontWeight.w700);
+    Widget row(String name, Widget value, {String? sub}) => Padding(
+          padding: EdgeInsets.only(top: 6),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(name, style: theme.textTheme.bodyMedium),
+                    if (sub != null)
+                      Text(sub, style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+                  ],
+                ),
+              ),
+              value,
+            ],
+          ),
+        );
+    return Container(
+      key: const Key('dashboard-employees'),
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(isArabic ? 'الموظفون — هذا الشهر' : 'Employees — this month',
+              style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800)),
+          if (_leaders.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(isArabic ? 'الصدارة' : 'Leading', style: heading),
+            for (final (i, r) in _leaders.take(3).indexed)
+              row('${i + 1}. ${r['name'] ?? ''}',
+                  Text('${r['score'] ?? 0} ${isArabic ? 'نقطة' : 'pts'}', style: figure)),
+          ],
+          if (losers.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text(isArabic ? 'فواتير بخسارة' : 'Invoices at a loss', style: heading),
+            for (final e in losers)
+              row(
+                '${e['name'] ?? ''}',
+                _currencyAwareText(_formatCurrency(_asDouble(e['loss_cash'])),
+                    style: figure?.copyWith(color: _scheme.error)),
+                sub: isArabic ? '${e['count'] ?? 0} فاتورة' : '${e['count'] ?? 0} invoices',
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// The VAT (DASH-8, the owner 30 Oct 2026), by the return's own reading --
+  /// the server's: this quarter so far, the last one and whether it is filed,
+  /// and what the filed returns left owed. A net is said by its direction, as
+  /// the returns screen says it.
+  Widget _buildVatCard(Map<String, dynamic> vat) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isArabic = widget.isArabic;
+    final quarter = (vat['quarter'] as Map?) ?? const {};
+    final last = (vat['last_quarter'] as Map?) ?? const {};
+    final owed = _asDouble(vat['owed']);
+    final salesCharged = (vat['policy'] as Map?)?['sales_vat_charged'] != false;
+    final figure = theme.textTheme.bodyMedium
+        ?.copyWith(fontWeight: FontWeight.w700, fontFeatures: const [FontFeature.tabularFigures()]);
+    final muted = theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant);
+
+    String direction(double net) {
+      if (net > 0.005) return isArabic ? 'للهيئة' : 'to the authority';
+      if (net < -0.005) return isArabic ? 'لكم' : 'to you';
+      return isArabic ? 'لا شيء' : 'nothing';
+    }
+
+    Widget row(String label, String? sub, double net, {Widget? chip}) => Padding(
+          padding: EdgeInsets.only(top: 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label, style: theme.textTheme.bodyMedium),
+                    if (sub != null) Text(sub, textDirection: TextDirection.ltr, style: muted),
+                  ],
+                ),
+              ),
+              if (chip != null) ...[chip, const SizedBox(width: 8)],
+              Text(direction(net), style: muted),
+              const SizedBox(width: 6),
+              _currencyAwareText(_formatCurrency(net.abs()), style: figure),
+            ],
+          ),
+        );
+
+    final unfiled = last['filed'] == false && _asDouble(last['net']).abs() > 0.005;
+    return Container(
+      key: const Key('dashboard-vat'),
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(isArabic ? 'ضريبة القيمة المضافة' : 'VAT',
+              style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800)),
+          row(isArabic ? 'هذا الربع حتى اليوم' : 'This quarter so far', null, _asDouble(quarter['net'])),
+          row(
+            isArabic ? 'الربع الماضي' : 'Last quarter',
+            '${last['start'] ?? ''} – ${last['end'] ?? ''}',
+            _asDouble(last['net']),
+            chip: unfiled
+                ? Container(
+                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: _tones.blocked.container,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(isArabic ? 'لم يُقدَّم إقراره' : 'Not filed',
+                        style: theme.textTheme.labelSmall
+                            ?.copyWith(color: _tones.blocked.onContainer, fontWeight: FontWeight.w800)),
+                  )
+                : null,
+          ),
+          if (owed.abs() > 0.005)
+            row(isArabic ? 'المتبقي من الإقرارات المقدَّمة' : 'Left by the filed returns', null, owed),
+          if (!salesCharged)
+            Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text(
+                  isArabic
+                      ? 'المبيعات لا تُحمَّل ضريبة حسب السياسة السارية'
+                      : 'Sales carry no VAT under the policy in force',
+                  style: muted),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// What waits for the manager (DASH-6, the owner 30 Oct 2026): each queue
+  /// by its own screen's reading -- the server's; a rejected invoice does not
+  /// wait. Nothing waiting is said too.
+  Widget _buildApprovalsCard(Map<String, dynamic> approvals) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isArabic = widget.isArabic;
+    const queues = <(String, String, String)>[
+      ('invoices', 'فواتير', 'Invoices'),
+      ('vouchers', 'سندات', 'Vouchers'),
+      ('bonuses', 'مكافآت', 'Bonuses'),
+      ('reservations', 'حجوزات المكاتب', 'Office reservations'),
+    ];
+    final waiting = [
+      for (final q in queues)
+        if (((approvals[q.$1] as Map?)?['count'] as num? ?? 0) > 0) q,
+    ];
+    return Container(
+      key: const Key('dashboard-approvals'),
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(isArabic ? 'ينتظر اعتمادك' : 'Awaiting your approval',
+              style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800)),
+          if (waiting.isEmpty)
+            Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text(isArabic ? 'لا شيء ينتظر اعتمادك' : 'Nothing awaits your approval',
+                  style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+            ),
+          for (final q in waiting)
+            Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(isArabic ? q.$2 : q.$3, style: theme.textTheme.bodyMedium),
+                        if ((approvals[q.$1] as Map)['oldest'] != null)
+                          Text(
+                            isArabic
+                                ? 'الأقدم ${(approvals[q.$1] as Map)['oldest']}'
+                                : 'oldest ${(approvals[q.$1] as Map)['oldest']}',
+                            style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+                          ),
+                      ],
+                    ),
+                  ),
+                  Text('${(approvals[q.$1] as Map)['count']}',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w800, fontFeatures: const [FontFeature.tabularFigures()])),
+                  const SizedBox(width: 12),
+                  _currencyAwareText(_formatCurrency(_asDouble((approvals[q.$1] as Map)['amount'])),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w700, fontFeatures: const [FontFeature.tabularFigures()])),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// What the banks and the instalment companies still owe us (DASH-5, the
+  /// owner 30 Oct 2026): each clearing safe's amount, its payments and the day
+  /// its method's schedule deposits it -- the server's; late when that day has
+  /// passed.
+  Widget _buildClearingCard(Map<String, dynamic> clearing) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isArabic = widget.isArabic;
+    final safes = ((clearing['safes'] as List?) ?? const []).whereType<Map>().toList();
+    return Container(
+      key: const Key('dashboard-clearing'),
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(isArabic ? 'التحصيل المنتظر' : 'Awaiting deposit',
+                    style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800)),
+              ),
+              _currencyAwareText(_formatCurrency(_asDouble(clearing['total'])),
+                  style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800, fontFeatures: const [FontFeature.tabularFigures()])),
+            ],
+          ),
+          for (final s in safes)
+            Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('${s['safe'] ?? ''}', style: theme.textTheme.bodyMedium),
+                        Text(
+                          isArabic
+                              ? '${s['payments'] ?? 0} دفعة · الإيداع ${s['next_deposit'] ?? '—'}'
+                              : '${s['payments'] ?? 0} payments · deposit ${s['next_deposit'] ?? '—'}',
+                          style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (s['overdue'] == true) ...[
+                    Container(
+                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: _tones.blocked.container,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(isArabic ? 'متأخر' : 'Late',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                              color: _tones.blocked.onContainer, fontWeight: FontWeight.w800)),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  _currencyAwareText(_formatCurrency(_asDouble(s['amount'])),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w700, fontFeatures: const [FontFeature.tabularFigures()])),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildLiquidityRow(
     String label,
     double value,
@@ -1630,8 +2118,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     return InkWell(
       key: const ValueKey('gram-profit-card'),
       borderRadius: BorderRadius.circular(14),
+      // Its details are the income statement's gram profit, on the same period --
+      // the weight close has its own card (the owner, 30 Oct 2026).
       onTap: () => Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) => WeightPositionScreen(api: widget.api, isArabic: isArabic))),
+          builder: (_) => IncomeStatementReportScreen(
+              api: widget.api, isArabic: isArabic, initialRange: _gramProfitRange()))),
       child: Container(
       padding: EdgeInsets.all(14),
       decoration: BoxDecoration(

@@ -137,6 +137,12 @@ KIND_INFO: dict = {
     },
 }
 
+# Kinds no job checks any more: their open rows stay as history and are not
+# news (the manager's dashboard, DASH-7). Nothing reconciles a retired kind,
+# so its open rows stay open -- INVENTORY_LEDGER_DRIFT's four, from 14 Oct
+# 2026, when ADR-045 C3 retired the old inventory ledger and its check.
+RETIRED_KINDS = frozenset({'STALE_SETTLEMENT', 'INVENTORY_LEDGER_DRIFT'})
+
 _SUBJECTS = {
     'journal_entry': 'قيد رقم',
     'safe_box': 'خزينة رقم',

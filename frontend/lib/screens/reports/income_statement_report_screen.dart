@@ -13,10 +13,15 @@ class IncomeStatementReportScreen extends StatefulWidget {
   final ApiService api;
   final bool isArabic;
 
+  /// The period to open on -- the manager's dashboard's own, so its gram
+  /// profit card opens on the figures it said (the owner, 30 Oct 2026).
+  final DateTimeRange? initialRange;
+
   const IncomeStatementReportScreen({
     super.key,
     required this.api,
     this.isArabic = true,
+    this.initialRange,
   });
 
   @override
@@ -55,7 +60,7 @@ class _IncomeStatementReportScreenState
       today.day,
     ).subtract(const Duration(days: 89));
     final end = DateTime(today.year, today.month, today.day);
-    _selectedRange = DateTimeRange(start: start, end: end);
+    _selectedRange = widget.initialRange ?? DateTimeRange(start: start, end: end);
 
     _currencyLocale = widget.isArabic ? 'ar' : 'en';
     _currencyFormat = NumberFormat.currency(

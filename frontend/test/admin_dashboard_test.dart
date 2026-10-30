@@ -7,6 +7,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/api_service.dart';
 import 'package:frontend/providers/settings_provider.dart';
 import 'package:frontend/screens/reports/admin_dashboard_screen.dart';
+import 'package:frontend/screens/reports/income_statement_report_screen.dart';
+import 'package:frontend/screens/reports/weight_position_screen.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -49,6 +51,55 @@ final _dashboard = <String, dynamic>{
   'valuation': {},
   'series': {},
   'safe_boxes': [],
+  // DASH-4: the production copy's, 27 Oct 2026.
+  'positions': {
+    'customers': {'owe_us_cash': 0.0, 'we_owe_cash': 0.0, 'owe_us_gold': 0.0, 'we_owe_gold': 0.0},
+    'suppliers': {'owe_us_cash': 474.05, 'we_owe_cash': 84471.39, 'owe_us_gold': 356.368, 'we_owe_gold': 505.874},
+    'offices_gold': 396.404,
+    'offices': [],
+  },
+  // DASH-5: the production copy's, 27 Oct 2026.
+  'clearing': {
+    'total': 7112.0,
+    'overdue': 1,
+    'safes': [
+      {'safe': 'مدى', 'amount': 3650.0, 'payments': 3, 'next_deposit': '2026-10-28', 'overdue': false},
+      {'safe': 'تمارا', 'amount': 2762.0, 'payments': 3, 'next_deposit': '2026-10-21', 'overdue': true},
+    ],
+  },
+  // DASH-6: one held invoice and one voucher.
+  'approvals': {
+    'invoices': {'count': 1, 'amount': 1500.0, 'oldest': '2026-10-29'},
+    'vouchers': {'count': 2, 'amount': 400.0, 'oldest': '2026-10-28'},
+    'bonuses': {'count': 0, 'amount': 0.0, 'oldest': null},
+    'reservations': {'count': 0, 'amount': 0.0, 'oldest': null},
+    'total': 3,
+  },
+  // DASH-7: the production copy's, 27 Oct 2026.
+  'wrong_now': {
+    'findings': [
+      {'kind': 'SAFEBOX_GOLD_DRIFT', 'count': 1, 'since': '2026-10-27', 'title': 'ذهب الخزينة في حركاتها يخالف دفترها'},
+    ],
+    'negative_safes': [
+      {'safe': 'خزينة ذهب الكسر مؤقتة', 'cash': null, 'grams': -446.672},
+    ],
+    'total': 2,
+  },
+  // DASH-8: the production copy's, 30 Oct 2026 -- sales not charged from 2 May.
+  'vat': {
+    'quarter': {'start': '2026-10-01', 'end': '2026-10-30', 'output_vat': 0.0, 'input_vat': 2054.07, 'net': -2054.07},
+    'last_quarter': {'start': '2026-07-01', 'end': '2026-09-30', 'output_vat': 0.0, 'input_vat': 8283.69,
+        'net': -8283.69, 'filed': false},
+    'owed': 0.0,
+    'policy': {'sales_vat_charged': false, 'input_vat_recoverable': true},
+  },
+  // DASH-9: the month's losing invoices, by employee.
+  'deficits': {
+    'start': '2026-10-01', 'count': 2, 'loss_cash': -150.0,
+    'employees': [
+      {'id': 7, 'name': 'سارة', 'count': 2, 'loss_cash': -150.0},
+    ],
+  },
   'alerts': [],
   'sensitive_operations': [],
   'sales_purchases_summary': {
@@ -60,6 +111,9 @@ final _dashboard = <String, dynamic>{
 };
 
 class _Api extends ApiService {
+  _Api({this.gramProfit = const {}});
+
+  final Map<String, dynamic> gramProfit;
   int invoiceCalls = 0;
 
   // «التسكير الآن» has its own test (weight_position_summary_card_test.dart).
@@ -70,9 +124,20 @@ class _Api extends ApiService {
   Future<Map<String, dynamic>> getAdminDashboard() async =>
       jsonDecode(jsonEncode(_dashboard)) as Map<String, dynamic>;
 
+  // DASH-9: the race's own reading.
+  @override
+  Future<Map<String, dynamic>> getHomeLeaderboard({String period = 'today', String metric = 'weight'}) async => {
+        'ranking': [
+          {'id': 3, 'name': 'خالد', 'score': 420},
+          {'id': 7, 'name': 'سارة', 'score': 310},
+          {'id': 9, 'name': 'منى', 'score': 150},
+          {'id': 11, 'name': 'فهد', 'score': 90},
+        ],
+      };
+
   @override
   Future<Map<String, dynamic>> getGramProfitReport({required DateTime startDate, required DateTime endDate}) async =>
-      {};
+      gramProfit;
 
   @override
   Future<Map<String, dynamic>> getInvoices({int page = 1, int perPage = 50, String sortBy = 'date',
@@ -85,7 +150,8 @@ class _Api extends ApiService {
 }
 
 void main() {
-  Future<_Api> open(WidgetTester tester, {double width = 1440, ThemeData? theme}) async {
+  Future<_Api> open(WidgetTester tester,
+      {double width = 1440, ThemeData? theme, Map<String, dynamic> gramProfit = const {}}) async {
     final cairo = FontLoader('Cairo');
     for (final f in ['Regular', 'SemiBold', 'Bold']) {
       cairo.addFont(rootBundle.load('assets/fonts/Cairo-$f.ttf'));
@@ -97,7 +163,7 @@ void main() {
     addTearDown(tester.view.reset);
     final settings = SettingsProvider();
     await settings.loadSettings(fetchRemote: false);
-    final api = _Api();
+    final api = _Api(gramProfit: gramProfit);
     await tester.pumpWidget(ChangeNotifierProvider.value(
       value: settings,
       child: MaterialApp(
@@ -226,5 +292,90 @@ void main() {
     for (final grams in ['1,234.5', '987.6', '456.7']) {
       expect(find.descendant(of: card, matching: find.textContaining(grams)), findsOneWidget, reason: grams);
     }
+  });
+
+  // DASH-4 (the owner, 30 Oct 2026): what is ours and what we owe, in riyals and
+  // grams -- the suppliers', the customers' and our gold at the offices.
+  testWidgets('the dashboard says what is ours and what we owe', (tester) async {
+    await open(tester);
+    final card = find.byKey(const Key('dashboard-positions'));
+    expect(card, findsOneWidget);
+    expect(find.descendant(of: card, matching: find.text('للموردين')), findsOneWidget);
+    expect(find.descendant(of: card, matching: find.textContaining('84,471.39')), findsOneWidget);
+    expect(find.descendant(of: card, matching: find.textContaining('505.874')), findsOneWidget);
+    expect(find.descendant(of: card, matching: find.text('ذهبنا لدى المكاتب')), findsOneWidget);
+    expect(find.descendant(of: card, matching: find.textContaining('396.404')), findsOneWidget);
+    expect(find.descendant(of: card, matching: find.text('على العملاء')), findsNothing,
+        reason: 'a line with nothing in it is not said');
+  });
+
+  // DASH-5: what the banks and the instalment companies still owe us, and the late one.
+  testWidgets('the dashboard says what waits for its deposit, and the late one', (tester) async {
+    await open(tester);
+    final card = find.byKey(const Key('dashboard-clearing'));
+    expect(card, findsOneWidget);
+    expect(find.descendant(of: card, matching: find.textContaining('7,112.00')), findsOneWidget);
+    expect(find.descendant(of: card, matching: find.text('تمارا')), findsOneWidget);
+    expect(find.descendant(of: card, matching: find.text('متأخر')), findsOneWidget, reason: 'Tamara only');
+  });
+
+  // DASH-6: what waits for the manager, and only the queues that wait.
+  testWidgets('the dashboard says what waits for the manager', (tester) async {
+    await open(tester);
+    final card = find.byKey(const Key('dashboard-approvals'));
+    expect(card, findsOneWidget);
+    expect(find.descendant(of: card, matching: find.text('فواتير')), findsOneWidget);
+    expect(find.descendant(of: card, matching: find.text('سندات')), findsOneWidget);
+    expect(find.descendant(of: card, matching: find.text('مكافآت')), findsNothing, reason: 'none waits');
+  });
+
+  // The owner, 30 Oct 2026: the gram profit card opened the weight close -- it
+  // has its own card. Its details are the income statement's gram profit, on
+  // the period the card says.
+  testWidgets('the gram profit card opens its details on its own period', (tester) async {
+    await open(tester, gramProfit: {
+      'net_profit': 1200.0, 'net_profit_weight': 3.2, 'weight_sold': 50.0,
+      'avg_sell_per_gram': 400.0, 'avg_buy_per_gram': 375.0, 'margin_per_gram': 25.0,
+    });
+    await tester.ensureVisible(find.byKey(const ValueKey('gram-profit-card')));
+    await tester.tap(find.byKey(const ValueKey('gram-profit-card')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    final report = tester.widget<IncomeStatementReportScreen>(find.byType(IncomeStatementReportScreen));
+    final now = DateTime.now();
+    expect(report.initialRange?.start, DateTime(now.year, now.month, now.day), reason: 'today, as the card says');
+    expect(find.byType(WeightPositionScreen), findsNothing);
+  });
+
+  // DASH-7: what is wrong now, named, and the safe below zero in its grams.
+  testWidgets('the dashboard says what is wrong now', (tester) async {
+    await open(tester);
+    final card = find.byKey(const Key('dashboard-wrong-now'));
+    expect(card, findsOneWidget);
+    expect(find.descendant(of: card, matching: find.text('ذهب الخزينة في حركاتها يخالف دفترها')), findsOneWidget);
+    expect(find.descendant(of: card, matching: find.text('خزينة ذهب الكسر مؤقتة تحت الصفر')), findsOneWidget);
+    expect(find.descendant(of: card, matching: find.text('-446.672 جم')), findsOneWidget);
+  });
+
+  // DASH-8: the VAT by its direction, the unfiled quarter, and why no output.
+  testWidgets('the dashboard says the VAT, and the quarter not filed', (tester) async {
+    await open(tester);
+    final card = find.byKey(const Key('dashboard-vat'));
+    expect(card, findsOneWidget);
+    expect(find.descendant(of: card, matching: find.textContaining('8,283.69')), findsOneWidget);
+    expect(find.descendant(of: card, matching: find.text('لكم')), findsNWidgets(2), reason: 'due back, both quarters');
+    expect(find.descendant(of: card, matching: find.text('لم يُقدَّم إقراره')), findsOneWidget);
+    expect(find.descendant(of: card, matching: find.text('المبيعات لا تُحمَّل ضريبة حسب السياسة السارية')),
+        findsOneWidget);
+  });
+
+  // DASH-9: the month's three leaders, and its losses by employee.
+  testWidgets('the dashboard says who leads the month, and its losses', (tester) async {
+    await open(tester);
+    final card = find.byKey(const Key('dashboard-employees'));
+    expect(card, findsOneWidget);
+    expect(find.descendant(of: card, matching: find.text('1. خالد')), findsOneWidget);
+    expect(find.descendant(of: card, matching: find.textContaining('فهد')), findsNothing, reason: 'three lead');
+    expect(find.descendant(of: card, matching: find.text('2 فاتورة')), findsOneWidget);
   });
 }
