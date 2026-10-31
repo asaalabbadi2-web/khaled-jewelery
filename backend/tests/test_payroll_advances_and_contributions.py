@@ -29,7 +29,8 @@ from models import Account, AccountingMapping, Employee, JournalEntry, JournalEn
 
 POLICY = {'housing_ratio': 0.25, 'transport_ratio': 0.10, 'advance_cap_ratio': 0.10,
           'advance_installments': 3, 'attendance_enabled': False, 'day_divisor': 30,
-          'overtime_premium_ratio': 0.5}
+          'overtime_premium_ratio': 0.5, 'eos_wage_base': 'gross', 'eos_first_years': 5,
+          'eos_first_years_months': 0.5, 'eos_after_years_months': 1.0}
 MONTH, YEAR = 4, 2041
 
 

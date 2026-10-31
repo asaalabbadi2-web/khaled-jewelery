@@ -38,6 +38,9 @@ class _Server extends PayrollService {
     'employee': {'name': name, 'payment_method': method},
     if (status == 'paid') 'voucher': {'voucher_number': 'PAY-2041-04-000$id'},
     'breakdown': {
+      'eos': id == 1
+          ? {'days': 400, 'provision': 350.0}
+          : {'reason': 'no_hire_date', 'provision': 0.0},
       'days': 30,
       'whole_month': true,
       'earned': {'basic': net},
@@ -189,6 +192,8 @@ void main() {
       expect(find.textContaining('(مكافأة)'), findsOneWidget);
       expect(find.textContaining('لم تدخل: الدفاتر تقول'), findsOneWidget);
       expect(find.textContaining('تُصرف بما تقوله الدفاتر'), findsOneWidget);
+      expect(find.textContaining('مخصص نهاية الخدمة للشهر'), findsOneWidget);
+      expect(find.textContaining('لا تاريخ تعيين'), findsOneWidget);
       expect(find.textContaining('غياب يوم'), findsOneWidget);
 
       // approved whole

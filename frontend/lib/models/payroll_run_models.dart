@@ -74,6 +74,9 @@ class PayrollRunLine {
     required this.bonuses,
     required this.bonusesHeld,
     required this.bonusBooksCap,
+    required this.eosProvision,
+    required this.eosWithoutHireDate,
+    required this.eosPolicyNotSet,
     required this.notes,
   });
 
@@ -110,6 +113,15 @@ class PayrollRunLine {
   /// One bonus the books owe in part, paid at what they owe: approved_unpaid,
   /// owed_in_books.
   final Map<String, double>? bonusBooksCap;
+
+  /// The month's end-of-service provision (PAYROLL-5) -- not in his net.
+  final double eosProvision;
+
+  /// No hire date: nothing provisioned.
+  final bool eosWithoutHireDate;
+
+  /// The end of service's figures not entered in the policy: nothing provisioned.
+  final bool eosPolicyNotSet;
   final String? notes;
 
   factory PayrollRunLine.fromJson(Map<String, dynamic> json) {
@@ -151,6 +163,15 @@ class PayrollRunLine {
         },
         _ => null,
       },
+      eosProvision: _num(
+        (breakdown['eos'] as Map<String, dynamic>?)?['provision'],
+      ),
+      eosPolicyNotSet:
+          (breakdown['eos'] as Map<String, dynamic>?)?['reason'] ==
+          'policy_not_set',
+      eosWithoutHireDate:
+          (breakdown['eos'] as Map<String, dynamic>?)?['reason'] ==
+          'no_hire_date',
       bonusBooksCap: switch (breakdown['bonus_books_cap']) {
         final Map<String, dynamic> cap => {
           for (final e in cap.entries) e.key: _num(e.value),

@@ -25,7 +25,8 @@ from models import Employee, Settings, db
 
 POLICY = {'housing_ratio': 0.25, 'transport_ratio': 0.10, 'advance_cap_ratio': 0.10,
           'advance_installments': 3, 'attendance_enabled': False, 'day_divisor': 30,
-          'overtime_premium_ratio': 0.5}
+          'overtime_premium_ratio': 0.5, 'eos_wage_base': 'gross', 'eos_first_years': 5,
+          'eos_first_years_months': 0.5, 'eos_after_years_months': 1.0}
 
 
 @pytest.fixture(autouse=True)
@@ -170,3 +171,22 @@ def test_no_rate_is_written_in_the_payroll_s_code():
     assert PAYROLL_CODE, 'the payroll services moved'
     written = {path.name: list(_numbers_written(path)) for path in PAYROLL_CODE}
     assert all(not found for found in written.values()), written
+
+
+def test_a_figure_is_unset_again_by_null_not_zeroed(auth_headers):
+    """The owner, 1 Nov 2026: a figure set is unset again, its part not reckoned."""
+    _policy(auth_headers)
+    code, body = _call('put', '/api/payroll/policy', auth_headers, {'housing_ratio': None, 'transport_ratio': 0})
+    assert code == 200, body
+    assert 'housing_ratio' not in body['policy'] and body['policy']['transport_ratio'] == 0.0
+    code, body = _call('get', '/api/payroll/structure-suggestion?gross=10000', auth_headers)
+    assert code == 400 and body.get('code') == 'payroll_policy_not_set', 'unset, not 0'
+
+
+def test_an_empty_rate_is_refused_a_zero_is_typed(auth_headers):
+    code, scheme = _call('post', '/api/contribution-schemes', auth_headers, {'name': f'خطة {uuid.uuid4().hex[:6]}'})
+    url = f"/api/contribution-schemes/{scheme['id']}/components"
+    row = {'code': 'hazards', 'name': 'الأخطار المهنية', 'base': 'basic_housing', 'effective_from': '2026-01-01'}
+    assert _call('post', url, auth_headers, {**row, 'employee_rate': None, 'employer_rate': 2})[0] == 400
+    code, body = _call('post', url, auth_headers, {**row, 'employee_rate': '0', 'employer_rate': '2'})
+    assert code == 201 and (body['employee_rate'], body['employer_rate']) == (0.0, 2.0), body

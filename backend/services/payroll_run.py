@@ -48,6 +48,12 @@ he is paid twice. One bonus the books owe in part is paid at what they owe
 (the owner, 1 Nov 2026: «الصحيح هو ما في الدفاتر») -- its rest was paid
 outside the bonus screen; several are held, the line saying both figures,
 for which of them was paid is not guessed. tests/test_payroll_bonuses.py.
+
+Its end-of-service provision (PAYROLL-5, services/payroll_eos): each line says
+the month's provision -- the art. 84 entitlement at the month's end less what
+his end-of-service account holds -- reckoned again at approval, and the
+accrual books it: Dr end-of-service expense / Cr his end-of-service payable
+(a negative one the other way). It is no part of his net.
 """
 from __future__ import annotations
 
@@ -61,10 +67,11 @@ from services.payroll_policy import contributions, policy, require, structure_on
 
 RUN_ACCRUAL = 'payroll_run_accrual'
 RUN_REVERSAL = 'payroll_run_accrual_reversal'
-SNAPSHOT_SCHEMA_VERSION = 3          # 2: each deduction of a kind, the employer's share; 3: bonuses
+SNAPSHOT_SCHEMA_VERSION = 4          # 2: deduction kinds, employer share; 3: bonuses; 4: end of service
 
 ABSENCE, PENALTY, CONTRIBUTION = 'absence', 'penalty', 'contribution'
 KEYED_DEDUCTIONS = (ABSENCE, PENALTY)
+EOS_EXPENSE = 'eos_expense'
 CONTRIBUTIONS_EXPENSE = 'gosi_expense'
 CONTRIBUTIONS_PAYABLE = 'gosi_payable'
 PENALTIES_PAYABLE = 'payroll_penalties_payable'
@@ -171,6 +178,7 @@ def _draft_line(run, employee, period, structure, first: date, last: date, divis
     breakdown = {'snapshot_schema_version': SNAPSHOT_SCHEMA_VERSION, 'structure_id': structure.id,
                  'monthly': monthly, 'earned': earned, 'days': days, 'divisor': divisor, 'whole_month': whole,
                  'contribution_wage': employee.contribution_wage,
+                 'eos': _eos(employee, structure, last),
                  'additions': [], 'deductions': deductions, 'employer_contributions': employer,
                  'bonuses': []}
     entry = Payroll(employee_id=employee.id, month=run.month, year=run.year, payroll_run_id=run.id,
@@ -195,6 +203,21 @@ def _draft_line(run, employee, period, structure, first: date, last: date, divis
         breakdown['bonuses'].append({'bonus_id': bonus.id, 'label': _bonus_label(bonus),
                                      'amount': capped if capped is not None else round(float(bonus.amount or 0.0), 2)})
     _apply(entry, breakdown)
+
+
+def _eos(employee, structure, last: date) -> dict:
+    from services.payroll_eos import provision
+    return provision(employee, structure, last)
+
+
+def _refresh_eos(lines) -> None:
+    """At approval: the provision on what the account holds now."""
+    from models import SalaryStructure
+    for line in lines:
+        breakdown = json.loads(line.breakdown)
+        structure = db.session.get(SalaryStructure, breakdown['structure_id'])
+        breakdown['eos'] = _eos(line.employee, structure, _month_bounds(line.month, line.year)[1])
+        line.breakdown = json.dumps(breakdown, ensure_ascii=False)
 
 
 def _bonus_label(bonus) -> str:
@@ -293,6 +316,7 @@ def approve(run, *, by: str, now) -> None:
     _refuse_bonuses_beyond_the_books(lines)
     savepoint = db.session.begin_nested()
     try:
+        _refresh_eos(lines)
         _write_accrual(run, lines, by=by, now=now)
         for line in lines:
             line.status = 'approved'
@@ -336,7 +360,8 @@ def line_parts(line) -> dict:
             'contributions_payable': round(by_kind[CONTRIBUTION] + employer, 2),
             'advance': round(by_kind['advance'], 2),
             'penalties': round(by_kind[PENALTY], 2),
-            'bonuses': bonuses}
+            'bonuses': bonuses,
+            'eos': round(float((breakdown.get('eos') or {}).get('provision') or 0.0), 2)}
 
 
 def _write_accrual(run, lines, *, by: str, now) -> JournalEntry:
@@ -359,6 +384,12 @@ def _write_accrual(run, lines, *, by: str, now) -> JournalEntry:
                 side.append((require_account(DEFAULT_MAPPING_OPERATION_TYPE, role), total[key], label))
         for line, part in parts:
             name = line.employee.name
+            if part['eos']:
+                eos_payable = int(ensure_payable_account(line.employee, 'eos_payable', by=by).id)
+                expense_id = require_account(DEFAULT_MAPPING_OPERATION_TYPE, EOS_EXPENSE)
+                eos_debit, eos_credit = (debits, credits) if part['eos'] > 0 else (credits, debits)
+                eos_debit.append((expense_id, abs(part['eos']), f'مخصص نهاية خدمة {name}'))
+                eos_credit.append((eos_payable, abs(part['eos']), f'مخصص نهاية خدمة {name}'))
             if part['bonuses'] > 0:
                 from services.bonus_accounts import employee_bonus_account
                 bonus_payable = employee_bonus_account(line.employee)

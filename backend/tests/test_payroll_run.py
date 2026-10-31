@@ -27,7 +27,8 @@ from models import JournalEntry, JournalEntryLine, Payroll, PayrollRun, db
 
 POLICY = {'housing_ratio': 0.25, 'transport_ratio': 0.10, 'advance_cap_ratio': 0.10,
           'advance_installments': 3, 'attendance_enabled': False, 'day_divisor': 30,
-          'overtime_premium_ratio': 0.5}
+          'overtime_premium_ratio': 0.5, 'eos_wage_base': 'gross', 'eos_first_years': 5,
+          'eos_first_years_months': 0.5, 'eos_after_years_months': 1.0}
 MONTH, YEAR = 4, 2041              # April: thirty days
 
 
@@ -44,8 +45,20 @@ def _call(method, url, headers, body=None):
 
 @pytest.fixture
 def staff(auth_headers):
-    """Two employees with structures, one joined on the 16th, one with none."""
+    """Two employees with structures, one joined on the 16th, one with none.
+    One with a hire date has his end-of-service provision booked: its expense mapped."""
+    from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE
+    from models import Account, AccountingMapping
     assert _call('put', '/api/payroll/policy', auth_headers, POLICY)[0] == 200
+    if not AccountingMapping.query.filter_by(operation_type=DEFAULT_MAPPING_OPERATION_TYPE,
+                                             account_type='eos_expense').first():
+        expense = Account(account_number=f'98{uuid.uuid4().int % 10**8:08d}', name='مصروف نهاية الخدمة',
+                          type='Expense')
+        db.session.add(expense)
+        db.session.flush()
+        db.session.add(AccountingMapping(operation_type=DEFAULT_MAPPING_OPERATION_TYPE, account_type='eos_expense',
+                                         account_id=expense.id, is_active=True))
+        db.session.commit()
     made = {}
     for key, fields, structure in (
             ('full', {}, {'basic': 6000, 'housing': 1500, 'transport': 600}),
@@ -134,8 +147,11 @@ def test_a_run_is_approved_with_one_accrual_and_its_policy_frozen(auth_headers, 
     accruals = _accruals(run['id'])
     assert len(accruals) == 1, 'one entry for the month, not one an employee'
     lines = JournalEntryLine.query.filter_by(journal_entry_id=accruals[0].id).all()
+    eos = round(sum(e['breakdown']['eos'].get('provision', 0.0) for e in body['entries']), 2)
+    assert eos > 0, 'the one joined on the 16th has his 15 days provisioned'
     assert round(sum(l.cash_debit or 0.0 for l in lines), 2) == round(sum(l.cash_credit or 0.0 for l in lines), 2) \
-        == body['totals']['net_salary'] == 10800.0
+        == round(body['totals']['net_salary'] + eos, 2)
+    assert body['totals']['net_salary'] == 10800.0
     assert db.session.get(PayrollRun, run['id']).policy_snapshot
     line = _line(body, staff['full'])
     assert _call('put', f"/api/payroll/runs/{run['id']}/lines/{line['id']}", auth_headers,

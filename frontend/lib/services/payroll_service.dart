@@ -215,6 +215,68 @@ class PayrollService {
     _body(await _api.authedPost('/advance-plans/$planId/cancel', body: '{}'));
   }
 
+  // ── contribution schemes: dated rates on their base (PAYROLL-2) ─────────
+
+  /// Every scheme, the stopped ones too, each with its components.
+  Future<List<Map<String, dynamic>>> allSchemes() async =>
+      (_body(await _api.authedGet('/contribution-schemes')) as List)
+          .cast<Map<String, dynamic>>();
+
+  Future<void> createScheme(String name) async {
+    _body(
+      await _api.authedPost(
+        '/contribution-schemes',
+        body: jsonEncode({'name': name}),
+      ),
+    );
+  }
+
+  Future<void> setSchemeActive(int schemeId, bool active) async {
+    _body(
+      await _api.authedPut(
+        '/contribution-schemes/$schemeId',
+        body: jsonEncode({'is_active': active}),
+      ),
+    );
+  }
+
+  /// A rate from a day on -- a new rate of a component is a new row of its code.
+  Future<void> addComponent(int schemeId, Map<String, dynamic> row) async {
+    _body(
+      await _api.authedPost(
+        '/contribution-schemes/$schemeId/components',
+        body: jsonEncode(row),
+      ),
+    );
+  }
+
+  Future<void> updateComponent(
+    int componentId,
+    Map<String, dynamic> row,
+  ) async {
+    _body(
+      await _api.authedPut(
+        '/contribution-components/$componentId',
+        body: jsonEncode(row),
+      ),
+    );
+  }
+
+  // ── the policy (the owner's figures; none seeded for end of service) ────
+
+  /// The keys set, as the server holds them; a key absent is not set.
+  Future<Map<String, dynamic>> policy() async =>
+      ((_body(await _api.authedGet('/payroll/policy'))
+              as Map<String, dynamic>)['policy']
+          as Map<String, dynamic>?) ??
+      const {};
+
+  /// Each key given checked by the server; the refusal said as it is.
+  Future<Map<String, dynamic>> savePolicy(Map<String, dynamic> changes) async =>
+      (_body(await _api.authedPut('/payroll/policy', body: jsonEncode(changes)))
+              as Map<String, dynamic>)['policy']
+          as Map<String, dynamic>;
+
   // ── plumbing ──────────────────────────────────────────────────────────────
 
   PayrollRun _run(http.Response resp) =>

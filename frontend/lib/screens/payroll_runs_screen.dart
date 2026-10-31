@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import '../api_service.dart';
 import '../models/payroll_run_models.dart';
 import '../services/payroll_service.dart';
+import 'contribution_schemes_screen.dart';
+import 'payroll_policy_screen.dart';
 import '../theme/app_semantic_colors.dart';
 import '../theme/app_tokens.dart';
 import '../utils.dart' show normalizeNumber;
@@ -191,6 +193,28 @@ class _PayrollRunsScreenState extends State<PayrollRunsScreen> {
       appBar: AppBar(
         title: Text(isAr ? 'مسيرات الرواتب' : 'Payroll runs'),
         actions: [
+          IconButton(
+            key: const ValueKey('payroll-open-schemes'),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) =>
+                    ContributionSchemesScreen(api: widget.api, isArabic: isAr),
+              ),
+            ),
+            icon: const Icon(Icons.health_and_safety_outlined),
+            tooltip: isAr ? 'خطط الاشتراك (التأمينات)' : 'Contribution schemes',
+          ),
+          IconButton(
+            key: const ValueKey('payroll-open-policy'),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) =>
+                    PayrollPolicyScreen(api: widget.api, isArabic: isAr),
+              ),
+            ),
+            icon: const Icon(Icons.tune),
+            tooltip: isAr ? 'سياسة الرواتب' : 'Payroll policy',
+          ),
           IconButton(
             onPressed: _load,
             icon: const Icon(Icons.refresh),
@@ -775,6 +799,30 @@ class _LineCard extends StatelessWidget {
                 isAr
                     ? 'مكافآت معتمدة ${ltrIsolate(money(held['approved_unpaid'] ?? 0))} لم تدخل: الدفاتر تقول المستحق ${ltrIsolate(money(held['owed_in_books'] ?? 0))}'
                     : 'Approved bonuses ${money(held['approved_unpaid'] ?? 0)} held: the books owe ${money(held['owed_in_books'] ?? 0)}',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: AppSemanticColors.of(context).warning.fg,
+                ),
+              ),
+            if (line.eosProvision != 0)
+              Text(
+                '${isAr ? 'مخصص نهاية الخدمة للشهر' : 'End-of-service provision'} '
+                '${ltrIsolate(money(line.eosProvision))}',
+                style: theme.textTheme.bodySmall,
+              )
+            else if (line.eosPolicyNotSet)
+              Text(
+                isAr
+                    ? 'سياسة نهاية الخدمة غير مضبوطة: لا يُحسب المخصص'
+                    : 'End-of-service policy not set: no provision',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: AppSemanticColors.of(context).warning.fg,
+                ),
+              )
+            else if (line.eosWithoutHireDate)
+              Text(
+                isAr
+                    ? 'لا تاريخ تعيين: لا يُحسب مخصص نهاية الخدمة'
+                    : 'No hire date: no end-of-service provision',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: AppSemanticColors.of(context).warning.fg,
                 ),

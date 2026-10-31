@@ -6,16 +6,20 @@ chart had no account for but the expense (5480 «تأمينات إجتماعية
 Oct copy). The code asks for the roles, never a number (CHART-002): this makes
 the two liabilities under the parent it is told and maps the three, each
 mapping recorded (services/role_mappings.save). A role already mapped is left
-as it is. dry_run (the default) writes it all in a savepoint and rolls it
+as it is. With eos_expense_under (PAYROLL-5) it makes «مصروف مكافأة نهاية
+الخدمة» under that expenses parent and maps eos_expense -- the chart had none. dry_run (the default) writes it all in a savepoint and rolls it
 back -- the numbers it shows are the ones it would make.
 """
+from __future__ import annotations
+
 from models import Account, db
 
 MADE = (('gosi_payable', 'التأمينات الاجتماعية المستحقة'),
         ('payroll_penalties_payable', 'جزاءات العاملين المستحقة'))
 
 
-def setup(*, by: str, under: str, contributions_expense: str, dry_run: bool = True) -> dict:
+def setup(*, by: str, under: str, contributions_expense: str, eos_expense_under: str | None = None,
+          dry_run: bool = True) -> dict:
     from account_number_generator import get_next_account_number
     from employee_account_helpers import ensure_memo_for_account
     from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, get_account_id_for_mapping
@@ -41,6 +45,22 @@ def setup(*, by: str, under: str, contributions_expense: str, dry_run: bool = Tr
         db.session.flush()
         ensure_memo_for_account(account)          # its weight twin, as every account of the chart
         save(DEFAULT_MAPPING_OPERATION_TYPE, role, account.id, by=by)
+    if eos_expense_under is not None:
+        if get_account_id_for_mapping(DEFAULT_MAPPING_OPERATION_TYPE, 'eos_expense'):
+            plan['kept'].append('eos_expense')
+        else:
+            expenses = Account.query.filter_by(account_number=str(eos_expense_under)).first()
+            if expenses is None or (expenses.type or '').lower() != 'expense':
+                raise ValueError(f'{eos_expense_under}: أب مصروفات موجود يُطلب')
+            number = str(get_next_account_number(str(expenses.account_number)))
+            plan['made'].append({'role': 'eos_expense', 'number': number, 'name': 'مصروف مكافأة نهاية الخدمة',
+                                 'under': expenses.account_number})
+            account = Account(account_number=number, name='مصروف مكافأة نهاية الخدمة', type='Expense',
+                              transaction_type='cash', tracks_weight=False, parent_id=expenses.id)
+            db.session.add(account)
+            db.session.flush()
+            ensure_memo_for_account(account)
+            save(DEFAULT_MAPPING_OPERATION_TYPE, 'eos_expense', account.id, by=by)
     if get_account_id_for_mapping(DEFAULT_MAPPING_OPERATION_TYPE, 'gosi_expense'):
         plan['kept'].append('gosi_expense')
     else:

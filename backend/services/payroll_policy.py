@@ -23,9 +23,12 @@ from models import (ContributionComponent, ContributionScheme, Employee, Payroll
 from services.payroll_laws import PayrollRefused
 
 RATIOS = ('housing_ratio', 'transport_ratio', 'advance_cap_ratio', 'overtime_premium_ratio')
-COUNTS = ('advance_installments', 'day_divisor')
+COUNTS = ('advance_installments', 'day_divisor', 'eos_first_years')
 FLAGS = ('attendance_enabled',)
-KEYS = RATIOS + COUNTS + FLAGS
+MONTHS = ('eos_first_years_months', 'eos_after_years_months')     # a year's months of wage (art. 84)
+CHOICES = {'eos_wage_base': ('basic', 'basic_housing', 'gross')}
+KEYS = RATIOS + COUNTS + FLAGS + MONTHS + tuple(CHOICES)
+MONTHS_IN_A_YEAR = 12
 BASES = ('basic', 'basic_housing', 'gross')
 PAYMENT_METHODS = ('bank', 'cash')
 DAYS_IN_A_MONTH = 31
@@ -59,11 +62,15 @@ def require(key: str):
 
 
 def set_policy(changes: dict) -> dict:
-    """The owner's edit, each key checked -- a ratio 0..1, a count a whole number. Caller commits."""
+    """The owner's edit, each key checked -- a ratio 0..1, a count a whole number;
+    a key given null is unset again, not zeroed (the owner, 1 Nov 2026). Caller commits."""
     current = policy()
     for key, value in (changes or {}).items():
         if key not in KEYS:
             raise PayrollRefused(f'بند غير معروف في سياسة الرواتب: {key}')
+        if value is None:
+            current.pop(key, None)
+            continue
         current[key] = _checked(key, value)
     settings = Settings.query.first()
     if settings is None:
@@ -77,6 +84,10 @@ def _checked(key, value):
         if not isinstance(value, bool):
             raise PayrollRefused(f'{key}: نعم أو لا')
         return value
+    if key in CHOICES:
+        if value not in CHOICES[key]:
+            raise PayrollRefused(f'{key}: واحد من ' + '، '.join(CHOICES[key]))
+        return value
     try:
         number = float(value)
     except (TypeError, ValueError):
@@ -84,6 +95,10 @@ def _checked(key, value):
     if key in RATIOS:
         if not (0 <= number <= 1):
             raise PayrollRefused(f'{key}: نسبة بين 0 و1 (0.25 = 25%)')
+        return number
+    if key in MONTHS:
+        if not (0 <= number <= MONTHS_IN_A_YEAR):
+            raise PayrollRefused(f'{key}: أشهر من الأجر عن كل سنة، من 0 إلى 12')
         return number
     if number != int(number) or number < 1:
         raise PayrollRefused(f'{key}: عدد صحيح موجب')
@@ -201,6 +216,9 @@ def save_component(scheme, data: dict, component=None) -> ContributionComponent:
         component.base = data['base']
     for field in ('employee_rate', 'employer_rate'):
         if field in data or getattr(component, field) is None:
+            if data.get(field) in (None, ''):
+                # an empty rate is not a zero (the owner, 1 Nov 2026): a zero is typed 0
+                raise PayrollRefused('نسبتا الموظف والمنشأة مطلوبتان؛ اكتب 0 لما لا نسبة له')
             rate = _amount(data.get(field), 'النسبة')
             if rate > 100:
                 raise PayrollRefused('النسبة مئوية: من 0 إلى 100')
