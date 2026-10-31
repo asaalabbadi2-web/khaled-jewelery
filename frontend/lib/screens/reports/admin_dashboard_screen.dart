@@ -33,10 +33,18 @@ class AdminDashboardScreen extends StatefulWidget {
   final ApiService api;
   final bool isArabic;
 
+  /// Where «رجوع» goes when the dashboard is a tab of the home screen -- the
+  /// side menu's and the bottom bar's, with no screen behind it to pop back to
+  /// (the owner, 31 Oct 2026: «زر العودة لا يقوم بدور صحيح أثناء الدخول من
+  /// القائمة الجانبية والسفلية»). Opened as a screen of its own -- from the
+  /// reports -- it is none, and «رجوع» closes it.
+  final VoidCallback? onBack;
+
   const AdminDashboardScreen({
     super.key,
     required this.api,
     this.isArabic = true,
+    this.onBack,
   });
 
   @override
@@ -669,7 +677,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
             children: [
               IconButton(
                 icon: Icon(Icons.arrow_forward_ios, size: 20),
-                onPressed: () => Navigator.of(context).pop(),
+                key: const Key('dashboard-back'),
+                onPressed: widget.onBack ?? () => Navigator.of(context).maybePop(),
               ),
               const Spacer(),
               Text(

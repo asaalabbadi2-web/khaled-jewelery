@@ -8,6 +8,7 @@ import 'package:frontend/providers/quick_actions_provider.dart';
 import 'package:frontend/providers/sales_race_refresh_provider.dart';
 import 'package:frontend/providers/settings_provider.dart';
 import 'package:frontend/screens/home_screen_enhanced.dart';
+import 'package:frontend/screens/reports/admin_dashboard_screen.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -53,7 +54,9 @@ void main() {
     ));
     await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(find.byIcon(Icons.menu_rounded));
-    await tester.pump(const Duration(milliseconds: 400));
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 100));     // the menu's opening, frame by frame
+    }
   }
 
   testWidgets('the manager finds the dashboard under «الرئيسية» in the side menu', (tester) async {
@@ -69,5 +72,18 @@ void main() {
     await openDrawer(tester, dashboard: false);
     expect(find.byKey(const ValueKey('drawer-fixed-home')), findsOneWidget);
     expect(find.byKey(const ValueKey('drawer-fixed-dashboard')), findsNothing);
+  });
+
+  // The owner, 31 Oct 2026: «زر العودة لا يقوم بدور صحيح أثناء الدخول من القائمة
+  // الجانبية والسفلية» -- opened from the menu it is a tab: back is the home tab.
+  testWidgets('opened from the menu, its back is the home tab', (tester) async {
+    await openDrawer(tester, dashboard: true);
+    await tester.tap(find.byKey(const ValueKey('drawer-fixed-dashboard')));
+    await tester.pump(const Duration(milliseconds: 600));
+    final dashboard = tester.widget<AdminDashboardScreen>(find.byType(AdminDashboardScreen));
+    expect(dashboard.onBack, isNotNull, reason: 'a tab: nothing behind it to pop to');
+    dashboard.onBack!();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byType(AdminDashboardScreen), findsNothing, reason: 'the home tab again');
   });
 }

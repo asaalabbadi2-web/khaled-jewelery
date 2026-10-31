@@ -204,7 +204,8 @@ class _Api extends ApiService {
 }
 
 void main() {
-  Future<_Api> mount(WidgetTester tester, _Api api, {double width = 1440, ThemeData? theme}) async {
+  Future<_Api> mount(WidgetTester tester, _Api api,
+      {double width = 1440, ThemeData? theme, Widget Function(Widget dashboard)? around, VoidCallback? onBack}) async {
     final cairo = FontLoader('Cairo');
     for (final f in ['Regular', 'SemiBold', 'Bold']) {
       cairo.addFont(rootBundle.load('assets/fonts/Cairo-$f.ttf'));
@@ -220,7 +221,10 @@ void main() {
       value: settings,
       child: MaterialApp(
         theme: theme ?? LightTheme.theme,
-        home: Directionality(textDirection: TextDirection.rtl, child: Scaffold(body: AdminDashboardScreen(api: api))),
+        home: Directionality(
+          textDirection: TextDirection.rtl,
+          child: (around ?? (d) => Scaffold(body: d))(AdminDashboardScreen(api: api, onBack: onBack)),
+        ),
       ),
     ));
     await tester.pump(const Duration(seconds: 1));
@@ -573,5 +577,37 @@ void main() {
     expect(find.descendant(of: card, matching: find.byKey(const Key('gold-market-tag'))), findsOneWidget);
     expect(find.descendant(of: card, matching: find.textContaining('السوق مغلق')), findsOneWidget);
     expect(find.descendant(of: card, matching: find.byKey(const Key('dashboard-gold-price-at'))), findsNothing);
+  });
+
+  // The owner, 31 Oct 2026: «زر العودة في شاشة لوحة تحكم المدير لا يقوم بدور صحيح
+  // أثناء الدخول من القائمة الجانبية والسفلية» -- a tab has no screen behind it.
+  testWidgets('as a tab, «رجوع» goes where the home screen says, popping nothing', (tester) async {
+    var backs = 0;
+    await mount(tester, _Api(), onBack: () => backs++);
+    await tester.tap(find.byKey(const Key('dashboard-back')));
+    await tester.pump();
+    expect(backs, 1);
+    expect(find.byType(AdminDashboardScreen), findsOneWidget, reason: 'the home screen moves its tab, not a pop');
+  });
+
+  testWidgets('opened as a screen of its own, «رجوع» closes it', (tester) async {
+    await mount(tester, _Api(), around: (dashboard) => Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => Scaffold(body: dashboard))),
+              child: const Text('التقارير'),
+            ),
+          ),
+        ));
+    await tester.tap(find.text('التقارير'));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.byType(AdminDashboardScreen), findsOneWidget);
+    await tester.tap(find.byKey(const Key('dashboard-back')));
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 200));     // the route's closing, frame by frame
+    }
+    expect(find.byType(AdminDashboardScreen), findsNothing);
+    expect(find.text('التقارير'), findsOneWidget);
   });
 }

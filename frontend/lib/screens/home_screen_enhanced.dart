@@ -2729,7 +2729,12 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       case 'home':
         tab = _buildHomeTabContent(isAr);
       case 'dashboard':
-        tab = AdminDashboardScreen(api: api, isArabic: isAr);
+        // A tab: «رجوع» is the home tab, not a pop (31 Oct 2026).
+        tab = AdminDashboardScreen(
+          api: api,
+          isArabic: isAr,
+          onBack: () => setState(() => _selectedNavIndex = 0),
+        );
       case 'invoices':
         tab = InvoicesListScreen(isArabic: isAr, embedded: true);
       case 'customers':
