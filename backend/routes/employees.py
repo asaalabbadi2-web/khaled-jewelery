@@ -22,8 +22,11 @@ from models import (
     Invoice,
     JournalEntry,
     JournalEntryLine,
+    ContributionComponent,
+    ContributionScheme,
     Payroll,
     SafeBox,
+    SalaryStructure,
     Settings,
     Voucher,
     VoucherAccountLine,
@@ -221,6 +224,15 @@ def create_employee():
         notes=data.get('notes'),
         created_by=data.get('created_by'),
     )
+
+    # PAYROLL-2: his contribution scheme, payment method and IBAN, each checked.
+    from services.payroll_laws import PayrollRefused
+    from services.payroll_policy import apply_payment_fields
+    try:
+        apply_payment_fields(employee, data)
+    except PayrollRefused as refused:
+        db.session.rollback()
+        return jsonify({'error': refused.message}), 400
 
     created_gold_safe = None
     created_gold_safe_account = None
@@ -439,6 +451,14 @@ def update_employee(employee_id):
 
     if 'is_active' in data:
         employee.is_active = bool(data['is_active'])
+
+    from services.payroll_laws import PayrollRefused
+    from services.payroll_policy import apply_payment_fields
+    try:
+        apply_payment_fields(employee, data)                   # PAYROLL-2
+    except PayrollRefused as refused:
+        db.session.rollback()
+        return jsonify({'error': refused.message}), 400
 
     try:
         db.session.commit()
@@ -797,6 +817,198 @@ def bulk_ensure_employees_setup():
         return jsonify({'error': str(e)}), 500
 
     return jsonify(summary), 200
+
+# ── PAYROLL-2: the payroll's data and policy (services/payroll_policy) ─────────
+
+def _payroll_refusal(refused, status=400):
+    body = {'error': refused.message}
+    if getattr(refused, 'code', None):
+        body['code'] = refused.code
+    return jsonify(body), status
+
+
+@employees_bp.route('/payroll/policy', methods=['GET'])
+@require_permission('employees.payroll')
+def get_payroll_policy():
+    from services.payroll_policy import KEYS, policy
+    return jsonify({'policy': policy(), 'keys': list(KEYS)})
+
+
+@employees_bp.route('/payroll/policy', methods=['PUT'])
+@require_permission('employees.payroll')
+def update_payroll_policy():
+    from services.payroll_laws import PayrollRefused
+    from services.payroll_policy import set_policy
+    try:
+        saved = set_policy(request.get_json() or {})
+    except PayrollRefused as refused:
+        db.session.rollback()
+        return _payroll_refusal(refused)
+    db.session.commit()
+    return jsonify({'policy': saved})
+
+
+@employees_bp.route('/payroll/structure-suggestion', methods=['GET'])
+@require_permission('employees.payroll')
+def suggest_salary_structure():
+    from services.payroll_laws import PayrollRefused
+    from services.payroll_policy import suggest_structure
+    try:
+        return jsonify(suggest_structure(request.args.get('gross')))
+    except PayrollRefused as refused:
+        return _payroll_refusal(refused)
+
+
+@employees_bp.route('/employees/<int:employee_id>/salary-structures', methods=['GET'])
+@require_permission('employees.payroll')
+def list_salary_structures(employee_id):
+    from services.payroll_policy import structure_on
+    Employee.query.get_or_404(employee_id)
+    rows = (SalaryStructure.query.filter_by(employee_id=employee_id)
+            .order_by(SalaryStructure.effective_from.desc()).all())
+    current = structure_on(employee_id, datetime.now().date())
+    return jsonify({'structures': [row.to_dict() for row in rows],
+                    'current_id': current.id if current is not None else None})
+
+
+@employees_bp.route('/employees/<int:employee_id>/salary-structures', methods=['POST'])
+@require_permission('employees.payroll')
+def create_salary_structure(employee_id):
+    from services.payroll_laws import PayrollRefused
+    from services.payroll_policy import save_structure
+    data = request.get_json() or {}
+    try:
+        structure = save_structure(employee_id, data, by=data.get('created_by') or 'system',
+                                   today=datetime.now().date())
+    except PayrollRefused as refused:
+        db.session.rollback()
+        return _payroll_refusal(refused)
+    db.session.commit()
+    return jsonify(structure.to_dict()), 201
+
+
+@employees_bp.route('/salary-structures/<int:structure_id>', methods=['PUT'])
+@require_permission('employees.payroll')
+def update_salary_structure(structure_id):
+    from services.payroll_laws import PayrollRefused
+    from services.payroll_policy import save_structure
+    structure = SalaryStructure.query.get_or_404(structure_id)
+    data = request.get_json() or {}
+    try:
+        save_structure(structure.employee_id, data, by=data.get('created_by') or 'system',
+                       today=datetime.now().date(), structure=structure)
+    except PayrollRefused as refused:
+        db.session.rollback()
+        return _payroll_refusal(refused, 409)
+    db.session.commit()
+    return jsonify(structure.to_dict())
+
+
+@employees_bp.route('/salary-structures/<int:structure_id>', methods=['DELETE'])
+@require_permission('employees.payroll')
+def delete_salary_structure(structure_id):
+    from services.payroll_laws import PayrollRefused
+    from services.payroll_policy import delete_structure
+    structure = SalaryStructure.query.get_or_404(structure_id)
+    try:
+        delete_structure(structure, today=datetime.now().date())
+    except PayrollRefused as refused:
+        db.session.rollback()
+        return _payroll_refusal(refused, 409)
+    db.session.commit()
+    return jsonify({'message': 'حُذف هيكل الراتب'})
+
+
+@employees_bp.route('/contribution-schemes', methods=['GET'])
+@require_permission('employees.payroll')
+def list_contribution_schemes():
+    return jsonify([scheme.to_dict() for scheme in ContributionScheme.query.order_by(ContributionScheme.id)])
+
+
+@employees_bp.route('/contribution-schemes', methods=['POST'])
+@require_permission('employees.payroll')
+def create_contribution_scheme():
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'error': 'اسم الخطة مطلوب'}), 400
+    if ContributionScheme.query.filter_by(name=name).first() is not None:
+        return jsonify({'error': 'توجد خطة بهذا الاسم'}), 409
+    scheme = ContributionScheme(name=name, is_active=True, notes=data.get('notes'))
+    db.session.add(scheme)
+    db.session.commit()
+    return jsonify(scheme.to_dict()), 201
+
+
+@employees_bp.route('/contribution-schemes/<int:scheme_id>', methods=['PUT'])
+@require_permission('employees.payroll')
+def update_contribution_scheme(scheme_id):
+    scheme = ContributionScheme.query.get_or_404(scheme_id)
+    data = request.get_json() or {}
+    if 'name' in data:
+        name = (data.get('name') or '').strip()
+        clash = ContributionScheme.query.filter_by(name=name).first()
+        if not name or (clash is not None and clash.id != scheme.id):
+            return jsonify({'error': 'اسم الخطة مطلوب ولا يتكرر'}), 400
+        scheme.name = name
+    if 'is_active' in data:
+        scheme.is_active = bool(data['is_active'])
+    if 'notes' in data:
+        scheme.notes = data.get('notes')
+    db.session.commit()
+    return jsonify(scheme.to_dict())
+
+
+@employees_bp.route('/contribution-schemes/<int:scheme_id>/components', methods=['POST'])
+@require_permission('employees.payroll')
+def create_contribution_component(scheme_id):
+    from services.payroll_laws import PayrollRefused
+    from services.payroll_policy import save_component
+    scheme = ContributionScheme.query.get_or_404(scheme_id)
+    try:
+        component = save_component(scheme, request.get_json() or {})
+    except PayrollRefused as refused:
+        db.session.rollback()
+        return _payroll_refusal(refused)
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({'error': 'لهذا البند نسبة من هذا اليوم: عدّلها أو اختر يومًا آخر'}), 409
+    db.session.commit()
+    return jsonify(component.to_dict()), 201
+
+
+@employees_bp.route('/contribution-components/<int:component_id>', methods=['PUT'])
+@require_permission('employees.payroll')
+def update_contribution_component(component_id):
+    from services.payroll_laws import PayrollRefused
+    from services.payroll_policy import save_component
+    component = ContributionComponent.query.get_or_404(component_id)
+    try:
+        save_component(component.scheme, request.get_json() or {}, component=component)
+    except PayrollRefused as refused:
+        db.session.rollback()
+        return _payroll_refusal(refused)
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({'error': 'لهذا البند نسبة من هذا اليوم'}), 409
+    db.session.commit()
+    return jsonify(component.to_dict())
+
+
+@employees_bp.route('/employees/<int:employee_id>/contributions', methods=['GET'])
+@require_permission('employees.payroll')
+def preview_employee_contributions(employee_id):
+    """His contributions on a day (today by default), from his scheme and structure."""
+    from services.payroll_policy import contributions, structure_on
+    employee = Employee.query.get_or_404(employee_id)
+    try:
+        day = date.fromisoformat(request.args['day']) if request.args.get('day') else datetime.now().date()
+    except ValueError:
+        return jsonify({'error': 'اليوم YYYY-MM-DD'}), 400
+    structure = structure_on(employee_id, day)
+    return jsonify({'day': day.isoformat(), 'structure': structure.to_dict() if structure else None,
+                    'contributions': contributions(employee, structure, day)})
+
 
 @employees_bp.route('/advances/summary', methods=['GET'])
 @require_permission('employees.payroll')

@@ -2828,6 +2828,10 @@ class Settings(db.Model):
     weekly_sales_target_weight = db.Column(db.Float, default=2000.0)
     monthly_sales_target_weight = db.Column(db.Float, default=8000.0)
     sales_race_settings = db.Column(db.Text, nullable=True)
+    # PAYROLL-2: the payroll's policy, JSON -- housing and transport ratios,
+    # the advance cap and installments, attendance -- the owner's to edit;
+    # seeded by its migration, never a number in the code.
+    payroll_policy = db.Column(db.Text, nullable=True)
     
     created_at = db.Column(db.DateTime, default=db.func.now())
     updated_at = db.Column(db.DateTime, default=db.func.now(), onupdate=db.func.now())
@@ -3792,6 +3796,14 @@ class Employee(db.Model):
     # صورة الموظف — مخزنة كـ data URI (base64). nullable لأنها اختيارية.
     photo = db.Column(db.Text, nullable=True)
 
+    # Payroll (PAYROLL-2, the owner 1 Nov 2026): the contribution scheme he is
+    # in -- a scheme, not a nationality («الفكرة أعم وليس مربوطة بجنسية») --
+    # and how his net is paid: 'bank' (his IBAN) or 'cash', split when paid.
+    contribution_scheme_id = db.Column(db.Integer, db.ForeignKey('contribution_scheme.id'), nullable=True)
+    payment_method = db.Column(db.String(10), nullable=True)
+    iban = db.Column(db.String(34), nullable=True)
+    bank_name = db.Column(db.String(100), nullable=True)
+
     account = db.relationship('Account', backref=db.backref('employees', lazy='dynamic'))
     gold_safe_box = db.relationship('SafeBox', foreign_keys=[gold_safe_box_id])
     cash_safe_box = db.relationship('SafeBox', foreign_keys=[cash_safe_box_id])
@@ -3818,6 +3830,10 @@ class Employee(db.Model):
                                  if self.id else {}),
             'gold_safe_box_id': self.gold_safe_box_id,
             'cash_safe_box_id': self.cash_safe_box_id,
+            'contribution_scheme_id': self.contribution_scheme_id,
+            'payment_method': self.payment_method,
+            'iban': self.iban,
+            'bank_name': self.bank_name,
             'is_active': self.is_active,
             'notes': self.notes,
             'created_by': self.created_by,
@@ -4099,6 +4115,84 @@ class PasswordResetToken(db.Model):
     used_ip = db.Column(db.String(45), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
 
+
+
+class SalaryStructure(db.Model):
+    """An employee's salary from a day on (PAYROLL-2): basic, housing,
+    transport and other allowances. A new salary is a new structure from its
+    day -- the past keeps what it was paid by."""
+    __tablename__ = 'salary_structure'
+
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=False, index=True)
+    effective_from = db.Column(db.Date, nullable=False)
+    basic = db.Column(db.Float, nullable=False, default=0.0)
+    housing = db.Column(db.Float, nullable=False, default=0.0)
+    transport = db.Column(db.Float, nullable=False, default=0.0)
+    other_allowances = db.Column(db.Float, nullable=False, default=0.0)
+    notes = db.Column(db.Text, nullable=True)
+    created_by = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime, default=db.func.now(), nullable=False)
+
+    employee = db.relationship('Employee', backref=db.backref('salary_structures', lazy='dynamic'))
+
+    __table_args__ = (db.UniqueConstraint('employee_id', 'effective_from', name='_salary_structure_day_uc'),)
+
+    @property
+    def gross(self) -> float:
+        return round((self.basic or 0.0) + (self.housing or 0.0) + (self.transport or 0.0)
+                     + (self.other_allowances or 0.0), 2)
+
+    def to_dict(self):
+        return {'id': self.id, 'employee_id': self.employee_id,
+                'effective_from': self.effective_from.isoformat() if self.effective_from else None,
+                'basic': self.basic, 'housing': self.housing, 'transport': self.transport,
+                'other_allowances': self.other_allowances, 'gross': self.gross, 'notes': self.notes,
+                'created_by': self.created_by}
+
+
+class ContributionScheme(db.Model):
+    """A contribution scheme an employee is in (PAYROLL-2): the GOSI's Saudi
+    and non-Saudi ones are two of them, seeded -- a medical insurance or any
+    other is one more, as data."""
+    __tablename__ = 'contribution_scheme'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False, unique=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    notes = db.Column(db.Text, nullable=True)
+
+    components = db.relationship('ContributionComponent', backref='scheme', lazy='dynamic',
+                                 cascade='all, delete-orphan')
+
+    def to_dict(self):
+        return {'id': self.id, 'name': self.name, 'is_active': self.is_active, 'notes': self.notes,
+                'components': [c.to_dict() for c in self.components.order_by(
+                    ContributionComponent.code, ContributionComponent.effective_from)]}
+
+
+class ContributionComponent(db.Model):
+    """One contribution of a scheme from a day on: on which base, what share
+    on the employee and on the employer (percent), up to which base."""
+    __tablename__ = 'contribution_component'
+
+    id = db.Column(db.Integer, primary_key=True)
+    scheme_id = db.Column(db.Integer, db.ForeignKey('contribution_scheme.id'), nullable=False, index=True)
+    code = db.Column(db.String(40), nullable=False)
+    name = db.Column(db.String(100), nullable=False)
+    base = db.Column(db.String(20), nullable=False)          # 'basic' | 'basic_housing' | 'gross'
+    employee_rate = db.Column(db.Float, nullable=False, default=0.0)
+    employer_rate = db.Column(db.Float, nullable=False, default=0.0)
+    base_cap = db.Column(db.Float, nullable=True)
+    effective_from = db.Column(db.Date, nullable=False)
+
+    __table_args__ = (db.UniqueConstraint('scheme_id', 'code', 'effective_from', name='_contribution_day_uc'),)
+
+    def to_dict(self):
+        return {'id': self.id, 'scheme_id': self.scheme_id, 'code': self.code, 'name': self.name,
+                'base': self.base, 'employee_rate': self.employee_rate, 'employer_rate': self.employer_rate,
+                'base_cap': self.base_cap,
+                'effective_from': self.effective_from.isoformat() if self.effective_from else None}
 
 
 class Payroll(db.Model):
