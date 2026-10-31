@@ -1097,6 +1097,11 @@ class _PayrollFormDialogState extends State<PayrollFormDialog> {
   late final TextEditingController _notesController;
   String _status = 'pending';
 
+  /// An entry no longer pending keeps its amounts, its employee and its month:
+  /// its accrual is posted with them (PAYROLL-1) -- its notes alone are edited.
+  bool get _locked => widget.entry != null && (widget.entry!.status).toLowerCase() != 'pending';
+  bool get _paid => widget.entry != null && (widget.entry!.status).toLowerCase() == 'paid';
+
   bool _loadingEmployees = false;
   String? _employeesLoadError;
   List<EmployeeModel> _employees = [];
@@ -1307,7 +1312,7 @@ class _PayrollFormDialogState extends State<PayrollFormDialog> {
                           ),
                         )
                         .toList(),
-                    onChanged: _loadingEmployees
+                    onChanged: _loadingEmployees || _locked
                         ? null
                         : (value) =>
                               setState(() => _selectedEmployeeId = value),
@@ -1339,21 +1344,35 @@ class _PayrollFormDialogState extends State<PayrollFormDialog> {
                   ),
                 ],
                 TextFormField(
+                  key: const Key('payroll-month'),
                   controller: _monthController,
+                  enabled: !_locked,
                   decoration: InputDecoration(
                     labelText: isAr ? 'الشهر' : 'Month (1-12)',
                   ),
                   keyboardType: TextInputType.number,
+                  validator: (value) {
+                    final m = int.tryParse((value ?? '').trim());
+                    return (m == null || m < 1 || m > 12) ? (isAr ? 'الشهر من 1 إلى 12' : 'Month 1-12') : null;
+                  },
                 ),
                 TextFormField(
+                  key: const Key('payroll-year'),
                   controller: _yearController,
+                  enabled: !_locked,
                   decoration: InputDecoration(
                     labelText: isAr ? 'السنة' : 'Year',
                   ),
                   keyboardType: TextInputType.number,
+                  // «202» was saved for 2025 (the 31 Oct copy): four digits.
+                  validator: (value) {
+                    final y = int.tryParse((value ?? '').trim());
+                    return (y == null || y < 2000 || y > 2100) ? (isAr ? 'السنة أربعة أرقام، مثل 2026' : 'A four-digit year') : null;
+                  },
                 ),
                 TextFormField(
                   controller: _basicController,
+                  enabled: !_locked,
                   decoration: InputDecoration(
                     labelText: isAr ? 'الراتب الأساسي' : 'Basic Salary',
                   ),
@@ -1361,6 +1380,7 @@ class _PayrollFormDialogState extends State<PayrollFormDialog> {
                 ),
                 TextFormField(
                   controller: _allowancesController,
+                  enabled: !_locked,
                   decoration: InputDecoration(
                     labelText: isAr ? 'البدلات' : 'Allowances',
                   ),
@@ -1368,6 +1388,7 @@ class _PayrollFormDialogState extends State<PayrollFormDialog> {
                 ),
                 TextFormField(
                   controller: _deductionsController,
+                  enabled: !_locked,
                   decoration: InputDecoration(
                     labelText: isAr ? 'الخصومات' : 'Deductions',
                   ),
@@ -1396,22 +1417,25 @@ class _PayrollFormDialogState extends State<PayrollFormDialog> {
                   ),
                   maxLines: 2,
                 ),
+                // «مدفوع» is the payment's: the «صرف» button writes its voucher
+                // (PAYROLL-1). A paid entry's status is shown, not changed; an
+                // approved one is not set back to pending -- it is cancelled.
                 DropdownButtonFormField<String>(
+                  key: const Key('payroll-status'),
                   initialValue: _status,
-                  items: const [
-                    DropdownMenuItem(value: 'pending', child: Text('Pending')),
-                    DropdownMenuItem(
-                      value: 'approved',
-                      child: Text('Approved'),
-                    ),
-                    DropdownMenuItem(value: 'paid', child: Text('Paid')),
-                    DropdownMenuItem(
-                      value: 'cancelled',
-                      child: Text('Cancelled'),
-                    ),
+                  items: [
+                    if (!_locked)
+                      DropdownMenuItem(value: 'pending', child: Text(isAr ? 'معلّق' : 'Pending')),
+                    if (!_paid)
+                      DropdownMenuItem(value: 'approved', child: Text(isAr ? 'معتمد' : 'Approved')),
+                    if (_paid)
+                      DropdownMenuItem(value: 'paid', child: Text(isAr ? 'مدفوع' : 'Paid')),
+                    if (!_paid)
+                      DropdownMenuItem(value: 'cancelled', child: Text(isAr ? 'ملغى' : 'Cancelled')),
                   ],
-                  onChanged: (value) =>
-                      setState(() => _status = value ?? 'pending'),
+                  onChanged: _paid
+                      ? null
+                      : (value) => setState(() => _status = value ?? 'pending'),
                   decoration: InputDecoration(
                     labelText: isAr ? 'الحالة' : 'Status',
                   ),

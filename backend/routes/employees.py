@@ -845,15 +845,21 @@ def create_payroll():
     if not employee:
         return jsonify({'error': 'الموظف غير موجود'}), 400
 
+    # PAYROLL-1: a new entry is pending -- or approved with its accrual; «paid»
+    # is the payment's (mark-paid), the voucher and its day too; the net is
+    # the server's (services/payroll_laws).
+    from services.payroll_laws import PayrollRefused, approve, net_of, refuse_bad_period
+    requested = (data.get('status') or 'pending').strip().lower()
     try:
-        paid_date = _parse_iso_date(data.get('paid_date'), 'paid_date')
-    except ValueError as exc:
-        return jsonify({'error': str(exc)}), 400
+        refuse_bad_period(data.get('month', datetime.now().month), data.get('year', datetime.now().year))
+    except PayrollRefused as refused:
+        return jsonify({'error': refused.message}), 400
+    if requested not in ('pending', 'approved'):
+        return jsonify({'error': 'يُنشأ سجل الراتب معلّقًا أو معتمدًا؛ «مدفوع» يُضبط بزر الصرف الذي يكتب سنده'}), 400
 
     basic_salary = float(data.get('basic_salary', employee.salary or 0.0))
     allowances = float(data.get('allowances', 0.0))
     deductions = float(data.get('deductions', 0.0))
-    net_salary = float(data.get('net_salary', basic_salary + allowances - deductions))
 
     payroll_entry = Payroll(
         employee_id=employee.id,
@@ -862,16 +868,21 @@ def create_payroll():
         basic_salary=basic_salary,
         allowances=allowances,
         deductions=deductions,
-        net_salary=net_salary,
-        voucher_id=data.get('voucher_id'),
-        paid_date=paid_date,
-        status=data.get('status', 'pending'),
+        net_salary=net_of(basic_salary, allowances, deductions),
+        status='pending',
         notes=data.get('notes'),
         created_by=data.get('created_by'),
     )
 
     try:
         db.session.add(payroll_entry)
+        db.session.flush()
+        if requested == 'approved':
+            try:
+                approve(payroll_entry, by=data.get('created_by') or 'system')
+            except PayrollRefused as refused:
+                db.session.rollback()
+                return jsonify({'error': refused.message}), 409
         db.session.commit()
         return jsonify(payroll_entry.to_dict(include_employee=True, include_voucher=True)), 201
     except IntegrityError as exc:
@@ -895,6 +906,23 @@ def update_payroll(payroll_id):
 
     old_status = (payroll_entry.status or '').strip().lower()
 
+    # PAYROLL-1 (services/payroll_laws): amounts while pending alone; «paid» is
+    # the payment's; approving is its accrual; cancelling reverses it.
+    from services.payroll_laws import PayrollRefused, approve, cancel, net_of, refuse_amount_edit, refuse_bad_period
+    try:
+        refuse_amount_edit(payroll_entry, data)
+        refuse_bad_period(data.get('month', payroll_entry.month), data.get('year', payroll_entry.year))
+    except PayrollRefused as refused:
+        return jsonify({'error': refused.message}), 409
+    new_status = (data.get('status') or old_status).strip().lower()
+    if new_status != old_status:
+        if new_status == 'paid' or old_status == 'paid':
+            return jsonify({'error': '«مدفوع» يُضبط بزر الصرف الذي يكتب سنده، ولا يُغيَّر الراتب المصروف'}), 409
+        if new_status == 'pending':
+            return jsonify({'error': 'لا يُعاد سجل معتمد إلى «معلّق»: يُلغى فيُعكس قيده، ويُنشأ سجل صحيح'}), 409
+        if old_status == 'cancelled':
+            return jsonify({'error': 'السجل الملغى لا يُعاد: أنشئ سجلًا جديدًا'}), 409
+
     if 'employee_id' in data:
         employee_id = data['employee_id']
         if employee_id:
@@ -914,41 +942,25 @@ def update_payroll(payroll_id):
         payroll_entry.allowances = float(data['allowances'])
     if 'deductions' in data and data['deductions'] is not None:
         payroll_entry.deductions = float(data['deductions'])
-    if 'net_salary' in data and data['net_salary'] is not None:
-        payroll_entry.net_salary = float(data['net_salary'])
-
-    if 'status' in data and data['status']:
-        payroll_entry.status = data['status']
-
-    if 'voucher_id' in data:
-        payroll_entry.voucher_id = data['voucher_id']
+    # The net is the server's (PAYROLL-1, law 3); the voucher and the paid day
+    # are the payment's (law 2) -- neither is taken from the form.
+    payroll_entry.net_salary = net_of(payroll_entry.basic_salary, payroll_entry.allowances,
+                                      payroll_entry.deductions)
 
     if 'notes' in data:
         payroll_entry.notes = data['notes']
 
-    if 'paid_date' in data:
-        try:
-            payroll_entry.paid_date = _parse_iso_date(data['paid_date'], 'paid_date')
-        except ValueError as exc:
-            return jsonify({'error': str(exc)}), 400
-
-    # ── قيد الاستحقاق التلقائي ────────────────────────────────────────
-    # عند التغيير إلى approved أو paid ينشأ القيد تلقائياً داخل نفس
-    # الـ transaction — إذا فشل الحفظ يُرجع خطأ واضح للمستخدم.
-    new_status = (payroll_entry.status or '').strip().lower()
     accrual_result = None
-    if new_status in ('approved', 'paid') and old_status not in ('approved', 'paid'):
-        try:
-            ok, err, je = _post_payroll_accrual_internal(
-                payroll_entry,
-                created_by=data.get('created_by', 'system'),
-            )
-            if ok:
-                accrual_result = {'accrual_posted': True, 'accrual_already_existed': je is not None and not hasattr(je, '_sa_instance_state')}
-            else:
-                accrual_result = {'accrual_posted': False, 'accrual_warning': err}
-        except Exception as exc:
-            accrual_result = {'accrual_posted': False, 'accrual_warning': str(exc)}
+    by = data.get('created_by', 'system')
+    try:
+        if new_status == 'approved' and old_status == 'pending':
+            approve(payroll_entry, by=by)                     # law 4
+            accrual_result = {'accrual_posted': True}
+        elif new_status == 'cancelled' and old_status != 'cancelled':
+            cancel(payroll_entry, by=by, now=datetime.now())  # law 6
+    except PayrollRefused as refused:
+        db.session.rollback()
+        return jsonify({'error': refused.message}), 409
 
     try:
         db.session.commit()
@@ -968,8 +980,11 @@ def update_payroll(payroll_id):
 def delete_payroll(payroll_id):
     payroll_entry = Payroll.query.get_or_404(payroll_id)
 
-    if payroll_entry.voucher_id:
-        return jsonify({'error': 'لا يمكن حذف سجل الراتب المرتبط بسند'}), 400
+    from services.payroll_laws import PayrollRefused, refuse_delete
+    try:
+        refuse_delete(payroll_entry)                           # PAYROLL-1, law 6
+    except PayrollRefused as refused:
+        return jsonify({'error': refused.message}), 409
 
     try:
         db.session.delete(payroll_entry)
@@ -1054,15 +1069,17 @@ def bulk_approve_payroll():
     if not entries:
         return jsonify({'approved': 0, 'skipped': 0, 'message': 'لا توجد سجلات معلقة'}), 200
 
+    # Approving is its accrual (PAYROLL-1, law 4): one that cannot be written
+    # stays pending -- it was left «approved» with none.
+    from services.payroll_laws import PayrollRefused, approve
     approved_count = 0
     skipped = []
     for entry in entries:
-        entry.status = 'approved'
-        ok, err, _ = _post_payroll_accrual_internal(entry, created_by=created_by)
-        if ok:
+        try:
+            approve(entry, by=created_by)
             approved_count += 1
-        else:
-            skipped.append({'id': entry.id, 'reason': err})
+        except PayrollRefused as refused:
+            skipped.append({'id': entry.id, 'reason': refused.message})
 
     try:
         db.session.commit()
@@ -1098,14 +1115,17 @@ def bulk_cancel_payroll():
     if not entries:
         return jsonify({'cancelled': 0, 'message': 'لا توجد سجلات قابلة للإلغاء'}), 200
 
+    # Cancelling an approved entry reverses its accrual (PAYROLL-1, law 6): it
+    # was left posted, an expense for a salary that was not.
+    from services.payroll_laws import PayrollRefused, cancel
     cancelled_count = 0
     skipped = []
     for entry in entries:
-        if entry.voucher_id:
-            skipped.append({'id': entry.id, 'reason': 'مرتبط بسند دفع'})
-            continue
-        entry.status = 'cancelled'
-        cancelled_count += 1
+        try:
+            cancel(entry, by=data.get('created_by', 'system'), now=datetime.now())
+            cancelled_count += 1
+        except PayrollRefused as refused:
+            skipped.append({'id': entry.id, 'reason': refused.message})
 
     try:
         db.session.commit()
@@ -1301,6 +1321,16 @@ def mark_payroll_paid(payroll_id):
     """
     payroll_entry = Payroll.query.get_or_404(payroll_id)
     data = request.get_json() or {}
+
+    # Only an approved entry is paid, its accrual first (PAYROLL-1, law 5):
+    # December-February were paid with none -- an expense never written.
+    from services.payroll_laws import PayrollRefused, ensure_accrual
+    if not payroll_entry.voucher_id:
+        try:
+            ensure_accrual(payroll_entry, by=data.get('created_by', 'system'))
+        except PayrollRefused as refused:
+            db.session.rollback()
+            return jsonify({'error': refused.message}), 409
 
     try:
         paid_date = _parse_iso_date(data.get('paid_date') or datetime.now().date(), 'paid_date')
