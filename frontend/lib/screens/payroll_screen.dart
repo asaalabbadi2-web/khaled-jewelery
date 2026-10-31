@@ -8,6 +8,7 @@ import '../api_service.dart';
 import '../models/employee_model.dart';
 import '../models/payroll_model.dart';
 import 'payroll_report_screen.dart';
+import 'payroll_runs_screen.dart';
 import '../widgets/app_feedback.dart';
 
 class PayrollScreen extends StatefulWidget {
@@ -691,6 +692,19 @@ class _PayrollScreenState extends State<PayrollScreen> {
       appBar: AppBar(
         title: Text(isAr ? 'سجلات الرواتب' : 'Payroll Records'),
         actions: [
+          // PAYROLL-2: a month's payroll as one document.
+          IconButton(
+            key: const ValueKey('payroll-open-runs'),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) =>
+                    PayrollRunsScreen(api: widget.api, isArabic: isAr),
+              ),
+            ),
+            icon: const Icon(Icons.event_note_outlined),
+            tooltip: isAr ? 'مسيرات الرواتب' : 'Payroll runs',
+          ),
           IconButton(
             onPressed: _loadPayroll,
             icon: const Icon(Icons.refresh),
@@ -1099,8 +1113,10 @@ class _PayrollFormDialogState extends State<PayrollFormDialog> {
 
   /// An entry no longer pending keeps its amounts, its employee and its month:
   /// its accrual is posted with them (PAYROLL-1) -- its notes alone are edited.
-  bool get _locked => widget.entry != null && (widget.entry!.status).toLowerCase() != 'pending';
-  bool get _paid => widget.entry != null && (widget.entry!.status).toLowerCase() == 'paid';
+  bool get _locked =>
+      widget.entry != null && (widget.entry!.status).toLowerCase() != 'pending';
+  bool get _paid =>
+      widget.entry != null && (widget.entry!.status).toLowerCase() == 'paid';
 
   bool _loadingEmployees = false;
   String? _employeesLoadError;
@@ -1353,7 +1369,9 @@ class _PayrollFormDialogState extends State<PayrollFormDialog> {
                   keyboardType: TextInputType.number,
                   validator: (value) {
                     final m = int.tryParse((value ?? '').trim());
-                    return (m == null || m < 1 || m > 12) ? (isAr ? 'الشهر من 1 إلى 12' : 'Month 1-12') : null;
+                    return (m == null || m < 1 || m > 12)
+                        ? (isAr ? 'الشهر من 1 إلى 12' : 'Month 1-12')
+                        : null;
                   },
                 ),
                 TextFormField(
@@ -1367,7 +1385,11 @@ class _PayrollFormDialogState extends State<PayrollFormDialog> {
                   // «202» was saved for 2025 (the 31 Oct copy): four digits.
                   validator: (value) {
                     final y = int.tryParse((value ?? '').trim());
-                    return (y == null || y < 2000 || y > 2100) ? (isAr ? 'السنة أربعة أرقام، مثل 2026' : 'A four-digit year') : null;
+                    return (y == null || y < 2000 || y > 2100)
+                        ? (isAr
+                              ? 'السنة أربعة أرقام، مثل 2026'
+                              : 'A four-digit year')
+                        : null;
                   },
                 ),
                 TextFormField(
@@ -1425,13 +1447,25 @@ class _PayrollFormDialogState extends State<PayrollFormDialog> {
                   initialValue: _status,
                   items: [
                     if (!_locked)
-                      DropdownMenuItem(value: 'pending', child: Text(isAr ? 'معلّق' : 'Pending')),
+                      DropdownMenuItem(
+                        value: 'pending',
+                        child: Text(isAr ? 'معلّق' : 'Pending'),
+                      ),
                     if (!_paid)
-                      DropdownMenuItem(value: 'approved', child: Text(isAr ? 'معتمد' : 'Approved')),
+                      DropdownMenuItem(
+                        value: 'approved',
+                        child: Text(isAr ? 'معتمد' : 'Approved'),
+                      ),
                     if (_paid)
-                      DropdownMenuItem(value: 'paid', child: Text(isAr ? 'مدفوع' : 'Paid')),
+                      DropdownMenuItem(
+                        value: 'paid',
+                        child: Text(isAr ? 'مدفوع' : 'Paid'),
+                      ),
                     if (!_paid)
-                      DropdownMenuItem(value: 'cancelled', child: Text(isAr ? 'ملغى' : 'Cancelled')),
+                      DropdownMenuItem(
+                        value: 'cancelled',
+                        child: Text(isAr ? 'ملغى' : 'Cancelled'),
+                      ),
                   ],
                   onChanged: _paid
                       ? null

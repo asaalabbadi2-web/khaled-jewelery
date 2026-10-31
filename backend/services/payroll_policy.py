@@ -35,8 +35,8 @@ IBAN_CHECK_MODULUS = 97         # ISO 13616
 
 class PayrollPolicyNotSet(PayrollRefused):
     def __init__(self, key: str):
-        super().__init__(f'سياسة الرواتب غير مضبوطة ({key}): تُضبط في إعدادات الرواتب، ولا يُحسب شيء بها دونها')
-        self.code = 'payroll_policy_not_set'
+        super().__init__(f'سياسة الرواتب غير مضبوطة ({key}): تُضبط في إعدادات الرواتب، ولا يُحسب شيء بها دونها',
+                         'payroll_policy_not_set')
 
 
 # ── the policy ─────────────────────────────────────────────────────────────────

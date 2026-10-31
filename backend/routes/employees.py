@@ -6,7 +6,7 @@ import json
 import os
 from datetime import date, datetime, timedelta
 
-from flask import Blueprint, g, jsonify, request
+from flask import Blueprint, abort, g, jsonify, request
 from services.record_ownership import refuse_unless_self
 from sqlalchemy import and_, func, or_
 from sqlalchemy.exc import IntegrityError
@@ -25,6 +25,7 @@ from models import (
     ContributionComponent,
     ContributionScheme,
     Payroll,
+    PayrollRun,
     SafeBox,
     SalaryStructure,
     Settings,
@@ -1010,6 +1011,117 @@ def preview_employee_contributions(employee_id):
                     'contributions': contributions(employee, structure, day)})
 
 
+# ── PAYROLL-2 (M2b): a month's run (services/payroll_run) ───────────────────────
+
+def _run_view(run, status=200, left_out=None):
+    from services.payroll_run import left_out as run_left_out
+    body = run.to_dict(include_entries=True)
+    body['left_out'] = left_out if left_out is not None else run_left_out(run)
+    return jsonify(body), status
+
+
+def _run_action(run, action):
+    """The action, committed -- or refused with the run as it was."""
+    from services.payroll_laws import PayrollRefused
+    try:
+        action()
+    except PayrollRefused as refused:
+        db.session.rollback()
+        return _payroll_refusal(refused, 409)
+    db.session.commit()
+    return _run_view(run)
+
+
+@employees_bp.route('/payroll/runs', methods=['GET'])
+@require_permission('employees.payroll')
+def list_payroll_runs():
+    query = PayrollRun.query
+    if request.args.get('year'):
+        query = query.filter(PayrollRun.year == int(request.args['year']))
+    runs = query.order_by(PayrollRun.year.desc(), PayrollRun.month.desc(), PayrollRun.id.desc()).all()
+    return jsonify([run.to_dict() for run in runs])
+
+
+@employees_bp.route('/payroll/runs', methods=['POST'])
+@require_permission('employees.payroll')
+def create_payroll_run():
+    from services.payroll_laws import PayrollRefused
+    from services.payroll_run import generate
+    data = request.get_json(silent=True) or {}
+    try:
+        run, left_out = generate(data.get('month'), data.get('year'), by=data.get('created_by') or 'system')
+    except PayrollRefused as refused:
+        db.session.rollback()
+        return _payroll_refusal(refused, 409 if refused.code == 'payroll_run_exists' else 400)
+    db.session.commit()
+    return _run_view(run, 201, left_out)
+
+
+@employees_bp.route('/payroll/runs/<int:run_id>', methods=['GET'])
+@require_permission('employees.payroll')
+def get_payroll_run(run_id):
+    return _run_view(PayrollRun.query.get_or_404(run_id))
+
+
+def _run_line(run_id, payroll_id):
+    line = Payroll.query.get_or_404(payroll_id)
+    if line.payroll_run_id != run_id:
+        abort(404)
+    return line
+
+
+@employees_bp.route('/payroll/runs/<int:run_id>/lines/<int:payroll_id>', methods=['PUT'])
+@require_permission('employees.payroll')
+def update_payroll_run_line(run_id, payroll_id):
+    from services.payroll_run import edit_line
+    line = _run_line(run_id, payroll_id)
+    return _run_action(line.run, lambda: edit_line(line, request.get_json(silent=True) or {}))
+
+
+@employees_bp.route('/payroll/runs/<int:run_id>/lines/<int:payroll_id>', methods=['DELETE'])
+@require_permission('employees.payroll')
+def delete_payroll_run_line(run_id, payroll_id):
+    from services.payroll_run import remove_line
+    line = _run_line(run_id, payroll_id)
+    return _run_action(line.run, lambda: remove_line(line))
+
+
+@employees_bp.route('/payroll/runs/<int:run_id>/approve', methods=['POST'])
+@require_permission('employees.payroll')
+def approve_payroll_run(run_id):
+    from services.payroll_run import approve
+    run = PayrollRun.query.get_or_404(run_id)
+    by = (request.get_json(silent=True) or {}).get('created_by') or 'system'
+    return _run_action(run, lambda: approve(run, by=by, now=datetime.now()))
+
+
+@employees_bp.route('/payroll/runs/<int:run_id>/cancel', methods=['POST'])
+@require_permission('employees.payroll')
+def cancel_payroll_run(run_id):
+    from services.payroll_run import cancel
+    run = PayrollRun.query.get_or_404(run_id)
+    by = (request.get_json(silent=True) or {}).get('created_by') or 'system'
+    return _run_action(run, lambda: cancel(run, by=by, now=datetime.now()))
+
+
+@employees_bp.route('/payroll/runs/<int:run_id>/pay', methods=['POST'])
+@require_permission('employees.payroll')
+def pay_payroll_run(run_id):
+    """Body: bank_account_id, cash_account_id (by how each employee is paid),
+    paid_date, and lines [{payroll_id, payment_account_id, advance_deduction_amount}]."""
+    from services.payroll_run import pay_run
+    run = PayrollRun.query.get_or_404(run_id)
+    data = request.get_json(silent=True) or {}
+    return _run_action(run, lambda: pay_run(run, data, by=data.get('created_by') or 'system', now=datetime.now()))
+
+
+@employees_bp.route('/payroll/<int:payroll_id>/payslip', methods=['GET'])
+@require_permission('employees.payroll')
+def get_payslip(payroll_id):
+    from services.payroll_run import payslip
+    return jsonify(payslip(Payroll.query.get_or_404(payroll_id)))
+
+
 @employees_bp.route('/advances/summary', methods=['GET'])
 @require_permission('employees.payroll')
 def get_all_advances_summary():
@@ -1068,6 +1180,9 @@ def create_payroll():
         return jsonify({'error': refused.message}), 400
     if requested not in ('pending', 'approved'):
         return jsonify({'error': 'يُنشأ سجل الراتب معلّقًا أو معتمدًا؛ «مدفوع» يُضبط بزر الصرف الذي يكتب سنده'}), 400
+    from services.payroll_run import open_run
+    if open_run(int(data.get('month', datetime.now().month)), int(data.get('year', datetime.now().year))):
+        return jsonify({'error': 'لهذا الشهر مسير رواتب: يُضاف الموظف من شاشة المسير'}), 409
 
     basic_salary = float(data.get('basic_salary', employee.salary or 0.0))
     allowances = float(data.get('allowances', 0.0))
@@ -1533,173 +1648,25 @@ def mark_payroll_paid(payroll_id):
     """
     payroll_entry = Payroll.query.get_or_404(payroll_id)
     data = request.get_json() or {}
-
-    # Only an approved entry is paid, its accrual first (PAYROLL-1, law 5):
-    # December-February were paid with none -- an expense never written.
-    from services.payroll_laws import PayrollRefused, ensure_accrual
-    if not payroll_entry.voucher_id:
-        try:
-            ensure_accrual(payroll_entry, by=data.get('created_by', 'system'))
-        except PayrollRefused as refused:
-            db.session.rollback()
-            return jsonify({'error': refused.message}), 409
-
     try:
         paid_date = _parse_iso_date(data.get('paid_date') or datetime.now().date(), 'paid_date')
     except ValueError as exc:
         return jsonify({'error': str(exc)}), 400
 
-    # Optional: deduct an advance from the salary payment voucher.
+    # Only an approved entry is paid, by its voucher, its accrual first
+    # (PAYROLL-1, law 5) -- services/payroll_payment, the run's batch too.
+    from services.payroll_laws import PayrollRefused
+    from services.payroll_payment import pay
     try:
-        advance_deduction_amount = float(data.get('advance_deduction_amount') or 0.0)
-    except Exception:
-        return jsonify({'error': 'advance_deduction_amount_invalid'}), 400
-
-    if advance_deduction_amount < 0:
-        return jsonify({'error': 'advance_deduction_amount_negative'}), 400
-
-    net_salary = float(payroll_entry.net_salary or 0.0)
-    if advance_deduction_amount > net_salary + 1e-9:
-        return jsonify({'error': 'advance_deduction_exceeds_net_salary'}), 400
-
-    # ✅ إنشاء سند صرف تلقائي + ترحيله (سند + قيد يومية) إذا لم يكن موجوداً
-    if not payroll_entry.voucher_id:
-        try:
-            # البحث عن حساب الموظف
-            employee = Employee.query.get(payroll_entry.employee_id)
-            if not employee:
-                return jsonify({'error': 'الموظف غير موجود'}), 404
-
-            # إنشاء رقم سند فريد
-            voucher_prefix = f"PAY-{payroll_entry.year}-{payroll_entry.month:02d}"
-            latest_voucher = (
-                Voucher.query.filter(Voucher.voucher_number.like(f"{voucher_prefix}%"))
-                .order_by(Voucher.voucher_number.desc())
-                .first()
-            )
-            
-            if latest_voucher:
-                try:
-                    last_seq = int(latest_voucher.voucher_number.split('-')[-1])
-                    voucher_number = f"{voucher_prefix}-{last_seq + 1:04d}"
-                except (ValueError, IndexError):
-                    voucher_number = f"{voucher_prefix}-0001"
-            else:
-                voucher_number = f"{voucher_prefix}-0001"
-
-            # إنشاء السند (pending ثم يتم ترحيله مباشرة مثل سندات الدفعات)
-            voucher = Voucher(
-                voucher_number=voucher_number,
-                voucher_type='payment',
-                date=paid_date,
-                description=f"صرف راتب {employee.name} - {payroll_entry.month}/{payroll_entry.year}",
-                status='pending',
-                created_by=data.get('created_by', 'system'),
-                party_type='other',
-                party_name=employee.name,
-                reference_type='payroll',
-                reference_id=int(payroll_entry.id),
-                reference_number=f"{payroll_entry.year}-{payroll_entry.month:02d}",
-            )
-            db.session.add(voucher)
-            db.session.flush()  # للحصول على voucher.id
-
-            # ✅ تحديد حساب طرف الرواتب: ذمم الموظف - رواتب (2400xxxx)
-            from accounting.mappings import AccountNotMapped, get_account_id_for_mapping
-            from services.employee_accounts import ensure_payable_account
-            try:
-                salary_account_id = int(ensure_payable_account(
-                    employee, 'salary_payable', by=data.get('created_by', 'system')).id)
-            except AccountNotMapped as missing:
-                db.session.rollback()
-                return jsonify({'error': str(missing)}), 400
-
-            # ✅ تحديد حساب الدفع (نقدية/بنك/شيك)
-            payment_account_id = data.get('payment_account_id')
-            
-            if payment_account_id:
-                # التحقق من وجود الحساب المحدد
-                payment_account = Account.query.get(payment_account_id)
-                if not payment_account:
-                    db.session.rollback()
-                    return jsonify({'error': f'حساب الدفع غير موجود (ID: {payment_account_id})'}), 400
-            else:
-                # The cash role, mapped -- the first account whose number began
-                # with 100 or whose name held «صندوق» was the scrap box (1310002)
-                # on the production copy (CHART-002).
-                cash_id = get_account_id_for_mapping('افتراضي', 'cash')
-                payment_account = db.session.get(Account, cash_id) if cash_id else None
-                if not payment_account:
-                    db.session.rollback()
-                    return jsonify({'error': 'لا حساب نقدية مربوط (افتراضي / cash) ولا حساب دفع محدد'}), 400
-
-            cash_paid = max(0.0, net_salary - advance_deduction_amount)
-
-            # اتجاه الصرف:
-            # - debit: ذمم الرواتب (2400xxxx) بقيمة صافي الراتب
-            # - credits: الخزنة (نقد/بنك/شيك) بمبلغ المدفوع فعليًا + سلفة الموظف (170/171) بمبلغ الخصم
-            if cash_paid > 1e-9:
-                safe_line = VoucherAccountLine(
-                    voucher_id=voucher.id,
-                    account_id=payment_account.id,
-                    line_type='credit',
-                    amount_type='cash',
-                    description=f"صرف راتب {employee.name} - {payment_account.name}",
-                    amount=cash_paid,
-                )
-                db.session.add(safe_line)
-
-            party_line = VoucherAccountLine(
-                voucher_id=voucher.id,
-                account_id=salary_account_id,
-                line_type='debit',
-                amount_type='cash',
-                description=f"راتب {payroll_entry.month}/{payroll_entry.year}",
-                amount=net_salary,
-            )
-            db.session.add(party_line)
-
-            if advance_deduction_amount > 1e-9:
-                if not employee.account_id:
-                    db.session.rollback()
-                    return jsonify({
-                        'error': 'employee_missing_account_for_advance_deduction',
-                        'message': (
-                            f'لا يمكن خصم السلفة: الموظف "{employee.name}" ليس لديه حساب سلف مرتبط. '
-                            'يرجى تعيين حساب سلفة للموظف من صفحة الموظفين أولاً، '
-                            'أو اترك حقل "خصم السلفة" بالقيمة صفر.'
-                        ),
-                    }), 400
-
-                advance_line = VoucherAccountLine(
-                    voucher_id=voucher.id,
-                    account_id=int(employee.account_id),
-                    line_type='credit',
-                    amount_type='cash',
-                    description=f"خصم سلفة من راتب {employee.name}",
-                    amount=float(advance_deduction_amount),
-                )
-                db.session.add(advance_line)
-
-            # ترحيل السند تلقائياً (إنشاء قيد + ربط + SafeBoxTransaction)
-            # Born approved, born posted (APPROVED-ENTRY-001): raises if no entry.
-            journal_entry = post_entry_of_approved_voucher(voucher, posted_by=data.get('created_by', 'system'))
-
-            voucher.status = 'approved'
-            voucher.approved_at = datetime.now()
-            voucher.approved_by = data.get('created_by', 'system')
-            voucher.journal_entry_id = journal_entry.id
-
-            _append_safe_transactions_for_voucher(voucher, created_by=voucher.approved_by)
-
-            payroll_entry.voucher_id = voucher.id
-
-        except Exception as e:
-            db.session.rollback()
-            return jsonify({'error': f'فشل إنشاء سند الصرف: {str(e)}'}), 500
-
-    payroll_entry.paid_date = paid_date
-    payroll_entry.status = 'paid'
+        pay(payroll_entry, payment_account_id=data.get('payment_account_id'), paid_date=paid_date,
+            advance_deduction=data.get('advance_deduction_amount'), by=data.get('created_by', 'system'),
+            now=datetime.now())
+    except PayrollRefused as refused:
+        db.session.rollback()
+        return jsonify({'error': refused.message, 'message': refused.message}), 409
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({'error': f'فشل إنشاء سند الصرف: {str(exc)}'}), 500
 
     try:
         db.session.commit()

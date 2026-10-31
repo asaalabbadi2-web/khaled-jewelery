@@ -4195,6 +4195,45 @@ class ContributionComponent(db.Model):
                 'effective_from': self.effective_from.isoformat() if self.effective_from else None}
 
 
+class PayrollRun(db.Model):
+    """A month's payroll, one document (PAYROLL-2, M2b): drafted from the
+    salary structures, reviewed, approved with one accrual, paid in a batch.
+    One regular run a month; its policy is frozen on it when approved."""
+    __tablename__ = 'payroll_run'
+
+    id = db.Column(db.Integer, primary_key=True)
+    month = db.Column(db.Integer, nullable=False)
+    year = db.Column(db.Integer, nullable=False)
+    kind = db.Column(db.String(20), nullable=False, default='regular')
+    status = db.Column(db.String(20), nullable=False, default='draft')   # draft, approved, paid, cancelled
+    policy_snapshot = db.Column(db.Text, nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+    created_by = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime, default=db.func.now(), nullable=False)
+    approved_by = db.Column(db.String(100), nullable=True)
+    approved_at = db.Column(db.DateTime, nullable=True)
+
+    entries = db.relationship('Payroll', backref='run', lazy='dynamic')
+
+    __table_args__ = (
+        db.Index('uq_payroll_run_month', 'month', 'year', 'kind', unique=True,
+                 postgresql_where=db.text("status <> 'cancelled'")),
+    )
+
+    def to_dict(self, include_entries: bool = False):
+        data = {'id': self.id, 'month': self.month, 'year': self.year, 'kind': self.kind,
+                'status': self.status, 'notes': self.notes, 'created_by': self.created_by,
+                'created_at': self.created_at.isoformat() if self.created_at else None,
+                'approved_by': self.approved_by,
+                'approved_at': self.approved_at.isoformat() if self.approved_at else None}
+        if include_entries:
+            rows = self.entries.order_by(Payroll.id).all()
+            data['entries'] = [row.to_dict(include_employee=True, include_voucher=True) for row in rows]
+            data['totals'] = {field: round(sum(getattr(row, field) or 0.0 for row in rows), 2)
+                              for field in ('basic_salary', 'allowances', 'deductions', 'net_salary')}
+        return data
+
+
 class Payroll(db.Model):
     """سجلات الرواتب الشهرية"""
     __tablename__ = 'payroll'
@@ -4213,14 +4252,23 @@ class Payroll(db.Model):
     notes = db.Column(db.Text, nullable=True)
     created_by = db.Column(db.String(100), nullable=True)
 
+    # PAYROLL-2 (M2b): the run it is a line of, and what it was drafted from --
+    # the structure's figures, the days and the divisor, frozen (JSON,
+    # snapshot_schema_version 1). Legacy entries have neither.
+    payroll_run_id = db.Column(db.Integer, db.ForeignKey('payroll_run.id'), nullable=True, index=True)
+    breakdown = db.Column(db.Text, nullable=True)
+
     created_at = db.Column(db.DateTime, default=db.func.now(), nullable=False)
     updated_at = db.Column(db.DateTime, default=db.func.now(), onupdate=db.func.now(), nullable=False)
 
     employee = db.relationship('Employee', backref=db.backref('payroll_entries', lazy='dynamic'))
     voucher = db.relationship('Voucher', backref=db.backref('payroll_entries', lazy='dynamic'))
 
+    # One standing entry an employee a month -- a cancelled one holds no month,
+    # so a cancelled run is drafted again (PAYROLL-2).
     __table_args__ = (
-        db.UniqueConstraint('employee_id', 'month', 'year', name='_employee_month_year_uc'),
+        db.Index('uq_payroll_employee_month', 'employee_id', 'month', 'year', unique=True,
+                 postgresql_where=db.text("status <> 'cancelled'")),
     )
 
     def to_dict(self, include_employee: bool = False, include_voucher: bool = False):
@@ -4240,6 +4288,8 @@ class Payroll(db.Model):
             'created_by': self.created_by,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'payroll_run_id': self.payroll_run_id,
+            'breakdown': json.loads(self.breakdown) if self.breakdown else None,
         }
 
         if include_employee and self.employee:

@@ -15,6 +15,9 @@ payroll entry (tests/test_payroll_is_kept_whole.py):
   5. only an approved entry is paid, its accrual written first if it has none;
   6. cancelling an approved entry reverses its accrual; a paid one is not
      cancelled; a pending one with no entry alone is deleted.
+
+A line of a month's run (PAYROLL-2, services/payroll_run) is the run's: its
+accrual is the run's, and it is approved, cancelled and edited with the run.
 """
 from __future__ import annotations
 
@@ -26,9 +29,10 @@ REVERSAL = 'payroll_accrual_reversal'
 
 
 class PayrollRefused(ValueError):
-    def __init__(self, message: str):
+    def __init__(self, message: str, code: str | None = None):
         super().__init__(message)
         self.message = message
+        self.code = code
 
 
 def refuse_bad_period(month, year) -> None:
@@ -45,8 +49,19 @@ def net_of(basic, allowances, deductions) -> float:
     return round(float(basic or 0.0) + float(allowances or 0.0) - float(deductions or 0.0), 2)
 
 
+RUN_LINE = 'سطر من مسير الشهر: يُعتمد ويُلغى ويُعدَّل مع المسير كله، من شاشة المسير.'
+
+
+def refuse_run_line(entry) -> None:
+    if entry.payroll_run_id is not None:
+        raise PayrollRefused(RUN_LINE)
+
+
 def accrual_of(entry):
-    """Its posted accrual, standing (not reversed) -- or None."""
+    """Its posted accrual, standing (not reversed) -- or None. A run's line has its run's."""
+    if entry.payroll_run_id is not None:
+        from services.payroll_run import accrual_of as run_accrual_of
+        return run_accrual_of(entry.run)
     accrual = (JournalEntry.query
                .filter_by(reference_type=ACCRUAL, reference_id=int(entry.id), is_deleted=False)
                .order_by(JournalEntry.id.desc()).first())
@@ -59,6 +74,8 @@ def accrual_of(entry):
 
 def refuse_amount_edit(entry, data: dict) -> None:
     """Law 1: an amount, the employee or the month changed on an entry not pending."""
+    if entry.payroll_run_id is not None and any(data.get(field) is not None for field in AMOUNT_FIELDS):
+        raise PayrollRefused(RUN_LINE)
     if (entry.status or '').strip().lower() == 'pending':
         return
     for field in AMOUNT_FIELDS:
@@ -72,6 +89,7 @@ def refuse_amount_edit(entry, data: dict) -> None:
 
 def approve(entry, *, by: str) -> None:
     """Law 4: approved with its accrual, or left pending. Caller commits."""
+    refuse_run_line(entry)
     from routes.employees import _post_payroll_accrual_internal
     savepoint = db.session.begin_nested()
     entry.status = 'approved'
@@ -93,32 +111,37 @@ def ensure_accrual(entry, *, by: str) -> None:
     if status not in ('approved', 'paid'):
         raise PayrollRefused('اعتمد سجل الراتب أولًا: يُكتب قيد استحقاقه، ثم يُصرف.')
     if accrual_of(entry) is None and status == 'approved':
-        approve(entry, by=by)
+        approve(entry, by=by)              # a run's line is refused here: its run has no accrual
 
 
 def cancel(entry, *, by: str, now) -> None:
     """Law 6: a paid entry is not cancelled; an approved one's accrual is reversed. Caller commits."""
+    refuse_run_line(entry)
     status = (entry.status or '').strip().lower()
     if status == 'paid' or entry.voucher_id:
         raise PayrollRefused('لا يُلغى راتب صُرف: سند صرفه قائم. يُلغى السند أولًا إن كان خطأ.')
     accrual = accrual_of(entry)
     if accrual is not None:
-        _reverse(entry, accrual, by=by, now=now)
+        reverse_entry(accrual, reference_type=REVERSAL, reference_id=int(entry.id),
+                      description=f'عكس استحقاق راتب {entry.month}/{entry.year} (إلغاء السجل #{entry.id})',
+                      by=by, now=now)
     entry.status = 'cancelled'
 
 
 def refuse_delete(entry) -> None:
     """Law 6: only a pending entry with no entry of its own is deleted."""
+    refuse_run_line(entry)
     if (entry.status or '').strip().lower() != 'pending' or entry.voucher_id or accrual_of(entry) is not None:
         raise PayrollRefused('لا يُحذف إلا سجل معلّق بلا قيد ولا سند؛ المعتمد يُلغى فيُعكس قيده.')
 
 
-def _reverse(entry, accrual, *, by: str, now) -> JournalEntry:
+def reverse_entry(accrual, *, reference_type: str, reference_id: int, description: str, by: str,
+                  now) -> JournalEntry:
+    """An accrual's lines, debit for credit, posted -- an entry's or a run's."""
     from dual_system_helpers import create_dual_journal_entry, verify_dual_balance
     from accounting.balances import _recalculate_account_balances_for_accounts
-    description = f'عكس استحقاق راتب {entry.month}/{entry.year} (إلغاء السجل #{entry.id})'
     reversal = JournalEntry(date=now, description=description, entry_type='استحقاق رواتب',
-                            reference_type=REVERSAL, reference_id=int(entry.id),
+                            reference_type=reference_type, reference_id=reference_id,
                             reference_number=accrual.reference_number, created_by=by,
                             is_posted=True, posted_at=now, posted_by=by)
     db.session.add(reversal)

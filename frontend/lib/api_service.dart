@@ -552,6 +552,9 @@ class ApiService {
   Future<http.Response> authedPut(String path, {Object? body}) =>
       _authedPut(Uri.parse('$_baseUrl$path'), body: body);
 
+  Future<http.Response> authedDelete(String path) =>
+      _authedDelete(Uri.parse('$_baseUrl$path'));
+
   // Customer Methods
   Future<List<dynamic>> getCustomers() async {
     final response = await _authedGet(Uri.parse('$_baseUrl/customers'));
