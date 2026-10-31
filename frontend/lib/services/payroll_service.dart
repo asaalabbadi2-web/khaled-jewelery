@@ -145,6 +145,8 @@ class PayrollService {
     required String? method,
     required String? iban,
     required String? bankName,
+    required int? schemeId,
+    required double? contributionWage,
   }) async {
     _body(
       await _api.authedPut(
@@ -153,9 +155,62 @@ class PayrollService {
           'payment_method': method,
           'iban': iban,
           'bank_name': bankName,
+          'contribution_scheme_id': schemeId,
+          'contribution_wage': contributionWage,
         }),
       ),
     );
+  }
+
+  /// id and name of each active contribution scheme.
+  Future<List<Map<String, dynamic>>> schemes() async =>
+      (_body(await _api.authedGet('/contribution-schemes')) as List)
+          .cast<Map<String, dynamic>>()
+          .where((s) => s['is_active'] != false)
+          .toList();
+
+  /// His plans, his advance account's balance, and what of it is unplanned.
+  Future<(List<AdvancePlanModel>, double, double)> advancePlans(
+    int employeeId,
+  ) async {
+    final body =
+        _body(await _api.authedGet('/employees/$employeeId/advance-plans'))
+            as Map<String, dynamic>;
+    return (
+      (body['plans'] as List)
+          .map((e) => AdvancePlanModel.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      (body['account_balance'] as num).toDouble(),
+      (body['unplanned'] as num).toDouble(),
+    );
+  }
+
+  Future<void> addAdvancePlan(
+    int employeeId, {
+    required double amount,
+    required double? installment,
+    required int startMonth,
+    required int startYear,
+    required bool consent,
+    required String? consentNote,
+  }) async {
+    _body(
+      await _api.authedPost(
+        '/employees/$employeeId/advance-plans',
+        body: jsonEncode({
+          'amount': amount,
+          'installment': installment,
+          'start_month': startMonth,
+          'start_year': startYear,
+          'consent': consent,
+          'consent_note': consentNote,
+        }),
+      ),
+    );
+  }
+
+  Future<void> cancelAdvancePlan(int planId) async {
+    _body(await _api.authedPost('/advance-plans/$planId/cancel', body: '{}'));
   }
 
   // ── plumbing ──────────────────────────────────────────────────────────────

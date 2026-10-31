@@ -3803,6 +3803,9 @@ class Employee(db.Model):
     payment_method = db.Column(db.String(10), nullable=True)
     iban = db.Column(db.String(34), nullable=True)
     bank_name = db.Column(db.String(100), nullable=True)
+    # The wage registered for his contributions (GOSI) -- the owner's figure;
+    # NULL: each component's base from the salary structure (PAYROLL-3).
+    contribution_wage = db.Column(db.Float, nullable=True)
 
     account = db.relationship('Account', backref=db.backref('employees', lazy='dynamic'))
     gold_safe_box = db.relationship('SafeBox', foreign_keys=[gold_safe_box_id])
@@ -3834,6 +3837,7 @@ class Employee(db.Model):
             'payment_method': self.payment_method,
             'iban': self.iban,
             'bank_name': self.bank_name,
+            'contribution_wage': self.contribution_wage,
             'is_active': self.is_active,
             'notes': self.notes,
             'created_by': self.created_by,
@@ -4193,6 +4197,30 @@ class ContributionComponent(db.Model):
                 'base': self.base, 'employee_rate': self.employee_rate, 'employer_rate': self.employer_rate,
                 'base_cap': self.base_cap,
                 'effective_from': self.effective_from.isoformat() if self.effective_from else None}
+
+
+class EmployeeAdvancePlan(db.Model):
+    """How an advance the books hold is repaid from the salary (PAYROLL-3): an
+    amount of the employee's advance account (its balance, never more), an
+    installment a month from a month on -- capped by the policy's share of the
+    wage (Labour Law art. 92) unless the employee consented. What is left is
+    the amount less the installments of the approved runs."""
+    __tablename__ = 'employee_advance_plan'
+
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=False, index=True)
+    amount = db.Column(db.Float, nullable=False)
+    installment = db.Column(db.Float, nullable=False)
+    start_month = db.Column(db.Integer, nullable=False)
+    start_year = db.Column(db.Integer, nullable=False)
+    consent = db.Column(db.Boolean, nullable=False, default=False)
+    consent_note = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(20), nullable=False, default='active')     # active, cancelled
+    notes = db.Column(db.Text, nullable=True)
+    created_by = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime, default=db.func.now(), nullable=False)
+
+    employee = db.relationship('Employee', backref=db.backref('advance_plans', lazy='dynamic'))
 
 
 class PayrollRun(db.Model):

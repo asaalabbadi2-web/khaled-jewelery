@@ -17,6 +17,7 @@ from models import (
     Attendance,
     BonusRule,
     Employee,
+    EmployeeAdvancePlan,
     EmployeeBonus,
     GoalAchievement,
     Invoice,
@@ -1120,6 +1121,45 @@ def pay_payroll_run(run_id):
 def get_payslip(payroll_id):
     from services.payroll_run import payslip
     return jsonify(payslip(Payroll.query.get_or_404(payroll_id)))
+
+
+# ── PAYROLL-3 (M3): advances repaid from the salary (services/payroll_advances) ─
+
+@employees_bp.route('/employees/<int:employee_id>/advance-plans', methods=['GET'])
+@require_permission('employees.payroll')
+def list_advance_plans(employee_id):
+    from services.payroll_advances import account_balance, remaining, to_dict
+    employee = Employee.query.get_or_404(employee_id)
+    plans = employee.advance_plans.order_by(EmployeeAdvancePlan.id.desc()).all()
+    balance = account_balance(employee)
+    planned = round(sum(remaining(p) for p in plans if p.status == 'active'), 2)
+    return jsonify({'plans': [to_dict(p) for p in plans], 'account_balance': balance,
+                    'unplanned': round(balance - planned, 2)})
+
+
+@employees_bp.route('/employees/<int:employee_id>/advance-plans', methods=['POST'])
+@require_permission('employees.payroll')
+def create_advance_plan(employee_id):
+    from services.payroll_advances import create_plan, to_dict
+    from services.payroll_laws import PayrollRefused
+    data = request.get_json(silent=True) or {}
+    try:
+        plan = create_plan(employee_id, data, by=data.get('created_by') or 'system', today=datetime.now().date())
+    except PayrollRefused as refused:
+        db.session.rollback()
+        return _payroll_refusal(refused)
+    db.session.commit()
+    return jsonify(to_dict(plan)), 201
+
+
+@employees_bp.route('/advance-plans/<int:plan_id>/cancel', methods=['POST'])
+@require_permission('employees.payroll')
+def cancel_advance_plan(plan_id):
+    from services.payroll_advances import cancel_plan, to_dict
+    plan = EmployeeAdvancePlan.query.get_or_404(plan_id)
+    cancel_plan(plan)
+    db.session.commit()
+    return jsonify(to_dict(plan))
 
 
 @employees_bp.route('/advances/summary', methods=['GET'])

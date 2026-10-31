@@ -28,19 +28,29 @@ class PayrollRunSummary {
       );
 }
 
-/// An addition or a deduction of a line, with its reason.
+/// An addition or a deduction of a line, with its reason. A deduction is of
+/// a kind (PAYROLL-3): 'absence' and 'penalty' are keyed by the reviewer;
+/// 'contribution' and 'advance' are reckoned by the server and not edited.
 class PayrollLabelledAmount {
-  const PayrollLabelledAmount(this.label, this.amount);
+  const PayrollLabelledAmount(this.label, this.amount, {this.kind});
   final String label;
   final double amount;
+  final String? kind;
+
+  bool get isKeyed => kind == null || kind == 'absence' || kind == 'penalty';
 
   factory PayrollLabelledAmount.fromJson(Map<String, dynamic> json) =>
       PayrollLabelledAmount(
         json['label'] as String? ?? '',
         _num(json['amount']),
+        kind: json['kind'] as String?,
       );
 
-  Map<String, dynamic> toJson() => {'label': label, 'amount': amount};
+  Map<String, dynamic> toJson() => {
+    'label': label,
+    'amount': amount,
+    if (kind != null) 'kind': kind,
+  };
 }
 
 class PayrollRunLine {
@@ -60,6 +70,7 @@ class PayrollRunLine {
     required this.earned,
     required this.additions,
     required this.deductionLines,
+    required this.employerContributions,
     required this.notes,
   });
 
@@ -82,6 +93,9 @@ class PayrollRunLine {
   final Map<String, double> earned;
   final List<PayrollLabelledAmount> additions;
   final List<PayrollLabelledAmount> deductionLines;
+
+  /// The employer's share of his contributions -- the line's, not deducted.
+  final double employerContributions;
   final String? notes;
 
   factory PayrollRunLine.fromJson(Map<String, dynamic> json) {
@@ -109,6 +123,12 @@ class PayrollRunLine {
       earned: {for (final e in earned.entries) e.key: _num(e.value)},
       additions: lines(breakdown['additions']),
       deductionLines: lines(breakdown['deductions']),
+      employerContributions:
+          (breakdown['employer_contributions'] as List? ?? const [])
+              .fold<double>(
+                0,
+                (s, e) => s + _num((e as Map<String, dynamic>)['amount']),
+              ),
       notes: json['notes'] as String?,
     );
   }
@@ -188,5 +208,45 @@ class SalaryStructureModel {
         transport: _num(json['transport']),
         otherAllowances: _num(json['other_allowances']),
         gross: _num(json['gross']),
+      );
+}
+
+/// How an advance the books hold is repaid (PAYROLL-3).
+class AdvancePlanModel {
+  const AdvancePlanModel({
+    required this.id,
+    required this.amount,
+    required this.installment,
+    required this.startMonth,
+    required this.startYear,
+    required this.status,
+    required this.taken,
+    required this.remaining,
+    required this.consent,
+  });
+
+  final int id;
+  final double amount;
+  final double installment;
+  final int startMonth;
+  final int startYear;
+
+  /// active, settled, cancelled
+  final String status;
+  final double taken;
+  final double remaining;
+  final bool consent;
+
+  factory AdvancePlanModel.fromJson(Map<String, dynamic> json) =>
+      AdvancePlanModel(
+        id: json['id'] as int,
+        amount: _num(json['amount']),
+        installment: _num(json['installment']),
+        startMonth: json['start_month'] as int,
+        startYear: json['start_year'] as int,
+        status: json['status'] as String? ?? 'active',
+        taken: _num(json['taken']),
+        remaining: _num(json['remaining']),
+        consent: json['consent'] as bool? ?? false,
       );
 }

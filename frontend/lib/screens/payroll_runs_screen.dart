@@ -44,6 +44,14 @@ String _leftOutWord(String reason, bool isAr) => switch (reason) {
   _ => reason,
 };
 
+/// A deduction's kind, said (PAYROLL-3).
+String _deductionWord(String? kind, bool isAr) => switch (kind) {
+  'penalty' => isAr ? 'جزاء' : 'Penalty',
+  'contribution' => isAr ? 'اشتراك' : 'Contribution',
+  'advance' => isAr ? 'سلفة' : 'Advance',
+  _ => isAr ? 'غياب' : 'Absence',
+};
+
 class _StatusChip extends StatelessWidget {
   const _StatusChip(this.status, this.isAr);
   final String status;
@@ -746,7 +754,13 @@ class _LineCard extends StatelessWidget {
               ),
             for (final d in line.deductionLines)
               Text(
-                '− ${d.label} ${ltrIsolate(money(d.amount))}',
+                '− ${d.label} (${_deductionWord(d.kind, isAr)}) ${ltrIsolate(money(d.amount))}',
+                style: theme.textTheme.bodySmall,
+              ),
+            if (line.employerContributions > 0)
+              Text(
+                '${isAr ? 'حصة المنشأة من الاشتراكات' : 'Employer contributions'} '
+                '${ltrIsolate(money(line.employerContributions))}',
                 style: theme.textTheme.bodySmall,
               ),
             Wrap(
@@ -787,13 +801,16 @@ class _LineCard extends StatelessWidget {
 // ── the line's additions and deductions ─────────────────────────────────────
 
 class _Row {
-  _Row(String label, double? amount)
+  _Row(String label, double? amount, {this.kind})
     : label = TextEditingController(text: label),
       amount = TextEditingController(
         text: amount == null ? '' : formatAmount(amount).replaceAll(',', ''),
       );
   final TextEditingController label;
   final TextEditingController amount;
+
+  /// A deduction's: 'absence' or 'penalty'; an addition has none.
+  String? kind;
 }
 
 class _LineDialog extends StatefulWidget {
@@ -809,8 +826,11 @@ class _LineDialogState extends State<_LineDialog> {
   late final List<_Row> _additions = [
     for (final a in widget.line.additions) _Row(a.label, a.amount),
   ];
+
+  /// The keyed ones -- absence and penalties; the reckoned are the server's.
   late final List<_Row> _deductions = [
-    for (final d in widget.line.deductionLines) _Row(d.label, d.amount),
+    for (final d in widget.line.deductionLines.where((d) => d.isKeyed))
+      _Row(d.label, d.amount, kind: d.kind ?? 'absence'),
   ];
 
   List<PayrollLabelledAmount> _read(List<_Row> rows) => [
@@ -819,10 +839,16 @@ class _LineDialogState extends State<_LineDialog> {
         PayrollLabelledAmount(
           r.label.text.trim(),
           double.tryParse(normalizeNumber(r.amount.text)) ?? 0,
+          kind: r.kind,
         ),
   ];
 
-  Widget _side(String title, List<_Row> rows, String keyPrefix) {
+  Widget _side(
+    String title,
+    List<_Row> rows,
+    String keyPrefix, {
+    bool kinds = false,
+  }) {
     final isAr = widget.isAr;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -831,6 +857,20 @@ class _LineDialogState extends State<_LineDialog> {
         for (var i = 0; i < rows.length; i++)
           Row(
             children: [
+              if (kinds)
+                DropdownButton<String>(
+                  key: ValueKey('$keyPrefix-kind-$i'),
+                  value: rows[i].kind,
+                  items: [
+                    for (final k in const ['absence', 'penalty'])
+                      DropdownMenuItem(
+                        value: k,
+                        child: Text(_deductionWord(k, isAr)),
+                      ),
+                  ],
+                  onChanged: (v) => setState(() => rows[i].kind = v),
+                ),
+              if (kinds) const SizedBox(width: AppSpace.sm),
               Expanded(
                 flex: 3,
                 child: TextField(
@@ -868,7 +908,9 @@ class _LineDialogState extends State<_LineDialog> {
           ),
         TextButton.icon(
           key: ValueKey('$keyPrefix-add'),
-          onPressed: () => setState(() => rows.add(_Row('', null))),
+          onPressed: () => setState(
+            () => rows.add(_Row('', null, kind: kinds ? 'absence' : null)),
+          ),
           icon: const Icon(Icons.add),
           label: Text(isAr ? 'سطر' : 'Line'),
         ),
@@ -889,7 +931,27 @@ class _LineDialogState extends State<_LineDialog> {
             children: [
               _side(isAr ? 'الإضافات' : 'Additions', _additions, 'addition'),
               const SizedBox(height: AppSpace.md),
-              _side(isAr ? 'الخصومات' : 'Deductions', _deductions, 'deduction'),
+              _side(
+                isAr ? 'الخصومات' : 'Deductions',
+                _deductions,
+                'deduction',
+                kinds: true,
+              ),
+              for (final d in widget.line.deductionLines.where(
+                (d) => !d.isKeyed,
+              ))
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: Text('${d.label} (${_deductionWord(d.kind, isAr)})'),
+                  subtitle: Text(
+                    isAr ? 'يحسبه النظام' : 'Reckoned by the system',
+                  ),
+                  trailing: Text(
+                    formatAmount(d.amount),
+                    textDirection: TextDirection.ltr,
+                  ),
+                ),
             ],
           ),
         ),
@@ -1214,7 +1276,15 @@ class _EmployeePayrollDialogState extends State<EmployeePayrollDialog> {
   final _other = TextEditingController(text: '0');
   final _iban = TextEditingController();
   final _bankName = TextEditingController();
+  final _wage = TextEditingController();
+  final _advance = TextEditingController();
+  final _installment = TextEditingController();
+  final _consentNote = TextEditingController();
   String? _method;
+  int? _schemeId;
+  bool _consent = false;
+  List<Map<String, dynamic>> _schemes = const [];
+  (List<AdvancePlanModel>, double, double)? _advances;
   bool _busy = false;
 
   @override
@@ -1236,6 +1306,10 @@ class _EmployeePayrollDialogState extends State<EmployeePayrollDialog> {
       _other,
       _iban,
       _bankName,
+      _wage,
+      _advance,
+      _installment,
+      _consentNote,
     ]) {
       c.dispose();
     }
@@ -1246,9 +1320,18 @@ class _EmployeePayrollDialogState extends State<EmployeePayrollDialog> {
     try {
       final rows = await widget.service.structures(widget.employeeId);
       final payment = await widget.service.payment(widget.employeeId);
+      final schemes = await widget.service.schemes();
+      final advances = await widget.service.advancePlans(widget.employeeId);
       if (mounted) {
         setState(() {
           _structures = rows;
+          _schemes = schemes;
+          _advances = advances;
+          _schemeId ??= payment['contribution_scheme_id'] as int?;
+          final wage = payment['contribution_wage'] as num?;
+          if (_wage.text.isEmpty && wage != null) {
+            _wage.text = _plain(wage.toDouble());
+          }
           _method ??= payment['payment_method'] as String?;
           if (_iban.text.isEmpty) _iban.text = '${payment['iban'] ?? ''}';
           if (_bankName.text.isEmpty) {
@@ -1312,11 +1395,46 @@ class _EmployeePayrollDialogState extends State<EmployeePayrollDialog> {
         method: _method,
         iban: _iban.text.trim().isEmpty ? null : _iban.text.trim(),
         bankName: _bankName.text.trim().isEmpty ? null : _bankName.text.trim(),
+        schemeId: _schemeId,
+        contributionWage: _wage.text.trim().isEmpty ? null : _read(_wage),
       );
       if (mounted) {
         AppFeedback.success(
           context,
           widget.isAr ? 'حُفظت طريقة الصرف' : 'Payment saved',
+        );
+      }
+    } catch (e) {
+      if (mounted) AppFeedback.error(context, e.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _addAdvance() async {
+    setState(() => _busy = true);
+    try {
+      final today = DateTime.now();
+      await widget.service.addAdvancePlan(
+        widget.employeeId,
+        amount: _read(_advance),
+        installment: _installment.text.trim().isEmpty
+            ? null
+            : _read(_installment),
+        startMonth: today.month,
+        startYear: today.year,
+        consent: _consent,
+        consentNote: _consentNote.text.trim().isEmpty
+            ? null
+            : _consentNote.text.trim(),
+      );
+      _advance.clear();
+      _installment.clear();
+      await _load();
+      if (mounted) {
+        AppFeedback.success(
+          context,
+          widget.isAr ? 'جُدولت السلفة' : 'Advance planned',
         );
       }
     } catch (e) {
@@ -1474,12 +1592,133 @@ class _EmployeePayrollDialogState extends State<EmployeePayrollDialog> {
                   ),
                 ),
               ],
+              const SizedBox(height: AppSpace.sm),
+              DropdownButtonFormField<int?>(
+                key: const ValueKey('employee-scheme'),
+                initialValue: _schemeId,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: isAr
+                      ? 'خطة الاشتراك (التأمينات)'
+                      : 'Contribution scheme',
+                ),
+                items: [
+                  DropdownMenuItem<int?>(
+                    value: null,
+                    child: Text(isAr ? 'بلا اشتراك' : 'None'),
+                  ),
+                  for (final scheme in _schemes)
+                    DropdownMenuItem<int?>(
+                      value: scheme['id'] as int,
+                      child: Text('${scheme['name']}'),
+                    ),
+                ],
+                onChanged: (v) => setState(() => _schemeId = v),
+              ),
+              if (_schemeId != null)
+                _field(
+                  _wage,
+                  isAr
+                      ? 'الأجر المسجّل في التأمينات (فارغ: الأساسي والسكن)'
+                      : 'Registered wage (empty: basic + housing)',
+                  'employee-contribution-wage',
+                ),
               Align(
                 alignment: AlignmentDirectional.centerEnd,
                 child: TextButton(
                   key: const ValueKey('employee-payment-save'),
                   onPressed: _busy ? null : _savePayment,
-                  child: Text(isAr ? 'احفظ طريقة الصرف' : 'Save'),
+                  child: Text(isAr ? 'احفظ الصرف والاشتراك' : 'Save'),
+                ),
+              ),
+              const Divider(),
+              Text(
+                isAr ? 'السلف' : 'Advances',
+                style: theme.textTheme.titleSmall,
+              ),
+              if (_advances case final advances?) ...[
+                Text(
+                  isAr
+                      ? 'رصيد حساب السلف ${ltrIsolate(formatAmount(advances.$2))} — غير مجدول ${ltrIsolate(formatAmount(advances.$3))}'
+                      : 'Advance account ${formatAmount(advances.$2)} — unplanned ${formatAmount(advances.$3)}',
+                ),
+                for (final plan in advances.$1)
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(
+                      '${ltrIsolate(formatAmount(plan.amount))} — '
+                      '${isAr ? 'القسط' : 'installment'} ${ltrIsolate(formatAmount(plan.installment))}',
+                    ),
+                    subtitle: Text(
+                      '${isAr ? 'الباقي' : 'Left'} ${ltrIsolate(formatAmount(plan.remaining))} · '
+                      '${switch (plan.status) {
+                        'settled' => isAr ? 'سُدّدت' : 'settled',
+                        'cancelled' => isAr ? 'أُوقفت' : 'stopped',
+                        _ => isAr ? 'قائمة' : 'active',
+                      }}',
+                    ),
+                    trailing: plan.status == 'active'
+                        ? IconButton(
+                            tooltip: isAr ? 'أوقف الأقساط' : 'Stop',
+                            icon: const Icon(Icons.pause_circle_outline),
+                            onPressed: () async {
+                              try {
+                                await widget.service.cancelAdvancePlan(plan.id);
+                                await _load();
+                              } catch (e) {
+                                if (context.mounted) {
+                                  AppFeedback.error(context, e.toString());
+                                }
+                              }
+                            },
+                          )
+                        : null,
+                  ),
+              ],
+              Row(
+                children: [
+                  Expanded(
+                    child: _field(
+                      _advance,
+                      isAr ? 'مبلغ يُجدول' : 'Amount',
+                      'advance-amount',
+                    ),
+                  ),
+                  const SizedBox(width: AppSpace.sm),
+                  Expanded(
+                    child: _field(
+                      _installment,
+                      isAr ? 'القسط (فارغ: بالسياسة)' : 'Installment',
+                      'advance-installment',
+                    ),
+                  ),
+                ],
+              ),
+              CheckboxListTile(
+                key: const ValueKey('advance-consent'),
+                contentPadding: EdgeInsets.zero,
+                value: _consent,
+                onChanged: (v) => setState(() => _consent = v ?? false),
+                title: Text(
+                  isAr
+                      ? 'بموافقة الموظف على قسط فوق الحد (المادة 92)'
+                      : 'Employee consented above the cap',
+                ),
+              ),
+              if (_consent)
+                TextField(
+                  controller: _consentNote,
+                  decoration: InputDecoration(
+                    labelText: isAr ? 'مرجع الموافقة' : 'Consent reference',
+                  ),
+                ),
+              Align(
+                alignment: AlignmentDirectional.centerEnd,
+                child: TextButton(
+                  key: const ValueKey('advance-save'),
+                  onPressed: _busy ? null : _addAdvance,
+                  child: Text(isAr ? 'جدول السلفة' : 'Plan the advance'),
                 ),
               ),
             ],

@@ -17,6 +17,24 @@ employee file's. A run:
 
 One regular run a month. A line of a run is the run's: it is not approved,
 cancelled or edited alone (services/payroll_laws). tests/test_payroll_run.py.
+
+Its deductions and its accrual (PAYROLL-3; the owner, 1 Nov 2026: «طبّق النظام
+الأفضل والأشمل»). A line's deductions are each of a kind:
+  - 'absence' (keyed): not earned -- it lessens the salary expense;
+  - 'penalty' (keyed): withheld -- owed to the penalties account (art. 66: a
+    penalty is not the employer's income);
+  - 'contribution' (reckoned): his share of his scheme, on the wage
+    registered for it (services/payroll_policy.contributions);
+  - 'advance' (reckoned): the month's installment of his advance plans
+    (services/payroll_advances).
+The employer's share is the line's too, not deducted. The accrual, at the gross:
+    Dr salary expense        gross + additions - absence
+    Dr contributions expense the employer's share
+    Cr his salary payable    the net, each
+    Cr contributions payable his share + the employer's
+    Cr his advance account   the installments, each
+    Cr penalties payable     the penalties
+tests/test_payroll_advances_and_contributions.py.
 """
 from __future__ import annotations
 
@@ -26,11 +44,21 @@ from datetime import date
 
 from models import Employee, JournalEntry, Payroll, PayrollRun, db
 from services.payroll_laws import PayrollRefused, refuse_bad_period
-from services.payroll_policy import policy, require, structure_on
+from services.payroll_policy import contributions, policy, require, structure_on
 
 RUN_ACCRUAL = 'payroll_run_accrual'
 RUN_REVERSAL = 'payroll_run_accrual_reversal'
-SNAPSHOT_SCHEMA_VERSION = 1
+SNAPSHOT_SCHEMA_VERSION = 2          # 2: each deduction of a kind, the employer's contributions
+
+ABSENCE, PENALTY, CONTRIBUTION = 'absence', 'penalty', 'contribution'
+KEYED_DEDUCTIONS = (ABSENCE, PENALTY)
+CONTRIBUTIONS_EXPENSE = 'gosi_expense'
+CONTRIBUTIONS_PAYABLE = 'gosi_payable'
+PENALTIES_PAYABLE = 'payroll_penalties_payable'
+
+
+def kind_of(row: dict) -> str:
+    return row.get('kind') or ABSENCE          # a version-1 deduction was keyed, absence
 
 
 def _month_bounds(month: int, year: int) -> tuple[date, date]:
@@ -111,9 +139,26 @@ def _draft_line(run, employee, period, structure, first: date, last: date, divis
     monthly = {'basic': structure.basic, 'housing': structure.housing, 'transport': structure.transport,
                'other_allowances': structure.other_allowances}
     earned = {key: round(value * share, 2) for key, value in monthly.items()}
+    gross = round(sum(earned.values()), 2)
+    deductions, employer = [], []
+    for row in contributions(employee, structure, last):
+        if row['employee_share']:
+            deductions.append({'kind': CONTRIBUTION, 'code': row['code'], 'label': row['name'],
+                               'amount': round(row['employee_share'] * share, 2)})
+        if row['employer_share']:
+            employer.append({'code': row['code'], 'name': row['name'],
+                             'amount': round(row['employer_share'] * share, 2)})
+    from services.payroll_advances import installments_for
+    left = round(gross - sum(row['amount'] for row in deductions), 2)
+    for row in installments_for(employee, run.month, run.year, gross):
+        row['amount'] = round(min(row['amount'], left), 2)
+        if row['amount'] > 0:
+            deductions.append(row)
+            left = round(left - row['amount'], 2)
     breakdown = {'snapshot_schema_version': SNAPSHOT_SCHEMA_VERSION, 'structure_id': structure.id,
                  'monthly': monthly, 'earned': earned, 'days': days, 'divisor': divisor, 'whole_month': whole,
-                 'additions': [], 'deductions': []}
+                 'contribution_wage': employee.contribution_wage,
+                 'additions': [], 'deductions': deductions, 'employer_contributions': employer}
     entry = Payroll(employee_id=employee.id, month=run.month, year=run.year, payroll_run_id=run.id,
                     status='pending', created_by=by)
     _apply(entry, breakdown)
@@ -142,9 +187,12 @@ def edit_line(entry, data: dict) -> None:
     run = entry.run
     _refuse_unless_draft(run)
     breakdown = json.loads(entry.breakdown)
-    for side in ('additions', 'deductions'):
-        if side in data:
-            breakdown[side] = [_labelled(line) for line in (data.get(side) or [])]
+    if 'additions' in data:
+        breakdown['additions'] = [_labelled(line) for line in (data.get('additions') or [])]
+    if 'deductions' in data:
+        # the reckoned ones stay as reckoned; the keyed ones are the reviewer's
+        reckoned = [row for row in breakdown['deductions'] if kind_of(row) not in KEYED_DEDUCTIONS]
+        breakdown['deductions'] = reckoned + [_labelled(line, keyed=True) for line in (data.get('deductions') or [])]
     if 'notes' in data:
         entry.notes = data.get('notes')
     _apply(entry, breakdown)
@@ -152,7 +200,7 @@ def edit_line(entry, data: dict) -> None:
         raise PayrollRefused('الخصومات تزيد على المستحق: الصافي سالب')
 
 
-def _labelled(line) -> dict:
+def _labelled(line, *, keyed: bool = False) -> dict:
     label = str((line or {}).get('label') or '').strip()
     if not label:
         raise PayrollRefused('لكل إضافة أو خصم سببه')
@@ -162,7 +210,12 @@ def _labelled(line) -> dict:
         raise PayrollRefused(f'{label}: المبلغ رقم') from None
     if amount <= 0:
         raise PayrollRefused(f'{label}: المبلغ موجب')
-    return {'label': label, 'amount': amount}
+    if not keyed:
+        return {'label': label, 'amount': amount}
+    kind = line.get('kind') or ABSENCE
+    if kind not in KEYED_DEDUCTIONS:
+        raise PayrollRefused('الخصم غياب أو جزاء؛ الاشتراكات وأقساط السلف تُحسب ولا تُكتب')
+    return {'kind': kind, 'label': label, 'amount': amount}
 
 
 def remove_line(entry) -> None:
@@ -182,6 +235,8 @@ def approve(run, *, by: str, now) -> None:
     empty = [line.employee.name for line in lines if (line.net_salary or 0.0) <= 0]
     if empty:
         raise PayrollRefused('صافي الراتب صفر لـ: ' + '، '.join(empty))
+    from services.payroll_advances import refuse_overtaken
+    refuse_overtaken(run)
     savepoint = db.session.begin_nested()
     try:
         _write_accrual(run, lines, by=by, now=now)
@@ -200,17 +255,53 @@ def approve(run, *, by: str, now) -> None:
     savepoint.commit()
 
 
+def line_parts(line) -> dict:
+    """A line's accrual: what it costs and to whom it is owed."""
+    breakdown = json.loads(line.breakdown)
+    by_kind = {ABSENCE: 0.0, PENALTY: 0.0, CONTRIBUTION: 0.0, 'advance': 0.0}
+    for row in breakdown.get('deductions') or []:
+        by_kind[kind_of(row)] += float(row['amount'])
+    earned = round(sum(breakdown['earned'].values()), 2)
+    additions = round(sum(float(row['amount']) for row in breakdown.get('additions') or []), 2)
+    employer = round(sum(float(row['amount']) for row in breakdown.get('employer_contributions') or []), 2)
+    return {'salary_expense': round(earned + additions - by_kind[ABSENCE], 2),
+            'contributions_expense': employer,
+            'net': round(line.net_salary, 2),
+            'contributions_payable': round(by_kind[CONTRIBUTION] + employer, 2),
+            'advance': round(by_kind['advance'], 2),
+            'penalties': round(by_kind[PENALTY], 2)}
+
+
 def _write_accrual(run, lines, *, by: str, now) -> JournalEntry:
+    """One entry at the gross, a credit for each deduction (the module's table)."""
     from accounting.balances import _recalculate_account_balances_for_accounts
-    from accounting.mappings import AccountNotMapped
+    from accounting.mappings import AccountNotMapped, DEFAULT_MAPPING_OPERATION_TYPE, require_account
     from dual_system_helpers import create_dual_journal_entry, verify_dual_balance
     from services.employee_accounts import SALARY_EXPENSE, ensure_payable_account, parent_account
+    parts = [(line, line_parts(line)) for line in lines]
+    total = {key: round(sum(p[key] for _, p in parts), 2)
+             for key in ('salary_expense', 'contributions_expense', 'contributions_payable', 'penalties')}
+    debits, credits = [], []                       # (account id, amount, description)
     try:
-        expense = parent_account(SALARY_EXPENSE)
-        payables = [(line, int(ensure_payable_account(line.employee, 'salary_payable', by=by).id))
-                    for line in lines]
+        debits.append((parent_account(SALARY_EXPENSE).id, total['salary_expense'], 'مصروف الرواتب'))
+        for role, key, side, label in (
+                (CONTRIBUTIONS_EXPENSE, 'contributions_expense', debits, 'حصة المنشأة من الاشتراكات'),
+                (CONTRIBUTIONS_PAYABLE, 'contributions_payable', credits, 'الاشتراكات المستحقة'),
+                (PENALTIES_PAYABLE, 'penalties', credits, 'جزاءات العاملين')):
+            if total[key] > 0:
+                side.append((require_account(DEFAULT_MAPPING_OPERATION_TYPE, role), total[key], label))
+        for line, part in parts:
+            name = line.employee.name
+            credits.append((int(ensure_payable_account(line.employee, 'salary_payable', by=by).id),
+                            part['net'], f'راتب {name}'))
+            if part['advance'] > 0:
+                if not line.employee.account_id:
+                    raise PayrollRefused(f'لا حساب سلف مربوط لـ {name}')
+                credits.append((int(line.employee.account_id), part['advance'], f'قسط سلفة {name}'))
     except AccountNotMapped as missing:
         raise PayrollRefused(str(missing)) from None
+    if round(sum(a for _, a, _ in debits) - sum(a for _, a, _ in credits), 2) != 0:
+        raise PayrollRefused('لم يتوازن قيد استحقاق المسير')
     description = f'استحقاق رواتب {run.month}/{run.year} (المسير #{run.id})'
     accrual = JournalEntry(date=now, description=description, entry_type='استحقاق رواتب',
                            reference_type=RUN_ACCRUAL, reference_id=int(run.id),
@@ -218,16 +309,16 @@ def _write_accrual(run, lines, *, by: str, now) -> JournalEntry:
                            is_posted=True, posted_at=now, posted_by=by)
     db.session.add(accrual)
     db.session.flush()
-    total = round(sum(line.net_salary for line in lines), 2)
-    create_dual_journal_entry(journal_entry_id=accrual.id, account_id=expense.id, cash_debit=total,
-                              description=description)
-    for line, payable_id in payables:
-        create_dual_journal_entry(journal_entry_id=accrual.id, account_id=payable_id,
-                                  cash_credit=line.net_salary,
-                                  description=f'راتب {line.employee.name} {run.month}/{run.year}')
+    for account_id, amount, label in debits:
+        create_dual_journal_entry(journal_entry_id=accrual.id, account_id=account_id, cash_debit=amount,
+                                  description=f'{label} {run.month}/{run.year}')
+    for account_id, amount, label in credits:
+        if amount > 0:
+            create_dual_journal_entry(journal_entry_id=accrual.id, account_id=account_id, cash_credit=amount,
+                                      description=f'{label} {run.month}/{run.year}')
     if not verify_dual_balance(accrual.id).get('balanced', True):
         raise PayrollRefused('لم يتوازن قيد استحقاق المسير')
-    _recalculate_account_balances_for_accounts({expense.id, *(payable_id for _, payable_id in payables)})
+    _recalculate_account_balances_for_accounts({account_id for account_id, _, _ in debits + credits})
     return accrual
 
 

@@ -217,7 +217,10 @@ def save_component(scheme, data: dict, component=None) -> ContributionComponent:
 
 
 def contributions(employee, structure, day: date) -> list[dict]:
-    """Each contribution of his scheme on the day: its base (capped), his share, the employer's."""
+    """Each contribution of his scheme on the day: its base (capped), his share, the employer's.
+
+    The base is the wage registered for his contributions when the owner
+    entered one (PAYROLL-3) -- else each component's own, from the structure."""
     if employee.contribution_scheme_id is None or structure is None:
         return []
     scheme = db.session.get(ContributionScheme, employee.contribution_scheme_id)
@@ -229,6 +232,8 @@ def contributions(employee, structure, day: date) -> list[dict]:
         in_force[component.code] = component
     bases = {'basic': structure.basic, 'basic_housing': structure.basic + structure.housing,
              'gross': structure.gross}
+    if employee.contribution_wage:
+        bases = dict.fromkeys(bases, float(employee.contribution_wage))
     rows = []
     for component in in_force.values():
         base = bases[component.base]
@@ -259,6 +264,9 @@ def apply_payment_fields(employee, data: dict) -> None:
         employee.iban = checked_iban(data.get('iban'))
     if 'bank_name' in data:
         employee.bank_name = (data.get('bank_name') or '').strip() or None
+    if 'contribution_wage' in data:
+        wage = data.get('contribution_wage')
+        employee.contribution_wage = _amount(wage, 'الأجر الخاضع للاشتراك') if wage not in (None, '') else None
 
 
 def checked_iban(value) -> str | None:

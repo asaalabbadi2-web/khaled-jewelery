@@ -42,7 +42,17 @@ class _Server extends PayrollService {
       'whole_month': true,
       'earned': {'basic': net},
       'additions': <dynamic>[],
-      'deductions': id == 1 ? deductions : <dynamic>[],
+      'deductions': id == 1
+          ? [
+              {'kind': 'contribution', 'label': 'المعاشات', 'amount': 360.0},
+              ...deductions,
+            ]
+          : <dynamic>[],
+      'employer_contributions': id == 1
+          ? [
+              {'code': 'annuities', 'name': 'المعاشات', 'amount': 440.0},
+            ]
+          : <dynamic>[],
     },
   };
 
@@ -154,11 +164,18 @@ void main() {
         find.byKey(const ValueKey('deduction-amount-0')),
         '٢٠٠',
       );
+      await _choose(tester, 'deduction-kind-0', 'جزاء');
       await tester.tap(find.byKey(const ValueKey('payroll-line-save')));
       await _settle(tester);
-      expect(server.deductions, [
-        {'label': 'غياب يوم', 'amount': 200.0},
-      ]);
+      expect(
+        server.deductions,
+        [
+          {'label': 'غياب يوم', 'amount': 200.0, 'kind': 'penalty'},
+        ],
+        reason: 'the reckoned contribution is not sent back as keyed',
+      );
+      expect(find.textContaining('(اشتراك)'), findsOneWidget);
+      expect(find.textContaining('حصة المنشأة من الاشتراكات'), findsOneWidget);
       expect(find.textContaining('غياب يوم'), findsOneWidget);
 
       // approved whole
