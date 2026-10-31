@@ -53,6 +53,8 @@ class _Server extends PayrollService {
               {'bonus_id': 55, 'label': 'هدف الشهر', 'amount': 500.0},
             ]
           : <dynamic>[],
+      if (id == 2)
+        'bonus_books_cap': {'approved_unpaid': 2912.5, 'owed_in_books': 500.0},
       if (id == 1)
         'bonuses_held': {'approved_unpaid': 2512.5, 'owed_in_books': 0.0},
       'employer_contributions': id == 1
@@ -186,6 +188,7 @@ void main() {
       expect(find.textContaining('حصة المنشأة من الاشتراكات'), findsOneWidget);
       expect(find.textContaining('(مكافأة)'), findsOneWidget);
       expect(find.textContaining('لم تدخل: الدفاتر تقول'), findsOneWidget);
+      expect(find.textContaining('تُصرف بما تقوله الدفاتر'), findsOneWidget);
       expect(find.textContaining('غياب يوم'), findsOneWidget);
 
       // approved whole

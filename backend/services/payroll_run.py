@@ -44,8 +44,10 @@ it and marks it paid. A draft may let a bonus go; a cancelled run lets them
 all go. The books are right (BONUS-BOOKS-1): an employee's bonuses come in
 only when his bonus account owes them all -- on the 31 Oct copy one owed 0
 against 2,512.50 approved, paid by a voucher outside the bonus screen; moved,
-he is paid twice. Held, the line says both figures and nothing is guessed (no
-voucher attributed to a bonus). tests/test_payroll_bonuses.py.
+he is paid twice. One bonus the books owe in part is paid at what they owe
+(the owner, 1 Nov 2026: «الصحيح هو ما في الدفاتر») -- its rest was paid
+outside the bonus screen; several are held, the line saying both figures,
+for which of them was paid is not guessed. tests/test_payroll_bonuses.py.
 """
 from __future__ import annotations
 
@@ -180,13 +182,18 @@ def _draft_line(run, employee, period, structure, first: date, last: date, divis
                .order_by(EmployeeBonus.id).all())
     from services.bonus_accounts import owed_in_books
     approved, owed = round(sum(float(b.amount or 0.0) for b in bonuses), 2), owed_in_books(employee)
+    capped = None
     if bonuses and approved > owed:
-        breakdown['bonuses_held'] = {'approved_unpaid': approved, 'owed_in_books': owed}
-        bonuses = []
+        if len(bonuses) == 1 and owed > 0:
+            capped = owed
+            breakdown['bonus_books_cap'] = {'approved_unpaid': approved, 'owed_in_books': owed}
+        else:
+            breakdown['bonuses_held'] = {'approved_unpaid': approved, 'owed_in_books': owed}
+            bonuses = []
     for bonus in bonuses:
         bonus.payroll_id = entry.id
         breakdown['bonuses'].append({'bonus_id': bonus.id, 'label': _bonus_label(bonus),
-                                     'amount': round(float(bonus.amount or 0.0), 2)})
+                                     'amount': capped if capped is not None else round(float(bonus.amount or 0.0), 2)})
     _apply(entry, breakdown)
 
 

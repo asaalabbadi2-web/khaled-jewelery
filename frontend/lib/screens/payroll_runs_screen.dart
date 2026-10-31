@@ -763,6 +763,13 @@ class _LineCard extends StatelessWidget {
                 '+ ${b['label']} (${isAr ? 'مكافأة' : 'bonus'}) ${ltrIsolate(money(((b['amount'] as num?) ?? 0).toDouble()))}',
                 style: theme.textTheme.bodySmall,
               ),
+            if (line.bonusBooksCap case final cap?)
+              Text(
+                isAr
+                    ? 'المكافأة المعتمدة ${ltrIsolate(money(cap['approved_unpaid'] ?? 0))} تُصرف بما تقوله الدفاتر ${ltrIsolate(money(cap['owed_in_books'] ?? 0))}: صُرف باقيها من قبل'
+                    : 'Bonus ${money(cap['approved_unpaid'] ?? 0)} paid at what the books owe, ${money(cap['owed_in_books'] ?? 0)}',
+                style: theme.textTheme.bodySmall,
+              ),
             if (line.bonusesHeld case final held?)
               Text(
                 isAr

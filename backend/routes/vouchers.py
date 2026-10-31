@@ -1565,6 +1565,11 @@ def cancel_voucher(voucher_id):
             except Exception as _sync_exc:
                 print(f"⚠️ invoice payment-state sync after voucher cancel skipped: {_sync_exc}")
 
+        # A bonus's or a salary's payment voucher cancelled: the document it
+        # paid is unpaid again -- the books are right (PAYROLL-4).
+        from services.voucher_cancel_documents import reopen as _reopen_paid_document
+        _reopen_paid_document(voucher)
+
         # Audit log
         try:
             AuditLog.log_action(

@@ -73,6 +73,7 @@ class PayrollRunLine {
     required this.employerContributions,
     required this.bonuses,
     required this.bonusesHeld,
+    required this.bonusBooksCap,
     required this.notes,
   });
 
@@ -105,6 +106,10 @@ class PayrollRunLine {
   /// When the books owe less than his approved bonuses: approved_unpaid,
   /// owed_in_books -- held, none moved.
   final Map<String, double>? bonusesHeld;
+
+  /// One bonus the books owe in part, paid at what they owe: approved_unpaid,
+  /// owed_in_books.
+  final Map<String, double>? bonusBooksCap;
   final String? notes;
 
   factory PayrollRunLine.fromJson(Map<String, dynamic> json) {
@@ -143,6 +148,12 @@ class PayrollRunLine {
       bonusesHeld: switch (breakdown['bonuses_held']) {
         final Map<String, dynamic> held => {
           for (final e in held.entries) e.key: _num(e.value),
+        },
+        _ => null,
+      },
+      bonusBooksCap: switch (breakdown['bonus_books_cap']) {
+        final Map<String, dynamic> cap => {
+          for (final e in cap.entries) e.key: _num(e.value),
         },
         _ => null,
       },
