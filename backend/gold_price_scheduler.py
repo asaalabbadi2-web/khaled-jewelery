@@ -18,7 +18,7 @@ from threading import Thread
 
 import schedule
 
-from gold_price import fetch_gold_price, save_gold_price
+from gold_price import keep_commerce_fresh, refresh_due, refresh_gold_price
 from models import GoldPrice, Settings, db
 
 
@@ -81,14 +81,15 @@ class GoldPriceScheduler:
     def update_from_internet(self) -> None:
         with self.app.app_context():
             try:
-                price = fetch_gold_price()
-                if price is None:
-                    print("[GoldPriceScheduler] No price fetched")
+                # A closed market (PRICE-MARKET-1) is asked once in a while, not
+                # at every tick, and nothing is saved for it.
+                from pricing import price_clock
+                if not refresh_due(price_clock.utc_now()):
+                    keep_commerce_fresh(self.app)
                     return
-
-                # Keep behavior consistent with the manual update endpoint.
-                save_gold_price(self.app, float(price))
-                print(f"[GoldPriceScheduler] ✓ Gold price updated automatically: {price}")
+                outcome = refresh_gold_price(self.app)
+                if outcome != 'saved':
+                    print(f"[GoldPriceScheduler] {outcome}: no price saved")
             except Exception as exc:
                 try:
                     db.session.rollback()

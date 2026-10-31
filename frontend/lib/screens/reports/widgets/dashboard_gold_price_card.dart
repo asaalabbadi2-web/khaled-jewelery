@@ -5,6 +5,7 @@ import 'package:intl/intl.dart' hide TextDirection;
 import '../../../models/gold_prices.dart';
 import '../../../theme/app_semantic_colors.dart';
 import '../../../theme/app_tokens.dart';
+import '../../../widgets/gold_market_tag.dart';
 import 'dashboard_kit.dart';
 
 /// The gold price, enough on its own (DASH-11, the owner 30 Oct 2026: «ما الذي
@@ -24,6 +25,7 @@ class DashboardGoldPriceCard extends StatelessWidget {
     required this.today,
     required this.isArabic,
     required this.money,
+    this.market = GoldMarket.live,
     this.onTap,
   });
 
@@ -36,6 +38,9 @@ class DashboardGoldPriceCard extends StatelessWidget {
   final bool isArabic;
   final DashboardMoney money;
   final VoidCallback? onTap;
+
+  /// Closed or unavailable, it says so in place of «حيّ» (PRICE-MARKET-1).
+  final GoldMarket market;
 
   static final _price = NumberFormat('#,##0.00');
   static final _time = DateFormat('HH:mm:ss');
@@ -94,7 +99,9 @@ class DashboardGoldPriceCard extends StatelessWidget {
                             ?.copyWith(color: tones.gold.fg, fontWeight: FontWeight.w800)),
                   ),
                   const Spacer(),
-                  if (at != null) ...[
+                  if (market.quiet)
+                    GoldMarketTag(market: market)
+                  else if (at != null) ...[
                     Container(
                       width: 7,
                       height: 7,

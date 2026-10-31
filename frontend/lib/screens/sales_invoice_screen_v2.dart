@@ -29,6 +29,7 @@ import '../utils/currency_utils.dart' as cu;
 import '../utils/invoice_saved_facts.dart';
 import '../models/gold_prices.dart';
 import '../utils/live_gold_prices.dart';
+import '../widgets/gold_market_tag.dart';
 import '../utils/payment_fee.dart';
 import '../utils/sales_readiness.dart';
 import '../widgets/app_feedback.dart';
@@ -3210,6 +3211,11 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
               isNewSar: context.read<SettingsProvider>().currencyIsNewSar,
                               style: Theme.of(context).textTheme.labelSmall?.copyWith(color: invoiceBar.foreground.withValues(alpha: 0.7),),
                             ),
+                            // Closed or unavailable, it says so (PRICE-MARKET-1).
+                            if (liveMarket.quiet) ...[
+                              const Spacer(),
+                              GoldMarketTag(market: liveMarket, compact: true, color: invoiceBar.foreground),
+                            ],
                           ],
                         )
                       : Text(

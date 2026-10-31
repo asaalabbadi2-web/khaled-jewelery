@@ -75,7 +75,7 @@ def test_a_saved_price_takes_the_settings_terms(app, monkeypatch):
 def test_the_price_the_screens_read_is_the_offices(app, auth_headers, monkeypatch):
     import routes.pricing as pricing
     from pricing.office_price import stamp
-    monkeypatch.setattr(pricing, 'fetch_gold_price', lambda: None)   # no internet
+    monkeypatch.setattr(pricing, 'fetch_gold_quote', lambda: None)   # no internet
     row = stamp(GoldPrice(price=ASK, date=datetime.now(timezone.utc).replace(tzinfo=None)), DEWAN)
     db.session.add(row)
     db.session.flush()
@@ -111,7 +111,7 @@ def test_new_terms_price_the_next_sale_at_once(app, auth_headers, monkeypatch):
     """The owner edits the office's terms; the price the screens read follows
     now -- a price saved with them -- and the prices before keep theirs."""
     import routes.pricing as pricing
-    monkeypatch.setattr(pricing, 'fetch_gold_price', lambda: None)   # no internet
+    monkeypatch.setattr(pricing, 'fetch_gold_quote', lambda: None)   # no internet
     from pricing.office_price import stamp
     before = stamp(GoldPrice(price=ASK, date=datetime.now(timezone.utc).replace(tzinfo=None)), DEWAN)
     db.session.add(before)

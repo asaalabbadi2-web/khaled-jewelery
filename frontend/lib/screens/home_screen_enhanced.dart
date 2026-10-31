@@ -135,6 +135,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
   GoldPrices _tickerOpening = GoldPrices.none;
   DateTime? goldPriceDate;
   double? goldPriceOpening;
+  // Open, closed or unavailable, as the price's answer says (PRICE-MARKET-1).
+  GoldMarket _goldMarket = GoldMarket.live;
   DateTime? goldPriceOpeningDate;
   List<SparklinePoint> _sparklinePoints = [];
   int _sparklineTickCounter = 0;
@@ -707,6 +709,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           goldOpeningPricesPerGram =
               openingPerGram is Map ? Map<String, dynamic>.from(openingPerGram) : null;
           _tickerPrices = GoldPrices.fromResponse(response);
+          _goldMarket = GoldMarket.fromResponse(response);
           _tickerOpening = GoldPrices.openingFromResponse(response);
 
           if (response['date'] != null) {
@@ -2749,6 +2752,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
             openingPricesPerGram: goldOpeningPricesPerGram,
             goldPriceOpening: goldPriceOpening,
             goldPriceDate: goldPriceDate,
+            market: _goldMarket,
             mainKarat: mainKarat,
             isUpdating: _isGoldPriceUpdatingNow,
             onRefresh: _updateGoldPriceNow,

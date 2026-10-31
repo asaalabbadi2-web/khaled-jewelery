@@ -25,6 +25,9 @@ mixin LiveGoldPrices<T extends StatefulWidget> on State<T> {
   DateTime? liveAt;
   int? liveMainKarat;
 
+  /// Open, closed or unavailable, as the same answer says (PRICE-MARKET-1).
+  GoldMarket liveMarket = GoldMarket.live;
+
   /// The price answer the strip reads -- the screen's api (a fake in tests).
   Future<Map<String, dynamic>> fetchLiveGoldPrice();
 
@@ -38,6 +41,7 @@ mixin LiveGoldPrices<T extends StatefulWidget> on State<T> {
       liveOpening = GoldPrices.openingFromResponse(answer);
       liveAt = DateTime.tryParse('${answer['date'] ?? ''}');
       liveMainKarat = (answer['main_karat'] as num?)?.toInt();
+      liveMarket = GoldMarket.fromResponse(answer);
     });
   }
 

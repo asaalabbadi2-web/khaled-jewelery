@@ -121,7 +121,10 @@ final _standing = <String, dynamic>{
 };
 
 class _Api extends ApiService {
-  _Api({this.gramProfit = const {}, this.standingGate});
+  _Api({this.gramProfit = const {}, this.standingGate, this.market});
+
+  // PRICE-MARKET-1: the price answer's market, when a test sets it.
+  final Map<String, dynamic>? market;
 
   final Map<String, dynamic> gramProfit;
   // Holds where the business stands until the test lets it come.
@@ -157,6 +160,7 @@ class _Api extends ApiService {
         'opening_prices_per_gram': {
           '21': {'sell': 393.47, 'buy': 378.51},
         },
+        'market': ?market,
       };
 
   // DASH-11: the day's move, as /gold_price/24h?day=today answers.
@@ -558,5 +562,16 @@ void main() {
     expect(find.descendant(of: card, matching: find.textContaining('4,012.50')), findsOneWidget, reason: 'the ounce');
     expect(tester.getSize(card).height,
         moreOrLessEquals(tester.getSize(find.byKey(const Key('dashboard-net-position'))).height, epsilon: 0.5));
+  });
+
+  // PRICE-MARKET-1 (the owner, 31 Oct 2026): a closed market's card says so, not «حيّ».
+  testWidgets('a closed market\'s gold price says closed, not live', (tester) async {
+    await mount(tester, _Api(market: {
+      'open': false, 'last_quote_at': '2026-10-30T21:55:00Z', 'unavailable': false,
+    }));
+    final card = find.byKey(const Key('dashboard-gold-price'));
+    expect(find.descendant(of: card, matching: find.byKey(const Key('gold-market-tag'))), findsOneWidget);
+    expect(find.descendant(of: card, matching: find.textContaining('السوق مغلق')), findsOneWidget);
+    expect(find.descendant(of: card, matching: find.byKey(const Key('dashboard-gold-price-at'))), findsNothing);
   });
 }

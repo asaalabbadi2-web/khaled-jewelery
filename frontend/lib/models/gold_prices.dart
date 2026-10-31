@@ -53,3 +53,30 @@ class GoldPrices {
     return double.tryParse('${value ?? ''}') ?? 0.0;
   }
 }
+
+/// The world's gold market, as the server says it (PRICE-MARKET-1, the owner
+/// 31 Oct 2026): closed when the source's last quote is old -- the weekend, a
+/// holiday -- and unavailable when no source answered. From a /gold_price
+/// answer's `market`; an answer without it is an open market, as before.
+class GoldMarket {
+  const GoldMarket({this.open = true, this.lastQuoteAt, this.unavailable = false});
+
+  static const live = GoldMarket();
+
+  final bool open;
+  final DateTime? lastQuoteAt;
+  final bool unavailable;
+
+  factory GoldMarket.fromResponse(Map<String, dynamic>? data) {
+    final m = data?['market'];
+    if (m is! Map) return live;
+    return GoldMarket(
+      open: m['open'] != false,
+      lastQuoteAt: DateTime.tryParse('${m['last_quote_at'] ?? ''}')?.toLocal(),
+      unavailable: m['unavailable'] == true,
+    );
+  }
+
+  /// Whether the screens say anything but «حيّ».
+  bool get quiet => !open || unavailable;
+}

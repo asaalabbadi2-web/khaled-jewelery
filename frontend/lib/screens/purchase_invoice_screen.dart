@@ -11,6 +11,7 @@ import '../api_service.dart';
 import '../models/category_model.dart';
 import '../models/gold_prices.dart';
 import '../utils/live_gold_prices.dart';
+import '../widgets/gold_market_tag.dart';
 import '../models/safe_box_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/settings_provider.dart';
@@ -3110,6 +3111,11 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
                               '${context.read<SettingsProvider>().currencySymbolText}/جم',
                               style: Theme.of(context).textTheme.labelSmall?.copyWith(color: invoiceBar.foreground.withValues(alpha: 0.7),),
                             ),
+                            // Closed or unavailable, it says so (PRICE-MARKET-1).
+                            if (liveMarket.quiet) ...[
+                              const Spacer(),
+                              GoldMarketTag(market: liveMarket, compact: true, color: invoiceBar.foreground),
+                            ],
                           ],
                         )
                       : Text(

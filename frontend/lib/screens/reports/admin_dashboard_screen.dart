@@ -637,6 +637,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
       opening: liveOpening,
       mainKarat: liveMainKarat ?? context.read<SettingsProvider>().mainKarat,
       at: liveAt,
+      market: liveMarket,
       today: _goldToday,
       isArabic: isArabic,
       money: _money,

@@ -15,7 +15,7 @@ from auth_decorators import require_permission
 from sqlalchemy.orm import joinedload
 
 from gold_costing_service import GoldCostingService, ScrapCostingService
-from gold_price import fetch_gold_price, save_gold_price
+from gold_price import fetch_gold_price, fetch_gold_quote, market_answer, refresh_due, refresh_gold_price, save_gold_price
 from models import GoldPrice, InventoryCostingConfig, Invoice, db
 from utils import get_main_karat
 from pricing import price_clock
@@ -47,7 +47,15 @@ def _price_answer(row, opening, source: str) -> dict:
         'prices_per_gram': row_prices(row),
         # The day's opening, each karat by its own row's terms: a change is two of these.
         'opening_prices_per_gram': row_prices(opening or row),
+        # Open or closed, as the source says (PRICE-MARKET-1): a closed market's
+        # price is its last quote's, said so on the screens.
+        'market': market_answer(_market_state()),
     }
+
+
+def _market_state():
+    from models import GoldMarketState
+    return GoldMarketState.query.first()
 
 
 @pricing_bp.route('/gold_price', methods=['GET'])
@@ -61,24 +69,20 @@ def get_gold_price():
     opening = (GoldPrice.query.filter(GoldPrice.date >= day_start, GoldPrice.date < day_end)
                .order_by(GoldPrice.date.asc()).first())
 
-    should_update = not latest or (now - latest.date) > timedelta(minutes=5)
-    if not latest:
-        print('[INFO] لا يوجد سعر ذهب في قاعدة البيانات - سيتم الجلب من API')
-    elif should_update:
-        print(f'[INFO] السعر المحفوظ قديم ({latest.date}) - سيتم التحديث')
-
-    if should_update:
+    # The source is asked when the price is old -- unless the market is closed
+    # (PRICE-MARKET-1): then once in a while, and nothing is saved for it.
+    state = _market_state()
+    closed = state is not None and state.is_open is False
+    stale = not latest or (now - latest.date) > timedelta(minutes=5)
+    if (stale and not closed) or (closed and refresh_due(now)):
         try:
-            price_usd = fetch_gold_price()
-            if price_usd:
-                save_gold_price(current_app._get_current_object(), price_usd)
-                saved = GoldPrice.query.order_by(GoldPrice.date.desc()).first()
-                print(f'[SUCCESS] تم جلب وحفظ سعر جديد: ${price_usd}/أونصة')
-                return jsonify(_price_answer(saved, opening or saved, 'API'))
+            outcome = refresh_gold_price(current_app._get_current_object(), fetch=lambda: fetch_gold_quote())
         except Exception as e:
             print(f'[ERROR] فشل جلب السعر من API: {e}')
-            if latest:
-                return jsonify(_price_answer(latest, opening, 'Database (Fallback)'))
+            outcome = None
+        if outcome == 'saved':
+            saved = GoldPrice.query.order_by(GoldPrice.date.desc()).first()
+            return jsonify(_price_answer(saved, opening or saved, 'API'))
 
     if latest:
         return jsonify(_price_answer(latest, opening, 'Database (Cached)'))

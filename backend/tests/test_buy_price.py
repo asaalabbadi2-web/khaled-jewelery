@@ -32,7 +32,7 @@ def rollback_after_each(app, db_fence):
 @pytest.fixture
 def fresh_price(monkeypatch):
     import routes.pricing as pricing
-    monkeypatch.setattr(pricing, 'fetch_gold_price', lambda: None)   # no internet
+    monkeypatch.setattr(pricing, 'fetch_gold_quote', lambda: None)   # no internet
     row = GoldPrice(price=OUNCE, date=datetime.now(timezone.utc).replace(tzinfo=None))
     db.session.add(row)
     db.session.flush()

@@ -4,15 +4,31 @@ import os
 import schedule
 import requests
 import datetime
-from typing import Optional
+from typing import NamedTuple, Optional
 from models import db
+
+
+class Quote(NamedTuple):
+    """A source's ounce price and when it last quoted it (PRICE-MARKET-1): the
+    market is closed when that moment is old. at is None when the source does
+    not say -- such a quote cannot be judged and is taken as live."""
+    price: float
+    at: Optional[datetime.datetime]     # UTC, naive
+    source: str
+
+
+def _utc_from_ms(ms) -> Optional[datetime.datetime]:
+    try:
+        return datetime.datetime.fromtimestamp(float(ms) / 1000.0, tz=datetime.timezone.utc).replace(tzinfo=None)
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
 
 
 # ---------------------------------------------------------------------------
 # Source 1 – Swissquote public forex feed (free, no API key, reliable)
 # Returns XAU/USD bid/ask – we use mid-price as ounce price in USD.
 # ---------------------------------------------------------------------------
-def _fetch_from_swissquote() -> Optional[float]:
+def _fetch_from_swissquote() -> Optional[Quote]:
     """Fetch live gold ounce price from Swissquote public feed."""
     url = 'https://forex-data-feed.swissquote.com/public-quotes/bboquotes/instrument/XAU/USD'
     headers = {
@@ -39,7 +55,8 @@ def _fetch_from_swissquote() -> Optional[float]:
             print(f'[WARN] Swissquote mid-price {mid} out of sane range – ignoring.')
             return None
         print(f'[INFO] Swissquote gold price: ${mid:.2f}/oz (bid={bid}, ask={ask})')
-        return mid
+        # ts: its last quote -- Friday's close all weekend (PRICE-MARKET-1).
+        return Quote(mid, _utc_from_ms(data[0].get('ts')), 'Swissquote')
     except Exception as e:
         print(f'[WARN] Swissquote fetch failed: {e}')
         return None
@@ -48,7 +65,7 @@ def _fetch_from_swissquote() -> Optional[float]:
 # ---------------------------------------------------------------------------
 # Source 2 – goldprice.org (original source, may 403 with rate-limiting)
 # ---------------------------------------------------------------------------
-def _fetch_from_goldprice_org() -> Optional[float]:
+def _fetch_from_goldprice_org() -> Optional[Quote]:
     """Fetch gold ounce price from goldprice.org API."""
     url = 'https://data-asg.goldprice.org/dbXRates/USD'
     headers = {
@@ -65,7 +82,7 @@ def _fetch_from_goldprice_org() -> Optional[float]:
             price = items[0].get('xauPrice')
             if price is not None and float(price) > 0:
                 print(f'[INFO] goldprice.org gold price: ${price}/oz')
-                return float(price)
+                return Quote(float(price), _utc_from_ms(data.get('tsj')), 'goldprice.org')
         return None
     except Exception as e:
         print(f'[WARN] goldprice.org fetch failed: {e}')
@@ -75,7 +92,7 @@ def _fetch_from_goldprice_org() -> Optional[float]:
 # ---------------------------------------------------------------------------
 # Source 3 – Yahoo Finance (GC=F futures, requires yfinance)
 # ---------------------------------------------------------------------------
-def _fetch_from_yahoo() -> Optional[float]:
+def _fetch_from_yahoo() -> Optional[Quote]:
     """Fetch gold price from Yahoo Finance GC=F futures."""
     try:
         import yfinance as yf
@@ -85,7 +102,7 @@ def _fetch_from_yahoo() -> Optional[float]:
             price = float(data['Close'].iloc[-1])
             if price > 0:
                 print(f'[INFO] Yahoo Finance gold price: ${price:.2f}/oz')
-                return price
+                return Quote(price, None, 'Yahoo Finance')     # a day's close: it does not say when
         print('[WARN] Yahoo Finance returned no data for GC=F.')
         return None
     except Exception as e:
@@ -96,8 +113,8 @@ def _fetch_from_yahoo() -> Optional[float]:
 # ---------------------------------------------------------------------------
 # Aggregate fetcher – tries sources in priority order
 # ---------------------------------------------------------------------------
-def fetch_gold_price() -> Optional[float]:
-    """Try multiple sources in order and return the first successful ounce price (USD)."""
+def fetch_gold_quote() -> Optional[Quote]:
+    """The first source that answers, with when it last quoted (PRICE-MARKET-1)."""
     sources = [
         ('Swissquote', _fetch_from_swissquote),
         ('goldprice.org', _fetch_from_goldprice_org),
@@ -105,14 +122,22 @@ def fetch_gold_price() -> Optional[float]:
     ]
     for name, fn in sources:
         try:
-            price = fn()
-            if price is not None and price > 0:
-                return price
+            quote = fn()
+            if quote is not None and quote.price > 0:
+                return quote
         except Exception as e:
             print(f'[ERROR] Unexpected error in {name}: {e}')
-    # All sources failed – fall back to last DB value
-    print('[WARN] All live gold price sources failed. Using last known DB price.')
-    return get_last_known_price()
+    print('[WARN] All live gold price sources failed.')
+    return None
+
+
+def fetch_gold_price() -> Optional[float]:
+    """The first source's ounce price (USD), or None when none answers.
+
+    It returned the last saved price when every source failed, and its callers
+    saved it as a new one: a stale price that read as live (31 Oct 2026)."""
+    quote = fetch_gold_quote()
+    return quote.price if quote is not None else None
 
 
 def get_last_known_price():
@@ -192,15 +217,102 @@ def save_gold_price(app, price):
 
 
 # ---------------------------------------------------------------------------
+# The market, open or closed, as its source says (PRICE-MARKET-1)
+# ---------------------------------------------------------------------------
+# The owner, 31 Oct 2026: «سعر الذهب العالمي يغلق في عطلة نهاية الأسبوع وغيرها،
+# أليس من الأفضل أن يُسجَّل مغلق بدل التحديث التلقائي دون جدوى؟» -- each weekend
+# saved ~1,300 rows a day at one price. The source says when it last quoted:
+# older than the policy's minutes, the market is closed -- the weekend, a
+# holiday, the summer hour's change alike, no calendar of them kept here.
+
+def closed_after() -> datetime.timedelta:
+    """POLICY: how old the source's last quote may be and the market still open."""
+    try:
+        return datetime.timedelta(minutes=max(float(os.getenv('GOLD_MARKET_CLOSED_AFTER_MINUTES', 15)), 1.0))
+    except ValueError:
+        return datetime.timedelta(minutes=15)
+
+
+def closed_check_every() -> datetime.timedelta:
+    """POLICY: how often a closed market's source is asked whether it opened."""
+    try:
+        return datetime.timedelta(seconds=max(float(os.getenv('GOLD_MARKET_CLOSED_CHECK_SECONDS', 300)), 15.0))
+    except ValueError:
+        return datetime.timedelta(seconds=300)
+
+
+def market_answer(state) -> dict:
+    """The market as the screens read it."""
+    from pricing import price_clock
+    if state is None:
+        return {'open': True, 'last_quote_at': None, 'checked_at': None, 'unavailable': False}
+    return {
+        'open': state.is_open is not False,
+        'last_quote_at': price_clock.iso_utc(state.last_quote_at) if state.last_quote_at else None,
+        'checked_at': price_clock.iso_utc(state.checked_at) if state.checked_at else None,
+        'unavailable': state.unavailable_since is not None,
+    }
+
+
+def refresh_due(now: datetime.datetime) -> bool:
+    """Whether the source is to be asked now: always while the market is open;
+    while it is closed, once in closed_check_every."""
+    from models import GoldMarketState
+    state = GoldMarketState.query.first()
+    if state is None or state.is_open is not False or state.checked_at is None:
+        return True
+    return now - state.checked_at >= closed_check_every()
+
+
+def refresh_gold_price(app, fetch=None) -> str:
+    """Ask the source and keep what it says: 'saved' (open, a price saved),
+    'closed' (its last quote is old: nothing saved), 'unavailable' (no source
+    answered: nothing saved, the last price not passed off as new)."""
+    from models import GoldMarketState
+    from pricing import price_clock
+    with app.app_context():
+        now = price_clock.utc_now()
+        quote = (fetch or fetch_gold_quote)()
+        state = GoldMarketState.query.first()
+        if state is None:
+            state = GoldMarketState()
+            db.session.add(state)
+        state.checked_at = now
+        if quote is None:
+            state.unavailable_since = state.unavailable_since or now
+            db.session.commit()
+            return 'unavailable'
+        state.unavailable_since = None
+        state.source = quote.source
+        state.last_quote_at = quote.at
+        state.is_open = quote.at is None or now - quote.at <= closed_after()
+        is_open = state.is_open
+        db.session.commit()
+    if is_open:
+        save_gold_price(app, quote.price)
+        return 'saved'
+    _push_to_commerce(quote.price)      # the storefront keeps its last price, as it did
+    return 'closed'
+
+
+def keep_commerce_fresh(app) -> None:
+    """While the market is closed and not asked, the storefront still hears the
+    last price at each tick -- it reads a price older than 90 s as stale."""
+    if not (os.environ.get('COMMERCE_API_URL') and os.environ.get('ERP_INTERNAL_SECRET')):
+        return
+    with app.app_context():
+        from models import GoldPrice
+        latest = GoldPrice.query.order_by(GoldPrice.date.desc()).first()
+        price = latest.price if latest else None
+    if price:
+        _push_to_commerce(price)
+
+
+# ---------------------------------------------------------------------------
 # Scheduler – auto-update gold price at a configurable interval
 # ---------------------------------------------------------------------------
 def auto_update_gold_price(app):
-    price = fetch_gold_price()
-    if price:
-        save_gold_price(app, price)
-        print(f'[AutoUpdate] Gold price updated: ${price:.2f}/oz')
-    else:
-        print('[AutoUpdate] Failed to fetch gold price from all sources.')
+    print(f'[AutoUpdate] gold price: {refresh_gold_price(app)}')
 
 
 def start_scheduler(app):

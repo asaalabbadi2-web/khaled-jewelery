@@ -3,6 +3,8 @@ import 'package:intl/intl.dart' hide TextDirection;
 
 import '../theme/app_semantic_colors.dart';
 import 'gold_sparkline_enhanced.dart';
+import '../models/gold_prices.dart';
+import 'gold_market_tag.dart';
 
 class GoldPriceBar extends StatelessWidget {
   final double? goldPrice;
@@ -17,6 +19,10 @@ class GoldPriceBar extends StatelessWidget {
   final Map<String, dynamic>? openingPricesPerGram;
   final double? goldPriceOpening;
   final DateTime? goldPriceDate;
+
+  /// Closed or unavailable, its label says so instead of the price's age
+  /// (PRICE-MARKET-1, the owner 31 Oct 2026).
+  final GoldMarket market;
   final int mainKarat;
   final bool isUpdating;
   final VoidCallback? onRefresh;
@@ -32,6 +38,7 @@ class GoldPriceBar extends StatelessWidget {
     this.openingPricesPerGram,
     this.goldPriceOpening,
     this.goldPriceDate,
+    this.market = GoldMarket.live,
     required this.mainKarat,
     this.isUpdating = false,
     this.onRefresh,
@@ -77,6 +84,13 @@ class GoldPriceBar extends StatelessWidget {
   }
 
   String _relativeTimeLabel() {
+    if (market.unavailable) return 'تعذّر التحديث';
+    if (!market.open) {
+      return market.lastQuoteAt == null
+          ? 'السوق مغلق'
+          // Two lines: the label stands under a 34-pixel button.
+          : 'السوق مغلق\n${GoldMarketTag.sayLastQuote(market.lastQuoteAt!)}';
+    }
     if (goldPriceDate == null) return 'منذ لحظات';
     final diff = DateTime.now().difference(goldPriceDate!);
     if (diff.inMinutes < 1) return 'منذ لحظات';
@@ -198,6 +212,7 @@ class GoldPriceBar extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           label,
+          textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 9.5,
             color: palette.textSoft,

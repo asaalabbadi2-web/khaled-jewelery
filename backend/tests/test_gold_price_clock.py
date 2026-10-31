@@ -50,9 +50,10 @@ def no_internet(monkeypatch):
 
     def fake_fetch():
         calls.append(1)
-        return 4100.0
+        from gold_price import Quote
+        return Quote(4100.0, None, 'test')        # a live quote (PRICE-MARKET-1)
     import routes.pricing as pricing
-    monkeypatch.setattr(pricing, 'fetch_gold_price', fake_fetch)
+    monkeypatch.setattr(pricing, 'fetch_gold_quote', fake_fetch)
     return calls
 
 

@@ -2131,6 +2131,24 @@ class InvoiceWeightSettlement(db.Model):
 # RUN: pip install flask_sqlalchemy
 
 # نموذج لتخزين سعر الذهب
+class GoldMarketState(db.Model):
+    """Whether the world's gold market is open, as its source says (PRICE-MARKET-1).
+
+    One row, written by the price refresh: a quote older than the policy's
+    minutes means the market is closed -- the weekend, a holiday -- and no row
+    is saved for it (the owner, 31 Oct 2026). unavailable_since: every source
+    failed since then; the last price is not passed off as a new one.
+    """
+    __tablename__ = 'gold_market_state'
+
+    id = db.Column(db.Integer, primary_key=True)
+    is_open = db.Column(db.Boolean, nullable=True)
+    last_quote_at = db.Column(db.DateTime, nullable=True)
+    checked_at = db.Column(db.DateTime, nullable=True)
+    source = db.Column(db.String(40), nullable=True)
+    unavailable_since = db.Column(db.DateTime, nullable=True)
+
+
 class GoldPrice(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     price = db.Column(db.Float, nullable=False)

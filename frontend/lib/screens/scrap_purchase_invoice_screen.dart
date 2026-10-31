@@ -16,6 +16,7 @@ import '../widgets/pay_box.dart';
 import '../widgets/scrap_purchase_entry_row.dart';
 import '../models/gold_prices.dart';
 import '../utils/live_gold_prices.dart';
+import '../widgets/gold_market_tag.dart';
 import '../utils/payment_fee.dart';
 import '../utils/scrap_purchase_readiness.dart';
 import '../widgets/invoice_review_dialog.dart';
@@ -1915,6 +1916,11 @@ class _ScrapPurchaseInvoiceScreenState
                               '/جم',
                               style: Theme.of(context).textTheme.labelSmall?.copyWith(color: AppSemanticColors.invoiceBar(context, InvoiceKind.purchaseScrap).foreground.withValues(alpha: 0.7),),
                             ),
+                            // Closed or unavailable, it says so (PRICE-MARKET-1).
+                            if (liveMarket.quiet) ...[
+                              const Spacer(),
+                              GoldMarketTag(market: liveMarket, compact: true, color: AppSemanticColors.invoiceBar(context, InvoiceKind.purchaseScrap).foreground),
+                            ],
                           ],
                         )
                       : Text(
