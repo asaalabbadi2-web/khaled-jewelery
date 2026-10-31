@@ -48,6 +48,13 @@ class _Server extends PayrollService {
               ...deductions,
             ]
           : <dynamic>[],
+      'bonuses': id == 2
+          ? [
+              {'bonus_id': 55, 'label': 'هدف الشهر', 'amount': 500.0},
+            ]
+          : <dynamic>[],
+      if (id == 1)
+        'bonuses_held': {'approved_unpaid': 2512.5, 'owed_in_books': 0.0},
       'employer_contributions': id == 1
           ? [
               {'code': 'annuities', 'name': 'المعاشات', 'amount': 440.0},
@@ -83,6 +90,7 @@ class _Server extends PayrollService {
     int lineId, {
     required List<PayrollLabelledAmount> additions,
     required List<PayrollLabelledAmount> deductions,
+    List<int>? keptBonuses,
     String? notes,
   }) async {
     this.deductions = deductions.map((d) => d.toJson()).toList();
@@ -176,6 +184,8 @@ void main() {
       );
       expect(find.textContaining('(اشتراك)'), findsOneWidget);
       expect(find.textContaining('حصة المنشأة من الاشتراكات'), findsOneWidget);
+      expect(find.textContaining('(مكافأة)'), findsOneWidget);
+      expect(find.textContaining('لم تدخل: الدفاتر تقول'), findsOneWidget);
       expect(find.textContaining('غياب يوم'), findsOneWidget);
 
       // approved whole

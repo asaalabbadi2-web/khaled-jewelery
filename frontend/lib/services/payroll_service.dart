@@ -38,6 +38,7 @@ class PayrollService {
     int lineId, {
     required List<PayrollLabelledAmount> additions,
     required List<PayrollLabelledAmount> deductions,
+    List<int>? keptBonuses,
     String? notes,
   }) async => _run(
     await _api.authedPut(
@@ -45,6 +46,7 @@ class PayrollService {
       body: jsonEncode({
         'additions': additions.map((e) => e.toJson()).toList(),
         'deductions': deductions.map((e) => e.toJson()).toList(),
+        'bonuses': ?keptBonuses,
         'notes': notes,
       }),
     ),

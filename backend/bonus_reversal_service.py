@@ -94,6 +94,12 @@ class BonusReversalService:
                     'code': 'wrong_status',
                 }
 
+            if bonus.payroll_id is not None:              # PAYROLL-4
+                return False, {
+                    'error': 'المكافأة في مسير الرواتب: تُزال منه في المسودة، أو يُلغى المسير، ثم تُعكس.',
+                    'code': 'in_payroll_run',
+                }
+
             # ── Idempotency guard ─────────────────────────────────────────
             voucher_number = f'BREV-{bonus.id}'
             existing = Voucher.query.filter_by(voucher_number=voucher_number).first()

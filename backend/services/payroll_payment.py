@@ -84,6 +84,11 @@ def pay(entry, *, payment_account_id, paid_date, advance_deduction=0.0, by: str,
     entry.voucher_id = voucher.id
     entry.paid_date = paid_date
     entry.status = 'paid'
+    # its bonuses, moved into its net by the run's accrual, are paid by it (PAYROLL-4)
+    from models import EmployeeBonus
+    for bonus in EmployeeBonus.query.filter_by(payroll_id=entry.id, status='approved'):
+        bonus.status, bonus.paid_at, bonus.paid_by = 'paid', now, by
+        bonus.payment_reference = voucher.voucher_number
 
 
 def _next_number(entry) -> str:

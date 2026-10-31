@@ -1426,6 +1426,10 @@ def pay_bonus(bonus_id):
                 'message': f'لا يمكن دفع مكافأة بحالة "{bonus.status}"'
             }), 409
         
+        if bonus.payroll_id is not None:              # PAYROLL-4: the run's line pays it
+            return jsonify({'success': False, 'error': 'in_payroll_run',
+                            'message': 'المكافأة في مسير الرواتب: تُصرف مع الراتب بسند المسير.'}), 409
+        
         payment_method = data.get('payment_method', 'cash')
         paid_date = datetime.strptime(data.get('paid_date'), '%Y-%m-%d').date() if data.get('paid_date') else date.today()
         created_by = actor()
@@ -2365,7 +2369,7 @@ def reverse_bonus(bonus_id):
             return jsonify({'success': False, **payload}), 404
         if code == 'paid_bonus_reversal_policy_not_configured':
             return jsonify({'success': False, **payload}), 422
-        if code == 'duplicate_voucher':
+        if code in ('duplicate_voucher', 'in_payroll_run'):
             return jsonify({'success': False, **payload}), 409
         return jsonify({'success': False, **payload}), 400
 

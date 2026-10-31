@@ -39,6 +39,15 @@ def bonus_payable_parent():
     return db.session.get(Account, account_id) if account_id else None
 
 
+def owed_in_books(employee) -> float:
+    """What the books owe the employee on his bonus account (credit less debit)."""
+    from services.live_balances import live_balances_by_account_ids
+    account = employee_bonus_account(employee)
+    if account is None:
+        return 0.0
+    return round(-float(live_balances_by_account_ids([account.id]).get(account.id, {}).get('cash', 0.0)), 2) + 0.0
+
+
 def owed_by_employee() -> list[dict]:
     """Per employee: owed in the books (credit less debit on their bonus account,
     counted lines) beside their approved, unpaid bonuses; the difference is what

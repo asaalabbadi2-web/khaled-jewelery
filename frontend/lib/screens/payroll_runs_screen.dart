@@ -416,7 +416,7 @@ class _PayrollRunScreenState extends State<PayrollRunScreen> {
   Future<void> _editLine(PayrollRun run, PayrollRunLine line) async {
     final edited =
         await showDialog<
-          (List<PayrollLabelledAmount>, List<PayrollLabelledAmount>)
+          (List<PayrollLabelledAmount>, List<PayrollLabelledAmount>, List<int>)
         >(
           context: context,
           builder: (_) => _LineDialog(line: line, isAr: _isAr),
@@ -428,6 +428,7 @@ class _PayrollRunScreenState extends State<PayrollRunScreen> {
         line.id,
         additions: edited.$1,
         deductions: edited.$2,
+        keptBonuses: line.bonuses.isEmpty ? null : edited.$3,
         notes: line.notes,
       ),
       _isAr ? 'حُفظ السطر' : 'Saved',
@@ -757,6 +758,20 @@ class _LineCard extends StatelessWidget {
                 '− ${d.label} (${_deductionWord(d.kind, isAr)}) ${ltrIsolate(money(d.amount))}',
                 style: theme.textTheme.bodySmall,
               ),
+            for (final b in line.bonuses)
+              Text(
+                '+ ${b['label']} (${isAr ? 'مكافأة' : 'bonus'}) ${ltrIsolate(money(((b['amount'] as num?) ?? 0).toDouble()))}',
+                style: theme.textTheme.bodySmall,
+              ),
+            if (line.bonusesHeld case final held?)
+              Text(
+                isAr
+                    ? 'مكافآت معتمدة ${ltrIsolate(money(held['approved_unpaid'] ?? 0))} لم تدخل: الدفاتر تقول المستحق ${ltrIsolate(money(held['owed_in_books'] ?? 0))}'
+                    : 'Approved bonuses ${money(held['approved_unpaid'] ?? 0)} held: the books owe ${money(held['owed_in_books'] ?? 0)}',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: AppSemanticColors.of(context).warning.fg,
+                ),
+              ),
             if (line.employerContributions > 0)
               Text(
                 '${isAr ? 'حصة المنشأة من الاشتراكات' : 'Employer contributions'} '
@@ -823,6 +838,11 @@ class _LineDialog extends StatefulWidget {
 }
 
 class _LineDialogState extends State<_LineDialog> {
+  /// The bonuses kept on the line; one unticked is let go (PAYROLL-4).
+  late final Set<int> _kept = {
+    for (final b in widget.line.bonuses) b['bonus_id'] as int,
+  };
+
   late final List<_Row> _additions = [
     for (final a in widget.line.additions) _Row(a.label, a.amount),
   ];
@@ -930,6 +950,25 @@ class _LineDialogState extends State<_LineDialog> {
             mainAxisSize: MainAxisSize.min,
             children: [
               _side(isAr ? 'الإضافات' : 'Additions', _additions, 'addition'),
+              for (final b in widget.line.bonuses)
+                CheckboxListTile(
+                  key: ValueKey('payroll-line-bonus-${b['bonus_id']}'),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  value: _kept.contains(b['bonus_id']),
+                  onChanged: (v) => setState(
+                    () => v == true
+                        ? _kept.add(b['bonus_id'] as int)
+                        : _kept.remove(b['bonus_id'] as int),
+                  ),
+                  title: Text(
+                    '${b['label']} (${isAr ? 'مكافأة معتمدة' : 'approved bonus'})',
+                  ),
+                  secondary: Text(
+                    formatAmount((b['amount'] as num?) ?? 0),
+                    textDirection: TextDirection.ltr,
+                  ),
+                ),
               const SizedBox(height: AppSpace.md),
               _side(
                 isAr ? 'الخصومات' : 'Deductions',
@@ -963,8 +1002,11 @@ class _LineDialogState extends State<_LineDialog> {
         ),
         FilledButton(
           key: const ValueKey('payroll-line-save'),
-          onPressed: () =>
-              Navigator.pop(context, (_read(_additions), _read(_deductions))),
+          onPressed: () => Navigator.pop(context, (
+            _read(_additions),
+            _read(_deductions),
+            _kept.toList(),
+          )),
           child: Text(isAr ? 'حفظ' : 'Save'),
         ),
       ],
@@ -1216,6 +1258,11 @@ class _PayslipDialog extends StatelessWidget {
                     row(isAr ? 'البدلات' : 'Allowances', entry['allowances']),
                   for (final a in lines('additions'))
                     row('+ ${a['label']}', a['amount']),
+                  for (final b in lines('bonuses'))
+                    row(
+                      '+ ${b['label']} (${isAr ? 'مكافأة' : 'bonus'})',
+                      b['amount'],
+                    ),
                   for (final d in lines('deductions'))
                     row('− ${d['label']}', d['amount']),
                   const Divider(),

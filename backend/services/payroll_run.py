@@ -35,6 +35,17 @@ The employer's share is the line's too, not deducted. The accrual, at the gross:
     Cr his advance account   the installments, each
     Cr penalties payable     the penalties
 tests/test_payroll_advances_and_contributions.py.
+
+Its bonuses (PAYROLL-4; decision 4, «المكافآت: ما تنصح به أنت»). An approved
+bonus not yet paid is the line's: its expense was written when it was approved
+(bonus expense / his bonus payable), so the run does not spend it again -- its
+accrual moves it, Dr his bonus payable, into his net; the line's voucher pays
+it and marks it paid. A draft may let a bonus go; a cancelled run lets them
+all go. The books are right (BONUS-BOOKS-1): an employee's bonuses come in
+only when his bonus account owes them all -- on the 31 Oct copy one owed 0
+against 2,512.50 approved, paid by a voucher outside the bonus screen; moved,
+he is paid twice. Held, the line says both figures and nothing is guessed (no
+voucher attributed to a bonus). tests/test_payroll_bonuses.py.
 """
 from __future__ import annotations
 
@@ -42,13 +53,13 @@ import calendar
 import json
 from datetime import date
 
-from models import Employee, JournalEntry, Payroll, PayrollRun, db
+from models import Employee, EmployeeBonus, JournalEntry, Payroll, PayrollRun, db
 from services.payroll_laws import PayrollRefused, refuse_bad_period
 from services.payroll_policy import contributions, policy, require, structure_on
 
 RUN_ACCRUAL = 'payroll_run_accrual'
 RUN_REVERSAL = 'payroll_run_accrual_reversal'
-SNAPSHOT_SCHEMA_VERSION = 2          # 2: each deduction of a kind, the employer's contributions
+SNAPSHOT_SCHEMA_VERSION = 3          # 2: each deduction of a kind, the employer's share; 3: bonuses
 
 ABSENCE, PENALTY, CONTRIBUTION = 'absence', 'penalty', 'contribution'
 KEYED_DEDUCTIONS = (ABSENCE, PENALTY)
@@ -158,18 +169,45 @@ def _draft_line(run, employee, period, structure, first: date, last: date, divis
     breakdown = {'snapshot_schema_version': SNAPSHOT_SCHEMA_VERSION, 'structure_id': structure.id,
                  'monthly': monthly, 'earned': earned, 'days': days, 'divisor': divisor, 'whole_month': whole,
                  'contribution_wage': employee.contribution_wage,
-                 'additions': [], 'deductions': deductions, 'employer_contributions': employer}
+                 'additions': [], 'deductions': deductions, 'employer_contributions': employer,
+                 'bonuses': []}
     entry = Payroll(employee_id=employee.id, month=run.month, year=run.year, payroll_run_id=run.id,
                     status='pending', created_by=by)
     _apply(entry, breakdown)
     db.session.add(entry)
+    db.session.flush()
+    bonuses = (EmployeeBonus.query.filter_by(employee_id=employee.id, status='approved', payroll_id=None)
+               .order_by(EmployeeBonus.id).all())
+    from services.bonus_accounts import owed_in_books
+    approved, owed = round(sum(float(b.amount or 0.0) for b in bonuses), 2), owed_in_books(employee)
+    if bonuses and approved > owed:
+        breakdown['bonuses_held'] = {'approved_unpaid': approved, 'owed_in_books': owed}
+        bonuses = []
+    for bonus in bonuses:
+        bonus.payroll_id = entry.id
+        breakdown['bonuses'].append({'bonus_id': bonus.id, 'label': _bonus_label(bonus),
+                                     'amount': round(float(bonus.amount or 0.0), 2)})
+    _apply(entry, breakdown)
+
+
+def _bonus_label(bonus) -> str:
+    rule = bonus.rule
+    return (rule.name if rule is not None and rule.name else None) or 'مكافأة'
+
+
+def release_bonuses(entry) -> None:
+    """The line's bonuses let go -- approved, unpaid, theirs to be paid again."""
+    for bonus in EmployeeBonus.query.filter_by(payroll_id=entry.id):
+        if bonus.status == 'approved':
+            bonus.payroll_id = None
 
 
 def _apply(entry, breakdown: dict) -> None:
     earned = breakdown['earned']
     entry.basic_salary = earned['basic']
     entry.allowances = round(earned['housing'] + earned['transport'] + earned['other_allowances']
-                             + sum(line['amount'] for line in breakdown['additions']), 2)
+                             + sum(line['amount'] for line in breakdown['additions'])
+                             + sum(line['amount'] for line in breakdown.get('bonuses') or []), 2)
     entry.deductions = round(sum(line['amount'] for line in breakdown['deductions']), 2)
     entry.net_salary = round(entry.basic_salary + entry.allowances - entry.deductions, 2)
     entry.breakdown = json.dumps(breakdown, ensure_ascii=False)
@@ -193,6 +231,13 @@ def edit_line(entry, data: dict) -> None:
         # the reckoned ones stay as reckoned; the keyed ones are the reviewer's
         reckoned = [row for row in breakdown['deductions'] if kind_of(row) not in KEYED_DEDUCTIONS]
         breakdown['deductions'] = reckoned + [_labelled(line, keyed=True) for line in (data.get('deductions') or [])]
+    if 'bonuses' in data:
+        # the bonuses kept on the line; the others let go
+        kept = {int(i) for i in (data.get('bonuses') or [])}
+        breakdown['bonuses'] = [row for row in breakdown.get('bonuses') or [] if row['bonus_id'] in kept]
+        for bonus in EmployeeBonus.query.filter_by(payroll_id=entry.id):
+            if bonus.id not in kept:
+                bonus.payroll_id = None
     if 'notes' in data:
         entry.notes = data.get('notes')
     _apply(entry, breakdown)
@@ -220,6 +265,7 @@ def _labelled(line, *, keyed: bool = False) -> dict:
 
 def remove_line(entry) -> None:
     _refuse_unless_draft(entry.run)
+    release_bonuses(entry)
     db.session.delete(entry)
     db.session.flush()
 
@@ -237,6 +283,7 @@ def approve(run, *, by: str, now) -> None:
         raise PayrollRefused('صافي الراتب صفر لـ: ' + '، '.join(empty))
     from services.payroll_advances import refuse_overtaken
     refuse_overtaken(run)
+    _refuse_bonuses_beyond_the_books(lines)
     savepoint = db.session.begin_nested()
     try:
         _write_accrual(run, lines, by=by, now=now)
@@ -255,6 +302,17 @@ def approve(run, *, by: str, now) -> None:
     savepoint.commit()
 
 
+def _refuse_bonuses_beyond_the_books(lines) -> None:
+    """At approval: the books still owe each line's bonuses (a voucher may have paid one since)."""
+    from services.bonus_accounts import owed_in_books
+    for line in lines:
+        rows = json.loads(line.breakdown).get('bonuses') or []
+        total = round(sum(float(row['amount']) for row in rows), 2)
+        if total and total > owed_in_books(line.employee):
+            raise PayrollRefused(f'مكافآت {line.employee.name} في المسير {total:,.2f} والدفاتر تقول '
+                                 f'{owed_in_books(line.employee):,.2f}: أزلها من السطر أو سوِّ حسابه.')
+
+
 def line_parts(line) -> dict:
     """A line's accrual: what it costs and to whom it is owed."""
     breakdown = json.loads(line.breakdown)
@@ -263,13 +321,15 @@ def line_parts(line) -> dict:
         by_kind[kind_of(row)] += float(row['amount'])
     earned = round(sum(breakdown['earned'].values()), 2)
     additions = round(sum(float(row['amount']) for row in breakdown.get('additions') or []), 2)
+    bonuses = round(sum(float(row['amount']) for row in breakdown.get('bonuses') or []), 2)
     employer = round(sum(float(row['amount']) for row in breakdown.get('employer_contributions') or []), 2)
     return {'salary_expense': round(earned + additions - by_kind[ABSENCE], 2),
             'contributions_expense': employer,
             'net': round(line.net_salary, 2),
             'contributions_payable': round(by_kind[CONTRIBUTION] + employer, 2),
             'advance': round(by_kind['advance'], 2),
-            'penalties': round(by_kind[PENALTY], 2)}
+            'penalties': round(by_kind[PENALTY], 2),
+            'bonuses': bonuses}
 
 
 def _write_accrual(run, lines, *, by: str, now) -> JournalEntry:
@@ -292,6 +352,12 @@ def _write_accrual(run, lines, *, by: str, now) -> JournalEntry:
                 side.append((require_account(DEFAULT_MAPPING_OPERATION_TYPE, role), total[key], label))
         for line, part in parts:
             name = line.employee.name
+            if part['bonuses'] > 0:
+                from services.bonus_accounts import employee_bonus_account
+                bonus_payable = employee_bonus_account(line.employee)
+                if bonus_payable is None:
+                    raise PayrollRefused(f'لا حساب مكافآت مربوط لـ {name}: مكافآته لا تنتقل إلى راتبه')
+                debits.append((bonus_payable.id, part['bonuses'], f'مكافآت {name}'))
             credits.append((int(ensure_payable_account(line.employee, 'salary_payable', by=by).id),
                             part['net'], f'راتب {name}'))
             if part['advance'] > 0:
@@ -342,6 +408,8 @@ def cancel(run, *, by: str, now) -> None:
     lines = run.entries.all()
     if any(line.voucher_id or line.status == 'paid' for line in lines):
         raise PayrollRefused('صُرف من المسير راتب: لا يُلغى. يُلغى سند الصرف أولًا إن كان خطأ.')
+    for line in lines:
+        release_bonuses(line)
     if run.status == 'draft':
         for line in lines:
             db.session.delete(line)

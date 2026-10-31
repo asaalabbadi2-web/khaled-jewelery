@@ -5373,6 +5373,10 @@ class EmployeeBonus(db.Model):
 
     # ربط مع الخزينة عند الدفع
     office_id = db.Column(db.Integer, db.ForeignKey('office.id'), nullable=True)
+    # PAYROLL-4: the run line that pays it -- moved by the run's accrual from his
+    # bonus payable to his salary payable, paid by the line's voucher. Set, it
+    # is not paid nor reversed alone; a cancelled run lets it go.
+    payroll_id = db.Column(db.Integer, db.ForeignKey('payroll.id'), nullable=True, index=True)
 
     employee = db.relationship('Employee', backref=db.backref('bonuses', lazy=True))
     rule     = db.relationship('BonusRule', backref=db.backref('bonuses', lazy=True))
@@ -5456,6 +5460,7 @@ class EmployeeBonus(db.Model):
             'rule_snapshot':         self.rule_snapshot,
             'calculation_snapshot':  self.calculation_snapshot,
             'office_id':    self.office_id,
+            'payroll_id':   self.payroll_id,
             'office_name':  self.office.name if self.office else None,
         }
         if include_employee and self.employee:
