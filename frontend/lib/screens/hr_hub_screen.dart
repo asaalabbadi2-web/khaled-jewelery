@@ -983,8 +983,8 @@ class _SettingsTab extends StatelessWidget {
           Icons.build_outlined,
           isAr ? 'شاشة الموظفين السابقة' : 'Earlier employees screen',
           isAr
-              ? 'حسابات الدخول، وكلمات المرور، وإصلاح الحسابات، والهدف الشخصي — حتى تنتقل إلى صفحة الموظف'
-              : 'Sign-ins, passwords, account repair, goals',
+              ? 'إصلاح حسابات الموظفين (أداة صيانة نادرة)'
+              : 'Repair employee accounts (a rare maintenance tool)',
           () => onOpen(EmployeesScreen(api: api, isArabic: isAr)),
           'hr-settings-legacy',
         ),

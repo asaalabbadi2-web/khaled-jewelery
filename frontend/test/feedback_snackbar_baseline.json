@@ -11,7 +11,6 @@
   "lib/screens/calculate_bonuses_screen.dart": 2,
   "lib/screens/change_password_screen.dart": 2,
   "lib/screens/customers_screen.dart": 2,
-  "lib/screens/employees_screen.dart": 1,
   "lib/screens/forgot_password_screen.dart": 4,
   "lib/screens/generic_report_print_screen.dart": 2,
   "lib/screens/import_documents_screen.dart": 3,

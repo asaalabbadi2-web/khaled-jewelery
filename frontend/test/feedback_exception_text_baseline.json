@@ -12,7 +12,6 @@
   "lib/screens/barcode_print_screen.dart": 2,
   "lib/screens/calculate_bonuses_screen.dart": 1,
   "lib/screens/customers_screen.dart": 1,
-  "lib/screens/employees_screen.dart": 2,
   "lib/screens/general_ledger_screen_v2.dart": 1,
   "lib/screens/generic_report_print_screen.dart": 1,
   "lib/screens/gold_price_manual_screen_enhanced.dart": 3,

@@ -12,6 +12,8 @@ import '../widgets/user_avatar_widget.dart';
 import 'employee_file_view.dart';
 import 'employees_screen.dart';
 import 'payroll_runs_screen.dart';
+import 'users_screen.dart';
+import '../widgets/goal_settings_tile.dart';
 
 /// An employee's page, the whole screen (HR-UX ر2; the owner, 1 Nov 2026:
 /// «اعتمد»): its head -- his photo, name, state, user, how complete his file
@@ -50,6 +52,13 @@ const _parts = [
     'Custody & accounts',
     {'advances', 'bonuses', 'custody', 'accounts'},
     Icons.account_balance_wallet_outlined,
+  ),
+  _Part(
+    'performance',
+    'الأداء',
+    'Performance',
+    <String>{},
+    Icons.emoji_events_outlined,
   ),
   _Part('access', 'السجل والدخول', 'Sign-in', {'access'}, Icons.key_outlined),
   _Part('end', 'إنهاء الخدمة', 'End of service', {'end'}, Icons.logout),
@@ -163,6 +172,15 @@ class _EmployeePageState extends State<EmployeePage> {
     _load();
   }
 
+  Future<void> _users() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => UsersScreen(api: widget.api, isArabic: _isAr),
+      ),
+    );
+    _load();
+  }
+
   Future<void> _earlierScreen() async {
     await Navigator.of(context).push(
       MaterialPageRoute(
@@ -207,15 +225,43 @@ class _EmployeePageState extends State<EmployeePage> {
                 ),
               ),
             ),
-          Expanded(
-            child: EmployeeFileView(
-              key: ValueKey('file-$_part-$_version'),
-              api: widget.api,
-              employeeId: widget.employeeId,
-              isArabic: isAr,
-              service: _service,
-              only: part.sections,
+          // the users' screen holds his sign-in: made, its password reset
+          if (_part == 'access')
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpace.sm),
+              child: Align(
+                alignment: AlignmentDirectional.centerEnd,
+                child: OutlinedButton.icon(
+                  key: const ValueKey('employee-page-users'),
+                  onPressed: _users,
+                  icon: const Icon(Icons.manage_accounts_outlined),
+                  label: Text(
+                    isAr
+                        ? 'حساب الدخول وكلمة المرور في «المستخدمون»'
+                        : 'Sign-in and password in Users',
+                  ),
+                ),
+              ),
             ),
+          Expanded(
+            child: _part == 'performance'
+                ? SingleChildScrollView(
+                    child: GoalSettingsTile(
+                      key: ValueKey('goal-$_version'),
+                      employee: EmployeeModel.fromJson(_employee),
+                      isArabic: isAr,
+                      api: widget.api,
+                      onSaved: (_) => _load(),
+                    ),
+                  )
+                : EmployeeFileView(
+                    key: ValueKey('file-$_part-$_version'),
+                    api: widget.api,
+                    employeeId: widget.employeeId,
+                    isArabic: isAr,
+                    service: _service,
+                    only: part.sections,
+                  ),
           ),
         ],
       );
@@ -437,8 +483,8 @@ class _Head extends StatelessWidget {
                       value: 'earlier',
                       child: Text(
                         isAr
-                            ? 'حساب الدخول وكلمة المرور والهدف (الشاشة السابقة)'
-                            : 'Sign-in, password, goal (earlier screen)',
+                            ? 'إصلاح حسابات الموظفين (الشاشة السابقة)'
+                            : 'Repair employee accounts (earlier screen)',
                       ),
                     ),
                   ],

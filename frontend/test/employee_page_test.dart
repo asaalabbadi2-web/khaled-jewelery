@@ -4,6 +4,7 @@ import 'package:frontend/api_service.dart';
 import 'package:frontend/screens/employee_page.dart';
 import 'package:frontend/services/payroll_service.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/widgets/goal_settings_tile.dart';
 
 /// HR-UX ر2 (the owner, 1 Nov 2026: «اعتمد»): his page is the whole screen --
 /// its head says who he is, his state, his user and how complete his file is;
@@ -100,4 +101,17 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.byType(ChoiceChip), findsWidgets);
   });
+
+  testWidgets(
+    'its performance part is his goal; its sign-in part leads to the users',
+    (tester) async {
+      await _open(tester, const Size(1280, 1100));
+      await tester.tap(find.byKey(const ValueKey('employee-part-performance')));
+      await _settle(tester);
+      expect(find.byType(GoalSettingsTile), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('employee-part-access')));
+      await _settle(tester);
+      expect(find.byKey(const ValueKey('employee-page-users')), findsOneWidget);
+    },
+  );
 }
