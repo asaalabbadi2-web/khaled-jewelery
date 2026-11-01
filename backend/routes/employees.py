@@ -19,6 +19,9 @@ from models import (
     Employee,
     EmployeeAdvancePlan,
     EmployeeBonus,
+    EmployeeContract,
+    EmployeeDocument,
+    EmployeeDocumentType,
     GoalAchievement,
     Invoice,
     JournalEntry,
@@ -1199,6 +1202,103 @@ def cancel_advance_plan(plan_id):
     cancel_plan(plan)
     db.session.commit()
     return jsonify(to_dict(plan))
+
+
+# ── EMP-3: contracts and documents (services/employee_documents) ─────────────────
+
+def _documents_action(action, status=200):
+    from services.payroll_laws import PayrollRefused
+    try:
+        result = action()
+    except PayrollRefused as refused:
+        db.session.rollback()
+        return _payroll_refusal(refused)
+    db.session.commit()
+    return jsonify(result.to_dict()), status
+
+
+@employees_bp.route('/employees/<int:employee_id>/contracts', methods=['GET'])
+@require_permission('employees.view')
+def list_employee_contracts(employee_id):
+    Employee.query.get_or_404(employee_id)
+    rows = EmployeeContract.query.filter_by(employee_id=employee_id).order_by(EmployeeContract.start_date.desc())
+    return jsonify([row.to_dict() for row in rows])
+
+
+@employees_bp.route('/employees/<int:employee_id>/contracts', methods=['POST'])
+@require_permission('employees.edit')
+def create_employee_contract(employee_id):
+    from services.approval_policy import actor
+    from services.employee_documents import save_contract
+    data = request.get_json(silent=True) or {}
+    return _documents_action(lambda: save_contract(employee_id, data, by=actor()), 201)
+
+
+@employees_bp.route('/employee-contracts/<int:contract_id>', methods=['PUT'])
+@require_permission('employees.edit')
+def update_employee_contract(contract_id):
+    from services.approval_policy import actor
+    from services.employee_documents import save_contract
+    contract = EmployeeContract.query.get_or_404(contract_id)
+    data = request.get_json(silent=True) or {}
+    return _documents_action(lambda: save_contract(contract.employee_id, data, by=actor(), contract=contract))
+
+
+@employees_bp.route('/employee-document-types', methods=['GET'])
+@require_permission('employees.view')
+def list_employee_document_types():
+    return jsonify([row.to_dict() for row in EmployeeDocumentType.query.order_by(EmployeeDocumentType.id)])
+
+
+@employees_bp.route('/employee-document-types', methods=['POST'])
+@require_permission('employees.edit')
+def create_employee_document_type():
+    from services.employee_documents import save_type
+    data = request.get_json(silent=True) or {}
+    return _documents_action(lambda: save_type(data), 201)
+
+
+@employees_bp.route('/employee-document-types/<int:type_id>', methods=['PUT'])
+@require_permission('employees.edit')
+def update_employee_document_type(type_id):
+    from services.employee_documents import save_type
+    kind = EmployeeDocumentType.query.get_or_404(type_id)
+    data = request.get_json(silent=True) or {}
+    return _documents_action(lambda: save_type(data, kind))
+
+
+@employees_bp.route('/employees/<int:employee_id>/documents', methods=['GET'])
+@require_permission('employees.view')
+def list_employee_documents(employee_id):
+    Employee.query.get_or_404(employee_id)
+    rows = EmployeeDocument.query.filter_by(employee_id=employee_id).order_by(EmployeeDocument.id.desc())
+    return jsonify([row.to_dict() for row in rows])
+
+
+@employees_bp.route('/employees/<int:employee_id>/documents', methods=['POST'])
+@require_permission('employees.edit')
+def create_employee_document(employee_id):
+    from services.approval_policy import actor
+    from services.employee_documents import save_document
+    data = request.get_json(silent=True) or {}
+    return _documents_action(lambda: save_document(employee_id, data, by=actor()), 201)
+
+
+@employees_bp.route('/employee-documents/<int:document_id>', methods=['PUT'])
+@require_permission('employees.edit')
+def update_employee_document(document_id):
+    from services.approval_policy import actor
+    from services.employee_documents import save_document
+    document = EmployeeDocument.query.get_or_404(document_id)
+    data = request.get_json(silent=True) or {}
+    return _documents_action(lambda: save_document(document.employee_id, data, by=actor(), document=document))
+
+
+@employees_bp.route('/employee-documents/expiring', methods=['GET'])
+@require_permission('employees.view')
+def list_expiring_employee_documents():
+    from services.employee_documents import expiring
+    return jsonify(expiring(datetime.now().date()))
 
 
 @employees_bp.route('/advances/summary', methods=['GET'])

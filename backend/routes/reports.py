@@ -5314,7 +5314,7 @@ def get_admin_dashboard_standing():
         'positions': positions,
         'clearing': lambda: clearing_pending(now),
         'approvals': approvals,
-        'wrong_now': lambda: alerts(safe_rows()),
+        'wrong_now': lambda: alerts(safe_rows(), today=now.date()),   # + documents near their end (EMP-3)
         'vat': lambda: vat_due(now.date()),
         'deficits': lambda: deficits(datetime(now.year, now.month, 1), now + timedelta(seconds=1)),
     }

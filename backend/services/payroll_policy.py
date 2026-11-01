@@ -23,7 +23,7 @@ from models import (ContributionComponent, ContributionScheme, Employee, Payroll
 from services.payroll_laws import PayrollRefused
 
 RATIOS = ('housing_ratio', 'transport_ratio', 'advance_cap_ratio', 'overtime_premium_ratio')
-COUNTS = ('advance_installments', 'day_divisor', 'eos_first_years')
+COUNTS = ('advance_installments', 'day_divisor', 'eos_first_years', 'contract_alert_days')
 FLAGS = ('attendance_enabled',)
 MONTHS = ('eos_first_years_months', 'eos_after_years_months')     # a year's months of wage (art. 84)
 CHOICES = {'eos_wage_base': ('basic', 'basic_housing', 'gross')}

@@ -101,7 +101,13 @@ final _standing = <String, dynamic>{
     'negative_safes': [
       {'safe': 'خزينة ذهب الكسر مؤقتة', 'cash': null, 'grams': -446.672},
     ],
-    'total': 2,
+    // EMP-3: an employee's document near its end, one ended.
+    'expiring_documents': [
+      {'employee': 'مسعد المهري', 'kind': 'document', 'label': 'الإقامة', 'ends_on': '2026-10-29', 'days_left': -3},
+      {'employee': 'يوسف الشعبي', 'kind': 'contract', 'label': 'نهاية العقد', 'ends_on': '2026-11-20',
+          'days_left': 19},
+    ],
+    'total': 4,
   },
   // DASH-8: the production copy's, 30 Oct 2026 -- sales not charged from 2 May.
   'vat': {
@@ -452,6 +458,9 @@ void main() {
     expect(find.descendant(of: detail, matching: find.text('ذهب الخزينة في حركاتها يخالف دفترها')), findsOneWidget);
     expect(find.descendant(of: detail, matching: find.text('خزينة ذهب الكسر مؤقتة تحت الصفر')), findsOneWidget);
     expect(find.descendant(of: detail, matching: find.text('-446.672 جم')), findsOneWidget);
+    expect(find.descendant(of: detail, matching: find.text('الإقامة — مسعد المهري')), findsOneWidget);
+    expect(find.descendant(of: detail, matching: find.text('منتهية')), findsOneWidget);
+    expect(find.descendant(of: detail, matching: find.text('بعد 19 يومًا')), findsOneWidget);
   });
 
   testWidgets('nothing needing the manager is one quiet pill', (tester) async {

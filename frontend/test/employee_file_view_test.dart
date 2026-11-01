@@ -12,6 +12,12 @@ import 'package:frontend/theme/app_theme.dart';
 class _Server extends PayrollService {
   _Server() : super(ApiService());
 
+  Map<String, dynamic>? contract;
+
+  @override
+  Future<void> addContract(int employeeId, Map<String, dynamic> row) async =>
+      contract = row;
+
   @override
   Future<Map<String, dynamic>> employeeFile(int employeeId) async => {
     'missing': ['الهوية الوطنية / الإقامة', 'تاريخ التعيين'],
@@ -30,6 +36,10 @@ class _Server extends PayrollService {
         'balances': {'21k': 11.8},
       },
     },
+    'contract': null,
+    'documents': [
+      {'type': 'الإقامة', 'number': '2345', 'expires_on': '2027-03-01'},
+    ],
     'accounts': [
       {'role': 'personal', 'name': 'ح/حساب الموظف', 'cash': 12880.0},
     ],
@@ -41,6 +51,7 @@ void main() {
     tester.view.physicalSize = const Size(900, 2400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
+    final server = _Server();
     await tester.pumpWidget(
       MaterialApp(
         theme: LightTheme.theme,
@@ -48,7 +59,7 @@ void main() {
           body: EmployeeFileView(
             api: ApiService(),
             employeeId: 16,
-            service: _Server(),
+            service: server,
           ),
         ),
       ),
@@ -63,5 +74,31 @@ void main() {
     expect(find.textContaining('11.800'), findsOneWidget);
     expect(find.textContaining('2,512.50'), findsOneWidget);
     expect(find.text('masad'), findsOneWidget);
+    expect(find.textContaining('لا عقد مسجّل'), findsOneWidget);
+    expect(find.textContaining('2027-03-01'), findsOneWidget);
+
+    // a contract: fixed-term, its end asked
+    await tester.tap(find.byKey(const ValueKey('employee-file-add-contract')));
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    await tester.enterText(
+      find.byKey(const ValueKey('contract-start')),
+      '2026-01-01',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('contract-end')),
+      '2027-12-31',
+    );
+    await tester.tap(find.byKey(const ValueKey('contract-save')));
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(server.contract, {
+      'kind': 'fixed',
+      'start_date': '2026-01-01',
+      'end_date': '2027-12-31',
+      'probation_end': null,
+    });
   });
 }

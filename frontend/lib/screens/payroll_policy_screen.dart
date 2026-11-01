@@ -90,6 +90,18 @@ const _sections = <(String, String, List<_Field>)>[
     ],
   ),
   (
+    'العقود',
+    'Contracts',
+    [
+      _Field(
+        'contract_alert_days',
+        _Kind.count,
+        'التنبيه قبل نهاية العقد أو التجربة (أيام)',
+        'Alert before a contract or probation ends (days)',
+      ),
+    ],
+  ),
+  (
     'مكافأة نهاية الخدمة',
     'End of service',
     [

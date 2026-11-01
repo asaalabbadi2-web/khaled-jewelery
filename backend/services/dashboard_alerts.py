@@ -13,13 +13,16 @@ nowhere. Two readings, neither invented here:
             below zero in a safe whose gold is above it is the drift checks'
             concern (SAFEBOX_GOLD_DRIFT), not a safe below zero
 
+  documents an employee's document, contract or probation near its end, by
+            the days the owner set (services/employee_documents, EMP-3)
+
 A late settlement is the clearing card's (DASH-5) and its scheduler's finding.
 Nothing here writes.
 """
 from __future__ import annotations
 
 
-def alerts(safe_rows: list) -> dict:
+def alerts(safe_rows: list, *, today=None) -> dict:
     from services.books_invariants import list_findings
     from services.finding_kinds import KIND_INFO, RETIRED_KINDS
 
@@ -43,5 +46,10 @@ def alerts(safe_rows: list) -> dict:
             safes.append({'safe': sb.get('name'), 'cash': round(cash, 2) if cash < -0.005 else None,
                           'grams': round(grams, 3) if grams < -0.0005 else None})
 
-    return {'findings': findings, 'negative_safes': safes,
-            'total': sum(k['count'] for k in findings) + len(safes)}
+    documents = []
+    if today is not None:
+        from services.employee_documents import expiring
+        documents = expiring(today)
+
+    return {'findings': findings, 'negative_safes': safes, 'expiring_documents': documents,
+            'total': sum(k['count'] for k in findings) + len(safes) + len(documents)}

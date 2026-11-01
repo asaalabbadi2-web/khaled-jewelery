@@ -16,7 +16,8 @@ part is its owner's reader:
   - his bonuses: approved unpaid beside what the books owe (services/bonus_accounts);
   - his custody (services/employee_access);
   - each of his accounts' balances, from the books (services/live_balances);
-  - his goals so far (services/goal_achievements).
+  - his goals so far (services/goal_achievements);
+  - his contract in force and his documents (services/employee_documents, EMP-3).
 tests/test_employee_file.py.
 """
 from __future__ import annotations
@@ -66,6 +67,7 @@ def file_of(employee, *, today: date) -> dict:
     from services.employee_access import custody_of
     from services.goal_achievements import goal_progress
     from services.payroll_advances import account_balance, to_dict as plan_dict
+    from services.employee_documents import contract_on, current_documents
     from services.payroll_policy import structure_on
     structure = structure_on(employee.id, today)
     scheme = employee.contribution_scheme_id
@@ -102,4 +104,6 @@ def file_of(employee, *, today: date) -> dict:
         'custody': custody_of(employee),
         'accounts': _accounts(employee),
         'goals': goals,
+        'contract': (lambda c: c.to_dict() if c is not None else None)(contract_on(employee.id, today)),
+        'documents': [d.to_dict() for d in current_documents(employee)],
     }

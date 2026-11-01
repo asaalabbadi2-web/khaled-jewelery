@@ -4199,6 +4199,73 @@ class ContributionComponent(db.Model):
                 'effective_from': self.effective_from.isoformat() if self.effective_from else None}
 
 
+class EmployeeContract(db.Model):
+    """An employee's contract from a day on (EMP-3): fixed-term or not, its end,
+    its probation's end (Labour Law art. 53). A renewal is a new row; the one
+    in force is the latest begun."""
+    __tablename__ = 'employee_contract'
+
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=False, index=True)
+    kind = db.Column(db.String(20), nullable=False)                 # 'fixed' | 'indefinite'
+    start_date = db.Column(db.Date, nullable=False)
+    end_date = db.Column(db.Date, nullable=True)
+    probation_end = db.Column(db.Date, nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+    created_by = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime, default=db.func.now(), nullable=False)
+
+    employee = db.relationship('Employee', backref=db.backref('contracts', lazy='dynamic'))
+
+    def to_dict(self):
+        return {'id': self.id, 'employee_id': self.employee_id, 'kind': self.kind,
+                'start_date': self.start_date.isoformat() if self.start_date else None,
+                'end_date': self.end_date.isoformat() if self.end_date else None,
+                'probation_end': self.probation_end.isoformat() if self.probation_end else None,
+                'notes': self.notes, 'created_by': self.created_by}
+
+
+class EmployeeDocumentType(db.Model):
+    """A kind of document followed (EMP-3) -- the owner's list, not a
+    nationality's: its alert, the days before it ends, his to set (none = no
+    alert)."""
+    __tablename__ = 'employee_document_type'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False, unique=True)
+    alert_days = db.Column(db.Integer, nullable=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+
+    def to_dict(self):
+        return {'id': self.id, 'name': self.name, 'alert_days': self.alert_days, 'is_active': self.is_active}
+
+
+class EmployeeDocument(db.Model):
+    """An employee's document: its kind, number, issue and end. A renewal is a
+    new row; the latest of a kind is the one followed."""
+    __tablename__ = 'employee_document'
+
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=False, index=True)
+    type_id = db.Column(db.Integer, db.ForeignKey('employee_document_type.id'), nullable=False, index=True)
+    number = db.Column(db.String(60), nullable=True)
+    issued_on = db.Column(db.Date, nullable=True)
+    expires_on = db.Column(db.Date, nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+    created_by = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime, default=db.func.now(), nullable=False)
+
+    employee = db.relationship('Employee', backref=db.backref('documents', lazy='dynamic'))
+    type = db.relationship('EmployeeDocumentType')
+
+    def to_dict(self):
+        return {'id': self.id, 'employee_id': self.employee_id, 'type_id': self.type_id,
+                'type': self.type.name if self.type else None, 'number': self.number,
+                'issued_on': self.issued_on.isoformat() if self.issued_on else None,
+                'expires_on': self.expires_on.isoformat() if self.expires_on else None,
+                'notes': self.notes}
+
+
 class EmployeeAdvancePlan(db.Model):
     """How an advance the books hold is repaid from the salary (PAYROLL-3): an
     amount of the employee's advance account (its balance, never more), an

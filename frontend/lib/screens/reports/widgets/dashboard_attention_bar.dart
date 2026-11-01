@@ -103,6 +103,8 @@ class _DashboardAttentionBarState extends State<DashboardAttentionBar> {
     final isArabic = widget.isArabic;
     final findings = ((widget.wrongNow['findings'] as List?) ?? const []).whereType<Map>();
     final safes = ((widget.wrongNow['negative_safes'] as List?) ?? const []).whereType<Map>();
+    // EMP-3: an employee's document, contract or probation near its end.
+    final documents = ((widget.wrongNow['expiring_documents'] as List?) ?? const []).whereType<Map>();
     return [
       for (final f in findings)
         _Row(
@@ -119,6 +121,19 @@ class _DashboardAttentionBarState extends State<DashboardAttentionBar> {
               ? widget.money.text(dashboardNum(s['cash']))
               : Text(widget.money.grams(dashboardNum(s['grams']), isArabic: isArabic),
                   textDirection: TextDirection.ltr),
+        ),
+      for (final d in documents)
+        _Row(
+          rail: ((d['days_left'] as num?) ?? 0) < 0 ? tones.blocked.fg : tones.warning.fg,
+          label: '${d['label']} — ${d['employee']}',
+          sub: ((d['days_left'] as num?) ?? 0) < 0
+              ? (isArabic ? 'انتهت في ${d['ends_on']}' : 'ended ${d['ends_on']}')
+              : (isArabic ? 'تنتهي في ${d['ends_on']}' : 'ends ${d['ends_on']}'),
+          value: Text(
+            ((d['days_left'] as num?) ?? 0) < 0
+                ? (isArabic ? 'منتهية' : 'ended')
+                : (isArabic ? 'بعد ${d['days_left']} يومًا' : 'in ${d['days_left']} days'),
+          ),
         ),
     ];
   }

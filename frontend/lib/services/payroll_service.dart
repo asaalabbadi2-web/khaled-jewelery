@@ -282,6 +282,45 @@ class PayrollService {
       _body(await _api.authedGet('/employees/$employeeId/file'))
           as Map<String, dynamic>;
 
+  // ── contracts and documents (EMP-3) ───────────────────────────────────
+
+  Future<void> addContract(int employeeId, Map<String, dynamic> row) async {
+    _body(
+      await _api.authedPost(
+        '/employees/$employeeId/contracts',
+        body: jsonEncode(row),
+      ),
+    );
+  }
+
+  /// Every kind of document, its alert days (null: no alert).
+  Future<List<Map<String, dynamic>>> documentTypes() async =>
+      (_body(await _api.authedGet('/employee-document-types')) as List)
+          .cast<Map<String, dynamic>>();
+
+  Future<void> saveDocumentType(Map<String, dynamic> row, {int? id}) async {
+    _body(
+      id == null
+          ? await _api.authedPost(
+              '/employee-document-types',
+              body: jsonEncode(row),
+            )
+          : await _api.authedPut(
+              '/employee-document-types/$id',
+              body: jsonEncode(row),
+            ),
+    );
+  }
+
+  Future<void> addDocument(int employeeId, Map<String, dynamic> row) async {
+    _body(
+      await _api.authedPost(
+        '/employees/$employeeId/documents',
+        body: jsonEncode(row),
+      ),
+    );
+  }
+
   // ── plumbing ──────────────────────────────────────────────────────────────
 
   PayrollRun _run(http.Response resp) =>
