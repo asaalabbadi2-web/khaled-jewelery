@@ -37,6 +37,7 @@ class EmployeeFileView extends StatefulWidget {
     this.isArabic = true,
     this.service,
     this.only,
+    this.leading = const [],
   });
   final ApiService api;
   final int employeeId;
@@ -44,6 +45,10 @@ class EmployeeFileView extends StatefulWidget {
 
   /// The sections shown -- null: all of them (the hub's page shows a part).
   final Set<String>? only;
+
+  /// Shown first in its list -- a part's own panel (HR-UX ط2: the salary
+  /// panel, the advances panel), scrolled with the sections.
+  final List<Widget> leading;
 
   /// For tests: a service that answers without a server.
   final PayrollService? service;
@@ -198,6 +203,7 @@ class _EmployeeFileViewState extends State<EmployeeFileView> {
                 ),
               ),
             ),
+          ...widget.leading,
           _section('salary', isAr ? 'الراتب' : 'Salary', [
             if (structure == null)
               Text(isAr ? 'لا هيكل راتب' : 'No salary structure')

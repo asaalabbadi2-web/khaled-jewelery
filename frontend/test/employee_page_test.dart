@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/api_service.dart';
+import 'package:frontend/models/payroll_run_models.dart';
 import 'package:frontend/screens/employee_page.dart';
 import 'package:frontend/services/payroll_service.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/widgets/employee_salary_panel.dart';
 import 'package:frontend/widgets/goal_settings_tile.dart';
 
 /// HR-UX ر2 (the owner, 1 Nov 2026: «اعتمد»): his page is the whole screen --
@@ -11,6 +13,26 @@ import 'package:frontend/widgets/goal_settings_tile.dart';
 /// its parts show his file's own sections, one part at a time.
 class _Server extends PayrollService {
   _Server() : super(ApiService());
+
+  @override
+  Future<SalaryStructures> structures(int employeeId) async =>
+      const SalaryStructures(rows: [], suggestedFrom: '2026-10-01');
+
+  @override
+  Future<Map<String, dynamic>> payment(int employeeId) async => {
+    'payment_method': null,
+  };
+
+  @override
+  Future<List<Map<String, dynamic>>> schemes() async => const [];
+
+  @override
+  Future<Map<String, double>> suggest(double gross) async => {
+    'basic': gross,
+    'housing': 0,
+    'transport': 0,
+    'other_allowances': 0,
+  };
 
   @override
   Future<Map<String, dynamic>> employeeFile(int employeeId) async => {
@@ -112,6 +134,40 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('employee-part-access')));
       await _settle(tester);
       expect(find.byKey(const ValueKey('employee-page-users')), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'HR-UX ط2: his salary part is the salary panel; a part is not left '
+    'with a salary typed and not saved, unasked',
+    (tester) async {
+      await _open(tester, const Size(1280, 1100));
+      await tester.tap(find.byKey(const ValueKey('employee-part-salary')));
+      await _settle(tester);
+      expect(find.byType(EmployeeSalaryPanel), findsOneWidget);
+      expect(find.textContaining('لا راتب ساري'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('salary-change')));
+      await _settle(tester);
+      await tester.enterText(
+        find.byKey(const ValueKey('structure-gross')),
+        '6000',
+      );
+      await _settle(tester);
+      await tester.tap(find.byKey(const ValueKey('employee-part-contract')));
+      await _settle(tester);
+      expect(find.text('الخروج دون حفظ؟'), findsOneWidget);
+      await tester.tap(find.text('البقاء'));
+      await _settle(tester);
+      expect(
+        find.byType(EmployeeSalaryPanel),
+        findsOneWidget,
+        reason: 'stayed',
+      );
+      await tester.tap(find.byKey(const ValueKey('employee-part-contract')));
+      await _settle(tester);
+      await tester.tap(find.byKey(const Key('confirm-action')));
+      await _settle(tester);
+      expect(find.textContaining('لا عقد مسجّل'), findsOneWidget);
     },
   );
 }

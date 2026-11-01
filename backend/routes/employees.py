@@ -923,13 +923,14 @@ def suggest_salary_structure():
 @employees_bp.route('/employees/<int:employee_id>/salary-structures', methods=['GET'])
 @require_permission('employees.payroll')
 def list_salary_structures(employee_id):
-    from services.payroll_policy import structure_on, suggested_from
+    from services.payroll_policy import approved_by, structure_on, suggested_from
     employee = Employee.query.get_or_404(employee_id)
     rows = (SalaryStructure.query.filter_by(employee_id=employee_id)
             .order_by(SalaryStructure.effective_from.desc()).all())
     today = datetime.now().date()
     current = structure_on(employee_id, today)
-    return jsonify({'structures': [row.to_dict() for row in rows],
+    # locked: a salary of its months approved -- kept, not deleted (HR-UX ط2)
+    return jsonify({'structures': [{**row.to_dict(), 'locked': approved_by(row) is not None} for row in rows],
                     'current_id': current.id if current is not None else None,
                     'suggested_from': suggested_from(employee, today).isoformat()})
 

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../widgets/date_field.dart';
 import '../api_service.dart';
 import 'package:printing/printing.dart';
 
@@ -17,7 +16,10 @@ import '../utils/arabic_number_formatter.dart';
 import '../utils/bidi.dart';
 import '../utils/currency_utils.dart';
 import '../widgets/app_feedback.dart';
+import '../widgets/app_leave_guard.dart';
 import '../widgets/app_state_views.dart';
+import '../widgets/employee_advances_panel.dart';
+import '../widgets/employee_salary_panel.dart';
 
 /// A month's payroll as one document (PAYROLL-2, ADR-068): drafted from the
 /// salary structures, reviewed, approved with one accrual, paid in a batch.
@@ -1682,6 +1684,9 @@ class _PayslipDialog extends StatelessWidget {
 
 // ── an employee's payroll data: structures and how he is paid ───────────────
 
+/// His payroll data from a run (HR-UX ط2): the salary panel and the advances
+/// panel, the same the employee page shows -- one implementation. Closing
+/// with something typed and not saved asks first (UI-6, `AppLeaveGuard`).
 class EmployeePayrollDialog extends StatefulWidget {
   const EmployeePayrollDialog({
     super.key,
@@ -1700,570 +1705,56 @@ class EmployeePayrollDialog extends StatefulWidget {
 }
 
 class _EmployeePayrollDialogState extends State<EmployeePayrollDialog> {
-  List<SalaryStructureModel>? _structures;
-  final _from = TextEditingController();
-  final _gross = TextEditingController();
-  final _basic = TextEditingController();
-  final _housing = TextEditingController();
-  final _transport = TextEditingController();
-  final _other = TextEditingController(text: '0');
-  final _iban = TextEditingController();
-  final _bankName = TextEditingController();
-  final _wage = TextEditingController();
-  final _advance = TextEditingController();
-  final _installment = TextEditingController();
-  final _consentNote = TextEditingController();
-  String? _method;
-  int? _schemeId;
-  bool _consent = false;
-  List<Map<String, dynamic>> _schemes = const [];
-  (List<AdvancePlanModel>, double, double)? _advances;
-  bool _busy = false;
-
-  /// The payment as last saved -- what «لم يُحفظ» is told against.
-  (String?, String, String, int?, String)? _savedPayment;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
+  final _salaryUnsaved = ValueNotifier<List<String>>(const []);
+  final _advancesUnsaved = ValueNotifier<List<String>>(const []);
 
   @override
   void dispose() {
-    for (final c in [
-      _from,
-      _gross,
-      _basic,
-      _housing,
-      _transport,
-      _other,
-      _iban,
-      _bankName,
-      _wage,
-      _advance,
-      _installment,
-      _consentNote,
-    ]) {
-      c.dispose();
-    }
+    _salaryUnsaved.dispose();
+    _advancesUnsaved.dispose();
     super.dispose();
   }
 
-  Future<void> _load() async {
-    try {
-      final (rows, suggestedFrom) = await widget.service.structures(
-        widget.employeeId,
-      );
-      final payment = await widget.service.payment(widget.employeeId);
-      final schemes = await widget.service.schemes();
-      final advances = await widget.service.advancePlans(widget.employeeId);
-      if (mounted) {
-        setState(() {
-          _structures = rows;
-          // the server's: the month after his last approved salary (HR-UX ط1)
-          if (_from.text.isEmpty && suggestedFrom != null) {
-            _from.text = suggestedFrom;
-          }
-          _schemes = schemes;
-          _advances = advances;
-          _schemeId ??= payment['contribution_scheme_id'] as int?;
-          final wage = payment['contribution_wage'] as num?;
-          if (_wage.text.isEmpty && wage != null) {
-            _wage.text = _plain(wage.toDouble());
-          }
-          _method ??= payment['payment_method'] as String?;
-          if (_iban.text.isEmpty) _iban.text = '${payment['iban'] ?? ''}';
-          if (_bankName.text.isEmpty) {
-            _bankName.text = '${payment['bank_name'] ?? ''}';
-          }
-          _savedPayment ??= _payment;
-        });
-      }
-    } catch (e) {
-      if (mounted) AppFeedback.error(context, e.toString());
-    }
-  }
-
-  (String?, String, String, int?, String) get _payment => (
-    _method,
-    _iban.text.trim(),
-    _bankName.text.trim(),
-    _schemeId,
-    _wage.text.trim(),
-  );
-
-  /// What was typed and not saved -- each part by its name (HR-UX ط1: an IBAN
-  /// typed and «إغلاق» pressed was lost unsaid).
-  List<String> get _unsaved {
-    final isAr = widget.isAr;
-    return [
-      if ([
-        _gross,
-        _basic,
-        _housing,
-        _transport,
-      ].any((c) => c.text.trim().isNotEmpty))
-        isAr ? 'الهيكل الجديد' : 'the new structure',
-      if (_savedPayment != null && _payment != _savedPayment)
-        isAr ? 'الصرف والاشتراك' : 'payment and scheme',
-      if (_advance.text.trim().isNotEmpty) isAr ? 'السلفة' : 'the advance',
-    ];
-  }
-
-  Future<bool> _mayLeave() async {
-    final unsaved = _unsaved;
-    if (unsaved.isEmpty) return true;
-    final isAr = widget.isAr;
-    return await showDialog<bool>(
-          context: context,
-          builder: (dialog) => AlertDialog(
-            title: Text(isAr ? 'لم يُحفظ' : 'Not saved'),
-            content: Text(
-              isAr
-                  ? '${unsaved.join('، ')}: كُتب ولم يُحفظ. أتغلق دون حفظ؟'
-                  : '${unsaved.join(', ')}: typed, not saved. Close anyway?',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialog, false),
-                child: Text(isAr ? 'رجوع' : 'Back'),
-              ),
-              FilledButton(
-                key: const ValueKey('employee-payroll-leave'),
-                onPressed: () => Navigator.pop(dialog, true),
-                child: Text(isAr ? 'أغلق دون حفظ' : 'Close without saving'),
-              ),
-            ],
-          ),
-        ) ??
-        false;
-  }
-
-  Future<void> _deleteStructure(SalaryStructureModel s) async {
-    final isAr = widget.isAr;
-    final sure =
-        await showDialog<bool>(
-          context: context,
-          builder: (dialog) => AlertDialog(
-            title: Text(isAr ? 'حذف هيكل الراتب' : 'Delete the structure'),
-            content: Text(
-              isAr
-                  ? 'هيكل ${ltrIsolate(formatAmount(s.gross))} من ${ltrIsolate(s.effectiveFrom)}.'
-                  : '${formatAmount(s.gross)} from ${s.effectiveFrom}.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialog, false),
-                child: Text(isAr ? 'رجوع' : 'Back'),
-              ),
-              FilledButton(
-                key: const ValueKey('structure-delete-confirm'),
-                onPressed: () => Navigator.pop(dialog, true),
-                child: Text(isAr ? 'احذف' : 'Delete'),
-              ),
-            ],
-          ),
-        ) ??
-        false;
-    if (!sure) return;
-    try {
-      await widget.service.deleteStructure(s.id);
-      await _load();
-    } catch (e) {
-      if (mounted) AppFeedback.error(context, e.toString());
-    }
-  }
-
-  double _read(TextEditingController c) =>
-      double.tryParse(normalizeNumber(c.text)) ?? 0;
-
-  String _plain(double v) => formatAmount(v).replaceAll(',', '');
-
-  Future<void> _suggest() async {
-    try {
-      final split = await widget.service.suggest(_read(_gross));
-      setState(() {
-        _basic.text = _plain(split['basic'] ?? 0);
-        _housing.text = _plain(split['housing'] ?? 0);
-        _transport.text = _plain(split['transport'] ?? 0);
-      });
-    } catch (e) {
-      if (mounted) AppFeedback.error(context, e.toString());
-    }
-  }
-
-  Future<void> _save() async {
-    setState(() => _busy = true);
-    try {
-      await widget.service.addStructure(
-        widget.employeeId,
-        effectiveFrom: _from.text.trim(),
-        basic: _read(_basic),
-        housing: _read(_housing),
-        transport: _read(_transport),
-        otherAllowances: _read(_other),
-      );
-      for (final c in [_gross, _basic, _housing, _transport]) {
-        c.clear();
-      }
-      _other.text = '0';
-      await _load();
-      if (mounted) {
-        AppFeedback.success(
-          context,
-          widget.isAr ? 'حُفظ هيكل الراتب' : 'Structure saved',
-        );
-      }
-    } catch (e) {
-      if (mounted) AppFeedback.error(context, e.toString());
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Future<void> _savePayment() async {
-    setState(() => _busy = true);
-    try {
-      await widget.service.savePayment(
-        widget.employeeId,
-        method: _method,
-        iban: _iban.text.trim().isEmpty ? null : _iban.text.trim(),
-        bankName: _bankName.text.trim().isEmpty ? null : _bankName.text.trim(),
-        schemeId: _schemeId,
-        contributionWage: _wage.text.trim().isEmpty ? null : _read(_wage),
-      );
-      _savedPayment = _payment;
-      if (mounted) {
-        AppFeedback.success(
-          context,
-          widget.isAr ? 'حُفظت طريقة الصرف' : 'Payment saved',
-        );
-      }
-    } catch (e) {
-      if (mounted) AppFeedback.error(context, e.toString());
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Future<void> _addAdvance() async {
-    setState(() => _busy = true);
-    try {
-      final today = DateTime.now();
-      await widget.service.addAdvancePlan(
-        widget.employeeId,
-        amount: _read(_advance),
-        installment: _installment.text.trim().isEmpty
-            ? null
-            : _read(_installment),
-        startMonth: today.month,
-        startYear: today.year,
-        consent: _consent,
-        consentNote: _consentNote.text.trim().isEmpty
-            ? null
-            : _consentNote.text.trim(),
-      );
-      _advance.clear();
-      _installment.clear();
-      await _load();
-      if (mounted) {
-        AppFeedback.success(
-          context,
-          widget.isAr ? 'جُدولت السلفة' : 'Advance planned',
-        );
-      }
-    } catch (e) {
-      if (mounted) AppFeedback.error(context, e.toString());
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Widget _field(TextEditingController c, String label, String key) => TextField(
-    key: ValueKey(key),
-    controller: c,
-    textDirection: TextDirection.ltr,
-    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-    inputFormatters: [
-      ArabicNumberTextInputFormatter(),
-      FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-    ],
-    decoration: InputDecoration(labelText: label),
-  );
-
   @override
-  Widget build(BuildContext context) => PopScope(
-    canPop: false,
-    onPopInvokedWithResult: (didPop, _) async {
-      if (didPop) return;
-      if (await _mayLeave() && context.mounted) Navigator.of(context).pop();
-    },
-    child: _dialog(context),
-  );
-
-  Widget _dialog(BuildContext context) {
+  Widget build(BuildContext context) {
     final isAr = widget.isAr;
-    final theme = Theme.of(context);
-    final rows = _structures;
-    return AlertDialog(
-      title: Text('${isAr ? 'بيانات راتب' : 'Payroll data:'} ${widget.name}'),
-      content: SizedBox(
-        width: 520,
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                isAr ? 'هياكل الراتب' : 'Salary structures',
-                style: theme.textTheme.titleSmall,
-              ),
-              if (rows == null)
-                const LinearProgressIndicator()
-              else if (rows.isEmpty)
-                Text(isAr ? 'لا هيكل بعد' : 'None yet')
-              else
-                for (final s in rows)
-                  ListTile(
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(
-                      '${isAr ? 'من' : 'From'} ${ltrIsolate(s.effectiveFrom)} — ${ltrIsolate(formatAmount(s.gross))}',
-                    ),
-                    subtitle: Text(
-                      '${isAr ? 'أساسي' : 'Basic'} ${ltrIsolate(formatAmount(s.basic))} · '
-                      '${isAr ? 'سكن' : 'Housing'} ${ltrIsolate(formatAmount(s.housing))} · '
-                      '${isAr ? 'نقل' : 'Transport'} ${ltrIsolate(formatAmount(s.transport))}',
-                    ),
-                    trailing: IconButton(
-                      key: ValueKey('structure-delete-${s.id}'),
-                      tooltip: isAr ? 'حذف' : 'Delete',
-                      icon: const Icon(Icons.delete_outline),
-                      onPressed: () => _deleteStructure(s),
-                    ),
-                  ),
-              const Divider(),
-              Text(
-                isAr ? 'هيكل جديد' : 'New structure',
-                style: theme.textTheme.titleSmall,
-              ),
-              DateField(
-                key: const ValueKey('structure-from'),
-                controller: _from,
-                label: isAr ? 'يبدأ من' : 'From',
-              ),
-              Row(
-                children: [
-                  Expanded(
-                    child: _field(
-                      _gross,
-                      isAr ? 'إجمالي الراتب' : 'Gross',
-                      'structure-gross',
-                    ),
-                  ),
-                  TextButton(
-                    key: const ValueKey('structure-suggest'),
-                    onPressed: _suggest,
-                    child: Text(isAr ? 'قسّم بالنسب' : 'Split'),
-                  ),
-                ],
-              ),
-              _field(_basic, isAr ? 'الأساسي' : 'Basic', 'structure-basic'),
-              _field(_housing, isAr ? 'السكن' : 'Housing', 'structure-housing'),
-              _field(
-                _transport,
-                isAr ? 'النقل' : 'Transport',
-                'structure-transport',
-              ),
-              _field(_other, isAr ? 'بدلات أخرى' : 'Other', 'structure-other'),
-              Align(
-                alignment: AlignmentDirectional.centerEnd,
-                child: FilledButton(
-                  key: const ValueKey('structure-save'),
-                  onPressed: _busy ? null : _save,
-                  child: Text(isAr ? 'احفظ الهيكل' : 'Save structure'),
+    return AppLeaveGuard(
+      controllers: const [],
+      isDirty: () =>
+          _salaryUnsaved.value.isNotEmpty || _advancesUnsaved.value.isNotEmpty,
+      child: AlertDialog(
+        title: Text('${isAr ? 'بيانات راتب' : 'Payroll data:'} ${widget.name}'),
+        content: SizedBox(
+          width: 760,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                EmployeeSalaryPanel(
+                  service: widget.service,
+                  employeeId: widget.employeeId,
+                  isAr: isAr,
+                  unsaved: _salaryUnsaved,
                 ),
-              ),
-              const Divider(),
-              Text(
-                isAr ? 'طريقة الصرف' : 'Paid by',
-                style: theme.textTheme.titleSmall,
-              ),
-              const SizedBox(height: AppSpace.sm),
-              SegmentedButton<String>(
-                key: const ValueKey('employee-payment-method'),
-                emptySelectionAllowed: true,
-                segments: [
-                  ButtonSegment(
-                    value: 'bank',
-                    label: Text(isAr ? 'تحويل بنكي' : 'Bank'),
-                  ),
-                  ButtonSegment(
-                    value: 'cash',
-                    label: Text(isAr ? 'نقد' : 'Cash'),
-                  ),
-                ],
-                selected: {?_method},
-                onSelectionChanged: (s) =>
-                    setState(() => _method = s.isEmpty ? null : s.first),
-              ),
-              if (_method == 'bank') ...[
-                TextField(
-                  key: const ValueKey('employee-iban'),
-                  controller: _iban,
-                  textDirection: TextDirection.ltr,
-                  decoration: InputDecoration(
-                    labelText: isAr ? 'الآيبان (SA…)' : 'IBAN (SA…)',
-                  ),
-                ),
-                TextField(
-                  controller: _bankName,
-                  decoration: InputDecoration(
-                    labelText: isAr ? 'البنك' : 'Bank',
-                  ),
+                EmployeeAdvancesPanel(
+                  service: widget.service,
+                  employeeId: widget.employeeId,
+                  isAr: isAr,
+                  unsaved: _advancesUnsaved,
                 ),
               ],
-              const SizedBox(height: AppSpace.sm),
-              DropdownButtonFormField<int?>(
-                key: const ValueKey('employee-scheme'),
-                initialValue: _schemeId,
-                isExpanded: true,
-                decoration: InputDecoration(
-                  labelText: isAr
-                      ? 'خطة الاشتراك (التأمينات)'
-                      : 'Contribution scheme',
-                ),
-                items: [
-                  DropdownMenuItem<int?>(
-                    value: null,
-                    child: Text(isAr ? 'بلا اشتراك' : 'None'),
-                  ),
-                  for (final scheme in _schemes)
-                    DropdownMenuItem<int?>(
-                      value: scheme['id'] as int,
-                      child: Text('${scheme['name']}'),
-                    ),
-                ],
-                onChanged: (v) => setState(() => _schemeId = v),
-              ),
-              if (_schemeId != null)
-                _field(
-                  _wage,
-                  isAr
-                      ? 'الأجر المسجّل في التأمينات (فارغ: الأساسي والسكن)'
-                      : 'Registered wage (empty: basic + housing)',
-                  'employee-contribution-wage',
-                ),
-              Align(
-                alignment: AlignmentDirectional.centerEnd,
-                child: TextButton(
-                  key: const ValueKey('employee-payment-save'),
-                  onPressed: _busy ? null : _savePayment,
-                  child: Text(isAr ? 'احفظ الصرف والاشتراك' : 'Save'),
-                ),
-              ),
-              const Divider(),
-              Text(
-                isAr ? 'السلف' : 'Advances',
-                style: theme.textTheme.titleSmall,
-              ),
-              if (_advances case final advances?) ...[
-                Text(
-                  isAr
-                      ? 'رصيد حساب السلف ${ltrIsolate(formatAmount(advances.$2))} — غير مجدول ${ltrIsolate(formatAmount(advances.$3))}'
-                      : 'Advance account ${formatAmount(advances.$2)} — unplanned ${formatAmount(advances.$3)}',
-                ),
-                for (final plan in advances.$1)
-                  ListTile(
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(
-                      '${ltrIsolate(formatAmount(plan.amount))} — '
-                      '${isAr ? 'القسط' : 'installment'} ${ltrIsolate(formatAmount(plan.installment))}',
-                    ),
-                    subtitle: Text(
-                      '${isAr ? 'الباقي' : 'Left'} ${ltrIsolate(formatAmount(plan.remaining))} · '
-                      '${switch (plan.status) {
-                        'settled' => isAr ? 'سُدّدت' : 'settled',
-                        'cancelled' => isAr ? 'أُوقفت' : 'stopped',
-                        _ => isAr ? 'قائمة' : 'active',
-                      }}',
-                    ),
-                    trailing: plan.status == 'active'
-                        ? IconButton(
-                            tooltip: isAr ? 'أوقف الأقساط' : 'Stop',
-                            icon: const Icon(Icons.pause_circle_outline),
-                            onPressed: () async {
-                              try {
-                                await widget.service.cancelAdvancePlan(plan.id);
-                                await _load();
-                              } catch (e) {
-                                if (context.mounted) {
-                                  AppFeedback.error(context, e.toString());
-                                }
-                              }
-                            },
-                          )
-                        : null,
-                  ),
-              ],
-              Row(
-                children: [
-                  Expanded(
-                    child: _field(
-                      _advance,
-                      isAr ? 'مبلغ يُجدول' : 'Amount',
-                      'advance-amount',
-                    ),
-                  ),
-                  const SizedBox(width: AppSpace.sm),
-                  Expanded(
-                    child: _field(
-                      _installment,
-                      isAr ? 'القسط (فارغ: بالسياسة)' : 'Installment',
-                      'advance-installment',
-                    ),
-                  ),
-                ],
-              ),
-              CheckboxListTile(
-                key: const ValueKey('advance-consent'),
-                contentPadding: EdgeInsets.zero,
-                value: _consent,
-                onChanged: (v) => setState(() => _consent = v ?? false),
-                title: Text(
-                  isAr
-                      ? 'بموافقة الموظف على قسط فوق الحد (المادة 92)'
-                      : 'Employee consented above the cap',
-                ),
-              ),
-              if (_consent)
-                TextField(
-                  controller: _consentNote,
-                  decoration: InputDecoration(
-                    labelText: isAr ? 'مرجع الموافقة' : 'Consent reference',
-                  ),
-                ),
-              Align(
-                alignment: AlignmentDirectional.centerEnd,
-                child: TextButton(
-                  key: const ValueKey('advance-save'),
-                  onPressed: _busy ? null : _addAdvance,
-                  child: Text(isAr ? 'جدول السلفة' : 'Plan the advance'),
-                ),
-              ),
-            ],
+            ),
           ),
         ),
+        actions: [
+          TextButton(
+            key: const ValueKey('employee-payroll-close'),
+            onPressed: () => Navigator.maybePop(context),
+            child: Text(isAr ? 'إغلاق' : 'Close'),
+          ),
+        ],
       ),
-      actions: [
-        TextButton(
-          key: const ValueKey('employee-payroll-close'),
-          onPressed: () => Navigator.maybePop(context),
-          child: Text(isAr ? 'إغلاق' : 'Close'),
-        ),
-      ],
     );
   }
 }

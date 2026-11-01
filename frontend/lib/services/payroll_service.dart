@@ -96,21 +96,13 @@ class PayrollService {
 
   // ── an employee's payroll data ────────────────────────────────────────────
 
-  /// His structures, and the day a new one is offered from -- the server's:
-  /// the month after his last approved salary (HR-UX ط1).
-  Future<(List<SalaryStructureModel>, String?)> structures(
-    int employeeId,
-  ) async {
-    final body =
+  /// His structures, the one in force, and the day a new one is offered
+  /// from -- the server's (HR-UX ط1, ط2).
+  Future<SalaryStructures> structures(int employeeId) async =>
+      SalaryStructures.fromJson(
         _body(await _api.authedGet('/employees/$employeeId/salary-structures'))
-            as Map<String, dynamic>;
-    return (
-      (body['structures'] as List)
-          .map((e) => SalaryStructureModel.fromJson(e as Map<String, dynamic>))
-          .toList(),
-      body['suggested_from'] as String?,
-    );
-  }
+            as Map<String, dynamic>,
+      );
 
   /// A gross split by the owner's ratios -- the server's, kept whole.
   Future<Map<String, double>> suggest(double gross) async {

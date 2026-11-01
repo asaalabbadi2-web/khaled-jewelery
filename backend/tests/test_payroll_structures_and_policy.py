@@ -101,12 +101,15 @@ def test_a_structure_a_salary_was_approved_by_is_kept(auth_headers):
                       {'effective_from': '2041-01-01', 'basic': 7000})[1]['id']
     assert _call('put', f'/api/salary-structures/{structure}', auth_headers, {'basic': 7100})[0] == 200, \
         'nothing was approved by it yet'
+    listed = lambda: _call('get', f'/api/employees/{emp}/salary-structures', auth_headers)[1]['structures'][0]
+    assert listed()['locked'] is False
     code, body = _call('post', '/api/payroll', auth_headers,
                        {'employee_id': emp, 'month': 3, 'year': 2041, 'basic_salary': 7100.0, 'status': 'approved'})
     assert code == 201, body
     code, body = _call('put', f'/api/salary-structures/{structure}', auth_headers, {'basic': 8000})
     assert code == 409 and '3/2041' in body['error'], body
     assert _call('delete', f'/api/salary-structures/{structure}', auth_headers)[0] == 409
+    assert listed()['locked'] is True, 'said before it is tried (HR-UX ط2)'
 
 
 def test_a_new_structure_is_offered_from_the_first_month_still_open_to_it(auth_headers):

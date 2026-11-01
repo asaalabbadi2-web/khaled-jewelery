@@ -7,11 +7,13 @@ import '../theme/app_semantic_colors.dart';
 import '../theme/app_tokens.dart';
 import '../utils/bidi.dart';
 import '../widgets/app_feedback.dart';
+import '../widgets/app_leave_guard.dart';
 import '../widgets/app_state_views.dart';
+import '../widgets/employee_advances_panel.dart';
+import '../widgets/employee_salary_panel.dart';
 import '../widgets/user_avatar_widget.dart';
 import 'employee_file_view.dart';
 import 'employees_screen.dart';
-import 'payroll_runs_screen.dart';
 import 'users_screen.dart';
 import '../widgets/goal_settings_tile.dart';
 
@@ -37,10 +39,7 @@ const _parts = [
     'bonuses',
     'custody',
   }, Icons.dashboard_outlined),
-  _Part('salary', 'الراتب والمسيرات', 'Salary', {
-    'salary',
-    'payroll',
-  }, Icons.payments_outlined),
+  _Part('salary', 'الراتب', 'Salary', {'payroll'}, Icons.payments_outlined),
   _Part('leave', 'الإجازات', 'Leave', {'leave'}, Icons.beach_access_outlined),
   _Part('contract', 'العقد والوثائق', 'Contract & documents', {
     'contract',
@@ -50,7 +49,7 @@ const _parts = [
     'money',
     'العهدة والحسابات',
     'Custody & accounts',
-    {'advances', 'bonuses', 'custody', 'accounts'},
+    {'bonuses', 'custody', 'accounts'},
     Icons.account_balance_wallet_outlined,
   ),
   _Part(
@@ -90,6 +89,29 @@ class _EmployeePageState extends State<EmployeePage> {
   Object? _error;
   String _part = 'overview';
   int _version = 0;
+
+  /// What a part's panel holds typed and not saved (HR-UX ط2): asked before
+  /// the page or the part is left.
+  final _salaryUnsaved = ValueNotifier<List<String>>(const []);
+  final _advancesUnsaved = ValueNotifier<List<String>>(const []);
+
+  bool get _dirty =>
+      _salaryUnsaved.value.isNotEmpty || _advancesUnsaved.value.isNotEmpty;
+
+  Future<void> _pick(String id) async {
+    if (id == _part) return;
+    if (_dirty && !await AppLeaveGuard.confirmLeave(context)) return;
+    _salaryUnsaved.value = const [];
+    _advancesUnsaved.value = const [];
+    if (mounted) setState(() => _part = id);
+  }
+
+  @override
+  void dispose() {
+    _salaryUnsaved.dispose();
+    _advancesUnsaved.dispose();
+    super.dispose();
+  }
 
   bool get _isAr => widget.isArabic;
 
@@ -159,19 +181,6 @@ class _EmployeePageState extends State<EmployeePage> {
     }
   }
 
-  Future<void> _payrollData() async {
-    await showDialog<void>(
-      context: context,
-      builder: (_) => EmployeePayrollDialog(
-        service: _service,
-        employeeId: widget.employeeId,
-        name: '${_employee['name'] ?? ''}',
-        isAr: _isAr,
-      ),
-    );
-    _load();
-  }
-
   Future<void> _users() async {
     await Navigator.of(context).push(
       MaterialPageRoute(
@@ -208,23 +217,6 @@ class _EmployeePageState extends State<EmployeePage> {
       final content = Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (_part == 'salary')
-            Padding(
-              padding: const EdgeInsets.only(bottom: AppSpace.sm),
-              child: Align(
-                alignment: AlignmentDirectional.centerEnd,
-                child: OutlinedButton.icon(
-                  key: const ValueKey('employee-page-payroll-data'),
-                  onPressed: _payrollData,
-                  icon: const Icon(Icons.edit_note),
-                  label: Text(
-                    isAr
-                        ? 'هيكل الراتب وطريقة الصرف والاشتراك والسلف'
-                        : 'Structure, payment, scheme, advances',
-                  ),
-                ),
-              ),
-            ),
           // the users' screen holds his sign-in: made, its password reset
           if (_part == 'access')
             Padding(
@@ -261,6 +253,24 @@ class _EmployeePageState extends State<EmployeePage> {
                     isArabic: isAr,
                     service: _service,
                     only: part.sections,
+                    leading: [
+                      if (_part == 'salary')
+                        EmployeeSalaryPanel(
+                          service: _service,
+                          employeeId: widget.employeeId,
+                          isAr: isAr,
+                          unsaved: _salaryUnsaved,
+                          onSaved: _load,
+                        ),
+                      if (_part == 'money')
+                        EmployeeAdvancesPanel(
+                          service: _service,
+                          employeeId: widget.employeeId,
+                          isAr: isAr,
+                          unsaved: _advancesUnsaved,
+                          onSaved: _load,
+                        ),
+                    ],
                   ),
           ),
         ],
@@ -273,7 +283,7 @@ class _EmployeePageState extends State<EmployeePage> {
             current: _part,
             isAr: isAr,
             vertical: wide,
-            onPick: (id) => setState(() => _part = id),
+            onPick: _pick,
           );
           return Padding(
             padding: const EdgeInsets.all(AppSpace.lg),
@@ -310,11 +320,15 @@ class _EmployeePageState extends State<EmployeePage> {
         },
       );
     }
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('${_employee['name'] ?? (isAr ? 'الموظف' : 'Employee')}'),
+    return AppLeaveGuard(
+      controllers: const [],
+      isDirty: () => _dirty,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text('${_employee['name'] ?? (isAr ? 'الموظف' : 'Employee')}'),
+        ),
+        body: body,
       ),
-      body: body,
     );
   }
 }

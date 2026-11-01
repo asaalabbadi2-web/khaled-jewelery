@@ -25,6 +25,18 @@ class AppLeaveGuard extends StatefulWidget {
 
   @override
   State<AppLeaveGuard> createState() => _AppLeaveGuardState();
+
+  /// The one question before typed work is thrown away -- for a leave that
+  /// is not a pop (a page's part changed, HR-UX ط2). True: leave.
+  static Future<bool> confirmLeave(BuildContext context) async =>
+      await confirmFinancialAction(
+        context,
+        title: 'الخروج دون حفظ؟',
+        effect: 'ما كتبته في هذه الشاشة لم يُحفظ، ويضيع إن خرجت.',
+        confirmLabel: 'الخروج دون حفظ',
+        backLabel: 'البقاء',
+      ) !=
+      null;
 }
 
 class _AppLeaveGuardState extends State<AppLeaveGuard> {
@@ -49,14 +61,8 @@ class _AppLeaveGuardState extends State<AppLeaveGuard> {
   Future<void> _onPop(bool didPop, Object? result) async {
     if (didPop || _leaving) return;
     if (_changed) {
-      final leave = await confirmFinancialAction(
-        context,
-        title: 'الخروج دون حفظ؟',
-        effect: 'ما كتبته في هذه الشاشة لم يُحفظ، ويضيع إن خرجت.',
-        confirmLabel: 'الخروج دون حفظ',
-        backLabel: 'البقاء',
-      );
-      if (leave == null || !mounted) return;
+      final leave = await AppLeaveGuard.confirmLeave(context);
+      if (!leave || !mounted) return;
     }
     _leaving = true;
     if (mounted) Navigator.of(context).pop(result);

@@ -169,15 +169,20 @@ def delete_structure(structure, *, today: date) -> None:
     _follow_in_the_file(employee_id, today)
 
 
+def approved_by(structure):
+    """A salary of its months approved or paid -- or None."""
+    since = structure.effective_from
+    return (Payroll.query
+            .filter(Payroll.employee_id == structure.employee_id,
+                    Payroll.status.in_(('approved', 'paid')),
+                    (Payroll.year * 100 + Payroll.month) >= since.year * 100 + since.month)
+            .first())
+
+
 def refuse_structure_change(structure) -> None:
     """The past keeps what it was paid by: a structure is not changed once a
     salary of its months was approved -- a new salary is a new structure."""
-    since = structure.effective_from
-    approved = (Payroll.query
-                .filter(Payroll.employee_id == structure.employee_id,
-                        Payroll.status.in_(('approved', 'paid')),
-                        (Payroll.year * 100 + Payroll.month) >= since.year * 100 + since.month)
-                .first())
+    approved = approved_by(structure)
     if approved is not None:
         raise PayrollRefused(f'اعتُمد راتب {approved.month}/{approved.year} بهذا الهيكل: '
                              'لا يُعدَّل ولا يُحذف، والراتب الجديد هيكل جديد من يومه')

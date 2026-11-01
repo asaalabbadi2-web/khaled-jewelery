@@ -238,6 +238,7 @@ class SalaryStructureModel {
     required this.transport,
     required this.otherAllowances,
     required this.gross,
+    this.locked = false,
   });
 
   final int id;
@@ -248,6 +249,9 @@ class SalaryStructureModel {
   final double otherAllowances;
   final double gross;
 
+  /// A salary of its months approved: kept, not deleted -- the server's.
+  final bool locked;
+
   factory SalaryStructureModel.fromJson(Map<String, dynamic> json) =>
       SalaryStructureModel(
         id: json['id'] as int,
@@ -257,6 +261,33 @@ class SalaryStructureModel {
         transport: _num(json['transport']),
         otherAllowances: _num(json['other_allowances']),
         gross: _num(json['gross']),
+        locked: json['locked'] == true,
+      );
+}
+
+/// An employee's structures as the server reads them (HR-UX ط1, ط2): the one
+/// in force today, and the day a new one is offered from.
+class SalaryStructures {
+  const SalaryStructures({
+    required this.rows,
+    this.currentId,
+    this.suggestedFrom,
+  });
+
+  final List<SalaryStructureModel> rows;
+  final int? currentId;
+  final String? suggestedFrom;
+
+  SalaryStructureModel? get current =>
+      rows.where((s) => s.id == currentId).firstOrNull;
+
+  factory SalaryStructures.fromJson(Map<String, dynamic> json) =>
+      SalaryStructures(
+        rows: (json['structures'] as List? ?? const [])
+            .map((e) => SalaryStructureModel.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        currentId: json['current_id'] as int?,
+        suggestedFrom: json['suggested_from'] as String?,
       );
 }
 
