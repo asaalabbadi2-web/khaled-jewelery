@@ -529,6 +529,14 @@ def delete_employee(employee_id):
         db.session.rollback()
         return jsonify({'error': f'Failed to delete employee: {str(e)}'}), 500
 
+@employees_bp.route('/employees/<int:employee_id>/file', methods=['GET'])
+@require_permission('employees.payroll')
+def get_employee_file(employee_id):
+    """EMP-2: his file in one place, each part from its owner (services/employee_file)."""
+    from services.employee_file import file_of
+    return jsonify(file_of(Employee.query.get_or_404(employee_id), today=datetime.now().date()))
+
+
 @employees_bp.route('/employees/<int:employee_id>/photo', methods=['PATCH'])
 @require_permission('employees.edit')
 def update_employee_photo(employee_id):

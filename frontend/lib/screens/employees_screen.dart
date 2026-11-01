@@ -10,6 +10,7 @@ import '../utils.dart';
 import '../widgets/user_avatar_widget.dart';
 import 'account_statement_screen.dart';
 import '../widgets/app_feedback.dart';
+import 'employee_file_view.dart';
 
 class EmployeesScreen extends StatefulWidget {
   final ApiService api;
@@ -527,7 +528,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                     ),
                     const Divider(height: 20),
                     DefaultTabController(
-                      length: 2,
+                      length: employee.id != null ? 3 : 2,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -538,6 +539,9 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                             tabs: [
                               Tab(text: isAr ? 'بيانات الموظف' : 'Employee Data'),
                               Tab(text: isAr ? 'الهدف الشخصي' : 'Personal Goal'),
+                              // EMP-2: his file in one place
+                              if (employee.id != null)
+                                Tab(text: isAr ? 'الملف' : 'File'),
                             ],
                           ),
                           const SizedBox(height: 12),
@@ -932,6 +936,12 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                                     ],
                                   ),
                                 ),
+                                if (employee.id != null)
+                                  EmployeeFileView(
+                                    api: widget.api,
+                                    employeeId: employee.id!,
+                                    isArabic: isAr,
+                                  ),
                               ],
                             ),
                           ),

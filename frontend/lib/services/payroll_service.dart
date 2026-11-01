@@ -277,6 +277,11 @@ class PayrollService {
               as Map<String, dynamic>)['policy']
           as Map<String, dynamic>;
 
+  /// His file in one place (EMP-2): each part as its owner says it.
+  Future<Map<String, dynamic>> employeeFile(int employeeId) async =>
+      _body(await _api.authedGet('/employees/$employeeId/file'))
+          as Map<String, dynamic>;
+
   // ── plumbing ──────────────────────────────────────────────────────────────
 
   PayrollRun _run(http.Response resp) =>
