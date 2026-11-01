@@ -330,9 +330,43 @@ class _EmployeeFileViewState extends State<EmployeeFileView> {
                   Expanded(
                     child: Text(
                       '${l['type']} · ${ltrIsolate('${l['start_date']}')} — ${ltrIsolate('${l['end_date']}')} (${l['days']})'
-                      '${l['status'] == 'approved' ? '' : ' · ${l['status'] == 'cancelled' ? (isAr ? 'ملغاة' : 'cancelled') : '${l['status']}'}'}',
+                      '${l['status'] == 'approved' ? '' : ' · ${_leaveStatus('${l['status']}', isAr)}'}',
                     ),
                   ),
+                  // EMP-PORTAL-1: his request, the manager's to decide
+                  if (l['status'] == 'requested') ...[
+                    IconButton(
+                      key: ValueKey('leave-approve-${l['id']}'),
+                      tooltip: isAr ? 'اعتماد الطلب' : 'Approve',
+                      icon: const Icon(Icons.check_circle_outline),
+                      onPressed: () => _edit(
+                        _ConfirmDialog(
+                          text: isAr
+                              ? 'اعتماد طلب الإجازة؟'
+                              : 'Approve the request?',
+                          isAr: isAr,
+                        ),
+                        (_) =>
+                            _service.decideLeave(l['id'] as int, approve: true),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: isAr ? 'رفض الطلب' : 'Reject',
+                      icon: const Icon(Icons.highlight_off),
+                      onPressed: () => _edit(
+                        _ConfirmDialog(
+                          text: isAr
+                              ? 'رفض طلب الإجازة؟'
+                              : 'Reject the request?',
+                          isAr: isAr,
+                        ),
+                        (_) => _service.decideLeave(
+                          l['id'] as int,
+                          approve: false,
+                        ),
+                      ),
+                    ),
+                  ],
                   if (l['status'] == 'approved' || l['status'] == 'requested')
                     IconButton(
                       tooltip: isAr ? 'إلغاء الإجازة' : 'Cancel leave',
@@ -1310,3 +1344,11 @@ class _TerminationDialogState extends State<_TerminationDialog> {
     );
   }
 }
+
+/// A leave's state, said (EMP-PORTAL-1: a request waits for the manager).
+String _leaveStatus(String status, bool isAr) => switch (status) {
+  'requested' => isAr ? 'طلب ينتظر الاعتماد' : 'requested',
+  'rejected' => isAr ? 'مرفوض' : 'rejected',
+  'cancelled' => isAr ? 'ملغاة' : 'cancelled',
+  _ => status,
+};

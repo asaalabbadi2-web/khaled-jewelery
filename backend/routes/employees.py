@@ -2261,6 +2261,71 @@ def my_goal_progress():
     return jsonify({'employee_id': employee.id, 'goals': goal_progress(employee, _date.today())}), 200
 
 
+# ── EMP-PORTAL-1: the employee's portal, his own (services/employee_portal) ─────
+# The employee is the session's, never an id from the request (§5 Law 5).
+
+def _portal_employee():
+    from services.employee_portal import mine
+    return mine(getattr(g, 'current_user', None))
+
+
+@employees_bp.route('/me/portal', methods=['GET'])
+@require_auth
+def my_portal():
+    from services.employee_portal import portal
+    employee = _portal_employee()
+    if employee is None:
+        return jsonify({'error': 'لا موظف مرتبط بهذا الحساب', 'code': 'no_employee'}), 404
+    return jsonify(portal(employee, today=datetime.now().date()))
+
+
+@employees_bp.route('/me/payslips/<int:payroll_id>', methods=['GET'])
+@require_auth
+def my_payslip(payroll_id):
+    from services.employee_portal import payslip
+    employee = _portal_employee()
+    slip = payslip(employee, payroll_id) if employee is not None else None
+    if slip is None:
+        return jsonify({'error': 'غير موجود'}), 404
+    return jsonify(slip)
+
+
+@employees_bp.route('/me/leaves', methods=['POST'])
+@require_auth
+def request_my_leave():
+    from services.approval_policy import actor
+    from services.employee_portal import request_leave
+    from services.payroll_laws import PayrollRefused
+    employee = _portal_employee()
+    if employee is None:
+        return jsonify({'error': 'لا موظف مرتبط بهذا الحساب', 'code': 'no_employee'}), 404
+    try:
+        leave = request_leave(employee, request.get_json(silent=True) or {}, by=actor(), now=datetime.now())
+    except PayrollRefused as refused:
+        db.session.rollback()
+        return _payroll_refusal(refused)
+    db.session.commit()
+    return jsonify(leave.to_dict()), 201
+
+
+@employees_bp.route('/me/leaves/<int:leave_id>/cancel', methods=['POST'])
+@require_auth
+def cancel_my_leave(leave_id):
+    from services.approval_policy import actor
+    from services.employee_portal import cancel_request
+    from services.payroll_laws import PayrollRefused
+    employee = _portal_employee()
+    try:
+        leave = cancel_request(employee, leave_id, by=actor(), now=datetime.now()) if employee else None
+    except PayrollRefused as refused:
+        db.session.rollback()
+        return _payroll_refusal(refused, 409)
+    if leave is None:
+        return jsonify({'error': 'غير موجود'}), 404
+    db.session.commit()
+    return jsonify(leave.to_dict())
+
+
 @employees_bp.route('/achievements/check-progress', methods=['POST'])
 @require_auth
 def check_goal_progress():

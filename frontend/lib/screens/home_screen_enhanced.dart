@@ -50,6 +50,7 @@ import 'customize_quick_actions_screen.dart';
 import 'scrap_purchase_invoice_screen.dart';
 import 'employees_screen.dart';
 import 'hr_hub_screen.dart';
+import 'my_portal_screen.dart';
 import 'users_screen.dart';
 import 'attendance_screen.dart';
 import 'payroll_report_screen.dart';
@@ -1694,6 +1695,24 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     // ════════════════════════════════════════════════════════════════════════
     addDivider();
     addSection(isAr ? 'الموارد البشرية' : 'Human Resources', _tone.sectionSlate.fg);
+    // EMP-PORTAL-1: his own -- for whoever is an employee, whatever his
+    // permissions; the server reads him from his session alone.
+    if (auth.currentUser?.employee != null) {
+      addDestination(
+        icon: Icons.person_pin_outlined,
+        title: isAr ? 'بوابتي' : 'My portal',
+        keywords: const ['قسيمة', 'راتبي', 'إجازتي', 'سلفتي'],
+        color: _tone.sectionSlate.fg,
+        onSelected: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => MyPortalScreen(api: api, isArabic: isAr),
+            ),
+          );
+        },
+      );
+    }
     // HR-UX ر1: one hub -- its employees, payroll, follow-up and settings. One
     // who sees employees but not payroll keeps the employees screen.
     if (auth.hasPermission('employees.payroll')) {

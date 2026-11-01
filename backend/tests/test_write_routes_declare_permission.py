@@ -84,6 +84,10 @@ ALLOWED = {
         'any signed-in user may upload the PDF of the invoice they print',
     ('routes/employees.py', 'check_goal_progress'):
         "the caller's own: it reads the signed-in user's employee and nobody else's",
+    ('routes/employees.py', 'request_my_leave'):
+        "the caller's own leave request: the session's employee, always a request (EMP-PORTAL-1)",
+    ('routes/employees.py', 'cancel_my_leave'):
+        "the caller's own request, undecided; another's not found (EMP-PORTAL-1)",
     ('routes/employees.py', 'mark_achievement_seen'):
         "the caller's own achievement; another's needs employees.bonuses (refuse_unless_self in its body)",
     ('setup_routes.py', 'save_store_settings'):

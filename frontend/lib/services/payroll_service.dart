@@ -401,6 +401,34 @@ class PayrollService {
   Future<Map<String, dynamic>> hrOverview() async =>
       _body(await _api.authedGet('/hr/overview')) as Map<String, dynamic>;
 
+  // ── the employee's portal: his own (EMP-PORTAL-1) ─────────────────────
+
+  Future<Map<String, dynamic>> myPortal() async =>
+      _body(await _api.authedGet('/me/portal')) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> myPayslip(int payrollId) async =>
+      _body(await _api.authedGet('/me/payslips/$payrollId'))
+          as Map<String, dynamic>;
+
+  /// Always a request: the manager approves it.
+  Future<void> requestMyLeave(Map<String, dynamic> row) async {
+    _body(await _api.authedPost('/me/leaves', body: jsonEncode(row)));
+  }
+
+  Future<void> cancelMyLeave(int leaveId) async {
+    _body(await _api.authedPost('/me/leaves/$leaveId/cancel', body: '{}'));
+  }
+
+  /// The manager's decision on a request.
+  Future<void> decideLeave(int leaveId, {required bool approve}) async {
+    _body(
+      await _api.authedPost(
+        '/employee-leaves/$leaveId/${approve ? 'approve' : 'reject'}',
+        body: '{}',
+      ),
+    );
+  }
+
   // ── plumbing ──────────────────────────────────────────────────────────────
 
   PayrollRun _run(http.Response resp) =>
