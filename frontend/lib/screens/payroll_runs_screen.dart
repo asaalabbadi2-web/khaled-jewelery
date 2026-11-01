@@ -9,6 +9,7 @@ import '../pdf/payslip_pdf_builder.dart';
 import '../services/payroll_service.dart';
 import 'contribution_schemes_screen.dart';
 import 'payroll_policy_screen.dart';
+import 'prepare_run_screen.dart';
 import '../theme/app_semantic_colors.dart';
 import '../theme/app_tokens.dart';
 import '../utils.dart' show normalizeNumber;
@@ -43,12 +44,17 @@ SemanticTone _runTone(BuildContext context, String status) {
   };
 }
 
-String _leftOutWord(String reason, bool isAr) => switch (reason) {
+/// Why one is left out of a run, or would stop its pay -- said (PAYROLL-2).
+String leftOutWord(String reason, bool isAr) => switch (reason) {
   'no_structure' => isAr ? 'لا هيكل راتب له' : 'No salary structure',
   'has_an_entry' =>
     isAr ? 'له سجل راتب لهذا الشهر خارج المسير' : 'Has an entry of his own',
   'not_employed' => isAr ? 'لم يعمل في الشهر' : 'Not employed this month',
   'removed' => isAr ? 'أُزيل من المسودة' : 'Removed from the draft',
+  'no_payment_method' =>
+    isAr
+        ? 'لا طريقة صرف له، والصرف للجميع معًا أو لا يتم'
+        : 'No way to be paid: the batch pay is all or none',
   _ => reason,
 };
 
@@ -135,19 +141,18 @@ class _PayrollRunsScreenState extends State<PayrollRunsScreen> {
     }
   }
 
+  /// HR-UX ط4: the month by its name, its run seen before it is made.
   Future<void> _newRun() async {
-    final period = await showDialog<(int, int)>(
-      context: context,
-      builder: (_) => _MonthDialog(isAr: _isAr),
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PrepareRunScreen(
+          api: widget.api,
+          isArabic: _isAr,
+          service: widget.service,
+        ),
+      ),
     );
-    if (period == null || !mounted) return;
-    try {
-      final run = await _service.generate(month: period.$1, year: period.$2);
-      if (!mounted) return;
-      await _open(run.summary.id);
-    } catch (e) {
-      if (mounted) AppFeedback.error(context, e.toString());
-    }
+    _load();
   }
 
   Future<void> _open(int runId) async {
@@ -255,76 +260,6 @@ class _PayrollRunsScreenState extends State<PayrollRunsScreen> {
         label: Text(isAr ? 'مسير جديد' : 'New run'),
       ),
       body: body,
-    );
-  }
-}
-
-class _MonthDialog extends StatefulWidget {
-  const _MonthDialog({required this.isAr});
-  final bool isAr;
-
-  @override
-  State<_MonthDialog> createState() => _MonthDialogState();
-}
-
-class _MonthDialogState extends State<_MonthDialog> {
-  late int _month;
-  late int _year;
-
-  @override
-  void initState() {
-    super.initState();
-    final today = DateTime.now();
-    _month = today.month;
-    _year = today.year;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isAr = widget.isAr;
-    final thisYear = DateTime.now().year;
-    return AlertDialog(
-      title: Text(isAr ? 'مسير شهر' : 'Run for a month'),
-      content: Row(
-        children: [
-          Expanded(
-            child: DropdownButtonFormField<int>(
-              key: const ValueKey('payroll-run-month'),
-              initialValue: _month,
-              decoration: InputDecoration(labelText: isAr ? 'الشهر' : 'Month'),
-              items: [
-                for (var m = 1; m <= 12; m++)
-                  DropdownMenuItem(value: m, child: Text('$m')),
-              ],
-              onChanged: (v) => setState(() => _month = v ?? _month),
-            ),
-          ),
-          const SizedBox(width: AppSpace.md),
-          Expanded(
-            child: DropdownButtonFormField<int>(
-              key: const ValueKey('payroll-run-year'),
-              initialValue: _year,
-              decoration: InputDecoration(labelText: isAr ? 'السنة' : 'Year'),
-              items: [
-                for (var y = thisYear - 1; y <= thisYear + 1; y++)
-                  DropdownMenuItem(value: y, child: Text('$y')),
-              ],
-              onChanged: (v) => setState(() => _year = v ?? _year),
-            ),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text(isAr ? 'إلغاء' : 'Cancel'),
-        ),
-        FilledButton(
-          key: const ValueKey('payroll-run-generate'),
-          onPressed: () => Navigator.pop(context, (_month, _year)),
-          child: Text(isAr ? 'أنشئ المسودة' : 'Draft it'),
-        ),
-      ],
     );
   }
 }
@@ -979,7 +914,7 @@ class _LeftOut extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      '${row.name} — ${_leftOutWord(row.reason, isAr)}',
+                      '${row.name} — ${leftOutWord(row.reason, isAr)}',
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: tone.onContainer,
                       ),

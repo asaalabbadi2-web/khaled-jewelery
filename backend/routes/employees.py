@@ -894,6 +894,30 @@ def create_payroll_run():
     return _run_view(run, 201, left_out)
 
 
+@employees_bp.route('/payroll/runs/months', methods=['GET'])
+@require_permission('employees.payroll')
+def payroll_run_months():
+    """HR-UX ط4: the months to draft, the first without a run offered."""
+    from services.payroll_run import months_to_draft
+    return jsonify(months_to_draft(datetime.now().date()))
+
+
+@employees_bp.route('/payroll/runs/preview', methods=['GET'])
+@require_permission('employees.payroll')
+def preview_payroll_run():
+    """HR-UX ط4: the run as it would be drafted -- nothing kept."""
+    from services.payroll_laws import PayrollRefused
+    from services.payroll_run import preview
+    try:
+        body = preview(request.args.get('month'), request.args.get('year'), by='preview')
+    except PayrollRefused as refused:
+        db.session.rollback()
+        return _payroll_refusal(refused, 409 if refused.code == 'payroll_run_exists' else 400)
+    finally:
+        db.session.rollback()
+    return jsonify(body)
+
+
 @employees_bp.route('/payroll/runs/<int:run_id>', methods=['GET'])
 @require_permission('employees.payroll')
 def get_payroll_run(run_id):

@@ -150,6 +150,33 @@ def test_one_put_right_is_added_to_the_draft_and_the_reviewed_lines_stay(auth_he
     assert code == 409, 'an approved run takes no line'
 
 
+def test_a_run_is_previewed_by_its_rules_and_nothing_is_kept(auth_headers, staff):
+    """HR-UX ط4 (2 Nov 2026): who is in, who is left out and why, and who
+    would stop the batch pay -- before the draft is made."""
+    url = f'/api/payroll/runs/preview?month={MONTH}&year={YEAR}'
+    code, seen = _call('get', url, auth_headers)
+    assert code == 200, seen
+    assert seen['id'] is None and PayrollRun.query.filter_by(month=MONTH, year=YEAR).count() == 0, 'nothing kept'
+    assert {e['employee_id']: e['net_salary'] for e in seen['entries']}[staff['joined']] == 2700.0
+    assert {r['employee_id']: r['reason'] for r in seen['left_out']}[staff['bare']] == 'no_structure'
+    assert {r['employee_id'] for r in seen['will_not_pay']} >= {staff['full'], staff['joined']}, 'no way to be paid'
+    code, run = _run(auth_headers)
+    assert code == 201, 'the month is still to draft'
+    assert ({e['employee_id']: e['net_salary'] for e in run['entries']}
+            == {e['employee_id']: e['net_salary'] for e in seen['entries']}), 'the same rules, the same lines'
+    assert _call('get', url, auth_headers)[0] == 409, 'a month with a run is opened, not previewed'
+
+
+def test_the_months_to_draft_offer_the_first_without_a_run(auth_headers, staff):
+    from datetime import date
+    from services.payroll_run import months_to_draft
+    _run(auth_headers, month=4, year=2043)
+    said = months_to_draft(date(2043, 6, 2))
+    rows = {(r['year'], r['month']): r['state'] for r in said['months']}
+    assert rows == {(2043, 4): 'draft', (2043, 5): 'open', (2043, 6): 'open'}
+    assert said['suggested'] == {'month': 5, 'year': 2043}, 'May, not this June'
+
+
 # ── 2. reviewed while a draft ──────────────────────────────────────────────────
 
 def test_a_draft_s_line_takes_additions_and_deductions_each_with_its_reason(auth_headers, staff):

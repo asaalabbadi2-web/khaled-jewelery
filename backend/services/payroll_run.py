@@ -126,6 +126,68 @@ def generate(month, year, *, by: str) -> tuple[PayrollRun, list[dict]]:
     return run, left_out(run)
 
 
+def preview(month, year, *, by: str) -> dict:
+    """The run as it would be drafted -- drafted by the same rules inside a
+    savepoint and rolled back, so nothing is kept (HR-UX ط4: who is in and who
+    is left out, and why, were known only after the draft was made). Says too
+    which line would stop the batch pay: one with no way to be paid."""
+    refuse_bad_period(month, year)
+    month, year = int(month), int(year)
+    standing = open_run(month, year)
+    if standing is not None:
+        raise PayrollRefused(f'لشهر {month}/{year} مسير قائم: يُفتح ويُراجَع', 'payroll_run_exists')
+    savepoint = db.session.begin_nested()
+    try:
+        run, out = generate(month, year, by=by)
+        body = run.to_dict(include_entries=True)
+        body['left_out'] = out
+        body['totals']['bonuses'] = round(sum(float(b.get('amount') or 0.0)
+                                              for e in body['entries']
+                                              for b in (e.get('breakdown') or {}).get('bonuses') or []), 2)
+        body['will_not_pay'] = [{'employee_id': e['employee_id'], 'name': (e.get('employee') or {}).get('name')}
+                                for e in body['entries'] if not (e.get('employee') or {}).get('payment_method')]
+    finally:
+        savepoint.rollback()
+    body['id'] = None
+    return body
+
+
+def _month_after(key: int) -> int:
+    year, month = divmod(key, 100)
+    return (year + 1) * 100 + 1 if month == 12 else key + 1
+
+
+def months_to_draft(today) -> dict:
+    """The last month written -- a run not cancelled, or entries made one by one
+    before the runs --, and each month after it to this one; the first without
+    a run is offered (HR-UX ط4: the month was picked as a number, this one by
+    default -- November offered when October was still to draft)."""
+    from sqlalchemy import func
+    last_run = (PayrollRun.query.filter(PayrollRun.status != 'cancelled')
+                .with_entities(func.max(PayrollRun.year * 100 + PayrollRun.month)).scalar())
+    last_entry = (Payroll.query.filter(Payroll.payroll_run_id.is_(None), Payroll.status.in_(('approved', 'paid')),
+                                       Payroll.year >= 1000)
+                  .with_entities(func.max(Payroll.year * 100 + Payroll.month)).scalar())
+    now = today.year * 100 + today.month
+    last = max((m for m in (last_run, last_entry) if m), default=None)
+    keys = [last] if last is not None else []
+    key = _month_after(last) if last is not None else now
+    while key <= now:
+        keys.append(key)
+        key = _month_after(key)
+    if len(keys) == (1 if last is not None else 0):
+        keys.append(key)                                  # this month's run made: the next offered
+    rows = []
+    for key in keys:
+        year, month = divmod(key, 100)
+        run = open_run(month, year)
+        state = run.status if run is not None else ('entries' if key == last_entry else 'open')
+        rows.append({'month': month, 'year': year, 'state': state,
+                     'run_id': run.id if run is not None else None, 'current': key == now})
+    first = next((r for r in rows if r['state'] == 'open'), None)
+    return {'months': rows, 'suggested': {'month': first['month'], 'year': first['year']} if first else None}
+
+
 def left_out(run) -> list[dict]:
     """Each employee the run has no line for, and why -- an inactive one not
     employed in the month is not said."""

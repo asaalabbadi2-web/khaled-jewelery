@@ -229,6 +229,59 @@ class PayrollRun {
   );
 }
 
+/// A month's run as it would be drafted -- the server's, nothing kept (HR-UX
+/// ط4): its lines and who is left out, and who would stop the batch pay.
+class PayrollRunPreview {
+  const PayrollRunPreview({required this.run, required this.wontPay});
+
+  final PayrollRun run;
+
+  /// Lines whose employee has no way to be paid: the batch pay is all or none.
+  final List<PayrollLeftOut> wontPay;
+
+  factory PayrollRunPreview.fromJson(Map<String, dynamic> json) =>
+      PayrollRunPreview(
+        // a preview has no id: none was kept
+        run: PayrollRun.fromJson({...json, 'id': json['id'] ?? 0}),
+        wontPay: (json['will_not_pay'] as List? ?? const [])
+            .map(
+              (e) => PayrollLeftOut.fromJson({
+                ...(e as Map<String, dynamic>),
+                'reason': 'no_payment_method',
+              }),
+            )
+            .toList(),
+      );
+}
+
+/// A month to draft, as the server offers it (HR-UX ط4).
+class PayrollRunMonth {
+  const PayrollRunMonth({
+    required this.month,
+    required this.year,
+    required this.state,
+    this.runId,
+    this.current = false,
+  });
+
+  final int month;
+  final int year;
+
+  /// 'open', 'entries' (made one by one before the runs), or its run's status.
+  final String state;
+  final int? runId;
+  final bool current;
+
+  factory PayrollRunMonth.fromJson(Map<String, dynamic> json) =>
+      PayrollRunMonth(
+        month: json['month'] as int,
+        year: json['year'] as int,
+        state: json['state'] as String? ?? 'open',
+        runId: json['run_id'] as int?,
+        current: json['current'] == true,
+      );
+}
+
 class SalaryStructureModel {
   const SalaryStructureModel({
     required this.id,
@@ -284,7 +337,9 @@ class SalaryStructures {
   factory SalaryStructures.fromJson(Map<String, dynamic> json) =>
       SalaryStructures(
         rows: (json['structures'] as List? ?? const [])
-            .map((e) => SalaryStructureModel.fromJson(e as Map<String, dynamic>))
+            .map(
+              (e) => SalaryStructureModel.fromJson(e as Map<String, dynamic>),
+            )
             .toList(),
         currentId: json['current_id'] as int?,
         suggestedFrom: json['suggested_from'] as String?,

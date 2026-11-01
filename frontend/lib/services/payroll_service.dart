@@ -33,6 +33,36 @@ class PayrollService {
         ),
       );
 
+  /// HR-UX ط4: the months to draft, and the one offered -- the server's.
+  Future<(List<PayrollRunMonth>, ({int month, int year})?)> runMonths() async {
+    final body =
+        _body(await _api.authedGet('/payroll/runs/months'))
+            as Map<String, dynamic>;
+    final offered = body['suggested'] as Map<String, dynamic>?;
+    return (
+      (body['months'] as List? ?? const [])
+          .map((e) => PayrollRunMonth.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      offered == null
+          ? null
+          : (month: offered['month'] as int, year: offered['year'] as int),
+    );
+  }
+
+  /// HR-UX ط4: the month's run as it would be drafted; nothing is kept.
+  Future<PayrollRunPreview> previewRun({
+    required int month,
+    required int year,
+  }) async => PayrollRunPreview.fromJson(
+    _body(
+          await _api.authedGet(
+            '/payroll/runs/preview',
+            queryParams: {'month': '$month', 'year': '$year'},
+          ),
+        )
+        as Map<String, dynamic>,
+  );
+
   Future<PayrollRun> editLine(
     int runId,
     int lineId, {
