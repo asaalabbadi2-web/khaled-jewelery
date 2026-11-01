@@ -1,20 +1,19 @@
 import 'package:flutter/material.dart';
 
 import '../api_service.dart';
-import '../models/employee_model.dart';
 import '../services/payroll_service.dart';
 import '../theme/app_semantic_colors.dart';
 import '../theme/app_tokens.dart';
 import '../utils/bidi.dart';
 import '../utils/currency_utils.dart';
 import '../widgets/app_bar_tab_bar.dart';
-import '../widgets/app_feedback.dart';
 import '../widgets/app_state_views.dart';
 import 'attendance_screen.dart';
 import 'contribution_schemes_screen.dart';
 import 'employee_file_view.dart';
 import 'employee_page.dart';
 import 'employees_screen.dart';
+import 'new_employee_screen.dart';
 import 'payroll_policy_screen.dart';
 import 'payroll_runs_screen.dart';
 import 'payroll_screen.dart';
@@ -96,22 +95,11 @@ class _HrHubScreenState extends State<HrHubScreen>
     ),
   );
 
-  Future<void> _newEmployee() async {
-    final payload = await showDialog<Map<String, dynamic>?>(
-      context: context,
-      builder: (_) => EmployeeFormDialog(api: widget.api, isArabic: _isAr),
-    );
-    if (payload == null) return;
-    try {
-      final EmployeeModel created = await widget.api.createEmployee(payload);
-      await _load();
-      if (!mounted) return;
-      AppFeedback.success(context, _isAr ? 'أُضيف الموظف' : 'Added');
-      if (created.id != null) _openEmployee(created.id!, created.name);
-    } catch (e) {
-      if (mounted) AppFeedback.error(context, e.toString());
-    }
-  }
+  /// HR-UX ط3: three steps -- his data, his salary, his payment -- then his
+  /// page.
+  Future<void> _newEmployee() => _push(
+    NewEmployeeScreen(api: widget.api, isArabic: _isAr, service: _service),
+  );
 
   int get _followupCount => ((_overview?['followup'] as List?) ?? const [])
       .where((i) => (i as Map)['tone'] != 'info')

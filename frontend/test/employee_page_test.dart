@@ -5,6 +5,7 @@ import 'package:frontend/models/payroll_run_models.dart';
 import 'package:frontend/screens/employee_page.dart';
 import 'package:frontend/services/payroll_service.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/widgets/employee_data_panel.dart';
 import 'package:frontend/widgets/employee_salary_panel.dart';
 import 'package:frontend/widgets/goal_settings_tile.dart';
 
@@ -104,6 +105,14 @@ void main() {
         reason: 'overview: his advances',
       );
       expect(find.textContaining('لا عقد مسجّل'), findsNothing);
+
+      await tester.tap(find.byKey(const ValueKey('employee-page-edit')));
+      await _settle(tester);
+      expect(
+        find.byType(EmployeeDataPanel),
+        findsOneWidget,
+        reason: 'HR-UX ط3: his data, edited where it is shown',
+      );
 
       await tester.tap(find.byKey(const ValueKey('employee-part-contract')));
       await _settle(tester);

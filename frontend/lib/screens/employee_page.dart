@@ -10,6 +10,7 @@ import '../widgets/app_feedback.dart';
 import '../widgets/app_leave_guard.dart';
 import '../widgets/app_state_views.dart';
 import '../widgets/employee_advances_panel.dart';
+import '../widgets/employee_data_panel.dart';
 import '../widgets/employee_salary_panel.dart';
 import '../widgets/user_avatar_widget.dart';
 import 'employee_file_view.dart';
@@ -39,6 +40,7 @@ const _parts = [
     'bonuses',
     'custody',
   }, Icons.dashboard_outlined),
+  _Part('data', 'البيانات', 'His data', <String>{}, Icons.badge_outlined),
   _Part('salary', 'الراتب', 'Salary', {'payroll'}, Icons.payments_outlined),
   _Part('leave', 'الإجازات', 'Leave', {'leave'}, Icons.beach_access_outlined),
   _Part('contract', 'العقد والوثائق', 'Contract & documents', {
@@ -94,15 +96,19 @@ class _EmployeePageState extends State<EmployeePage> {
   /// the page or the part is left.
   final _salaryUnsaved = ValueNotifier<List<String>>(const []);
   final _advancesUnsaved = ValueNotifier<List<String>>(const []);
+  final _dataUnsaved = ValueNotifier<List<String>>(const []);
 
   bool get _dirty =>
-      _salaryUnsaved.value.isNotEmpty || _advancesUnsaved.value.isNotEmpty;
+      _salaryUnsaved.value.isNotEmpty ||
+      _advancesUnsaved.value.isNotEmpty ||
+      _dataUnsaved.value.isNotEmpty;
 
   Future<void> _pick(String id) async {
     if (id == _part) return;
     if (_dirty && !await AppLeaveGuard.confirmLeave(context)) return;
     _salaryUnsaved.value = const [];
     _advancesUnsaved.value = const [];
+    _dataUnsaved.value = const [];
     if (mounted) setState(() => _part = id);
   }
 
@@ -110,6 +116,7 @@ class _EmployeePageState extends State<EmployeePage> {
   void dispose() {
     _salaryUnsaved.dispose();
     _advancesUnsaved.dispose();
+    _dataUnsaved.dispose();
     super.dispose();
   }
 
@@ -138,25 +145,6 @@ class _EmployeePageState extends State<EmployeePage> {
 
   Map<String, dynamic> get _employee =>
       _file?['employee'] as Map<String, dynamic>? ?? const {};
-
-  Future<void> _edit() async {
-    final payload = await showDialog<Map<String, dynamic>?>(
-      context: context,
-      builder: (_) => EmployeeFormDialog(
-        api: widget.api,
-        isArabic: _isAr,
-        employee: EmployeeModel.fromJson(_employee),
-      ),
-    );
-    if (payload == null) return;
-    try {
-      await widget.api.updateEmployee(widget.employeeId, payload);
-      await _load();
-      if (mounted) AppFeedback.success(context, _isAr ? 'حُفظ' : 'Saved');
-    } catch (e) {
-      if (mounted) AppFeedback.error(context, e.toString());
-    }
-  }
 
   Future<void> _toggle() async {
     try {
@@ -236,7 +224,19 @@ class _EmployeePageState extends State<EmployeePage> {
               ),
             ),
           Expanded(
-            child: _part == 'performance'
+            child: _part == 'data'
+                ? SingleChildScrollView(
+                    child: EmployeeDataPanel(
+                      key: ValueKey('data-$_version'),
+                      api: widget.api,
+                      employee: _employee,
+                      isAr: isAr,
+                      unsaved: _dataUnsaved,
+                      onSaved: _load,
+                      onGo: _pick,
+                    ),
+                  )
+                : _part == 'performance'
                 ? SingleChildScrollView(
                     child: GoalSettingsTile(
                       key: ValueKey('goal-$_version'),
@@ -295,7 +295,7 @@ class _EmployeePageState extends State<EmployeePage> {
                   isAr: isAr,
                   api: widget.api,
                   employeeId: widget.employeeId,
-                  onEdit: _edit,
+                  onEdit: () => _pick('data'),
                   onToggle: _toggle,
                   onEarlier: _earlierScreen,
                   onPhoto: _load,

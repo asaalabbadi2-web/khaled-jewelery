@@ -33,6 +33,8 @@ class EmployeeSalaryPanel extends StatefulWidget {
     required this.isAr,
     this.unsaved,
     this.onSaved,
+    this.parts = SalaryPanelPart.values,
+    this.startChanging = false,
   });
 
   final PayrollService service;
@@ -41,9 +43,18 @@ class EmployeeSalaryPanel extends StatefulWidget {
   final ValueNotifier<List<String>>? unsaved;
   final VoidCallback? onSaved;
 
+  /// The cards shown -- all, or a step's (HR-UX ط3: the new employee's
+  /// salary, then his payment).
+  final List<SalaryPanelPart> parts;
+
+  /// «تغيير الراتب» open from the start (a new employee has none to show).
+  final bool startChanging;
+
   @override
   State<EmployeeSalaryPanel> createState() => _EmployeeSalaryPanelState();
 }
+
+enum SalaryPanelPart { salary, history, payment }
 
 typedef _Payment = (String?, String, String, int?, String);
 
@@ -114,6 +125,10 @@ class _EmployeeSalaryPanelState extends State<EmployeeSalaryPanel> {
         _error = null;
         _structures = structures;
         _schemes = schemes;
+        if (widget.startChanging && !_changing && _saved == null) {
+          _changing = true;
+          _from.text = structures.suggestedFrom ?? '';
+        }
         if (_saved == null) {
           _method = payment['payment_method'] as String?;
           _iban.text = '${payment['iban'] ?? ''}';
@@ -876,6 +891,21 @@ class _EmployeeSalaryPanelState extends State<EmployeeSalaryPanel> {
     }
     if (_structures == null) {
       return const AppLoadingView(summaryBlocks: 1, rows: 4);
+    }
+    final parts = widget.parts;
+    if (!parts.contains(SalaryPanelPart.history) ||
+        !parts.contains(SalaryPanelPart.payment)) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (parts.contains(SalaryPanelPart.salary)) ...[
+            _current(),
+            if (_changing) _change(),
+          ],
+          if (parts.contains(SalaryPanelPart.history)) _history(),
+          if (parts.contains(SalaryPanelPart.payment)) _paymentCard(),
+        ],
+      );
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
