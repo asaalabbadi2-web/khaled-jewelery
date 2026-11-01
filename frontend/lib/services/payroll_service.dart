@@ -397,6 +397,10 @@ class PayrollService {
     );
   }
 
+  /// The HR hub's indicators, employees and what needs doing (HR-UX ر1).
+  Future<Map<String, dynamic>> hrOverview() async =>
+      _body(await _api.authedGet('/hr/overview')) as Map<String, dynamic>;
+
   // ── plumbing ──────────────────────────────────────────────────────────────
 
   PayrollRun _run(http.Response resp) =>

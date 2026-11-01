@@ -49,3 +49,14 @@ def test_the_file_says_what_is_missing_and_fills_as_the_parts_are_entered(auth_h
     roles = {a['role'] for a in file['accounts']}
     assert 'personal' in roles and 'salary_payable' in roles, 'each of his accounts, from the books'
     assert file['custody'] == {} and file['bonuses']['approved_unpaid'] == 0.0
+
+
+def test_the_file_says_how_complete_it_is(auth_headers):
+    code, body = _call('post', '/api/employees', auth_headers,
+                       {'name': f'موظف اكتمال {uuid.uuid4().hex[:6]}', 'is_active': True, 'phone': '0500000000',
+                        'job_title': 'بائع'})
+    file = _call('get', f"/api/employees/{body['id']}/file", auth_headers)[1]
+    assert file['completeness'] == {'done': 2, 'of': 6}, 'the phone and the title of six'
+    _call('put', f"/api/employees/{body['id']}", auth_headers, {'payment_method': 'bank'})
+    file = _call('get', f"/api/employees/{body['id']}/file", auth_headers)[1]
+    assert file['completeness'] == {'done': 3, 'of': 7}, 'paid by bank, his IBAN is asked too'

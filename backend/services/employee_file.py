@@ -33,6 +33,18 @@ MISSING = (('national_id', 'الهوية الوطنية / الإقامة'), ('hi
            ('job_title', 'المسمى الوظيفي'), ('phone', 'الجوال'))
 
 
+def completeness(employee) -> dict:
+    """How much of his file is there (HR-UX ر2's ring): the checks _missing
+    asks of him, and how many are met."""
+    asked = len(MISSING) + 2                   # his structure and his payment method
+    if employee.payment_method == 'bank':
+        asked += 1                             # his IBAN
+    if not employee.is_active:
+        asked += 1                             # his termination date
+    missing = len(_missing(employee))
+    return {'done': asked - missing, 'of': asked}
+
+
 def _missing(employee) -> list[str]:
     from services.payroll_policy import structure_on
     missing = [label for field, label in MISSING if not getattr(employee, field)]
@@ -87,6 +99,7 @@ def file_of(employee, *, today: date) -> dict:
     return {
         'employee': employee.to_dict(),
         'missing': _missing(employee),
+        'completeness': completeness(employee),
         'users': [{'username': u.username, 'role': u.role, 'is_active': u.is_active,
                    'last_login_at': u.last_login_at.isoformat() if u.last_login_at else None}
                   for u in AppUser.query.filter_by(employee_id=employee.id)],

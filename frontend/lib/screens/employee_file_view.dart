@@ -35,10 +35,14 @@ class EmployeeFileView extends StatefulWidget {
     required this.employeeId,
     this.isArabic = true,
     this.service,
+    this.only,
   });
   final ApiService api;
   final int employeeId;
   final bool isArabic;
+
+  /// The sections shown -- null: all of them (the hub's page shows a part).
+  final Set<String>? only;
 
   /// For tests: a service that answers without a server.
   final PayrollService? service;
@@ -125,7 +129,13 @@ class _EmployeeFileViewState extends State<EmployeeFileView> {
     }
   }
 
-  Widget _section(String title, List<Widget> children) => Card(
+  /// Its sections shown: all, or the page's part (HR-UX ر2).
+  bool _shows(String id) => widget.only == null || widget.only!.contains(id);
+
+  Widget _section(String id, String title, List<Widget> children) =>
+      !_shows(id) ? const SizedBox.shrink() : _card(title, children);
+
+  Widget _card(String title, List<Widget> children) => Card(
     child: Padding(
       padding: const EdgeInsets.all(AppSpace.md),
       child: Column(
@@ -175,7 +185,7 @@ class _EmployeeFileViewState extends State<EmployeeFileView> {
       child: ListView(
         padding: const EdgeInsets.all(AppSpace.sm),
         children: [
-          if (missing.isNotEmpty)
+          if (missing.isNotEmpty && _shows('missing'))
             Card(
               key: const ValueKey('employee-file-missing'),
               color: tones.warning.container,
@@ -187,7 +197,7 @@ class _EmployeeFileViewState extends State<EmployeeFileView> {
                 ),
               ),
             ),
-          _section(isAr ? 'الراتب' : 'Salary', [
+          _section('salary', isAr ? 'الراتب' : 'Salary', [
             if (structure == null)
               Text(isAr ? 'لا هيكل راتب' : 'No salary structure')
             else ...[
@@ -214,7 +224,7 @@ class _EmployeeFileViewState extends State<EmployeeFileView> {
               },
             ),
           ]),
-          _section(isAr ? 'العقد' : 'Contract', [
+          _section('contract', isAr ? 'العقد' : 'Contract', [
             if (file['contract'] case final Map<String, dynamic> c) ...[
               _row(
                 isAr ? 'النوع' : 'Kind',
@@ -246,7 +256,7 @@ class _EmployeeFileViewState extends State<EmployeeFileView> {
               ),
             ),
           ]),
-          _section(isAr ? 'الوثائق' : 'Documents', [
+          _section('documents', isAr ? 'الوثائق' : 'Documents', [
             for (final d
                 in (file['documents'] as List? ?? const [])
                     .cast<Map<String, dynamic>>())
@@ -265,7 +275,7 @@ class _EmployeeFileViewState extends State<EmployeeFileView> {
                   onPressed: () => showDialog<void>(
                     context: context,
                     builder: (_) =>
-                        _DocumentTypesDialog(service: _service, isAr: isAr),
+                        DocumentTypesDialog(service: _service, isAr: isAr),
                   ),
                   icon: const Icon(Icons.tune),
                   label: Text(
@@ -295,7 +305,7 @@ class _EmployeeFileViewState extends State<EmployeeFileView> {
               ],
             ),
           ]),
-          _section(isAr ? 'الإجازات' : 'Leave', [
+          _section('leave', isAr ? 'الإجازات' : 'Leave', [
             for (final b
                 in ((file['leave'] as Map<String, dynamic>?)?['balances']
                             as List? ??
@@ -345,7 +355,7 @@ class _EmployeeFileViewState extends State<EmployeeFileView> {
                   onPressed: () => showDialog<void>(
                     context: context,
                     builder: (_) =>
-                        _LeaveTypesDialog(service: _service, isAr: isAr),
+                        LeaveTypesDialog(service: _service, isAr: isAr),
                   ).then((_) => _load()),
                   icon: const Icon(Icons.tune),
                   label: Text(
@@ -373,7 +383,7 @@ class _EmployeeFileViewState extends State<EmployeeFileView> {
               ],
             ),
           ]),
-          _section(isAr ? 'آخر الرواتب' : 'Last payroll', [
+          _section('payroll', isAr ? 'آخر الرواتب' : 'Last payroll', [
             for (final p
                 in (file['payroll'] as List? ?? const [])
                     .cast<Map<String, dynamic>>())
@@ -382,7 +392,7 @@ class _EmployeeFileViewState extends State<EmployeeFileView> {
                 _money(p['net_salary']),
               ),
           ]),
-          _section(isAr ? 'السلف' : 'Advances', [
+          _section('advances', isAr ? 'السلف' : 'Advances', [
             _row(
               isAr ? 'رصيد حساب السلف' : 'Advance account',
               _money(advances['account_balance']),
@@ -395,7 +405,7 @@ class _EmployeeFileViewState extends State<EmployeeFileView> {
                 '${isAr ? 'الباقي' : 'left'} ${_money(plan['remaining'])}',
               ),
           ]),
-          _section(isAr ? 'المكافآت' : 'Bonuses', [
+          _section('bonuses', isAr ? 'المكافآت' : 'Bonuses', [
             _row(
               isAr ? 'معتمدة غير مصروفة' : 'Approved unpaid',
               _money(bonuses['approved_unpaid']),
@@ -405,7 +415,7 @@ class _EmployeeFileViewState extends State<EmployeeFileView> {
               _money(bonuses['owed_in_books']),
             ),
           ]),
-          _section(isAr ? 'العهدة' : 'Custody', [
+          _section('custody', isAr ? 'العهدة' : 'Custody', [
             if (custody.isEmpty)
               Text(isAr ? 'لا عهدة قائمة' : 'None open')
             else
@@ -421,13 +431,13 @@ class _EmployeeFileViewState extends State<EmployeeFileView> {
                       .join(' · '),
                 ),
           ]),
-          _section(isAr ? 'الحسابات' : 'Accounts', [
+          _section('accounts', isAr ? 'الحسابات' : 'Accounts', [
             for (final a
                 in (file['accounts'] as List? ?? const [])
                     .cast<Map<String, dynamic>>())
               _row(word(_roles[a['role']], '${a['name']}'), _money(a['cash'])),
           ]),
-          _section(isAr ? 'إنهاء الخدمة' : 'End of service', [
+          _section('end', isAr ? 'إنهاء الخدمة' : 'End of service', [
             if (file['termination'] case final Map<String, dynamic> t) ...[
               _row(
                 isAr ? 'آخر يوم · السبب' : 'Last day · reason',
@@ -515,7 +525,7 @@ class _EmployeeFileViewState extends State<EmployeeFileView> {
                 ),
               ),
           ]),
-          _section(isAr ? 'المستخدم' : 'User', [
+          _section('access', isAr ? 'المستخدم' : 'User', [
             for (final u
                 in (file['users'] as List? ?? const [])
                     .cast<Map<String, dynamic>>())
@@ -707,16 +717,20 @@ class _DocumentDialogState extends State<_DocumentDialog> {
 }
 
 /// The owner's kinds of documents and each one's alert days -- empty: no alert.
-class _DocumentTypesDialog extends StatefulWidget {
-  const _DocumentTypesDialog({required this.service, required this.isAr});
+class DocumentTypesDialog extends StatefulWidget {
+  const DocumentTypesDialog({
+    super.key,
+    required this.service,
+    required this.isAr,
+  });
   final PayrollService service;
   final bool isAr;
 
   @override
-  State<_DocumentTypesDialog> createState() => _DocumentTypesDialogState();
+  State<DocumentTypesDialog> createState() => DocumentTypesDialogState();
 }
 
-class _DocumentTypesDialogState extends State<_DocumentTypesDialog> {
+class DocumentTypesDialogState extends State<DocumentTypesDialog> {
   List<Map<String, dynamic>>? _kinds;
   final Map<int, TextEditingController> _days = {};
   final _newName = TextEditingController();
@@ -944,16 +958,20 @@ class _LeaveDialogState extends State<_LeaveDialog> {
 }
 
 /// The owner's kinds of leave and their days -- empty: no balance held.
-class _LeaveTypesDialog extends StatefulWidget {
-  const _LeaveTypesDialog({required this.service, required this.isAr});
+class LeaveTypesDialog extends StatefulWidget {
+  const LeaveTypesDialog({
+    super.key,
+    required this.service,
+    required this.isAr,
+  });
   final PayrollService service;
   final bool isAr;
 
   @override
-  State<_LeaveTypesDialog> createState() => _LeaveTypesDialogState();
+  State<LeaveTypesDialog> createState() => LeaveTypesDialogState();
 }
 
-class _LeaveTypesDialogState extends State<_LeaveTypesDialog> {
+class LeaveTypesDialogState extends State<LeaveTypesDialog> {
   List<Map<String, dynamic>>? _kinds;
   final Map<String, TextEditingController> _fields = {};
 

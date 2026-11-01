@@ -49,8 +49,8 @@ import 'gold_price_manual_screen_enhanced.dart';
 import 'customize_quick_actions_screen.dart';
 import 'scrap_purchase_invoice_screen.dart';
 import 'employees_screen.dart';
+import 'hr_hub_screen.dart';
 import 'users_screen.dart';
-import 'payroll_screen.dart';
 import 'attendance_screen.dart';
 import 'payroll_report_screen.dart';
 import 'bonus_management_screen.dart';
@@ -1694,7 +1694,24 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     // ════════════════════════════════════════════════════════════════════════
     addDivider();
     addSection(isAr ? 'الموارد البشرية' : 'Human Resources', _tone.sectionSlate.fg);
-    if (auth.hasPermission('employees.view')) {
+    // HR-UX ر1: one hub -- its employees, payroll, follow-up and settings. One
+    // who sees employees but not payroll keeps the employees screen.
+    if (auth.hasPermission('employees.payroll')) {
+      addDestination(
+        icon: Icons.groups_2_outlined,
+        title: isAr ? 'الموارد البشرية' : 'Human resources',
+        keywords: const ['الموظفين', 'الرواتب', 'مسير', 'إجازة', 'وثائق'],
+        color: _tone.sectionSlate.fg,
+        onSelected: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => HrHubScreen(api: api, isArabic: isAr),
+            ),
+          );
+        },
+      );
+    } else if (auth.hasPermission('employees.view')) {
       addDestination(
         icon: Icons.badge,
         title: isAr ? 'الموظفين' : 'Employees',
@@ -1718,21 +1735,6 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
             MaterialPageRoute(
               builder: (_) =>
                   BonusManagementScreen(api: api, isArabic: isAr),
-            ),
-          );
-        },
-      );
-    }
-    if (auth.hasPermission('employees.payroll')) {
-      addDestination(
-        icon: Icons.payments_rounded,
-        title: isAr ? 'الرواتب' : 'Payroll',
-        color: _tone.sectionSlate.fg,
-        onSelected: () async {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => PayrollScreen(api: api, isArabic: isAr),
             ),
           );
         },
@@ -4943,7 +4945,11 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         result = await Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => PayrollScreen(api: api, isArabic: widget.isArabic),
+            builder: (_) => HrHubScreen(
+              api: api,
+              isArabic: widget.isArabic,
+              initialTab: HrTab.payroll,
+            ),
           ),
         );
         break;

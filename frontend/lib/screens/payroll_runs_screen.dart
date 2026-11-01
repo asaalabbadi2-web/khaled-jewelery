@@ -84,16 +84,30 @@ class _StatusChip extends StatelessWidget {
 // ── the runs ────────────────────────────────────────────────────────────────
 
 class PayrollRunsScreen extends StatefulWidget {
-  const PayrollRunsScreen({super.key, required this.api, this.isArabic = true});
+  const PayrollRunsScreen({
+    super.key,
+    required this.api,
+    this.isArabic = true,
+    this.embedded = false,
+    this.service,
+  });
   final ApiService api;
   final bool isArabic;
+
+  /// The hub's own, or a test's.
+  final PayrollService? service;
+
+  /// Inside the HR hub's «الرواتب» tab (HR-UX ر1): no bar of its own -- the
+  /// policy and the schemes are the hub's «الإعدادات».
+  final bool embedded;
 
   @override
   State<PayrollRunsScreen> createState() => _PayrollRunsScreenState();
 }
 
 class _PayrollRunsScreenState extends State<PayrollRunsScreen> {
-  late final PayrollService _service = PayrollService(widget.api);
+  late final PayrollService _service =
+      widget.service ?? PayrollService(widget.api);
   List<PayrollRunSummary>? _runs;
   Object? _error;
 
@@ -190,38 +204,44 @@ class _PayrollRunsScreenState extends State<PayrollRunsScreen> {
       );
     }
     return Scaffold(
-      appBar: AppBar(
-        title: Text(isAr ? 'مسيرات الرواتب' : 'Payroll runs'),
-        actions: [
-          IconButton(
-            key: const ValueKey('payroll-open-schemes'),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) =>
-                    ContributionSchemesScreen(api: widget.api, isArabic: isAr),
-              ),
+      appBar: widget.embedded
+          ? null
+          : AppBar(
+              title: Text(isAr ? 'مسيرات الرواتب' : 'Payroll runs'),
+              actions: [
+                IconButton(
+                  key: const ValueKey('payroll-open-schemes'),
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => ContributionSchemesScreen(
+                        api: widget.api,
+                        isArabic: isAr,
+                      ),
+                    ),
+                  ),
+                  icon: const Icon(Icons.health_and_safety_outlined),
+                  tooltip: isAr
+                      ? 'خطط الاشتراك (التأمينات)'
+                      : 'Contribution schemes',
+                ),
+                IconButton(
+                  key: const ValueKey('payroll-open-policy'),
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          PayrollPolicyScreen(api: widget.api, isArabic: isAr),
+                    ),
+                  ),
+                  icon: const Icon(Icons.tune),
+                  tooltip: isAr ? 'سياسة الرواتب' : 'Payroll policy',
+                ),
+                IconButton(
+                  onPressed: _load,
+                  icon: const Icon(Icons.refresh),
+                  tooltip: isAr ? 'تحديث' : 'Refresh',
+                ),
+              ],
             ),
-            icon: const Icon(Icons.health_and_safety_outlined),
-            tooltip: isAr ? 'خطط الاشتراك (التأمينات)' : 'Contribution schemes',
-          ),
-          IconButton(
-            key: const ValueKey('payroll-open-policy'),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) =>
-                    PayrollPolicyScreen(api: widget.api, isArabic: isAr),
-              ),
-            ),
-            icon: const Icon(Icons.tune),
-            tooltip: isAr ? 'سياسة الرواتب' : 'Payroll policy',
-          ),
-          IconButton(
-            onPressed: _load,
-            icon: const Icon(Icons.refresh),
-            tooltip: isAr ? 'تحديث' : 'Refresh',
-          ),
-        ],
-      ),
       floatingActionButton: FloatingActionButton.extended(
         key: const ValueKey('payroll-run-new'),
         onPressed: _newRun,

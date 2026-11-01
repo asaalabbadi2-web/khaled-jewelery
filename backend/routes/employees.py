@@ -543,6 +543,14 @@ def get_employee_file(employee_id):
     return jsonify(file_of(Employee.query.get_or_404(employee_id), today=datetime.now().date()))
 
 
+@employees_bp.route('/hr/overview', methods=['GET'])
+@require_permission('employees.payroll')
+def get_hr_overview():
+    """HR-UX ر1: the hub's indicators, employees and what needs doing (services/hr_overview)."""
+    from services.hr_overview import overview
+    return jsonify(overview(today=datetime.now().date()))
+
+
 @employees_bp.route('/employees/<int:employee_id>/photo', methods=['PATCH'])
 @require_permission('employees.edit')
 def update_employee_photo(employee_id):
