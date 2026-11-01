@@ -115,9 +115,9 @@ def test_one_regular_run_a_month_and_its_month_is_the_run_s(auth_headers, staff)
 
 
 def test_an_employee_with_an_entry_of_his_own_for_the_month_is_left_out_and_said(auth_headers, staff):
-    code, body = _call('post', '/api/payroll', auth_headers,
-                       {'employee_id': staff['full'], 'month': MONTH, 'year': YEAR, 'basic_salary': 6000.0})
-    assert code == 201, body
+    db.session.add(Payroll(employee_id=staff['full'], month=MONTH, year=YEAR, basic_salary=6000.0,
+                           net_salary=6000.0, status='paid', created_by='t'))   # one made before the runs
+    db.session.commit()
     run = _run(auth_headers)[1]
     assert {r['employee_id']: r['reason'] for r in run['left_out']}[staff['full']] == 'has_an_entry'
 

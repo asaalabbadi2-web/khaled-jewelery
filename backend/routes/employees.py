@@ -1285,65 +1285,13 @@ def list_payroll():
 @employees_bp.route('/payroll', methods=['POST'])
 @require_permission('employees.payroll')
 def create_payroll():
-    data = request.get_json() or {}
-
-    employee_id = data.get('employee_id')
-    if not employee_id:
-        return jsonify({'error': 'رمز الموظف مطلوب'}), 400
-
-    employee = Employee.query.get(employee_id)
-    if not employee:
-        return jsonify({'error': 'الموظف غير موجود'}), 400
-
-    # PAYROLL-1: a new entry is pending -- or approved with its accrual; «paid»
-    # is the payment's (mark-paid), the voucher and its day too; the net is
-    # the server's (services/payroll_laws).
-    from services.payroll_laws import PayrollRefused, approve, net_of, refuse_bad_period
-    requested = (data.get('status') or 'pending').strip().lower()
+    """Law 7 (services/payroll_laws): a month's salary is born in its run."""
+    from services.payroll_laws import PayrollRefused, refuse_entry_outside_a_run
     try:
-        refuse_bad_period(data.get('month', datetime.now().month), data.get('year', datetime.now().year))
+        refuse_entry_outside_a_run()
     except PayrollRefused as refused:
-        return jsonify({'error': refused.message}), 400
-    if requested not in ('pending', 'approved'):
-        return jsonify({'error': 'يُنشأ سجل الراتب معلّقًا أو معتمدًا؛ «مدفوع» يُضبط بزر الصرف الذي يكتب سنده'}), 400
-    from services.payroll_run import open_run
-    if open_run(int(data.get('month', datetime.now().month)), int(data.get('year', datetime.now().year))):
-        return jsonify({'error': 'لهذا الشهر مسير رواتب: يُضاف الموظف من شاشة المسير'}), 409
+        return _payroll_refusal(refused, 409)
 
-    basic_salary = float(data.get('basic_salary', employee.salary or 0.0))
-    allowances = float(data.get('allowances', 0.0))
-    deductions = float(data.get('deductions', 0.0))
-
-    payroll_entry = Payroll(
-        employee_id=employee.id,
-        month=int(data.get('month', datetime.now().month)),
-        year=int(data.get('year', datetime.now().year)),
-        basic_salary=basic_salary,
-        allowances=allowances,
-        deductions=deductions,
-        net_salary=net_of(basic_salary, allowances, deductions),
-        status='pending',
-        notes=data.get('notes'),
-        created_by=data.get('created_by'),
-    )
-
-    try:
-        db.session.add(payroll_entry)
-        db.session.flush()
-        if requested == 'approved':
-            try:
-                approve(payroll_entry, by=data.get('created_by') or 'system')
-            except PayrollRefused as refused:
-                db.session.rollback()
-                return jsonify({'error': refused.message}), 409
-        db.session.commit()
-        return jsonify(payroll_entry.to_dict(include_employee=True, include_voucher=True)), 201
-    except IntegrityError as exc:
-        db.session.rollback()
-        return jsonify({'error': f'فشل إنشاء سجل الراتب: {str(exc)}'}), 400
-    except Exception as exc:
-        db.session.rollback()
-        return jsonify({'error': f'فشل إنشاء سجل الراتب: {str(exc)}'}), 500
 
 @employees_bp.route('/payroll/<int:payroll_id>', methods=['GET'])
 @require_permission('employees.payroll')
@@ -1450,54 +1398,14 @@ def delete_payroll(payroll_id):
 @employees_bp.route('/payroll/<int:payroll_id>/clone', methods=['POST'])
 @require_permission('employees.payroll')
 def clone_payroll(payroll_id):
-    """
-    استنساخ سجل راتب إلى شهر/سنة جديدة.
-    يُنشئ سجلاً جديداً بنفس بيانات الراتب (أساسي، بدلات، خصومات) بحالة pending.
-    """
-    source = Payroll.query.get_or_404(payroll_id)
-    data = request.get_json() or {}
-
-    target_month = int(data.get('month', source.month))
-    target_year  = int(data.get('year',  source.year))
-
-    # التحقق من أن السجل غير موجود مسبقاً لنفس الموظف/الشهر/السنة
-    existing = Payroll.query.filter_by(
-        employee_id=source.employee_id,
-        month=target_month,
-        year=target_year,
-    ).first()
-    if existing:
-        return jsonify({
-            'error': 'payroll_already_exists',
-            'message': f'يوجد سجل راتب بالفعل للموظف في {target_month}/{target_year}.',
-        }), 409
-
-    new_entry = Payroll(
-        employee_id  = source.employee_id,
-        month        = target_month,
-        year         = target_year,
-        basic_salary = source.basic_salary,
-        allowances   = source.allowances,
-        deductions   = source.deductions,
-        net_salary   = source.net_salary,
-        status       = 'pending',
-        notes        = source.notes,
-        created_by   = data.get('created_by'),
-    )
-
+    """Law 7 (services/payroll_laws): no entry is cloned beside the runs."""
+    from services.payroll_laws import PayrollRefused, refuse_entry_outside_a_run
+    Payroll.query.get_or_404(payroll_id)
     try:
-        db.session.add(new_entry)
-        db.session.commit()
-        return jsonify(new_entry.to_dict(include_employee=True)), 201
-    except IntegrityError:
-        db.session.rollback()
-        return jsonify({
-            'error': 'payroll_already_exists',
-            'message': f'يوجد سجل راتب بالفعل للموظف في {target_month}/{target_year}.',
-        }), 409
-    except Exception as exc:
-        db.session.rollback()
-        return jsonify({'error': f'فشل استنساخ سجل الراتب: {str(exc)}'}), 500
+        refuse_entry_outside_a_run()
+    except PayrollRefused as refused:
+        return _payroll_refusal(refused, 409)
+
 
 @employees_bp.route('/payroll/bulk-approve', methods=['POST'])
 @require_permission('employees.payroll')

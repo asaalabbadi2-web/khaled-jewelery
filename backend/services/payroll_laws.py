@@ -18,6 +18,10 @@ payroll entry (tests/test_payroll_is_kept_whole.py):
 
 A line of a month's run (PAYROLL-2, services/payroll_run) is the run's: its
 accrual is the run's, and it is approved, cancelled and edited with the run.
+
+  7. a month's salary is born in its run (HR-UX ط5; the owner, 2 Nov 2026:
+     «اعتمد»): no entry is made, nor cloned, beside it -- the entries made one
+     by one before the runs (all paid on production) keep laws 1-6.
 """
 from __future__ import annotations
 
@@ -33,6 +37,12 @@ class PayrollRefused(ValueError):
         super().__init__(message)
         self.message = message
         self.code = code
+
+
+def refuse_entry_outside_a_run() -> None:
+    """Law 7."""
+    raise PayrollRefused('راتب الشهر يُكتب من مسيره: يُنشأ مسير الشهر ويُضاف إليه الموظف',
+                         'payroll_is_the_run')
 
 
 def refuse_bad_period(month, year) -> None:

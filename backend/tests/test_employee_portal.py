@@ -50,10 +50,14 @@ def _signed_in_as(employee_id):
 
 
 def _line(headers, emp, month, status):
-    code, body = _call('post', '/api/payroll', headers, {'employee_id': emp, 'month': month, 'year': 2041,
-                                                       'basic_salary': 7000.0, 'status': status})
-    assert code == 201, body
-    return body['id']
+    """An entry made one by one before the runs, as the books hold them (law 7:
+    none is made now; services/payroll_laws)."""
+    from models import Payroll
+    entry = Payroll(employee_id=emp, month=month, year=2041, basic_salary=7000.0, allowances=0.0,
+                    deductions=0.0, net_salary=7000.0, status=status, created_by='t')
+    db.session.add(entry)
+    db.session.commit()                                    # a savepoint under the fence
+    return entry.id
 
 
 def test_his_portal_is_his_own_and_another_s_payslip_is_not_found(auth_headers):

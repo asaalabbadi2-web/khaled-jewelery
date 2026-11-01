@@ -14,6 +14,7 @@ import pytest
 from flask import g
 
 from app import app as flask_app
+from models import db
 
 
 @pytest.fixture(autouse=True)
@@ -27,13 +28,23 @@ def _call(method, url, headers, body=None):
     return resp.status_code, (resp.get_json() or {})
 
 
+
+def _entry(employee_id, month, year=2041, status='approved', basic=7000.0):
+    """An entry made one by one before the runs, as the books hold them (law 7:
+    none is made now; services/payroll_laws)."""
+    from models import Payroll
+    entry = Payroll(employee_id=employee_id, month=month, year=year, basic_salary=basic, allowances=0.0,
+                    deductions=0.0, net_salary=basic, status=status, created_by='t')
+    db.session.add(entry)
+    db.session.commit()                                    # a savepoint under the fence
+    return entry.id
+
 def test_the_overview_says_its_employees_and_what_needs_doing(auth_headers):
     from services.hr_overview import overview
     code, body = _call('post', '/api/employees', auth_headers,
                        {'name': f'موظف مركز {uuid.uuid4().hex[:6]}', 'is_active': True})
     emp = body['id']
-    _call('post', '/api/payroll', auth_headers,
-          {'employee_id': emp, 'month': 9, 'year': 2041, 'basic_salary': 7000.0, 'status': 'approved'})
+    _entry(emp, 9)
     result = overview(today=date(2041, 11, 1))
     row = next(r for r in result['employees'] if r['id'] == emp)
     assert row['last_payroll']['month'] == 9 and row['gross'] is None, 'no structure: none said'

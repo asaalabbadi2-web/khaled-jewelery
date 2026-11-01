@@ -47,9 +47,17 @@ def _employee(headers):
     return body['id']
 
 
-def _payroll(headers, employee_id, **fields):
-    body = {'employee_id': employee_id, 'month': 3, 'year': 2041, 'basic_salary': 7000.0, **fields}
-    return _call('post', '/api/payroll', headers, body)
+def _payroll(headers, employee_id, month=3, year=2041, basic_salary=7000.0, status='pending'):
+    """An entry made one by one before the runs (law 7: none is made now), as
+    the books hold them -- approved through its route, so with its accrual."""
+    entry = Payroll(employee_id=employee_id, month=month, year=year, basic_salary=basic_salary,
+                    allowances=0.0, deductions=0.0, net_salary=basic_salary, status='pending', created_by='t')
+    db.session.add(entry)
+    db.session.commit()                                    # a savepoint under the fence
+    if status == 'approved':
+        code, body = _call('put', f'/api/payroll/{entry.id}', headers, {'status': 'approved'})
+        return code, body
+    return 201, entry.to_dict()
 
 
 def _pay(headers, payroll_id):
@@ -62,21 +70,24 @@ def _accruals(payroll_id, kind='payroll_accrual'):
     return JournalEntry.query.filter_by(reference_type=kind, reference_id=payroll_id, is_deleted=False).count()
 
 
-# ── 2 and 3: a new entry is pending, its net the server's ───────────────────────
+# ── 7: a month's salary is born in its run ─────────────────────────────────────
 
-def test_a_new_entry_is_pending_and_its_net_the_server_s(auth_headers):
+def test_a_month_s_salary_is_born_in_its_run_none_made_nor_cloned_beside_it(auth_headers):
+    """HR-UX ط5 (2 Nov 2026): the run is the one way a month's salary is written."""
     emp = _employee(auth_headers)
-    code, body = _payroll(auth_headers, emp, allowances=500.0, deductions=200.0, net_salary=99999.0)
-    assert code == 201, body
-    assert (body['status'], body['net_salary']) == ('pending', 7300.0), 'basic + allowances - deductions'
-    code, body = _payroll(auth_headers, emp, month=4, status='paid')
-    assert code == 400 and 'صرف' in body['error'], 'paid is the payment\'s to say'
+    code, body = _call('post', '/api/payroll', auth_headers,
+                       {'employee_id': emp, 'month': 3, 'year': 2041, 'basic_salary': 7000.0})
+    assert (code, body.get('code')) == (409, 'payroll_is_the_run'), body
+    old = _payroll(auth_headers, emp)[1]['id']
+    code, body = _call('post', f'/api/payroll/{old}/clone', auth_headers, {'month': 4, 'year': 2041})
+    assert (code, body.get('code')) == (409, 'payroll_is_the_run'), body
+    assert Payroll.query.filter_by(employee_id=emp).count() == 1
 
 
-def test_a_new_entry_made_approved_is_approved_with_its_accrual(auth_headers):
+def test_an_entry_approved_is_approved_with_its_accrual_its_net_the_server_s(auth_headers):
     code, body = _payroll(auth_headers, _employee(auth_headers), status='approved')
-    assert code == 201 and body['status'] == 'approved', body
-    assert _accruals(body['id']) == 1
+    assert code == 200 and body['status'] == 'approved', body
+    assert body['net_salary'] == 7000.0 and _accruals(body['id']) == 1
 
 
 # ── 1: amounts are kept once approved ──────────────────────────────────────────
@@ -153,8 +164,8 @@ def test_a_paid_entry_is_not_cancelled(auth_headers):
 def test_a_month_is_1_to_12_of_a_four_digit_year(auth_headers):
     """The 31 Oct copy held a pending entry for December of «202»."""
     emp = _employee(auth_headers)
-    assert _payroll(auth_headers, emp, year=202)[0] == 400
-    assert _payroll(auth_headers, emp, month=13)[0] == 400
+    assert _call('post', '/api/payroll/runs', auth_headers, {'month': 12, 'year': 202})[0] == 400
+    assert _call('post', '/api/payroll/runs', auth_headers, {'month': 13, 'year': 2041})[0] == 400
     pid = _payroll(auth_headers, emp)[1]['id']
     assert _call('put', f'/api/payroll/{pid}', auth_headers, {'year': 202})[0] in (400, 409)
 

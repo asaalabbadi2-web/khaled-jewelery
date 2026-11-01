@@ -68,3 +68,19 @@
   - مسارا الإصلاح غير موجودين.
 - **`frontend/test/employee_data_panel_test.dart`:** على الخزنة الرئيسية يظهر الزر للنوع الذي لا خزنة له وحده، ولا يُنفَّذ قبل التأكيد.
 - **`frontend/test/hr_hub_screen_test.dart`:** لا «شاشة سابقة» في الإعدادات.
+
+## Addendum: راتب الشهر يولد في مسيره (2 نوفمبر 2026)
+
+قال المالك: «اعتمد».
+
+**القرار:**
+- صار `POST /payroll` و`POST /payroll/<id>/clone` يرفضان كل سجل راتب يُنشأ أو يُستنسخ خارج المسير (`payroll_is_the_run`).
+- هذا القانون 7 في `services/payroll_laws.py`.
+
+**ما يبقى للسجلات القديمة:**
+- السجلات المُدخلة سجلًا سجلًا قبل المسيرات تبقى، وتحكمها القوانين 1 إلى 6.
+- كلها مصروفة على الإنتاج.
+
+**الشاهد:** `tests/test_payroll_is_kept_whole.py::test_a_month_s_salary_is_born_in_its_run_none_made_nor_cloned_beside_it`. كان أحمر على الكود السابق (201)، وصار أخضر.
+
+**أثره على الاختبارات:** الاختبارات التي كانت تُنشئ سجلًا منفردًا صارت تزرعه مباشرة، بوصفه سجلًا قديمًا كما في الدفاتر. وهي أربعة ملفات: `test_payroll_structures_and_policy`، و`test_hr_overview`، و`test_employee_portal`، و`test_payroll_run`.

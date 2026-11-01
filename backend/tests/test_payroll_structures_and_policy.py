@@ -46,6 +46,17 @@ def _employee(headers, **fields):
     return code, body
 
 
+def _entry(employee_id, month, year=2041, status='approved', basic=7000.0):
+    """An entry made one by one before the runs, as the books hold them (law 7:
+    none is made now; services/payroll_laws)."""
+    from models import Payroll
+    entry = Payroll(employee_id=employee_id, month=month, year=year, basic_salary=basic, allowances=0.0,
+                    deductions=0.0, net_salary=basic, status=status, created_by='t')
+    db.session.add(entry)
+    db.session.commit()                                    # a savepoint under the fence
+    return entry.id
+
+
 def _policy(headers, **changes):
     return _call('put', '/api/payroll/policy', headers, {**POLICY, **changes})
 
@@ -103,9 +114,7 @@ def test_a_structure_a_salary_was_approved_by_is_kept(auth_headers):
         'nothing was approved by it yet'
     listed = lambda: _call('get', f'/api/employees/{emp}/salary-structures', auth_headers)[1]['structures'][0]
     assert listed()['locked'] is False
-    code, body = _call('post', '/api/payroll', auth_headers,
-                       {'employee_id': emp, 'month': 3, 'year': 2041, 'basic_salary': 7100.0, 'status': 'approved'})
-    assert code == 201, body
+    _entry(emp, 3, basic=7100.0)
     code, body = _call('put', f'/api/salary-structures/{structure}', auth_headers, {'basic': 8000})
     assert code == 409 and '3/2041' in body['error'], body
     assert _call('delete', f'/api/salary-structures/{structure}', auth_headers)[0] == 409
@@ -119,9 +128,7 @@ def test_a_new_structure_is_offered_from_the_first_month_still_open_to_it(auth_h
     emp = _employee(auth_headers, hire_date='2041-02-10')[1]['id']
     assert _call('get', url(emp), auth_headers)[1]['suggested_from'] == '2041-02-10', 'none approved: his hire'
     _call('post', url(emp), auth_headers, {'effective_from': '2041-02-10', 'basic': 7000})
-    code, body = _call('post', '/api/payroll', auth_headers,
-                       {'employee_id': emp, 'month': 12, 'year': 2041, 'basic_salary': 7000.0, 'status': 'approved'})
-    assert code == 201, body
+    _entry(emp, 12)
     assert _call('get', url(emp), auth_headers)[1]['suggested_from'] == '2042-01-01', 'the month after his last'
 
 
