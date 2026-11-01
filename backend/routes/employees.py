@@ -320,6 +320,9 @@ def create_employee():
     try:
         db.session.add(employee)
         db.session.flush()  # ensure employee.id is available
+        from services.approval_policy import actor
+        from services.employee_access import record
+        record(employee, action='create_employee', before=None, by=actor(), now=datetime.now())  # EMP-1
 
         # Auto-create employee-specific payables accounts under 230/240/250 (detail 2300/2400/2500).
         # Default: enabled (can be disabled by sending auto_create_payables_accounts=false)
@@ -391,6 +394,9 @@ def get_employee(employee_id):
 def update_employee(employee_id):
     employee = Employee.query.get_or_404(employee_id)
     data = request.get_json() or {}
+    from services.employee_access import snapshot
+    before = snapshot(employee)                              # EMP-1: the change is recorded
+    was_active = bool(employee.is_active)
 
     for field in ['name', 'job_title', 'department', 'phone', 'email', 'national_id', 'notes', 'created_by']:
         if field in data:
@@ -462,9 +468,20 @@ def update_employee(employee_id):
         db.session.rollback()
         return jsonify({'error': refused.message}), 400
 
+    from services.approval_policy import actor
+    from services.employee_access import record, stop
+    stopped = None
+    if was_active and not employee.is_active:
+        stopped = stop(employee, by=actor(), now=datetime.now(), before=before)
+    else:
+        record(employee, action='update_employee', before=before, by=actor(), now=datetime.now())
+
     try:
         db.session.commit()
-        return jsonify(employee.to_dict(include_details=True))
+        body = employee.to_dict(include_details=True)
+        if stopped:
+            body.update(stopped)
+        return jsonify(body)
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': f'Failed to update employee: {str(e)}'}), 500
@@ -484,8 +501,10 @@ def delete_employee(employee_id):
         # Also treat linked user-account as operational linkage (avoid breaking logins).
         has_linked_user = getattr(employee, 'user_account', None) is not None
 
+        from services.approval_policy import actor
+        from services.employee_access import record, snapshot, stop
         if has_attendance or has_payroll or has_invoices or has_bonuses or has_linked_user:
-            employee.is_active = False
+            stopped = stop(employee, by=actor(), now=datetime.now()) if employee.is_active else {}
             db.session.commit()
             return jsonify({
                 'success': True,
@@ -493,8 +512,10 @@ def delete_employee(employee_id):
                 'deactivated': True,
                 'is_active': False,
                 'message': 'لا يمكن حذف الموظف لوجود عمليات/سجلات مرتبطة. تم إلغاء تفعيله بدلاً من الحذف',
+                **stopped,
             }), 200
 
+        record(employee, action='delete_employee', before=snapshot(employee), by=actor(), now=datetime.now())
         db.session.delete(employee)
         db.session.commit()
 
@@ -526,11 +547,21 @@ def update_employee_photo(employee_id):
 @require_permission('employees.edit')
 def toggle_employee_active(employee_id):
     employee = Employee.query.get_or_404(employee_id)
-    employee.is_active = not employee.is_active
+    # EMP-1: stopped, his users are stopped and his open custody said; started
+    # again, his users stay stopped -- each is started on its own.
+    from services.approval_policy import actor
+    from services.employee_access import record, snapshot, stop
+    stopped = {}
+    if employee.is_active:
+        stopped = stop(employee, by=actor(), now=datetime.now())
+    else:
+        before = snapshot(employee)
+        employee.is_active = True
+        record(employee, action='start_employee', before=before, by=actor(), now=datetime.now())
 
     try:
         db.session.commit()
-        return jsonify({'id': employee.id, 'is_active': employee.is_active})
+        return jsonify({'id': employee.id, 'is_active': employee.is_active, **stopped})
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': f'Failed to update employee status: {str(e)}'}), 500

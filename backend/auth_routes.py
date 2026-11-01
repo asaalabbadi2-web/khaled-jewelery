@@ -469,6 +469,12 @@ def login():
             if not app_user.is_active:
                 _record_login_attempt(username, success=False, failure_reason='inactive_account')
                 return jsonify({'success': False, 'message': 'هذا الحساب غير نشط', 'error': 'inactive_account'}), 403
+            # EMP-1: a user whose employee is stopped does not sign in.
+            from services.employee_access import refuse_login_message
+            _stopped = refuse_login_message(app_user)
+            if _stopped:
+                _record_login_attempt(username, success=False, failure_reason='employee_inactive')
+                return jsonify({'success': False, 'message': _stopped, 'error': 'employee_inactive'}), 403
 
             # 2FA enforcement (optional)
             if getattr(app_user, 'two_factor_enabled', False):

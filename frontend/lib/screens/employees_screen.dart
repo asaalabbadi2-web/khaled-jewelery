@@ -120,13 +120,29 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
 
   Future<void> _toggleEmployee(EmployeeModel employee) async {
     try {
-      final newValue = await widget.api.toggleEmployeeActive(employee.id ?? 0);
+      final result = await widget.api.toggleEmployeeActive(employee.id ?? 0);
+      final newValue = result['is_active'] as bool? ?? false;
       setState(() {
         final index = _employees.indexWhere((e) => e.id == employee.id);
         if (index != -1) {
           _employees[index] = employee.copyWith(isActive: newValue);
         }
       });
+      if (!mounted) return;
+      // EMP-1: stopped, his users are stopped with him; his open custody is said.
+      final isAr = widget.isArabic;
+      final closed = (result['users_closed'] as List? ?? const []).cast<String>();
+      if (closed.isNotEmpty) {
+        AppFeedback.info(
+          context,
+          isAr
+              ? 'أُوقف دخول: ${closed.join('، ')}'
+              : 'Sign-in stopped: ${closed.join(', ')}',
+        );
+      }
+      if (result['warning'] case final String warning) {
+        AppFeedback.warning(context, warning);
+      }
     } catch (e) {
       _showSnack(e.toString(), isError: true);
     }

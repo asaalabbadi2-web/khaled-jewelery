@@ -4418,16 +4418,17 @@ class ApiService {
     }
   }
 
-  Future<bool> toggleEmployeeActive(int employeeId) async {
+  /// is_active; when stopped (EMP-1): users_closed -- his users stopped with
+  /// him -- and warning, his custody still open, or null.
+  Future<Map<String, dynamic>> toggleEmployeeActive(int employeeId) async {
     final token = await _requireAuthToken();
     final response = await http.post(
       Uri.parse('$_baseUrl/employees/$employeeId/toggle-active'),
       headers: _jsonHeaders(token: token),
     );
     if (response.statusCode == 200) {
-      final raw =
-          json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-      return raw['is_active'] as bool? ?? false;
+      return json.decode(utf8.decode(response.bodyBytes))
+          as Map<String, dynamic>;
     } else {
       throw _apiError(response);
     }
