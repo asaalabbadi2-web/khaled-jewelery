@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../widgets/date_field.dart';
 import '../api_service.dart';
 import '../services/payroll_service.dart';
 import '../theme/app_semantic_colors.dart';
@@ -545,11 +546,11 @@ class _EmployeeFileViewState extends State<EmployeeFileView> {
 }
 
 Widget _dateField(TextEditingController c, String label, String key) =>
-    TextField(
+    DateField(
       key: ValueKey(key),
       controller: c,
-      textDirection: TextDirection.ltr,
-      decoration: InputDecoration(labelText: label, hintText: 'YYYY-MM-DD'),
+      label: label,
+      pickerKey: ValueKey('$key-pick'),
     );
 
 String? _text(TextEditingController c) =>

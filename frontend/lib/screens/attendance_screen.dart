@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../widgets/date_field.dart';
 import '../api_service.dart';
 import '../models/attendance_model.dart';
 import '../utils.dart';
@@ -462,6 +463,7 @@ class _AttendanceFormDialogState extends State<AttendanceFormDialog> {
                     labelText: isAr
                         ? 'تاريخ الحضور (YYYY-MM-DD)'
                         : 'Date (YYYY-MM-DD)',
+                    suffixIcon: dateSuffix(context, _dateController),   // HR-UX ر5
                   ),
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {

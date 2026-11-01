@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../widgets/date_field.dart';
 import '../api_service.dart';
 import 'package:printing/printing.dart';
 
@@ -1916,15 +1917,10 @@ class _EmployeePayrollDialogState extends State<EmployeePayrollDialog> {
                 isAr ? 'هيكل جديد' : 'New structure',
                 style: theme.textTheme.titleSmall,
               ),
-              TextField(
+              DateField(
                 key: const ValueKey('structure-from'),
                 controller: _from,
-                textDirection: TextDirection.ltr,
-                decoration: InputDecoration(
-                  labelText: isAr
-                      ? 'يبدأ من (YYYY-MM-DD)'
-                      : 'From (YYYY-MM-DD)',
-                ),
+                label: isAr ? 'يبدأ من' : 'From',
               ),
               Row(
                 children: [

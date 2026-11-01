@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../widgets/date_field.dart';
 import '../api_service.dart';
 import '../services/payroll_service.dart';
 import '../theme/app_semantic_colors.dart';
@@ -376,15 +377,10 @@ class _ComponentDialogState extends State<_ComponentDialog> {
                 isAr ? 'سقف الوعاء (فارغ: بلا سقف)' : 'Cap (empty: none)',
                 'component-cap',
               ),
-              TextField(
+              DateField(
                 key: const ValueKey('component-from'),
                 controller: _from,
-                textDirection: TextDirection.ltr,
-                decoration: InputDecoration(
-                  labelText: isAr
-                      ? 'من تاريخ (YYYY-MM-DD)'
-                      : 'From (YYYY-MM-DD)',
-                ),
+                label: isAr ? 'من تاريخ' : 'From',
               ),
             ],
           ),
