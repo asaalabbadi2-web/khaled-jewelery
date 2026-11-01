@@ -52,6 +52,14 @@ class PayrollService {
     ),
   );
 
+  /// One put right since the draft was made, drafted into it (HR-UX ط1).
+  Future<PayrollRun> addLine(int runId, int employeeId) async => _run(
+    await _api.authedPost(
+      '/payroll/runs/$runId/lines',
+      body: jsonEncode({'employee_id': employeeId}),
+    ),
+  );
+
   Future<PayrollRun> removeLine(int runId, int lineId) async =>
       _run(await _api.authedDelete('/payroll/runs/$runId/lines/$lineId'));
 
@@ -88,13 +96,20 @@ class PayrollService {
 
   // ── an employee's payroll data ────────────────────────────────────────────
 
-  Future<List<SalaryStructureModel>> structures(int employeeId) async {
+  /// His structures, and the day a new one is offered from -- the server's:
+  /// the month after his last approved salary (HR-UX ط1).
+  Future<(List<SalaryStructureModel>, String?)> structures(
+    int employeeId,
+  ) async {
     final body =
         _body(await _api.authedGet('/employees/$employeeId/salary-structures'))
             as Map<String, dynamic>;
-    return (body['structures'] as List)
-        .map((e) => SalaryStructureModel.fromJson(e as Map<String, dynamic>))
-        .toList();
+    return (
+      (body['structures'] as List)
+          .map((e) => SalaryStructureModel.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      body['suggested_from'] as String?,
+    );
   }
 
   /// A gross split by the owner's ratios -- the server's, kept whole.

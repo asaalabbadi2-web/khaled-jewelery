@@ -42,7 +42,7 @@ def _call(method, url, headers, body=None):
 
 def _employee(headers):
     code, body = _call('post', '/api/employees', headers,
-                       {'name': f'موظف رواتب {uuid.uuid4().hex[:6]}', 'salary': 7000.0, 'is_active': True})
+                       {'name': f'موظف رواتب {uuid.uuid4().hex[:6]}', 'is_active': True})
     assert code in (200, 201), body
     return body['id']
 

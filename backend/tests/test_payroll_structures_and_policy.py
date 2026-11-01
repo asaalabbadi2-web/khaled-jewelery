@@ -42,7 +42,7 @@ def _call(method, url, headers, body=None):
 
 def _employee(headers, **fields):
     code, body = _call('post', '/api/employees', headers,
-                       {'name': f'موظف هيكل {uuid.uuid4().hex[:6]}', 'salary': 0.0, 'is_active': True, **fields})
+                       {'name': f'موظف هيكل {uuid.uuid4().hex[:6]}', 'is_active': True, **fields})
     return code, body
 
 
@@ -107,6 +107,19 @@ def test_a_structure_a_salary_was_approved_by_is_kept(auth_headers):
     code, body = _call('put', f'/api/salary-structures/{structure}', auth_headers, {'basic': 8000})
     assert code == 409 and '3/2041' in body['error'], body
     assert _call('delete', f'/api/salary-structures/{structure}', auth_headers)[0] == 409
+
+
+def test_a_new_structure_is_offered_from_the_first_month_still_open_to_it(auth_headers):
+    """HR-UX ط1 (2 Nov 2026): offered from this month's first, a structure
+    left him out of the month before's run, not yet drafted."""
+    url = lambda emp: f'/api/employees/{emp}/salary-structures'
+    emp = _employee(auth_headers, hire_date='2041-02-10')[1]['id']
+    assert _call('get', url(emp), auth_headers)[1]['suggested_from'] == '2041-02-10', 'none approved: his hire'
+    _call('post', url(emp), auth_headers, {'effective_from': '2041-02-10', 'basic': 7000})
+    code, body = _call('post', '/api/payroll', auth_headers,
+                       {'employee_id': emp, 'month': 12, 'year': 2041, 'basic_salary': 7000.0, 'status': 'approved'})
+    assert code == 201, body
+    assert _call('get', url(emp), auth_headers)[1]['suggested_from'] == '2042-01-01', 'the month after his last'
 
 
 # ── contribution schemes ───────────────────────────────────────────────────────

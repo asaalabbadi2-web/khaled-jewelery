@@ -10,6 +10,8 @@ employee set his own flag -- and the audit log held no row for any employee.
   2. login refuses a user whose employee is stopped;
   3. his open custody is said, the stop not refused;
   4. each change is recorded, field by field;
+  5. his salary and his leaving date are not written by his file's edit
+     (HR-UX ط1, 2 Nov 2026): the structure's and the settlement's;
   - the tool: the users of employees stopped before, and custody links to
     deleted safes.
 
@@ -114,6 +116,24 @@ def test_each_change_of_his_file_is_recorded(auth_headers):
     assert len(_audit(emp, 'update_employee')) == 1, 'nothing changed, nothing recorded'
     _call('post', f'/api/employees/{emp}/toggle-active', auth_headers)
     assert len(_audit(emp, 'stop_employee')) == 1
+
+
+def test_his_salary_and_his_leaving_date_are_not_written_by_his_file_s_edit(auth_headers):
+    code, body = _call('post', '/api/employees', auth_headers,
+                       {'name': f'موظف راتب {uuid.uuid4().hex[:6]}', 'salary': 7000.0})
+    assert (code, body.get('code')) == (400, 'salary_is_the_structure'), body
+    code, body = _call('post', '/api/employees', auth_headers,
+                       {'name': f'موظف ترك {uuid.uuid4().hex[:6]}', 'termination_date': '2041-01-31'})
+    assert (code, body.get('code')) == (400, 'termination_is_the_settlement'), body
+    emp = _employee(auth_headers)
+    code, body = _call('put', f'/api/employees/{emp}', auth_headers, {'salary': 9000.0, 'job_title': 'مشرف'})
+    assert (code, body.get('code')) == (400, 'salary_is_the_structure'), body
+    assert db.session.get(Employee, emp).job_title != 'مشرف', 'refused whole'
+    code, body = _call('put', f'/api/employees/{emp}', auth_headers, {'termination_date': '2041-01-31'})
+    assert (code, body.get('code')) == (400, 'termination_is_the_settlement'), body
+    code, body = _call('put', f'/api/employees/{emp}', auth_headers,
+                       {'salary': 0.0, 'termination_date': None, 'job_title': 'مشرف'})
+    assert code == 200 and body['job_title'] == 'مشرف', 'what it holds, sent back, is no change'
 
 
 def test_the_tool_stops_the_users_of_those_stopped_before_and_clears_dead_links(auth_headers):

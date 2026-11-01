@@ -183,6 +183,21 @@ def refuse_structure_change(structure) -> None:
                              'لا يُعدَّل ولا يُحذف، والراتب الجديد هيكل جديد من يومه')
 
 
+def suggested_from(employee, today: date) -> date:
+    """A new structure's first day, as offered (HR-UX ط1): the month after his
+    last salary approved -- the first a structure may still be read by --, else
+    his hire date, else this month's first. The first of the current month left
+    him out of the month before's run (2 Nov 2026: October not yet drafted)."""
+    last = (Payroll.query
+            .filter(Payroll.employee_id == employee.id, Payroll.status.in_(('approved', 'paid')))
+            .order_by(Payroll.year.desc(), Payroll.month.desc()).first())
+    if last is not None:
+        return date(last.year + (last.month == 12), last.month % 12 + 1, 1)
+    if employee.hire_date is not None:
+        return employee.hire_date
+    return today.replace(day=1)
+
+
 def _follow_in_the_file(employee_id: int, today: date) -> None:
     current = structure_on(employee_id, today)
     if current is not None:

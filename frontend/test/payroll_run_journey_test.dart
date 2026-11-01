@@ -17,6 +17,7 @@ class _Server extends PayrollService {
   String status = 'draft';
   List<Map<String, dynamic>> deductions = [];
   Map<int, int>? paidWith;
+  int? added;
 
   Map<String, dynamic> _line(
     int id,
@@ -103,6 +104,12 @@ class _Server extends PayrollService {
   }
 
   @override
+  Future<PayrollRun> addLine(int runId, int employeeId) async {
+    added = employeeId;
+    return _run;
+  }
+
+  @override
   Future<PayrollRun> approve(int runId) async {
     status = 'approved';
     return _run;
@@ -161,6 +168,11 @@ void main() {
       // the draft: its lines, and who is left out, with why
       expect(find.byKey(const ValueKey('payroll-line-10')), findsOneWidget);
       expect(find.textContaining('لا هيكل راتب له'), findsOneWidget);
+
+      // HR-UX ط1: one put right is added to the draft, not drafted again
+      await tester.tap(find.byKey(const ValueKey('payroll-left-out-add-30')));
+      await _settle(tester);
+      expect(server.added, 30);
       expect(
         find.byKey(const ValueKey('payroll-run-pay')),
         findsNothing,

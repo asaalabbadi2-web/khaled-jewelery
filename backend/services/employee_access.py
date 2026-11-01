@@ -14,7 +14,11 @@ The laws, asked by every route that stops, edits, makes or deletes one:
   2. login refuses a user whose employee is stopped (services' second wall);
   3. stopping him with custody open is allowed, its balances said;
   4. each change of his file is recorded: who, when, each field before and
-     after (his photo apart).
+     after (his photo apart);
+  5. his file's edit does not write what another document owns (HR-UX ط1,
+     the owner, 2 Nov 2026: «اعتمد»): his salary is his salary structure's
+     (services/payroll_policy follows it into the file), his leaving date is
+     his end-of-service settlement's (services/employee_termination).
 tests/test_employee_access_and_audit.py.
 """
 from __future__ import annotations
@@ -37,6 +41,26 @@ def snapshot(employee) -> dict:
         value = getattr(employee, column.name)
         row[column.name] = value.isoformat() if isinstance(value, (date, datetime)) else value
     return row
+
+
+def refuse_owned_elsewhere(data: dict, employee=None) -> None:
+    """Law 5: a salary or a leaving date sent to his file, other than what it
+    holds, is refused -- said where it is written instead."""
+    from services.payroll_laws import PayrollRefused
+    salary = data.get('salary')
+    held = round(float(employee.salary or 0.0), 2) if employee is not None else 0.0
+    try:
+        sent = round(float(salary), 2) if salary not in (None, '') else held
+    except (TypeError, ValueError):
+        sent = None
+    if sent != held:
+        raise PayrollRefused('الراتب يُكتب من هيكل الراتب في قسم «الراتب»، لا من بيانات الموظف',
+                             'salary_is_the_structure')
+    leaving = data.get('termination_date') or None
+    held_leaving = employee.termination_date.isoformat() if employee is not None and employee.termination_date else None
+    if 'termination_date' in data and leaving != held_leaving:
+        raise PayrollRefused('تاريخ ترك العمل يُسجَّل من «إنهاء الخدمة» مع تسويته، لا من بيانات الموظف',
+                             'termination_is_the_settlement')
 
 
 def record(employee, *, action: str, before: dict | None, by: str, now, extra: dict | None = None):

@@ -300,6 +300,28 @@ def _labelled(line, *, keyed: bool = False) -> dict:
     return {'kind': kind, 'label': label, 'amount': amount}
 
 
+NOT_ADDED = {
+    'in_the_run': 'له سطر في المسير',
+    'not_employed': 'لم يعمل في هذا الشهر',
+    'has_an_entry': 'له راتب مسجّل لهذا الشهر خارج المسير',
+    'no_structure': 'لا هيكل راتب ساري في آخر الشهر: أضف هيكله أولًا',
+}
+
+
+def add_line(run, employee, *, by: str) -> None:
+    """One employee drafted into a draft by the rules it was drafted by -- his
+    structure added since, or his line removed and wanted back; the lines
+    already reviewed stay as they are (HR-UX ط1: cancelling the draft to add
+    one lost every line's additions and deductions). Caller commits."""
+    _refuse_unless_draft(run)
+    first, last = _month_bounds(run.month, run.year)
+    reason, period, structure = _eligibility(run, employee, first, last)
+    if reason is not None:
+        raise PayrollRefused(f'لا يُضاف {employee.name}: {NOT_ADDED[reason]}', 'payroll_line_not_eligible')
+    _draft_line(run, employee, period, structure, first, last, int(require('day_divisor')), by)
+    db.session.flush()
+
+
 def remove_line(entry) -> None:
     _refuse_unless_draft(entry.run)
     release_bonuses(entry)

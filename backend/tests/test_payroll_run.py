@@ -122,6 +122,34 @@ def test_an_employee_with_an_entry_of_his_own_for_the_month_is_left_out_and_said
     assert {r['employee_id']: r['reason'] for r in run['left_out']}[staff['full']] == 'has_an_entry'
 
 
+def test_one_put_right_is_added_to_the_draft_and_the_reviewed_lines_stay(auth_headers, staff):
+    """HR-UX ط1 (2 Nov 2026): adding one meant cancelling the draft, every
+    line's additions and deductions lost."""
+    run = _run(auth_headers)[1]
+    full = _line(run, staff['full'])
+    url = f"/api/payroll/runs/{run['id']}/lines"
+    code, run = _call('put', f"{url}/{full['id']}", auth_headers,
+                      {'additions': [{'label': 'إضافي', 'amount': 300}]})
+    assert code == 200, run
+    code, body = _call('post', url, auth_headers, {'employee_id': staff['bare']})
+    assert (code, body.get('code')) == (409, 'payroll_line_not_eligible') and 'هيكل' in body['error'], body
+    _call('post', f"/api/employees/{staff['bare']}/salary-structures", auth_headers,
+          {'effective_from': f'{YEAR}-{MONTH:02d}-01', 'basic': 5000})
+    code, run = _call('post', url, auth_headers, {'employee_id': staff['bare']})
+    assert code == 200, run
+    assert _line(run, staff['bare'])['net_salary'] == 5000.0
+    assert _line(run, staff['full'])['net_salary'] == 8400.0, 'its addition kept'
+    assert staff['bare'] not in {r['employee_id'] for r in run['left_out']}
+    assert _call('post', url, auth_headers, {'employee_id': staff['bare']})[0] == 409, 'one line each'
+    removed = _line(run, staff['joined'])
+    run = _call('delete', f"{url}/{removed['id']}", auth_headers)[1]
+    code, run = _call('post', url, auth_headers, {'employee_id': staff['joined']})
+    assert code == 200 and _line(run, staff['joined'])['net_salary'] == 2700.0, 'removed, wanted back'
+    _call('post', f"/api/payroll/runs/{run['id']}/approve", auth_headers)
+    code, body = _call('post', url, auth_headers, {'employee_id': staff['joined']})
+    assert code == 409, 'an approved run takes no line'
+
+
 # ── 2. reviewed while a draft ──────────────────────────────────────────────────
 
 def test_a_draft_s_line_takes_additions_and_deductions_each_with_its_reason(auth_headers, staff):

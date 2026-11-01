@@ -506,7 +506,14 @@ class _PayrollRunScreenState extends State<PayrollRunScreen> {
         isAr: _isAr,
       ),
     );
+    await _load();
   }
+
+  /// HR-UX ط1: one put right is added to the draft; the others stay reviewed.
+  Future<void> _addLine(PayrollRun run, int employeeId) => _act(
+    () => _service.addLine(run.summary.id, employeeId),
+    _isAr ? 'أُضيف إلى المسودة' : 'Added to the draft',
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -547,6 +554,9 @@ class _PayrollRunScreenState extends State<PayrollRunScreen> {
               run: run,
               isAr: isAr,
               onAddStructure: status == 'draft' ? _employeeData : null,
+              onAddLine: status == 'draft' && !_busy
+                  ? (employeeId) => _addLine(run, employeeId)
+                  : null,
             ),
           ],
           const SizedBox(height: AppSpace.md),
@@ -582,8 +592,8 @@ class _PayrollRunScreenState extends State<PayrollRunScreen> {
             AppEmptyView(
               title: isAr ? 'المسير بلا أسطر' : 'The run has no lines',
               hint: isAr
-                  ? 'أضف هياكل رواتب للموظفين، ثم ألغِ المسودة وأنشئها من جديد'
-                  : 'Add salary structures, then draft the month again',
+                  ? 'أضف هيكل راتب كل موظف من «خارج المسير»، ثم «أضف إلى المسودة»'
+                  : 'Add each one\'s structure from «Left out», then add him to the draft',
             ),
         ],
       );
@@ -935,10 +945,14 @@ class _LeftOut extends StatelessWidget {
     required this.run,
     required this.isAr,
     required this.onAddStructure,
+    required this.onAddLine,
   });
   final PayrollRun run;
   final bool isAr;
   final Future<void> Function(int employeeId, String name)? onAddStructure;
+
+  /// A draft's: the server drafts him in, or says why not.
+  final void Function(int employeeId)? onAddLine;
 
   @override
   Widget build(BuildContext context) {
@@ -971,9 +985,22 @@ class _LeftOut extends StatelessWidget {
                   ),
                   if (row.reason == 'no_structure' && onAddStructure != null)
                     TextButton(
+                      key: ValueKey(
+                        'payroll-left-out-structure-${row.employeeId}',
+                      ),
                       onPressed: () =>
                           onAddStructure!(row.employeeId, row.name),
                       child: Text(isAr ? 'هيكل الراتب' : 'Structure'),
+                    ),
+                  if ((row.reason == 'no_structure' ||
+                          row.reason == 'removed') &&
+                      onAddLine != null)
+                    TextButton(
+                      key: ValueKey('payroll-left-out-add-${row.employeeId}'),
+                      onPressed: () => onAddLine!(row.employeeId),
+                      child: Text(
+                        isAr ? 'أضف إلى المسودة' : 'Add to the draft',
+                      ),
                     ),
                 ],
               ),
@@ -1693,11 +1720,12 @@ class _EmployeePayrollDialogState extends State<EmployeePayrollDialog> {
   (List<AdvancePlanModel>, double, double)? _advances;
   bool _busy = false;
 
+  /// The payment as last saved -- what «لم يُحفظ» is told against.
+  (String?, String, String, int?, String)? _savedPayment;
+
   @override
   void initState() {
     super.initState();
-    final today = DateTime.now();
-    _from.text = '${today.year}-${'${today.month}'.padLeft(2, '0')}-01';
     _load();
   }
 
@@ -1724,13 +1752,19 @@ class _EmployeePayrollDialogState extends State<EmployeePayrollDialog> {
 
   Future<void> _load() async {
     try {
-      final rows = await widget.service.structures(widget.employeeId);
+      final (rows, suggestedFrom) = await widget.service.structures(
+        widget.employeeId,
+      );
       final payment = await widget.service.payment(widget.employeeId);
       final schemes = await widget.service.schemes();
       final advances = await widget.service.advancePlans(widget.employeeId);
       if (mounted) {
         setState(() {
           _structures = rows;
+          // the server's: the month after his last approved salary (HR-UX ط1)
+          if (_from.text.isEmpty && suggestedFrom != null) {
+            _from.text = suggestedFrom;
+          }
           _schemes = schemes;
           _advances = advances;
           _schemeId ??= payment['contribution_scheme_id'] as int?;
@@ -1743,8 +1777,99 @@ class _EmployeePayrollDialogState extends State<EmployeePayrollDialog> {
           if (_bankName.text.isEmpty) {
             _bankName.text = '${payment['bank_name'] ?? ''}';
           }
+          _savedPayment ??= _payment;
         });
       }
+    } catch (e) {
+      if (mounted) AppFeedback.error(context, e.toString());
+    }
+  }
+
+  (String?, String, String, int?, String) get _payment => (
+    _method,
+    _iban.text.trim(),
+    _bankName.text.trim(),
+    _schemeId,
+    _wage.text.trim(),
+  );
+
+  /// What was typed and not saved -- each part by its name (HR-UX ط1: an IBAN
+  /// typed and «إغلاق» pressed was lost unsaid).
+  List<String> get _unsaved {
+    final isAr = widget.isAr;
+    return [
+      if ([
+        _gross,
+        _basic,
+        _housing,
+        _transport,
+      ].any((c) => c.text.trim().isNotEmpty))
+        isAr ? 'الهيكل الجديد' : 'the new structure',
+      if (_savedPayment != null && _payment != _savedPayment)
+        isAr ? 'الصرف والاشتراك' : 'payment and scheme',
+      if (_advance.text.trim().isNotEmpty) isAr ? 'السلفة' : 'the advance',
+    ];
+  }
+
+  Future<bool> _mayLeave() async {
+    final unsaved = _unsaved;
+    if (unsaved.isEmpty) return true;
+    final isAr = widget.isAr;
+    return await showDialog<bool>(
+          context: context,
+          builder: (dialog) => AlertDialog(
+            title: Text(isAr ? 'لم يُحفظ' : 'Not saved'),
+            content: Text(
+              isAr
+                  ? '${unsaved.join('، ')}: كُتب ولم يُحفظ. أتغلق دون حفظ؟'
+                  : '${unsaved.join(', ')}: typed, not saved. Close anyway?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialog, false),
+                child: Text(isAr ? 'رجوع' : 'Back'),
+              ),
+              FilledButton(
+                key: const ValueKey('employee-payroll-leave'),
+                onPressed: () => Navigator.pop(dialog, true),
+                child: Text(isAr ? 'أغلق دون حفظ' : 'Close without saving'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
+  Future<void> _deleteStructure(SalaryStructureModel s) async {
+    final isAr = widget.isAr;
+    final sure =
+        await showDialog<bool>(
+          context: context,
+          builder: (dialog) => AlertDialog(
+            title: Text(isAr ? 'حذف هيكل الراتب' : 'Delete the structure'),
+            content: Text(
+              isAr
+                  ? 'هيكل ${ltrIsolate(formatAmount(s.gross))} من ${ltrIsolate(s.effectiveFrom)}.'
+                  : '${formatAmount(s.gross)} from ${s.effectiveFrom}.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialog, false),
+                child: Text(isAr ? 'رجوع' : 'Back'),
+              ),
+              FilledButton(
+                key: const ValueKey('structure-delete-confirm'),
+                onPressed: () => Navigator.pop(dialog, true),
+                child: Text(isAr ? 'احذف' : 'Delete'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!sure) return;
+    try {
+      await widget.service.deleteStructure(s.id);
+      await _load();
     } catch (e) {
       if (mounted) AppFeedback.error(context, e.toString());
     }
@@ -1779,6 +1904,10 @@ class _EmployeePayrollDialogState extends State<EmployeePayrollDialog> {
         transport: _read(_transport),
         otherAllowances: _read(_other),
       );
+      for (final c in [_gross, _basic, _housing, _transport]) {
+        c.clear();
+      }
+      _other.text = '0';
       await _load();
       if (mounted) {
         AppFeedback.success(
@@ -1804,6 +1933,7 @@ class _EmployeePayrollDialogState extends State<EmployeePayrollDialog> {
         schemeId: _schemeId,
         contributionWage: _wage.text.trim().isEmpty ? null : _read(_wage),
       );
+      _savedPayment = _payment;
       if (mounted) {
         AppFeedback.success(
           context,
@@ -1863,7 +1993,16 @@ class _EmployeePayrollDialogState extends State<EmployeePayrollDialog> {
   );
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => PopScope(
+    canPop: false,
+    onPopInvokedWithResult: (didPop, _) async {
+      if (didPop) return;
+      if (await _mayLeave() && context.mounted) Navigator.of(context).pop();
+    },
+    child: _dialog(context),
+  );
+
+  Widget _dialog(BuildContext context) {
     final isAr = widget.isAr;
     final theme = Theme.of(context);
     final rows = _structures;
@@ -1898,18 +2037,10 @@ class _EmployeePayrollDialogState extends State<EmployeePayrollDialog> {
                       '${isAr ? 'نقل' : 'Transport'} ${ltrIsolate(formatAmount(s.transport))}',
                     ),
                     trailing: IconButton(
+                      key: ValueKey('structure-delete-${s.id}'),
                       tooltip: isAr ? 'حذف' : 'Delete',
                       icon: const Icon(Icons.delete_outline),
-                      onPressed: () async {
-                        try {
-                          await widget.service.deleteStructure(s.id);
-                          await _load();
-                        } catch (e) {
-                          if (context.mounted) {
-                            AppFeedback.error(context, e.toString());
-                          }
-                        }
-                      },
+                      onPressed: () => _deleteStructure(s),
                     ),
                   ),
               const Divider(),
@@ -2128,7 +2259,8 @@ class _EmployeePayrollDialogState extends State<EmployeePayrollDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.pop(context),
+          key: const ValueKey('employee-payroll-close'),
+          onPressed: () => Navigator.maybePop(context),
           child: Text(isAr ? 'إغلاق' : 'Close'),
         ),
       ],

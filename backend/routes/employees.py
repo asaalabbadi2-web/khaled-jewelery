@@ -134,6 +134,13 @@ def create_employee():
     if not name:
         return jsonify({'error': 'اسم الموظف مطلوب'}), 400
 
+    from services.employee_access import refuse_owned_elsewhere
+    from services.payroll_laws import PayrollRefused
+    try:
+        refuse_owned_elsewhere(data)                          # HR-UX ط1: the structure's, the settlement's
+    except PayrollRefused as refused:
+        return _payroll_refusal(refused)
+
     employee_code = data.get('employee_code') or _generate_employee_code()
 
     if Employee.query.filter_by(employee_code=employee_code).first():
@@ -224,9 +231,8 @@ def create_employee():
         phone=data.get('phone'),
         email=data.get('email'),
         national_id=data.get('national_id'),
-        salary=data.get('salary') or 0.0,
+        salary=0.0,                                          # his structure's, when he has one
         hire_date=_parse_iso_date(data.get('hire_date'), 'hire_date'),
-        termination_date=_parse_iso_date(data.get('termination_date'), 'termination_date'),
         account_id=account_id,
         is_active=data.get('is_active', True),
         notes=data.get('notes'),
@@ -400,7 +406,12 @@ def get_employee(employee_id):
 def update_employee(employee_id):
     employee = Employee.query.get_or_404(employee_id)
     data = request.get_json() or {}
-    from services.employee_access import snapshot
+    from services.employee_access import refuse_owned_elsewhere, snapshot
+    from services.payroll_laws import PayrollRefused
+    try:
+        refuse_owned_elsewhere(data, employee)                # HR-UX ط1: the structure's, the settlement's
+    except PayrollRefused as refused:
+        return _payroll_refusal(refused)
     before = snapshot(employee)                              # EMP-1: the change is recorded
     was_active = bool(employee.is_active)
 
@@ -408,13 +419,8 @@ def update_employee(employee_id):
         if field in data:
             setattr(employee, field, data[field])
 
-    if 'salary' in data and data['salary'] is not None:
-        employee.salary = float(data['salary'])
-
     if 'hire_date' in data:
         employee.hire_date = _parse_iso_date(data['hire_date'], 'hire_date')
-    if 'termination_date' in data:
-        employee.termination_date = _parse_iso_date(data['termination_date'], 'termination_date')
 
     if 'account_id' in data:
         employee.account_id = data['account_id']
@@ -917,13 +923,15 @@ def suggest_salary_structure():
 @employees_bp.route('/employees/<int:employee_id>/salary-structures', methods=['GET'])
 @require_permission('employees.payroll')
 def list_salary_structures(employee_id):
-    from services.payroll_policy import structure_on
-    Employee.query.get_or_404(employee_id)
+    from services.payroll_policy import structure_on, suggested_from
+    employee = Employee.query.get_or_404(employee_id)
     rows = (SalaryStructure.query.filter_by(employee_id=employee_id)
             .order_by(SalaryStructure.effective_from.desc()).all())
-    current = structure_on(employee_id, datetime.now().date())
+    today = datetime.now().date()
+    current = structure_on(employee_id, today)
     return jsonify({'structures': [row.to_dict() for row in rows],
-                    'current_id': current.id if current is not None else None})
+                    'current_id': current.id if current is not None else None,
+                    'suggested_from': suggested_from(employee, today).isoformat()})
 
 
 @employees_bp.route('/employees/<int:employee_id>/salary-structures', methods=['POST'])
@@ -1122,6 +1130,20 @@ def _run_line(run_id, payroll_id):
     if line.payroll_run_id != run_id:
         abort(404)
     return line
+
+
+@employees_bp.route('/payroll/runs/<int:run_id>/lines', methods=['POST'])
+@require_permission('employees.payroll')
+def add_payroll_run_line(run_id):
+    from services.payroll_run import add_line
+    run = PayrollRun.query.get_or_404(run_id)
+    data = request.get_json(silent=True) or {}
+    try:
+        employee = Employee.query.get_or_404(int(data.get('employee_id') or 0))
+    except (TypeError, ValueError):
+        abort(404)
+    by = data.get('created_by') or 'system'
+    return _run_action(run, lambda: add_line(run, employee, by=by))
 
 
 @employees_bp.route('/payroll/runs/<int:run_id>/lines/<int:payroll_id>', methods=['PUT'])

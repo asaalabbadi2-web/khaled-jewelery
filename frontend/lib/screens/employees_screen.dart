@@ -6,11 +6,11 @@ import '../models/app_user_model.dart';
 import '../models/employee_model.dart';
 import '../models/safe_box_model.dart';
 import '../providers/auth_provider.dart';
-import '../utils.dart';
 import '../widgets/user_avatar_widget.dart';
 import 'account_statement_screen.dart';
 import '../widgets/app_feedback.dart';
 import 'employee_file_view.dart';
+import '../widgets/date_field.dart';
 import '../widgets/goal_settings_tile.dart';
 
 class EmployeesScreen extends StatefulWidget {
@@ -1163,12 +1163,9 @@ class _EmployeeFormDialogState extends State<EmployeeFormDialog> {
   late final TextEditingController _departmentController;
   late final TextEditingController _phoneController;
   late final TextEditingController _emailController;
-  late final TextEditingController _salaryController;
   late final TextEditingController _notesController;
   late final TextEditingController _nationalIdController;
-  DateTime? _hireDate;
-  DateTime? _terminationDate;
-  bool _isActive = true;
+  late final TextEditingController _hireDateController;
 
   List<SafeBoxModel> _goldSafes = const [];
   bool _loadingGoldSafes = false;
@@ -1192,21 +1189,20 @@ class _EmployeeFormDialogState extends State<EmployeeFormDialog> {
     );
     _phoneController = TextEditingController(text: employee?.phone ?? '');
     _emailController = TextEditingController(text: employee?.email ?? '');
-    _salaryController = TextEditingController(
-      text: employee != null ? employee.salary.toStringAsFixed(2) : '',
-    );
     _notesController = TextEditingController(text: employee?.notes ?? '');
     _nationalIdController = TextEditingController(
       text: employee?.nationalId ?? '',
     );
-    _isActive = employee?.isActive ?? true;
 
     _selectedGoldSafeBoxId = employee?.goldSafeBoxId ?? 0;
     _selectedCashSafeBoxId = employee?.cashSafeBoxId ?? 0;
 
-    // ✅ تحميل التواريخ من الموظف الحالي
-    _hireDate = employee?.hireDate;
-    _terminationDate = employee?.terminationDate;
+    final hired = employee?.hireDate;
+    _hireDateController = TextEditingController(
+      text: hired == null
+          ? ''
+          : '${hired.year}-${'${hired.month}'.padLeft(2, '0')}-${'${hired.day}'.padLeft(2, '0')}',
+    );
 
     _loadGoldSafes();
     _loadCashSafes();
@@ -1255,39 +1251,19 @@ class _EmployeeFormDialogState extends State<EmployeeFormDialog> {
     _departmentController.dispose();
     _phoneController.dispose();
     _emailController.dispose();
-    _salaryController.dispose();
     _notesController.dispose();
     _nationalIdController.dispose();
+    _hireDateController.dispose();
     super.dispose();
-  }
-
-  Future<void> _pickDate(BuildContext context, bool isHireDate) async {
-    final now = DateTime.now();
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: isHireDate ? (_hireDate ?? now) : (_terminationDate ?? now),
-      firstDate: DateTime(1950),
-      lastDate: DateTime(2100),
-    );
-
-    if (picked != null) {
-      setState(() {
-        if (isHireDate) {
-          _hireDate = picked;
-        } else {
-          _terminationDate = picked;
-        }
-      });
-    }
   }
 
   void _submit() {
     if (!_formKey.currentState!.validate()) return;
 
-    final salary =
-        double.tryParse(_salaryController.text.trim().replaceAll(',', '.')) ??
-        0.0;
-
+    // HR-UX ط1: his salary is his structure's (قسم «الراتب»), his leaving
+    // date his settlement's («إنهاء الخدمة»), his stop the page head's --
+    // none is written here; the server refuses them.
+    final hireDate = _hireDateController.text.trim();
     final payload = <String, dynamic>{
       'name': _nameController.text.trim(),
       'job_title': _jobTitleController.text.trim().isEmpty
@@ -1302,16 +1278,13 @@ class _EmployeeFormDialogState extends State<EmployeeFormDialog> {
       'email': _emailController.text.trim().isEmpty
           ? null
           : _emailController.text.trim(),
-      'salary': salary,
       'notes': _notesController.text.trim().isEmpty
           ? null
           : _notesController.text.trim(),
       'national_id': _nationalIdController.text.trim().isEmpty
           ? null
           : _nationalIdController.text.trim(),
-      'hire_date': _hireDate?.toIso8601String().split('T').first,
-      'termination_date': _terminationDate?.toIso8601String().split('T').first,
-      'is_active': _isActive,
+      'hire_date': hireDate.isEmpty ? null : hireDate,
       'gold_safe_box_id': _selectedGoldSafeBoxId,
       'cash_safe_box_id': _selectedCashSafeBoxId,
     }..removeWhere((key, value) => value == null);
@@ -1367,14 +1340,6 @@ class _EmployeeFormDialogState extends State<EmployeeFormDialog> {
                   ),
                 ),
                 TextFormField(
-                  controller: _salaryController,
-                  decoration: InputDecoration(
-                    labelText: isAr ? 'الراتب الأساسي' : 'Basic Salary',
-                  ),
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [NormalizeNumberFormatter()],
-                ),
-                TextFormField(
                   controller: _phoneController,
                   decoration: InputDecoration(
                     labelText: isAr ? 'الهاتف' : 'Phone',
@@ -1397,54 +1362,10 @@ class _EmployeeFormDialogState extends State<EmployeeFormDialog> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                // ✅ تاريخ التعيين
-                ListTile(
-                  leading: const Icon(Icons.event),
-                  title: Text(isAr ? 'تاريخ التعيين' : 'Hire Date'),
-                  subtitle: Text(
-                    _hireDate != null
-                        ? '${_hireDate!.year}-${_hireDate!.month.toString().padLeft(2, '0')}-${_hireDate!.day.toString().padLeft(2, '0')}'
-                        : (isAr ? 'غير محدد' : 'Not set'),
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (_hireDate != null)
-                        IconButton(
-                          icon: const Icon(Icons.clear, size: 20),
-                          onPressed: () => setState(() => _hireDate = null),
-                        ),
-                      IconButton(
-                        icon: const Icon(Icons.calendar_today),
-                        onPressed: () => _pickDate(context, true),
-                      ),
-                    ],
-                  ),
-                ),
-                // ✅ تاريخ الإنهاء
-                ListTile(
-                  leading: const Icon(Icons.event_busy),
-                  title: Text(isAr ? 'تاريخ الإنهاء' : 'Termination Date'),
-                  subtitle: Text(
-                    _terminationDate != null
-                        ? '${_terminationDate!.year}-${_terminationDate!.month.toString().padLeft(2, '0')}-${_terminationDate!.day.toString().padLeft(2, '0')}'
-                        : (isAr ? 'غير محدد' : 'Not set'),
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (_terminationDate != null)
-                        IconButton(
-                          icon: const Icon(Icons.clear, size: 20),
-                          onPressed: () =>
-                              setState(() => _terminationDate = null),
-                        ),
-                      IconButton(
-                        icon: const Icon(Icons.calendar_today),
-                        onPressed: () => _pickDate(context, false),
-                      ),
-                    ],
-                  ),
+                DateField(
+                  key: const ValueKey('employee-hire-date'),
+                  controller: _hireDateController,
+                  label: isAr ? 'تاريخ التعيين' : 'Hire Date',
                 ),
                 const SizedBox(height: 8),
                 TextFormField(
@@ -1477,6 +1398,7 @@ class _EmployeeFormDialogState extends State<EmployeeFormDialog> {
                 ],
                 DropdownButtonFormField<int>(
                   value: _selectedCashSafeBoxId,
+                  isExpanded: true,
                   decoration: InputDecoration(
                     labelText: isAr ? 'خزنة النقد' : 'Cash Safe',
                     prefixIcon: const Icon(Icons.point_of_sale),
@@ -1534,6 +1456,7 @@ class _EmployeeFormDialogState extends State<EmployeeFormDialog> {
                 ],
                 DropdownButtonFormField<int>(
                   value: _selectedGoldSafeBoxId,
+                  isExpanded: true,
                   decoration: InputDecoration(
                     labelText: isAr ? 'خزنة الذهب' : 'Gold Safe',
                     prefixIcon: const Icon(Icons.diamond),
@@ -1566,12 +1489,6 @@ class _EmployeeFormDialogState extends State<EmployeeFormDialog> {
                             }
                           });
                         },
-                ),
-                const SizedBox(height: 12),
-                SwitchListTile(
-                  value: _isActive,
-                  onChanged: (value) => setState(() => _isActive = value),
-                  title: Text(isAr ? 'الحالة نشطة' : 'Active Status'),
                 ),
               ],
             ),
