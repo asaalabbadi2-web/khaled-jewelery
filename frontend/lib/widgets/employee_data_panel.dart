@@ -7,6 +7,7 @@ import '../theme/app_tokens.dart';
 import '../utils/bidi.dart';
 import 'app_feedback.dart';
 import 'app_leave_guard.dart';
+import 'confirm_financial_action.dart';
 import 'date_field.dart';
 
 /// His file's data edited where it is shown (HR-UX ط3; the owner, 2 Nov 2026,
@@ -173,6 +174,69 @@ class _EmployeeDataPanelState extends State<EmployeeDataPanel> {
       if (mounted) setState(() => _busy = false);
     }
   }
+
+  /// HR-UX ط5: a safe of his own, asked for by its kind (the old repair
+  /// button made both, unasked).
+  Future<void> _makeOwn(String kind) async {
+    final isAr = _isAr;
+    final cash = kind == 'cash';
+    final sure = await confirmFinancialAction(
+      context,
+      title: cash
+          ? (isAr ? 'خزنة نقد خاصة به' : 'A cash safe of his own')
+          : (isAr ? 'خزنة ذهب خاصة به' : 'A gold safe of his own'),
+      effect: cash
+          ? (isAr
+                ? 'تُنشأ خزنة نقد باسمه ويُربط بها، فيدخل ما يقبضه في البيع خزنته لا الخزنة الرئيسية.'
+                : 'A cash safe in his name is made and linked: what he takes in sales goes to it.')
+          : (isAr
+                ? 'تُنشأ خزنة ذهب باسمه ويُربط بها، فتُسجَّل عهدته من الذهب فيها.'
+                : 'A gold safe in his name is made and linked: his gold custody is kept in it.'),
+      confirmLabel: isAr ? 'أنشئ واربط' : 'Make and link',
+      destructive: false,
+    );
+    if (sure == null) return;
+    setState(() => _busy = true);
+    try {
+      await widget.api.makeOwnSafe(widget.employee['id'] as int, kind);
+      if (!mounted) return;
+      AppFeedback.success(
+        context,
+        isAr ? 'أُنشئت الخزنة ورُبط بها' : 'Made and linked',
+      );
+      widget.onSaved?.call();
+    } catch (e) {
+      if (mounted) AppFeedback.error(context, e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Widget _safeRow(
+    String label,
+    int id,
+    List<SafeBoxModel> safes,
+    String kind,
+  ) => _row(
+    label,
+    _safeName(id, safes),
+    action: id != 0
+        ? null
+        : Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: AppSpace.sm,
+            children: [
+              Text(_safeName(0, safes)),
+              TextButton(
+                key: ValueKey('data-own-safe-$kind'),
+                onPressed: _busy || _editing != null
+                    ? null
+                    : () => _makeOwn(kind),
+                child: Text(_isAr ? '+ خزنة خاصة به' : '+ One of his own'),
+              ),
+            ],
+          ),
+  );
 
   String _label(String key) => switch (key) {
     'name' => _isAr ? 'الاسم الكامل' : 'Full name',
@@ -454,13 +518,17 @@ class _EmployeeDataPanelState extends State<EmployeeDataPanel> {
         'safes',
         isAr ? 'الخزائن' : 'Safes',
         [
-          _row(
+          _safeRow(
             isAr ? 'خزنة النقد' : 'Cash safe',
-            _safeName(_cashSafe, _cashSafes),
+            _cashSafe,
+            _cashSafes,
+            'cash',
           ),
-          _row(
+          _safeRow(
             isAr ? 'خزنة الذهب' : 'Gold safe',
-            _safeName(_goldSafe, _goldSafes),
+            _goldSafe,
+            _goldSafes,
+            'gold',
           ),
         ],
         [

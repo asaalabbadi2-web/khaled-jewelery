@@ -12,6 +12,13 @@ import 'package:frontend/widgets/employee_data_panel.dart';
 /// where it is.
 class _Api extends ApiService {
   Map<String, dynamic>? sent;
+  String? ownSafe;
+
+  @override
+  Future<EmployeeModel> makeOwnSafe(int employeeId, String kind) async {
+    ownSafe = kind;
+    return EmployeeModel.fromJson({'id': employeeId, 'name': 'مسعد المهري'});
+  }
 
   @override
   Future<List<SafeBoxModel>> getSafeBoxes({
@@ -131,5 +138,46 @@ void main() {
     expect(find.text('الاسم مطلوب'), findsOneWidget);
     expect(api.sent, isNull);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('HR-UX ط5: on the main safe, a safe of his own is asked for by '
+      'its kind, confirmed first', (tester) async {
+    tester.view.physicalSize = const Size(1100, 1400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final api = _Api();
+    var saved = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LightTheme.theme,
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: EmployeeDataPanel(
+              api: api,
+              isAr: true,
+              onSaved: () => saved++,
+              employee: const {
+                'id': 16,
+                'name': 'مسعد المهري',
+                'cash_safe_box_id': null,
+                'gold_safe_box_id': 43,
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+    await _settle(tester);
+    expect(
+      find.byKey(const ValueKey('data-own-safe-gold')),
+      findsNothing,
+      reason: 'one linked: none offered',
+    );
+    await tester.tap(find.byKey(const ValueKey('data-own-safe-cash')));
+    await _settle(tester);
+    expect(api.ownSafe, isNull, reason: 'not before it is confirmed');
+    await tester.tap(find.byKey(const Key('confirm-action')));
+    await _settle(tester);
+    expect((api.ownSafe, saved), ('cash', 1));
   });
 }

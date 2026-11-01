@@ -133,7 +133,8 @@ void main() {
       expect(find.textContaining('لم يُنشأ'), findsOneWidget);
       expect(find.byKey(const ValueKey('hr-payroll-legacy')), findsOneWidget);
 
-      // الإعدادات: every setting in one place, and the earlier screen kept
+      // الإعدادات: every setting in one place; the earlier screen gone (HR-UX
+      // ط5, the owner, 2 Nov 2026: «اعتمد» -- its repair made safes unasked)
       await tester.tap(find.byKey(const ValueKey('hr-tab-settings')));
       await _settle(tester);
       for (final key in [
@@ -142,10 +143,10 @@ void main() {
         'hr-settings-leave',
         'hr-settings-documents',
         'hr-settings-attendance',
-        'hr-settings-legacy',
       ]) {
         expect(find.byKey(ValueKey(key)), findsOneWidget, reason: key);
       }
+      expect(find.byKey(const ValueKey('hr-settings-legacy')), findsNothing);
     },
   );
 

@@ -48,7 +48,6 @@ import 'branches_management_screen.dart';
 import 'gold_price_manual_screen_enhanced.dart';
 import 'customize_quick_actions_screen.dart';
 import 'scrap_purchase_invoice_screen.dart';
-import 'employees_screen.dart';
 import 'hr_hub_screen.dart';
 import 'my_portal_screen.dart';
 import 'users_screen.dart';
@@ -1713,8 +1712,10 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         },
       );
     }
-    // HR-UX ر1: one hub -- its employees, payroll, follow-up and settings. One
-    // who sees employees but not payroll keeps the employees screen.
+    // HR-UX ر1: one hub -- its employees, payroll, follow-up and settings.
+    // HR-UX ط5: the employees screen it kept for one who sees employees but
+    // not payroll is gone -- no role holds the one without the other
+    // (permissions.ROLE_PERMISSIONS: manager, accountant).
     if (auth.hasPermission('employees.payroll')) {
       addDestination(
         icon: Icons.groups_2_outlined,
@@ -1727,18 +1728,6 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
             MaterialPageRoute(
               builder: (_) => HrHubScreen(api: api, isArabic: isAr),
             ),
-          );
-        },
-      );
-    } else if (auth.hasPermission('employees.view')) {
-      addDestination(
-        icon: Icons.badge,
-        title: isAr ? 'الموظفين' : 'Employees',
-        color: _tone.sectionSlate.fg,
-        onSelected: () async {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => EmployeesScreen(api: api)),
           );
         },
       );
@@ -4717,7 +4706,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     'safe_boxes':              'safe_boxes.transfer',
     'shift_closing':           'safe_boxes.edit',
     // الموظفون والرواتب
-    'employees':               'employees.view',
+    'employees':               'employees.payroll',
     'payroll':                 'employees.payroll',
     'payroll_report':          'employees.payroll',
     'attendance':              'employees.view',
@@ -4947,8 +4936,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         result = await Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) =>
-                EmployeesScreen(api: api, isArabic: widget.isArabic),
+            builder: (_) => HrHubScreen(api: api, isArabic: widget.isArabic),
           ),
         );
         break;

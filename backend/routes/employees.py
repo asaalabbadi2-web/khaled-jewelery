@@ -549,6 +549,24 @@ def get_employee_file(employee_id):
     return jsonify(file_of(Employee.query.get_or_404(employee_id), today=datetime.now().date()))
 
 
+@employees_bp.route('/employees/<int:employee_id>/own-safe', methods=['POST'])
+@require_permission('employees.edit')
+def make_employee_own_safe(employee_id):
+    """HR-UX ط5: a cash or a gold safe of his own, asked for by its kind."""
+    from services.approval_policy import actor
+    from services.employee_safes import make_own_safe
+    from services.payroll_laws import PayrollRefused
+    employee = Employee.query.get_or_404(employee_id)
+    try:
+        safe = make_own_safe(employee, str((request.get_json(silent=True) or {}).get('kind') or ''),
+                             by=actor(), now=datetime.now())
+    except PayrollRefused as refused:
+        db.session.rollback()
+        return _payroll_refusal(refused, 409 if refused.code == 'employee_has_a_safe' else 400)
+    db.session.commit()
+    return jsonify({'safe_box_id': safe.id, 'name': safe.name, **employee.to_dict()}), 201
+
+
 @employees_bp.route('/hr/overview', methods=['GET'])
 @require_permission('employees.payroll')
 def get_hr_overview():
@@ -634,250 +652,6 @@ def get_employee_advance_account(employee_id):
 def create_employee_advance_account(employee_id):
     """حسابات السلف تم إلغاؤها نهائياً."""
     return jsonify({'error': 'Advance accounts feature has been removed'}), 410
-
-@employees_bp.route('/employees/<int:employee_id>/ensure-setup', methods=['POST'])
-@require_permission('employees.edit')
-def ensure_employee_setup(employee_id):
-    """Ensure missing employee artifacts exist (accounts + optional safes).
-
-    Useful for employees created before auto-linking/auto-safe options existed.
-    Idempotent: does not duplicate payables accounts or safes if already linked.
-
-    Payload (all optional):
-      - ensure_personal_account: bool (default true)
-      - ensure_payables_accounts: bool (default true)
-      - ensure_cash_safe: bool (default true)
-      - ensure_gold_safe: bool (default true)
-      - created_by: str
-    """
-
-    from employee_account_helpers import (
-        create_employee_account,
-        ensure_employee_group_accounts,
-        get_or_create_employee_payables_accounts,
-        ensure_memo_for_account,
-    )
-    from employee_account_naming import employee_personal_account_name
-    from employee_gold_safe_helpers import create_employee_gold_safe, ensure_employee_gold_group_account
-    from employee_cash_safe_helpers import create_employee_cash_safe, ensure_employee_cash_group_account
-
-    data = request.get_json() or {}
-
-    def _boolish(value, default: bool = False) -> bool:
-        if value is None:
-            return default
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return bool(value)
-        if isinstance(value, str):
-            return value.strip().lower() in ('1', 'true', 'yes', 'y', 'on')
-        return bool(value)
-
-    created_by = data.get('created_by', 'system')
-    ensure_personal = _boolish(data.get('ensure_personal_account'), default=True)
-    ensure_payables = _boolish(data.get('ensure_payables_accounts'), default=True)
-    ensure_cash_safe = _boolish(data.get('ensure_cash_safe'), default=True)
-    ensure_gold_safe = _boolish(data.get('ensure_gold_safe'), default=True)
-
-    employee = Employee.query.get_or_404(employee_id)
-
-    created = {
-        'linked_personal_account': None,
-        'created_personal_account': None,
-        'created_cash_safe_box': None,
-        'created_gold_safe_box': None,
-        'ensured_payables_accounts': [],
-    }
-
-    try:
-        # Ensure group structure exists when possible.
-        try:
-            ensure_employee_group_accounts(created_by=created_by)
-            ensure_employee_cash_group_account(created_by=created_by)
-            ensure_employee_gold_group_account(created_by=created_by)
-        except Exception:
-            pass
-
-        # 1) Ensure personal account is linked.
-        if ensure_personal and not getattr(employee, 'account_id', None):
-            # An unlinked personal account already made for this employee, under
-            # the mapped personal parent -- never a same-named account elsewhere.
-            from services.employee_accounts import PERSONAL_PARENT, parent_account
-            parent_acc = parent_account(PERSONAL_PARENT)
-            expected_name = employee_personal_account_name(employee.name)
-            existing = Account.query.filter_by(parent_id=parent_acc.id, name=expected_name).first()
-
-            if existing:
-                try:
-                    ensure_memo_for_account(existing)
-                except Exception:
-                    pass
-                employee.account_id = existing.id
-                created['linked_personal_account'] = {
-                    'account_id': int(existing.id),
-                    'account_number': existing.account_number,
-                    'account_name': existing.name,
-                }
-            else:
-                acc = create_employee_account(employee_name=employee.name, created_by=created_by)
-                employee.account_id = acc.id
-                created['created_personal_account'] = {
-                    'account_id': int(acc.id),
-                    'account_number': acc.account_number,
-                    'account_name': acc.name,
-                }
-
-        # 2) Ensure payables accounts exist (idempotent).
-        if ensure_payables:
-            payables = get_or_create_employee_payables_accounts(employee, created_by=created_by)
-            created['ensured_payables_accounts'] = [
-                {
-                    'account_id': int(a.id),
-                    'account_number': a.account_number,
-                    'account_name': a.name,
-                }
-                for a in payables
-            ]
-
-        # 3) Ensure gold/cash safes (create + link if missing).
-        if ensure_gold_safe and (getattr(employee, 'gold_safe_box_id', None) in (None, 0)):
-            acc, sb = create_employee_gold_safe(
-                employee_name=employee.name,
-                employee_code=getattr(employee, 'employee_code', None),
-                created_by=created_by,
-            )
-            employee.gold_safe_box_id = sb.id
-            created['created_gold_safe_box'] = {
-                'safe_box_id': int(sb.id),
-                'safe_box_name': sb.name,
-                'account_id': int(acc.id),
-                'account_number': acc.account_number,
-                'account_name': acc.name,
-            }
-
-        if ensure_cash_safe and (getattr(employee, 'cash_safe_box_id', None) in (None, 0)):
-            acc, sb = create_employee_cash_safe(
-                employee_name=employee.name,
-                employee_code=getattr(employee, 'employee_code', None),
-                created_by=created_by,
-            )
-            employee.cash_safe_box_id = sb.id
-            created['created_cash_safe_box'] = {
-                'safe_box_id': int(sb.id),
-                'safe_box_name': sb.name,
-                'account_id': int(acc.id),
-                'account_number': acc.account_number,
-                'account_name': acc.name,
-            }
-
-        db.session.commit()
-
-        result = employee.to_dict(include_details=True)
-        result['ensure_setup'] = created
-        return jsonify(result), 200
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': f'Failed to ensure employee setup: {str(e)}'}), 500
-
-@employees_bp.route('/employees/bulk-ensure-setup', methods=['POST'])
-@require_permission('employees.edit')
-def bulk_ensure_employees_setup():
-    """Run ensure-setup (accounts + safes) for every active employee at once.
-
-    Safe creation is gated by the global Settings flags:
-      - employee_cash_safes_enabled → create cash safe only if True
-      - employee_gold_safes_enabled → create gold safe only if True
-    Payables accounts (2400/2410/2420/2310) are always ensured.
-    """
-    from employee_account_helpers import (
-        get_or_create_employee_payables_accounts,
-        ensure_employee_group_accounts,
-        create_employee_account,
-        ensure_memo_for_account,
-    )
-    from employee_account_naming import employee_personal_account_name
-    from employee_gold_safe_helpers import create_employee_gold_safe, ensure_employee_gold_group_account
-    from employee_cash_safe_helpers import create_employee_cash_safe, ensure_employee_cash_group_account
-
-    # Read global safe-feature flags from Settings
-    settings_row = Settings.query.first()
-    cash_safes_enabled = bool(getattr(settings_row, 'employee_cash_safes_enabled', False))
-    gold_safes_enabled = bool(getattr(settings_row, 'employee_gold_safes_enabled', False))
-
-    employees = Employee.query.filter_by(is_active=True).all()
-    summary = {
-        'total': len(employees),
-        'cash_safes_enabled': cash_safes_enabled,
-        'gold_safes_enabled': gold_safes_enabled,
-        'updated': [],
-        'errors': [],
-    }
-
-    # Ensure group structure once before the loop
-    try:
-        ensure_employee_group_accounts(created_by='bulk-ensure')
-        if cash_safes_enabled:
-            ensure_employee_cash_group_account(created_by='bulk-ensure')
-        if gold_safes_enabled:
-            ensure_employee_gold_group_account(created_by='bulk-ensure')
-    except Exception:
-        pass
-
-    for emp in employees:
-        try:
-            created: dict = {}
-
-            # personal account
-            if not getattr(emp, 'account_id', None):
-                acct = create_employee_account(emp.name, created_by='bulk-ensure')
-                emp.account_id = acct.id
-                created['personal_account'] = acct.account_number
-
-            # payables accounts (2400/2410/2420/2310) — always
-            payables = get_or_create_employee_payables_accounts(emp, created_by='bulk-ensure')
-            if payables:
-                created['payables'] = [a.account_number for a in payables]
-
-            # gold safe — only when globally enabled
-            if gold_safes_enabled and (getattr(emp, 'gold_safe_box_id', None) in (None, 0)):
-                try:
-                    acc, sb = create_employee_gold_safe(
-                        employee_name=emp.name,
-                        employee_code=getattr(emp, 'employee_code', None),
-                        created_by='bulk-ensure',
-                    )
-                    emp.gold_safe_box_id = sb.id
-                    created['gold_safe'] = sb.name
-                except Exception:
-                    pass
-
-            # cash safe — only when globally enabled
-            if cash_safes_enabled and (getattr(emp, 'cash_safe_box_id', None) in (None, 0)):
-                try:
-                    acc, sb = create_employee_cash_safe(
-                        employee_name=emp.name,
-                        employee_code=getattr(emp, 'employee_code', None),
-                        created_by='bulk-ensure',
-                    )
-                    emp.cash_safe_box_id = sb.id
-                    created['cash_safe'] = sb.name
-                except Exception:
-                    pass
-
-            db.session.flush()
-            summary['updated'].append({'id': emp.id, 'name': emp.name, 'created': created})
-
-        except Exception as e:
-            summary['errors'].append({'id': emp.id, 'name': emp.name, 'error': str(e)})
-
-    try:
-        db.session.commit()
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
-
-    return jsonify(summary), 200
 
 # ── PAYROLL-2: the payroll's data and policy (services/payroll_policy) ─────────
 

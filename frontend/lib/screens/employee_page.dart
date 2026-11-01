@@ -14,7 +14,6 @@ import '../widgets/employee_data_panel.dart';
 import '../widgets/employee_salary_panel.dart';
 import '../widgets/user_avatar_widget.dart';
 import 'employee_file_view.dart';
-import 'employees_screen.dart';
 import 'users_screen.dart';
 import '../widgets/goal_settings_tile.dart';
 
@@ -178,15 +177,6 @@ class _EmployeePageState extends State<EmployeePage> {
     _load();
   }
 
-  Future<void> _earlierScreen() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => EmployeesScreen(api: widget.api, isArabic: _isAr),
-      ),
-    );
-    _load();
-  }
-
   @override
   Widget build(BuildContext context) {
     final isAr = _isAr;
@@ -297,7 +287,6 @@ class _EmployeePageState extends State<EmployeePage> {
                   employeeId: widget.employeeId,
                   onEdit: () => _pick('data'),
                   onToggle: _toggle,
-                  onEarlier: _earlierScreen,
                   onPhoto: _load,
                 ),
                 const SizedBox(height: AppSpace.md),
@@ -341,7 +330,6 @@ class _Head extends StatelessWidget {
     required this.employeeId,
     required this.onEdit,
     required this.onToggle,
-    required this.onEarlier,
     required this.onPhoto,
   });
   final Map<String, dynamic> file;
@@ -350,7 +338,6 @@ class _Head extends StatelessWidget {
   final int employeeId;
   final VoidCallback onEdit;
   final VoidCallback onToggle;
-  final VoidCallback onEarlier;
   final VoidCallback onPhoto;
 
   @override
@@ -488,20 +475,6 @@ class _Head extends StatelessWidget {
                         ? (isAr ? 'إيقاف' : 'Stop')
                         : (isAr ? 'تفعيل' : 'Start'),
                   ),
-                ),
-                PopupMenuButton<String>(
-                  tooltip: isAr ? 'المزيد' : 'More',
-                  onSelected: (_) => onEarlier(),
-                  itemBuilder: (_) => [
-                    PopupMenuItem(
-                      value: 'earlier',
-                      child: Text(
-                        isAr
-                            ? 'إصلاح حسابات الموظفين (الشاشة السابقة)'
-                            : 'Repair employee accounts (earlier screen)',
-                      ),
-                    ),
-                  ],
                 ),
               ],
             ),

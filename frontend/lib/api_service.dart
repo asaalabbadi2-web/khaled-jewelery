@@ -4363,48 +4363,21 @@ class ApiService {
     }
   }
 
-  Future<EmployeeModel> ensureEmployeeSetup(
-    int employeeId, {
-    bool ensurePersonalAccount = true,
-    bool ensurePayablesAccounts = true,
-    bool ensureCashSafe = true,
-    bool ensureGoldSafe = true,
-  }) async {
+  /// HR-UX ط5: a cash or a gold safe of his own, asked for by its kind --
+  /// made only while he has none linked (services/employee_safes).
+  Future<EmployeeModel> makeOwnSafe(int employeeId, String kind) async {
     final token = await _requireAuthToken();
-    final payload = {
-      'ensure_personal_account': ensurePersonalAccount,
-      'ensure_payables_accounts': ensurePayablesAccounts,
-      'ensure_cash_safe': ensureCashSafe,
-      'ensure_gold_safe': ensureGoldSafe,
-    };
-
     final response = await http.post(
-      Uri.parse('$_baseUrl/employees/$employeeId/ensure-setup'),
+      Uri.parse('$_baseUrl/employees/$employeeId/own-safe'),
       headers: _jsonHeaders(token: token),
-      body: json.encode(_normalizePayload(payload)),
+      body: json.encode({'kind': kind}),
     );
-
-    if (response.statusCode == 200) {
+    if (response.statusCode == 201) {
       return EmployeeModel.fromJson(
         json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>,
       );
-    } else {
-      throw _apiError(response);
     }
-  }
-
-  Future<Map<String, dynamic>> bulkEnsureAllEmployeesSetup() async {
-    final token = await _requireAuthToken();
-    final response = await http.post(
-      Uri.parse('$_baseUrl/employees/bulk-ensure-setup'),
-      headers: _jsonHeaders(token: token),
-      body: json.encode({}),
-    );
-    if (response.statusCode == 200) {
-      return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-    } else {
-      throw _apiError(response);
-    }
+    throw _apiError(response);
   }
 
   Future<void> deleteEmployee(int employeeId) async {

@@ -9,6 +9,7 @@ import '../utils/bidi.dart';
 import '../utils/currency_utils.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/app_state_views.dart';
+import 'account_statement_screen.dart';
 
 /// An employee's file in one place (EMP-2): what is missing, his users, his
 /// salary, his last payroll, his advances, his bonuses, his custody, his
@@ -473,10 +474,34 @@ class _EmployeeFileViewState extends State<EmployeeFileView> {
                 ),
           ]),
           _section('accounts', isAr ? 'الحسابات' : 'Accounts', [
+            // HR-UX ط5: each opens its statement (the old screen's «كشف حساب»)
             for (final a
                 in (file['accounts'] as List? ?? const [])
                     .cast<Map<String, dynamic>>())
-              _row(word(_roles[a['role']], '${a['name']}'), _money(a['cash'])),
+              InkWell(
+                key: ValueKey('employee-account-${a['role']}'),
+                onTap: a['account_id'] is int
+                    ? () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => AccountStatementScreen(
+                            accountId: a['account_id'] as int,
+                            accountName: '${a['name']}',
+                          ),
+                        ),
+                      )
+                    : null,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _row(
+                        word(_roles[a['role']], '${a['name']}'),
+                        _money(a['cash']),
+                      ),
+                    ),
+                    const Icon(Icons.chevron_left, size: 18),
+                  ],
+                ),
+              ),
           ]),
           _section('end', isAr ? 'إنهاء الخدمة' : 'End of service', [
             if (file['termination'] case final Map<String, dynamic> t) ...[

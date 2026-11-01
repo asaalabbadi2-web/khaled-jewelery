@@ -12,11 +12,10 @@ import 'attendance_screen.dart';
 import 'contribution_schemes_screen.dart';
 import 'employee_file_view.dart';
 import 'employee_page.dart';
-import 'employees_screen.dart';
 import 'new_employee_screen.dart';
 import 'payroll_policy_screen.dart';
 import 'payroll_runs_screen.dart';
-import 'payroll_screen.dart';
+import 'payroll_report_screen.dart';
 
 /// «الموارد البشرية», one screen with four tabs (HR-UX ر1; the owner, 1 Nov
 /// 2026: «اعتمد»): الموظفون، الرواتب، المتابعة، الإعدادات. Each figure is the
@@ -134,7 +133,7 @@ class _HrHubScreenState extends State<HrHubScreen>
             overview: overview,
             isAr: isAr,
             onLegacy: () =>
-                _push(PayrollScreen(api: widget.api, isArabic: isAr)),
+                _push(PayrollReportScreen(api: widget.api, isArabic: isAr)),
           ),
           _FollowupTab(
             overview: overview,
@@ -645,14 +644,14 @@ class _PayrollTab extends StatelessWidget {
                         ),
                     ],
                   ),
+                  // HR-UX ط5: the months before the runs, read by month --
+                  // their screen of entries keyed one by one is gone
                   TextButton.icon(
                     key: const ValueKey('hr-payroll-legacy'),
                     onPressed: onLegacy,
                     icon: const Icon(Icons.history),
                     label: Text(
-                      isAr
-                          ? 'السجلات السابقة (قبل المسيرات)'
-                          : 'Earlier records',
+                      isAr ? 'تقرير الرواتب الشهري' : 'Monthly payroll report',
                     ),
                   ),
                 ],
@@ -966,15 +965,6 @@ class _SettingsTab extends StatelessWidget {
           isAr ? 'سجلات الحضور' : 'Attendance records',
           () => onOpen(AttendanceScreen(api: api, isArabic: isAr)),
           'hr-settings-attendance',
-        ),
-        tile(
-          Icons.build_outlined,
-          isAr ? 'شاشة الموظفين السابقة' : 'Earlier employees screen',
-          isAr
-              ? 'إصلاح حسابات الموظفين (أداة صيانة نادرة)'
-              : 'Repair employee accounts (a rare maintenance tool)',
-          () => onOpen(EmployeesScreen(api: api, isArabic: isAr)),
-          'hr-settings-legacy',
         ),
       ],
     );

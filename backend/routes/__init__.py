@@ -1028,7 +1028,7 @@ def _weight_kwargs_from_map(gold_map, side='debit'):
 #  GET /employees/<id>/payroll, GET /employees/<id>/attendance,
 #  GET /employees/departments/summary,
 #  GET/POST /employees/<id>/advance-account,
-#  POST /employees/<id>/ensure-setup, POST /employees/bulk-ensure-setup,
+#  POST /employees/<id>/own-safe,
 #  GET /advances/summary,
 #  GET/POST /payroll, GET/PUT/DELETE /payroll/<id>,
 #  POST /payroll/<id>/clone, POST /payroll/bulk-approve,

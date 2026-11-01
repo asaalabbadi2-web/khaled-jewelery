@@ -71,7 +71,8 @@ def _accounts(employee) -> list[dict]:
         if account is None:
             continue
         balance = live.get(account_id, {})
-        out.append({'role': role, 'account_number': account.account_number, 'name': account.name,
+        out.append({'role': role, 'account_id': account.id, 'account_number': account.account_number,
+                    'name': account.name,
                     'cash': round(balance.get('cash', 0.0), 2)})
     return out
 
