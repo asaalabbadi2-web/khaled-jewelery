@@ -49,6 +49,9 @@ he is paid twice. One bonus the books owe in part is paid at what they owe
 outside the bonus screen; several are held, the line saying both figures,
 for which of them was paid is not guessed. tests/test_payroll_bonuses.py.
 
+An approved unpaid leave's days come off his line's days (EMP-4,
+services/employee_leave): its month is not whole, his pay by the divisor.
+
 Its end-of-service provision (PAYROLL-5, services/payroll_eos): each line says
 the month's provision -- the art. 84 entitlement at the month's end less what
 his end-of-service account holds -- reckoned again at approval, and the
@@ -153,7 +156,10 @@ def _eligibility(run, employee, first: date, last: date):
 
 
 def _draft_line(run, employee, period, structure, first: date, last: date, divisor: int, by: str) -> None:
-    days = (period[1] - period[0]).days + 1
+    # an approved unpaid leave's days are not his month's (EMP-4)
+    from services.employee_leave import unpaid_days
+    unpaid = unpaid_days(employee.id, period[0], period[1])
+    days = max((period[1] - period[0]).days + 1 - unpaid, 0)
     whole = days == (last - first).days + 1
     share = 1 if whole else min(days, divisor) / divisor
     monthly = {'basic': structure.basic, 'housing': structure.housing, 'transport': structure.transport,
@@ -177,6 +183,7 @@ def _draft_line(run, employee, period, structure, first: date, last: date, divis
             left = round(left - row['amount'], 2)
     breakdown = {'snapshot_schema_version': SNAPSHOT_SCHEMA_VERSION, 'structure_id': structure.id,
                  'monthly': monthly, 'earned': earned, 'days': days, 'divisor': divisor, 'whole_month': whole,
+                 'unpaid_leave_days': unpaid,
                  'contribution_wage': employee.contribution_wage,
                  'eos': _eos(employee, structure, last),
                  'additions': [], 'deductions': deductions, 'employer_contributions': employer,

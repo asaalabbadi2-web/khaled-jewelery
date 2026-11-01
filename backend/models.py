@@ -4266,6 +4266,58 @@ class EmployeeDocument(db.Model):
                 'notes': self.notes}
 
 
+class LeaveType(db.Model):
+    """A kind of leave (EMP-4): paid or not, and its days -- the owner's, none
+    seeded. An accruing one (annual) earns its days a year from the hire date,
+    more after some years; one that does not (sick) has its days a calendar
+    year. Its days unset, no balance is held to."""
+    __tablename__ = 'leave_type'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False, unique=True)
+    paid = db.Column(db.Boolean, nullable=False, default=True)
+    accrues = db.Column(db.Boolean, nullable=False, default=False)
+    days_per_year = db.Column(db.Float, nullable=True)
+    longer_after_years = db.Column(db.Integer, nullable=True)
+    longer_days_per_year = db.Column(db.Float, nullable=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+
+    def to_dict(self):
+        return {'id': self.id, 'name': self.name, 'paid': self.paid, 'accrues': self.accrues,
+                'days_per_year': self.days_per_year, 'longer_after_years': self.longer_after_years,
+                'longer_days_per_year': self.longer_days_per_year, 'is_active': self.is_active}
+
+
+class EmployeeLeave(db.Model):
+    """An employee's leave, from a day to a day (EMP-4): recorded by the
+    manager, approved, or rejected or cancelled. An unpaid one lessens his
+    run's days."""
+    __tablename__ = 'employee_leave'
+
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=False, index=True)
+    type_id = db.Column(db.Integer, db.ForeignKey('leave_type.id'), nullable=False, index=True)
+    start_date = db.Column(db.Date, nullable=False)
+    end_date = db.Column(db.Date, nullable=False)
+    days = db.Column(db.Integer, nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='approved')   # requested, approved, rejected, cancelled
+    notes = db.Column(db.Text, nullable=True)
+    created_by = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime, default=db.func.now(), nullable=False)
+    decided_by = db.Column(db.String(100), nullable=True)
+    decided_at = db.Column(db.DateTime, nullable=True)
+
+    employee = db.relationship('Employee', backref=db.backref('leaves', lazy='dynamic'))
+    type = db.relationship('LeaveType')
+
+    def to_dict(self):
+        return {'id': self.id, 'employee_id': self.employee_id, 'type_id': self.type_id,
+                'type': self.type.name if self.type else None, 'paid': self.type.paid if self.type else None,
+                'start_date': self.start_date.isoformat(), 'end_date': self.end_date.isoformat(),
+                'days': self.days, 'status': self.status, 'notes': self.notes, 'created_by': self.created_by,
+                'decided_by': self.decided_by}
+
+
 class EmployeeAdvancePlan(db.Model):
     """How an advance the books hold is repaid from the salary (PAYROLL-3): an
     amount of the employee's advance account (its balance, never more), an

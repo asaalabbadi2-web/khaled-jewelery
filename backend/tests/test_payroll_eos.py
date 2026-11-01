@@ -16,6 +16,7 @@ Run:
     python -m pytest tests/test_payroll_eos.py -v
 """
 import uuid
+from datetime import date
 
 import pytest
 from flask import g
@@ -108,8 +109,10 @@ def test_a_year_is_half_a_month_and_the_next_month_books_its_days(auth_headers, 
 def test_past_five_years_a_year_is_a_whole_month(auth_headers, eos_expense):
     emp = _employee(auth_headers, hire_date='2035-05-01')
     line = _run(auth_headers, 4, emp)[1]
-    years = line['breakdown']['eos']['days'] / 365
-    assert line['breakdown']['eos']['entitlement'] == round(5 * 0.5 * 8100 + (years - 5) * 8100, 2)
+    from services.payroll_eos import service_years
+    years = service_years(date(2035, 5, 1), date(2041, 4, 30))
+    assert years == 6.0, 'by its anniversaries: six years, not 6.0055 by days / 365'
+    assert line['breakdown']['eos']['entitlement'] == round(5 * 0.5 * 8100 + 1 * 8100, 2)
 
 
 def test_a_cut_in_the_wage_gives_back_what_was_booked_over_it(auth_headers, eos_expense):

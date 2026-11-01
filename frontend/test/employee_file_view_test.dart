@@ -13,6 +13,29 @@ class _Server extends PayrollService {
   _Server() : super(ApiService());
 
   Map<String, dynamic>? contract;
+  Map<String, dynamic>? leave;
+
+  @override
+  Future<List<Map<String, dynamic>>> leaveTypes() async => [
+    {
+      'id': 1,
+      'name': 'السنوية',
+      'paid': true,
+      'accrues': true,
+      'is_active': true,
+    },
+    {
+      'id': 3,
+      'name': 'بدون أجر',
+      'paid': false,
+      'accrues': false,
+      'is_active': true,
+    },
+  ];
+
+  @override
+  Future<void> recordLeave(int employeeId, Map<String, dynamic> row) async =>
+      leave = row;
 
   @override
   Future<void> addContract(int employeeId, Map<String, dynamic> row) async =>
@@ -37,6 +60,13 @@ class _Server extends PayrollService {
       },
     },
     'contract': null,
+    'leave': {
+      'balances': [
+        {'type': 'السنوية', 'balance': null, 'reason': 'no_hire_date'},
+        {'type': 'المرضية', 'balance': null, 'reason': 'not_set'},
+      ],
+      'recent': <dynamic>[],
+    },
     'documents': [
       {'type': 'الإقامة', 'number': '2345', 'expires_on': '2027-03-01'},
     ],
@@ -99,6 +129,40 @@ void main() {
       'start_date': '2026-01-01',
       'end_date': '2027-12-31',
       'probation_end': null,
+    });
+
+    // leave: no balance until its days and his hire date are set
+    expect(find.textContaining('لا تاريخ تعيين'), findsOneWidget);
+    expect(find.textContaining('غير مضبوط'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('employee-file-add-leave')));
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    await tester.tap(find.byKey(const ValueKey('leave-type')));
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    await tester.tap(find.text('بدون أجر (بدون أجر)').last);
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    await tester.enterText(
+      find.byKey(const ValueKey('leave-start')),
+      '2026-11-10',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('leave-end')),
+      '2026-11-12',
+    );
+    await tester.tap(find.byKey(const ValueKey('leave-save')));
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(server.leave, {
+      'type_id': 3,
+      'start_date': '2026-11-10',
+      'end_date': '2026-11-12',
+      'notes': null,
     });
   });
 }

@@ -19,12 +19,11 @@ on. tests/test_payroll_eos.py.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 from services.payroll_laws import PayrollRefused
 from services.payroll_policy import PayrollPolicyNotSet, require
 
-DAYS_IN_A_YEAR = 365
 EOS_PAYABLE = 'eos_payable'
 EOS_EXPENSE = 'eos_expense'
 
@@ -40,12 +39,33 @@ def wage_of(structure) -> float:
     raise PayrollRefused(f'وعاء مكافأة نهاية الخدمة غير معروف: {base}')
 
 
+def _anniversary(start: date, years: int) -> date:
+    try:
+        return start.replace(year=start.year + years)
+    except ValueError:                      # 29 February, in a year without it
+        return start.replace(year=start.year + years, day=28)
+
+
+def service_years(start: date, day: date) -> float:
+    """The years served through the day: whole years by their anniversaries,
+    the year begun by its own days -- a leap year no longer than its year
+    (days / 365 made eight years 8.0055; EMP-4 caught it)."""
+    after = day + timedelta(days=1)
+    if after <= start:
+        return 0.0
+    years = after.year - start.year
+    if _anniversary(start, years) > after:
+        years -= 1
+    last, following = _anniversary(start, years), _anniversary(start, years + 1)
+    return years + (after - last).days / (following - last).days
+
+
 def entitlement(hire_date: date, day: date, wage: float) -> tuple[int, float]:
     """(days served, the art. 84 entitlement on the day)."""
     days = (day - hire_date).days + 1
     if days <= 0:
         return 0, 0.0
-    years = days / DAYS_IN_A_YEAR
+    years = service_years(hire_date, day)
     first_years = float(require('eos_first_years'))
     first = min(years, first_years) * float(require('eos_first_years_months')) * wage
     after = max(years - first_years, 0) * float(require('eos_after_years_months')) * wage

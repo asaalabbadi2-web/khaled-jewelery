@@ -22,6 +22,8 @@ from models import (
     EmployeeContract,
     EmployeeDocument,
     EmployeeDocumentType,
+    EmployeeLeave,
+    LeaveType,
     GoalAchievement,
     Invoice,
     JournalEntry,
@@ -1299,6 +1301,81 @@ def update_employee_document(document_id):
 def list_expiring_employee_documents():
     from services.employee_documents import expiring
     return jsonify(expiring(datetime.now().date()))
+
+
+# ── EMP-4: leave (services/employee_leave) ──────────────────────────────────────
+
+@employees_bp.route('/leave-types', methods=['GET'])
+@require_permission('employees.view')
+def list_leave_types():
+    return jsonify([row.to_dict() for row in LeaveType.query.order_by(LeaveType.id)])
+
+
+@employees_bp.route('/leave-types', methods=['POST'])
+@require_permission('employees.payroll')
+def create_leave_type():
+    from services.employee_leave import save_type
+    data = request.get_json(silent=True) or {}
+    return _documents_action(lambda: save_type(data), 201)
+
+
+@employees_bp.route('/leave-types/<int:type_id>', methods=['PUT'])
+@require_permission('employees.payroll')
+def update_leave_type(type_id):
+    from services.employee_leave import save_type
+    kind = LeaveType.query.get_or_404(type_id)
+    data = request.get_json(silent=True) or {}
+    return _documents_action(lambda: save_type(data, kind))
+
+
+@employees_bp.route('/employees/<int:employee_id>/leaves', methods=['GET'])
+@require_permission('employees.view')
+def list_employee_leaves(employee_id):
+    from services.employee_leave import balances
+    employee = Employee.query.get_or_404(employee_id)
+    rows = employee.leaves.order_by(EmployeeLeave.start_date.desc()).all()
+    return jsonify({'leaves': [row.to_dict() for row in rows],
+                    'balances': balances(employee, datetime.now().date())})
+
+
+@employees_bp.route('/employees/<int:employee_id>/leaves', methods=['POST'])
+@require_permission('employees.payroll')
+def record_employee_leave(employee_id):
+    from services.approval_policy import actor
+    from services.employee_leave import record
+    data = request.get_json(silent=True) or {}
+    return _documents_action(lambda: record(employee_id, data, by=actor(), now=datetime.now()), 201)
+
+
+def _leave_action(leave_id, action):
+    from services.approval_policy import actor
+    leave = EmployeeLeave.query.get_or_404(leave_id)
+
+    def run():
+        action(leave, by=actor(), now=datetime.now())
+        return leave
+    return _documents_action(run)
+
+
+@employees_bp.route('/employee-leaves/<int:leave_id>/approve', methods=['POST'])
+@require_permission('employees.payroll')
+def approve_employee_leave(leave_id):
+    from services.employee_leave import approve
+    return _leave_action(leave_id, approve)
+
+
+@employees_bp.route('/employee-leaves/<int:leave_id>/reject', methods=['POST'])
+@require_permission('employees.payroll')
+def reject_employee_leave(leave_id):
+    from services.employee_leave import reject
+    return _leave_action(leave_id, reject)
+
+
+@employees_bp.route('/employee-leaves/<int:leave_id>/cancel', methods=['POST'])
+@require_permission('employees.payroll')
+def cancel_employee_leave(leave_id):
+    from services.employee_leave import cancel
+    return _leave_action(leave_id, cancel)
 
 
 @employees_bp.route('/advances/summary', methods=['GET'])

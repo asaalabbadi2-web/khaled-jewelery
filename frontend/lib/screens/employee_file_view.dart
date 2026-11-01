@@ -264,6 +264,84 @@ class _EmployeeFileViewState extends State<EmployeeFileView> {
               ],
             ),
           ]),
+          _section(isAr ? 'الإجازات' : 'Leave', [
+            for (final b
+                in ((file['leave'] as Map<String, dynamic>?)?['balances']
+                            as List? ??
+                        const [])
+                    .cast<Map<String, dynamic>>())
+              _row(
+                '${b['type']}',
+                b['balance'] == null
+                    ? (b['reason'] == 'no_hire_date'
+                          ? (isAr ? 'لا تاريخ تعيين' : 'no hire date')
+                          : (isAr ? 'غير مضبوط' : 'not set'))
+                    : '${isAr ? 'الرصيد' : 'left'} ${ltrIsolate(formatAmount(b['balance'] as num))} ${isAr ? 'يوم' : 'days'}',
+              ),
+            for (final l
+                in ((file['leave'] as Map<String, dynamic>?)?['recent']
+                            as List? ??
+                        const [])
+                    .cast<Map<String, dynamic>>())
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${l['type']} · ${ltrIsolate('${l['start_date']}')} — ${ltrIsolate('${l['end_date']}')} (${l['days']})'
+                      '${l['status'] == 'approved' ? '' : ' · ${l['status'] == 'cancelled' ? (isAr ? 'ملغاة' : 'cancelled') : '${l['status']}'}'}',
+                    ),
+                  ),
+                  if (l['status'] == 'approved' || l['status'] == 'requested')
+                    IconButton(
+                      tooltip: isAr ? 'إلغاء الإجازة' : 'Cancel leave',
+                      icon: const Icon(Icons.event_busy_outlined),
+                      onPressed: () => _edit(
+                        _ConfirmDialog(
+                          text: isAr
+                              ? 'إلغاء هذه الإجازة؟'
+                              : 'Cancel this leave?',
+                          isAr: isAr,
+                        ),
+                        (_) => _service.cancelLeave(l['id'] as int),
+                      ),
+                    ),
+                ],
+              ),
+            Wrap(
+              alignment: WrapAlignment.end,
+              children: [
+                TextButton.icon(
+                  onPressed: () => showDialog<void>(
+                    context: context,
+                    builder: (_) =>
+                        _LeaveTypesDialog(service: _service, isAr: isAr),
+                  ).then((_) => _load()),
+                  icon: const Icon(Icons.tune),
+                  label: Text(
+                    isAr ? 'أنواع الإجازات وأيامها' : 'Kinds and days',
+                  ),
+                ),
+                TextButton.icon(
+                  key: const ValueKey('employee-file-add-leave'),
+                  onPressed: () async {
+                    final kinds = await _service.leaveTypes();
+                    if (!mounted) return;
+                    await _edit(
+                      _LeaveDialog(
+                        kinds: kinds
+                            .where((k) => k['is_active'] != false)
+                            .toList(),
+                        isAr: isAr,
+                      ),
+                      (row) => _service.recordLeave(widget.employeeId, row),
+                    );
+                  },
+                  icon: const Icon(Icons.add),
+                  label: Text(isAr ? 'تسجيل إجازة' : 'Record leave'),
+                ),
+              ],
+            ),
+          ]),
           _section(isAr ? 'آخر الرواتب' : 'Last payroll', [
             for (final p
                 in (file['payroll'] as List? ?? const [])
@@ -634,6 +712,242 @@ class _DocumentTypesDialogState extends State<_DocumentTypesDialog> {
                         ),
                       ],
                     ),
+                  ],
+                ),
+              ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(isAr ? 'إغلاق' : 'Close'),
+        ),
+      ],
+    );
+  }
+}
+
+class _ConfirmDialog extends StatelessWidget {
+  const _ConfirmDialog({required this.text, required this.isAr});
+  final String text;
+  final bool isAr;
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    content: Text(text),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: Text(isAr ? 'رجوع' : 'Back'),
+      ),
+      FilledButton(
+        onPressed: () => Navigator.pop(context, const <String, dynamic>{}),
+        child: Text(isAr ? 'تأكيد' : 'Confirm'),
+      ),
+    ],
+  );
+}
+
+class _LeaveDialog extends StatefulWidget {
+  const _LeaveDialog({required this.kinds, required this.isAr});
+  final List<Map<String, dynamic>> kinds;
+  final bool isAr;
+
+  @override
+  State<_LeaveDialog> createState() => _LeaveDialogState();
+}
+
+class _LeaveDialogState extends State<_LeaveDialog> {
+  int? _type;
+  final _start = TextEditingController();
+  final _end = TextEditingController();
+  final _notes = TextEditingController();
+
+  @override
+  void dispose() {
+    for (final c in [_start, _end, _notes]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isAr = widget.isAr;
+    return AlertDialog(
+      title: Text(isAr ? 'تسجيل إجازة' : 'Record leave'),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            DropdownButtonFormField<int>(
+              key: const ValueKey('leave-type'),
+              initialValue: _type,
+              decoration: InputDecoration(labelText: isAr ? 'النوع' : 'Kind'),
+              items: [
+                for (final k in widget.kinds)
+                  DropdownMenuItem(
+                    value: k['id'] as int,
+                    child: Text(
+                      '${k['name']}${k['paid'] == false ? (isAr ? ' (بدون أجر)' : ' (unpaid)') : ''}',
+                    ),
+                  ),
+              ],
+              onChanged: (v) => setState(() => _type = v),
+            ),
+            _dateField(_start, isAr ? 'من' : 'From', 'leave-start'),
+            _dateField(_end, isAr ? 'إلى' : 'To', 'leave-end'),
+            TextField(
+              controller: _notes,
+              decoration: InputDecoration(labelText: isAr ? 'ملاحظة' : 'Note'),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(isAr ? 'إلغاء' : 'Cancel'),
+        ),
+        FilledButton(
+          key: const ValueKey('leave-save'),
+          onPressed: () => Navigator.pop(context, {
+            'type_id': _type,
+            'start_date': _text(_start),
+            'end_date': _text(_end),
+            'notes': _text(_notes),
+          }),
+          child: Text(isAr ? 'سجّل' : 'Record'),
+        ),
+      ],
+    );
+  }
+}
+
+/// The owner's kinds of leave and their days -- empty: no balance held.
+class _LeaveTypesDialog extends StatefulWidget {
+  const _LeaveTypesDialog({required this.service, required this.isAr});
+  final PayrollService service;
+  final bool isAr;
+
+  @override
+  State<_LeaveTypesDialog> createState() => _LeaveTypesDialogState();
+}
+
+class _LeaveTypesDialogState extends State<_LeaveTypesDialog> {
+  List<Map<String, dynamic>>? _kinds;
+  final Map<String, TextEditingController> _fields = {};
+
+  static const _numbers = [
+    'days_per_year',
+    'longer_after_years',
+    'longer_days_per_year',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    for (final c in _fields.values) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  TextEditingController _field(Map<String, dynamic> k, String name) =>
+      _fields.putIfAbsent(
+        '${k['id']}-$name',
+        () => TextEditingController(text: k[name] == null ? '' : '${k[name]}'),
+      );
+
+  Future<void> _load() async {
+    final kinds = await widget.service.leaveTypes();
+    if (mounted) setState(() => _kinds = kinds);
+  }
+
+  Future<void> _save(Map<String, dynamic> k) async {
+    try {
+      await widget.service.saveLeaveType({
+        for (final n in _numbers)
+          n: _field(k, n).text.trim().isEmpty ? null : _field(k, n).text.trim(),
+      }, id: k['id'] as int);
+      await _load();
+      if (mounted) AppFeedback.success(context, widget.isAr ? 'حُفظ' : 'Saved');
+    } catch (e) {
+      if (mounted) AppFeedback.error(context, e.toString());
+    }
+  }
+
+  Widget _number(Map<String, dynamic> k, String name, String label) => Expanded(
+    child: TextField(
+      key: ValueKey('leave-type-$name-${k['id']}'),
+      controller: _field(k, name),
+      textDirection: TextDirection.ltr,
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      decoration: InputDecoration(labelText: label),
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final isAr = widget.isAr;
+    final kinds = _kinds;
+    return AlertDialog(
+      title: Text(isAr ? 'أنواع الإجازات وأيامها' : 'Leave kinds and days'),
+      content: SizedBox(
+        width: 520,
+        child: kinds == null
+            ? const LinearProgressIndicator()
+            : SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      isAr
+                          ? 'الفارغ غير مضبوط فلا يُفحص رصيده. السنوية تتراكم من تاريخ التعيين؛ غيرها لكل سنة ميلادية.'
+                          : 'Empty: no balance held. An accruing kind earns from the hire date; others per calendar year.',
+                    ),
+                    for (final k in kinds) ...[
+                      const Divider(),
+                      Text(
+                        '${k['name']} · ${k['paid'] == true ? (isAr ? 'بأجر' : 'paid') : (isAr ? 'بدون أجر' : 'unpaid')}'
+                        '${k['accrues'] == true ? (isAr ? ' · تتراكم' : ' · accrues') : ''}',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      Row(
+                        children: [
+                          _number(
+                            k,
+                            'days_per_year',
+                            isAr ? 'أيام السنة' : 'Days a year',
+                          ),
+                          if (k['accrues'] == true) ...[
+                            const SizedBox(width: AppSpace.sm),
+                            _number(
+                              k,
+                              'longer_after_years',
+                              isAr ? 'بعد سنوات' : 'After years',
+                            ),
+                            const SizedBox(width: AppSpace.sm),
+                            _number(
+                              k,
+                              'longer_days_per_year',
+                              isAr ? 'أيامها بعدها' : 'Days after',
+                            ),
+                          ],
+                          IconButton(
+                            tooltip: isAr ? 'حفظ' : 'Save',
+                            icon: const Icon(Icons.check),
+                            onPressed: () => _save(k),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),

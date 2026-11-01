@@ -17,14 +17,15 @@ part is its owner's reader:
   - his custody (services/employee_access);
   - each of his accounts' balances, from the books (services/live_balances);
   - his goals so far (services/goal_achievements);
-  - his contract in force and his documents (services/employee_documents, EMP-3).
+  - his contract in force and his documents (services/employee_documents, EMP-3);
+  - his leave balances and last leaves (services/employee_leave, EMP-4).
 tests/test_employee_file.py.
 """
 from __future__ import annotations
 
 from datetime import date
 
-from models import AppUser, EmployeeAccount, EmployeeBonus, Payroll, db
+from models import AppUser, EmployeeAccount, EmployeeBonus, EmployeeLeave, Payroll, db
 
 RECENT_LINES = 6
 MISSING = (('national_id', 'الهوية الوطنية / الإقامة'), ('hire_date', 'تاريخ التعيين'),
@@ -68,6 +69,7 @@ def file_of(employee, *, today: date) -> dict:
     from services.goal_achievements import goal_progress
     from services.payroll_advances import account_balance, to_dict as plan_dict
     from services.employee_documents import contract_on, current_documents
+    from services.employee_leave import balances as leave_balances
     from services.payroll_policy import structure_on
     structure = structure_on(employee.id, today)
     scheme = employee.contribution_scheme_id
@@ -106,4 +108,6 @@ def file_of(employee, *, today: date) -> dict:
         'goals': goals,
         'contract': (lambda c: c.to_dict() if c is not None else None)(contract_on(employee.id, today)),
         'documents': [d.to_dict() for d in current_documents(employee)],
+        'leave': {'balances': leave_balances(employee, today),
+                  'recent': [l.to_dict() for l in employee.leaves.order_by(EmployeeLeave.start_date.desc()).limit(5)]},
     }

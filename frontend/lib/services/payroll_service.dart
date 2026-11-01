@@ -321,6 +321,37 @@ class PayrollService {
     );
   }
 
+  // ── leave (EMP-4) ─────────────────────────────────────────────────────
+
+  /// Every kind of leave, its days the owner's (null: no balance held).
+  Future<List<Map<String, dynamic>>> leaveTypes() async =>
+      (_body(await _api.authedGet('/leave-types')) as List)
+          .cast<Map<String, dynamic>>();
+
+  Future<void> saveLeaveType(Map<String, dynamic> row, {int? id}) async {
+    _body(
+      id == null
+          ? await _api.authedPost('/leave-types', body: jsonEncode(row))
+          : await _api.authedPut('/leave-types/$id', body: jsonEncode(row)),
+    );
+  }
+
+  /// Recorded by the manager, approved; refused beyond a held balance.
+  Future<void> recordLeave(int employeeId, Map<String, dynamic> row) async {
+    _body(
+      await _api.authedPost(
+        '/employees/$employeeId/leaves',
+        body: jsonEncode(row),
+      ),
+    );
+  }
+
+  Future<void> cancelLeave(int leaveId) async {
+    _body(
+      await _api.authedPost('/employee-leaves/$leaveId/cancel', body: '{}'),
+    );
+  }
+
   // ── plumbing ──────────────────────────────────────────────────────────────
 
   PayrollRun _run(http.Response resp) =>
