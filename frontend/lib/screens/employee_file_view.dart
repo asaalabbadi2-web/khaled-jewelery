@@ -73,6 +73,37 @@ class _EmployeeFileViewState extends State<EmployeeFileView> {
 
   String _money(Object? v) => ltrIsolate(formatAmount((v as num?) ?? 0));
 
+  List<Widget> _settlementRows(Map<String, dynamic> s) {
+    final isAr = _isAr;
+    final eos = s['eos'] as Map<String, dynamic>? ?? const {};
+    final leave = s['leave'] as Map<String, dynamic>? ?? const {};
+    final owed = s['owed_now'] as Map<String, dynamic>? ?? const {};
+    return [
+      _row(
+        isAr ? 'مكافأة نهاية الخدمة' : 'End-of-service award',
+        _money(eos['award']),
+      ),
+      if (((leave['amount'] as num?) ?? 0) > 0)
+        _row(isAr ? 'بدل الإجازة' : 'Leave pay', _money(leave['amount'])),
+      for (final role in const [
+        'salary_payable',
+        'bonus_payable',
+        'commission_payable',
+      ])
+        if (((owed[role] as num?) ?? 0) != 0)
+          _row(word(_roles[role], role), _money(owed[role])),
+      if (((s['advance'] as num?) ?? 0) > 0)
+        _row(
+          isAr ? 'تُخصم السلف' : 'Advance deducted',
+          '− ${_money(s['advance'])}',
+        ),
+      _row(isAr ? 'الصافي' : 'Net', _money(s['net'])),
+    ];
+  }
+
+  String word((String, String)? pair, String fallback) =>
+      pair == null ? fallback : (_isAr ? pair.$1 : pair.$2);
+
   /// A dialog's row sent, the file read again -- or the refusal said.
   Future<void> _edit(
     Widget dialog,
@@ -395,6 +426,94 @@ class _EmployeeFileViewState extends State<EmployeeFileView> {
                 in (file['accounts'] as List? ?? const [])
                     .cast<Map<String, dynamic>>())
               _row(word(_roles[a['role']], '${a['name']}'), _money(a['cash'])),
+          ]),
+          _section(isAr ? 'إنهاء الخدمة' : 'End of service', [
+            if (file['termination'] case final Map<String, dynamic> t) ...[
+              _row(
+                isAr ? 'آخر يوم · السبب' : 'Last day · reason',
+                '${ltrIsolate('${t['last_day']}')} · ${_reasonWord('${t['reason']}', isAr)}',
+              ),
+              ..._settlementRows(
+                t['settlement'] as Map<String, dynamic>? ?? const {},
+              ),
+              _row(
+                isAr ? 'الحالة' : 'Status',
+                t['status'] == 'paid'
+                    ? (isAr ? 'صُرفت' : 'paid')
+                    : (isAr ? 'معتمدة غير مصروفة' : 'approved, unpaid'),
+              ),
+              if (t['status'] == 'approved')
+                Wrap(
+                  alignment: WrapAlignment.end,
+                  children: [
+                    TextButton.icon(
+                      onPressed: () => _edit(
+                        _ConfirmDialog(
+                          text: isAr
+                              ? 'إلغاء إنهاء الخدمة؟ يُعكس قيده ويعود الموظف نشطًا (ومستخدمه موقوف).'
+                              : 'Cancel? Its entry is reversed and he is active again.',
+                          isAr: isAr,
+                        ),
+                        (_) => _service.cancelTermination(t['id'] as int),
+                      ),
+                      icon: const Icon(Icons.undo),
+                      label: Text(isAr ? 'إلغاء' : 'Cancel'),
+                    ),
+                    FilledButton.icon(
+                      key: const ValueKey('employee-file-pay-termination'),
+                      onPressed: () async {
+                        final accounts = await _service.paymentAccounts();
+                        if (!mounted) return;
+                        await _edit(
+                          _AccountDialog(accounts: accounts, isAr: isAr),
+                          (row) => _service.payTermination(
+                            t['id'] as int,
+                            row['payment_account_id'] as int,
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.payments_outlined),
+                      label: Text(isAr ? 'صرف التسوية' : 'Pay'),
+                    ),
+                  ],
+                ),
+            ] else
+              Align(
+                alignment: AlignmentDirectional.centerEnd,
+                child: TextButton.icon(
+                  key: const ValueKey('employee-file-terminate'),
+                  onPressed: () async {
+                    final row = await showDialog<Map<String, dynamic>>(
+                      context: context,
+                      builder: (_) => _TerminationDialog(
+                        service: _service,
+                        employeeId: widget.employeeId,
+                        isAr: isAr,
+                      ),
+                    );
+                    if (row == null || !mounted) return;
+                    try {
+                      final result = await _service.approveTermination(
+                        widget.employeeId,
+                        row,
+                      );
+                      await _load();
+                      if (!mounted) return;
+                      AppFeedback.success(
+                        context,
+                        isAr ? 'اعتُمد إنهاء الخدمة' : 'Approved',
+                      );
+                      if (result['warning'] case final String warning) {
+                        AppFeedback.warning(context, warning);
+                      }
+                    } catch (e) {
+                      if (mounted) AppFeedback.error(context, e.toString());
+                    }
+                  },
+                  icon: const Icon(Icons.logout),
+                  label: Text(isAr ? 'إنهاء الخدمة' : 'End of service'),
+                ),
+              ),
           ]),
           _section(isAr ? 'المستخدم' : 'User', [
             for (final u
@@ -956,6 +1075,217 @@ class _LeaveTypesDialogState extends State<_LeaveTypesDialog> {
         TextButton(
           onPressed: () => Navigator.pop(context),
           child: Text(isAr ? 'إغلاق' : 'Close'),
+        ),
+      ],
+    );
+  }
+}
+
+const _reasons = {
+  'employer_ended': ('إنهاء من صاحب العمل', 'Ended by the employer'),
+  'contract_end': ('انتهاء العقد', 'Contract ended'),
+  'mutual': ('بالاتفاق', 'By agreement'),
+  'resignation': ('استقالة (المادة 85)', 'Resignation (art. 85)'),
+  'art_80': ('فصل (المادة 80)', 'Dismissal (art. 80)'),
+  'death': ('وفاة', 'Death'),
+};
+
+String _reasonWord(String reason, bool isAr) => _reasons[reason] == null
+    ? reason
+    : (isAr ? _reasons[reason]!.$1 : _reasons[reason]!.$2);
+
+class _AccountDialog extends StatefulWidget {
+  const _AccountDialog({required this.accounts, required this.isAr});
+  final List<Map<String, dynamic>> accounts;
+  final bool isAr;
+
+  @override
+  State<_AccountDialog> createState() => _AccountDialogState();
+}
+
+class _AccountDialogState extends State<_AccountDialog> {
+  int? _account;
+
+  @override
+  Widget build(BuildContext context) {
+    final isAr = widget.isAr;
+    return AlertDialog(
+      title: Text(isAr ? 'صرف التسوية من' : 'Pay from'),
+      content: DropdownButtonFormField<int>(
+        key: const ValueKey('termination-account'),
+        initialValue: _account,
+        isExpanded: true,
+        items: [
+          for (final a in widget.accounts)
+            DropdownMenuItem(
+              value: a['id'] as int,
+              child: Text('${a['name']}'),
+            ),
+        ],
+        onChanged: (v) => setState(() => _account = v),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(isAr ? 'إلغاء' : 'Cancel'),
+        ),
+        FilledButton(
+          onPressed: _account == null
+              ? null
+              : () => Navigator.pop(context, {'payment_account_id': _account}),
+          child: Text(isAr ? 'اصرف' : 'Pay'),
+        ),
+      ],
+    );
+  }
+}
+
+/// The last day and the reason, the settlement shown before it is approved.
+class _TerminationDialog extends StatefulWidget {
+  const _TerminationDialog({
+    required this.service,
+    required this.employeeId,
+    required this.isAr,
+  });
+  final PayrollService service;
+  final int employeeId;
+  final bool isAr;
+
+  @override
+  State<_TerminationDialog> createState() => _TerminationDialogState();
+}
+
+class _TerminationDialogState extends State<_TerminationDialog> {
+  String? _reason;
+  final _lastDay = TextEditingController();
+  Map<String, dynamic>? _preview;
+  String? _refusal;
+
+  @override
+  void dispose() {
+    _lastDay.dispose();
+    super.dispose();
+  }
+
+  Map<String, dynamic> get _row => {
+    'reason': _reason,
+    'last_day': _text(_lastDay),
+  };
+
+  Future<void> _reckon() async {
+    setState(() {
+      _preview = null;
+      _refusal = null;
+    });
+    try {
+      final preview = await widget.service.previewTermination(
+        widget.employeeId,
+        _row,
+      );
+      if (mounted) setState(() => _preview = preview);
+    } catch (e) {
+      if (mounted) setState(() => _refusal = e.toString());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isAr = widget.isAr;
+    final preview = _preview;
+    String money(Object? v) => ltrIsolate(formatAmount((v as num?) ?? 0));
+    Widget line(String label, Object? v) => Row(
+      children: [
+        Expanded(child: Text(label)),
+        Text(money(v)),
+      ],
+    );
+    return AlertDialog(
+      title: Text(isAr ? 'إنهاء الخدمة' : 'End of service'),
+      content: SizedBox(
+        width: 460,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DropdownButtonFormField<String>(
+                key: const ValueKey('termination-reason'),
+                initialValue: _reason,
+                decoration: InputDecoration(
+                  labelText: isAr ? 'السبب' : 'Reason',
+                ),
+                items: [
+                  for (final e in _reasons.entries)
+                    DropdownMenuItem(
+                      value: e.key,
+                      child: Text(isAr ? e.value.$1 : e.value.$2),
+                    ),
+                ],
+                onChanged: (v) => setState(() {
+                  _reason = v;
+                  _preview = null;
+                }),
+              ),
+              _dateField(
+                _lastDay,
+                isAr ? 'آخر يوم عمل' : 'Last day',
+                'termination-last-day',
+              ),
+              Align(
+                alignment: AlignmentDirectional.centerEnd,
+                child: TextButton(
+                  key: const ValueKey('termination-reckon'),
+                  onPressed: _reckon,
+                  child: Text(isAr ? 'احسب التسوية' : 'Reckon'),
+                ),
+              ),
+              if (_refusal != null)
+                Text(
+                  _refusal!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              if (preview != null) ...[
+                const Divider(),
+                line(
+                  isAr ? 'مكافأة نهاية الخدمة' : 'Award',
+                  (preview['eos'] as Map<String, dynamic>)['award'],
+                ),
+                line(
+                  isAr ? 'بدل الإجازة' : 'Leave pay',
+                  (preview['leave'] as Map<String, dynamic>)['amount'],
+                ),
+                line(isAr ? 'تُخصم السلف' : 'Advance', preview['advance']),
+                line(isAr ? 'الصافي' : 'Net', preview['net']),
+                if ((preview['custody'] as Map?)?.isNotEmpty == true)
+                  Text(
+                    isAr
+                        ? 'عهدته قائمة: تُسلَّم أو تُسوّى.'
+                        : 'His custody is open.',
+                    style: TextStyle(
+                      color: AppSemanticColors.of(context).warning.fg,
+                    ),
+                  ),
+                Text(
+                  isAr
+                      ? 'راتب الشهر الأخير يُصرف في مسيره، مجزّأً بآخر يوم.'
+                      : 'His last month is paid by its run, prorated.',
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(isAr ? 'إلغاء' : 'Cancel'),
+        ),
+        FilledButton(
+          key: const ValueKey('termination-approve'),
+          onPressed: preview == null
+              ? null
+              : () => Navigator.pop(context, _row),
+          child: Text(isAr ? 'اعتماد' : 'Approve'),
         ),
       ],
     );

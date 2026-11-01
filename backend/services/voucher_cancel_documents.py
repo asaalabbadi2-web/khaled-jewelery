@@ -10,13 +10,15 @@ paid. The owner: «الصحيح هو ما في الدفاتر». Asked by the vo
   - a bonus's payment voucher (reference 'bonus', payment): the bonus is
     approved and unpaid again;
   - a salary's voucher (reference 'payroll'): the entry is approved again, its
-    bonuses with it, and its run is no longer paid.
+    bonuses with it, and its run is no longer paid;
+  - a final settlement's voucher (reference 'eos_settlement', EMP-5):
+    the settlement is approved again, the bonuses it paid unpaid.
 
 tests/test_voucher_cancel_reopens_its_document.py.
 """
 from __future__ import annotations
 
-from models import EmployeeBonus, Payroll, db
+from models import EmployeeBonus, EmployeeTermination, Payroll, db
 
 
 def reopen(voucher) -> None:
@@ -33,4 +35,11 @@ def reopen(voucher) -> None:
                 bonus.status, bonus.paid_at, bonus.paid_by, bonus.payment_reference = 'approved', None, None, None
             if entry.run is not None and entry.run.status == 'paid':
                 entry.run.status = 'approved'
+    if voucher.reference_type == 'eos_settlement' and voucher.reference_id:
+        termination = db.session.get(EmployeeTermination, int(voucher.reference_id))
+        if termination is not None and termination.voucher_id == voucher.id:
+            termination.voucher_id, termination.status, termination.paid_at = None, 'approved', None
+            for bonus in EmployeeBonus.query.filter_by(employee_id=termination.employee_id, status='paid',
+                                                       payment_reference=voucher.voucher_number):
+                bonus.status, bonus.paid_at, bonus.paid_by, bonus.payment_reference = 'approved', None, None, None
     db.session.flush()

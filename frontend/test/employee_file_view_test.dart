@@ -14,6 +14,28 @@ class _Server extends PayrollService {
 
   Map<String, dynamic>? contract;
   Map<String, dynamic>? leave;
+  Map<String, dynamic>? terminated;
+
+  @override
+  Future<Map<String, dynamic>> previewTermination(
+    int employeeId,
+    Map<String, dynamic> row,
+  ) async => {
+    'eos': {'award': 20250.0},
+    'leave': {'amount': 0.0},
+    'advance': 12880.0,
+    'net': 7370.0,
+    'custody': {'gold': {}},
+  };
+
+  @override
+  Future<Map<String, dynamic>> approveTermination(
+    int employeeId,
+    Map<String, dynamic> row,
+  ) async {
+    terminated = row;
+    return {'warning': 'أُوقف الموظف وعهدته قائمة'};
+  }
 
   @override
   Future<List<Map<String, dynamic>>> leaveTypes() async => [
@@ -60,6 +82,7 @@ class _Server extends PayrollService {
       },
     },
     'contract': null,
+    'termination': null,
     'leave': {
       'balances': [
         {'type': 'السنوية', 'balance': null, 'reason': 'no_hire_date'},
@@ -163,6 +186,42 @@ void main() {
       'start_date': '2026-11-10',
       'end_date': '2026-11-12',
       'notes': null,
+    });
+
+    // the end of service: reckoned, shown, then approved
+    await tester.tap(find.byKey(const ValueKey('employee-file-terminate')));
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    FilledButton approve() => tester.widget<FilledButton>(
+      find.byKey(const ValueKey('termination-approve')),
+    );
+    expect(approve().onPressed, isNull, reason: 'not before it is reckoned');
+    await tester.tap(find.byKey(const ValueKey('termination-reason')));
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    await tester.tap(find.text('إنهاء من صاحب العمل').last);
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    await tester.enterText(
+      find.byKey(const ValueKey('termination-last-day')),
+      '2026-11-30',
+    );
+    await tester.tap(find.byKey(const ValueKey('termination-reckon')));
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(find.textContaining('20,250.00'), findsOneWidget);
+    expect(find.textContaining('عهدته قائمة'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('termination-approve')));
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(server.terminated, {
+      'reason': 'employer_ended',
+      'last_day': '2026-11-30',
     });
   });
 }

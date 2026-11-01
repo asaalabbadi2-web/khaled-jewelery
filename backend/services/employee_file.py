@@ -18,14 +18,15 @@ part is its owner's reader:
   - each of his accounts' balances, from the books (services/live_balances);
   - his goals so far (services/goal_achievements);
   - his contract in force and his documents (services/employee_documents, EMP-3);
-  - his leave balances and last leaves (services/employee_leave, EMP-4).
+  - his leave balances and last leaves (services/employee_leave, EMP-4);
+  - his end of service and its settlement (services/employee_termination, EMP-5).
 tests/test_employee_file.py.
 """
 from __future__ import annotations
 
 from datetime import date
 
-from models import AppUser, EmployeeAccount, EmployeeBonus, EmployeeLeave, Payroll, db
+from models import AppUser, EmployeeAccount, EmployeeBonus, EmployeeLeave, EmployeeTermination, Payroll, db
 
 RECENT_LINES = 6
 MISSING = (('national_id', 'الهوية الوطنية / الإقامة'), ('hire_date', 'تاريخ التعيين'),
@@ -110,4 +111,7 @@ def file_of(employee, *, today: date) -> dict:
         'documents': [d.to_dict() for d in current_documents(employee)],
         'leave': {'balances': leave_balances(employee, today),
                   'recent': [l.to_dict() for l in employee.leaves.order_by(EmployeeLeave.start_date.desc()).limit(5)]},
+        'termination': (lambda t: t.to_dict() if t is not None else None)(
+            employee.terminations.filter(EmployeeTermination.status != 'cancelled')
+            .order_by(EmployeeTermination.id.desc()).first()),
     }

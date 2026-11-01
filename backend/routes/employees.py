@@ -23,6 +23,7 @@ from models import (
     EmployeeDocument,
     EmployeeDocumentType,
     EmployeeLeave,
+    EmployeeTermination,
     LeaveType,
     GoalAchievement,
     Invoice,
@@ -1376,6 +1377,70 @@ def reject_employee_leave(leave_id):
 def cancel_employee_leave(leave_id):
     from services.employee_leave import cancel
     return _leave_action(leave_id, cancel)
+
+
+# ── EMP-5: end of service and its final settlement (services/employee_termination) ─
+
+@employees_bp.route('/employees/<int:employee_id>/termination/preview', methods=['POST'])
+@require_permission('employees.payroll')
+def preview_employee_termination(employee_id):
+    from services.employee_termination import preview
+    from services.payroll_laws import PayrollRefused
+    employee = Employee.query.get_or_404(employee_id)
+    try:
+        return jsonify(preview(employee, request.get_json(silent=True) or {}))
+    except PayrollRefused as refused:
+        return _payroll_refusal(refused)
+
+
+@employees_bp.route('/employees/<int:employee_id>/termination', methods=['POST'])
+@require_permission('employees.payroll')
+def approve_employee_termination(employee_id):
+    from services.approval_policy import actor
+    from services.employee_termination import approve
+    from services.payroll_laws import PayrollRefused
+    try:
+        termination, stopped = approve(employee_id, request.get_json(silent=True) or {}, by=actor(),
+                                       now=datetime.now())
+    except PayrollRefused as refused:
+        db.session.rollback()
+        return _payroll_refusal(refused)
+    db.session.commit()
+    return jsonify({**termination.to_dict(), **stopped}), 201
+
+
+@employees_bp.route('/employees/<int:employee_id>/terminations', methods=['GET'])
+@require_permission('employees.payroll')
+def list_employee_terminations(employee_id):
+    employee = Employee.query.get_or_404(employee_id)
+    return jsonify([t.to_dict() for t in employee.terminations.order_by(EmployeeTermination.id.desc())])
+
+
+@employees_bp.route('/employee-terminations/<int:termination_id>/pay', methods=['POST'])
+@require_permission('employees.payroll')
+def pay_employee_termination(termination_id):
+    from services.approval_policy import actor
+    from services.employee_termination import pay
+    termination = EmployeeTermination.query.get_or_404(termination_id)
+    data = request.get_json(silent=True) or {}
+
+    def run():
+        pay(termination, data, by=actor(), now=datetime.now())
+        return termination
+    return _documents_action(run)
+
+
+@employees_bp.route('/employee-terminations/<int:termination_id>/cancel', methods=['POST'])
+@require_permission('employees.payroll')
+def cancel_employee_termination(termination_id):
+    from services.approval_policy import actor
+    from services.employee_termination import cancel
+    termination = EmployeeTermination.query.get_or_404(termination_id)
+
+    def run():
+        cancel(termination, by=actor(), now=datetime.now())
+        return termination
+    return _documents_action(run)
 
 
 @employees_bp.route('/advances/summary', methods=['GET'])

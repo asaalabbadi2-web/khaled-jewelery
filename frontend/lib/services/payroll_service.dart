@@ -352,6 +352,51 @@ class PayrollService {
     );
   }
 
+  // ── end of service (EMP-5) ────────────────────────────────────────────
+
+  /// The settlement as it would be -- nothing written.
+  Future<Map<String, dynamic>> previewTermination(
+    int employeeId,
+    Map<String, dynamic> row,
+  ) async =>
+      _body(
+            await _api.authedPost(
+              '/employees/$employeeId/termination/preview',
+              body: jsonEncode(row),
+            ),
+          )
+          as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> approveTermination(
+    int employeeId,
+    Map<String, dynamic> row,
+  ) async =>
+      _body(
+            await _api.authedPost(
+              '/employees/$employeeId/termination',
+              body: jsonEncode(row),
+            ),
+          )
+          as Map<String, dynamic>;
+
+  Future<void> payTermination(int terminationId, int paymentAccountId) async {
+    _body(
+      await _api.authedPost(
+        '/employee-terminations/$terminationId/pay',
+        body: jsonEncode({'payment_account_id': paymentAccountId}),
+      ),
+    );
+  }
+
+  Future<void> cancelTermination(int terminationId) async {
+    _body(
+      await _api.authedPost(
+        '/employee-terminations/$terminationId/cancel',
+        body: '{}',
+      ),
+    );
+  }
+
   // ── plumbing ──────────────────────────────────────────────────────────────
 
   PayrollRun _run(http.Response resp) =>

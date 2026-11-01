@@ -4318,6 +4318,35 @@ class EmployeeLeave(db.Model):
                 'decided_by': self.decided_by}
 
 
+class EmployeeTermination(db.Model):
+    """An employee's end of service and its final settlement (EMP-5): its last
+    day and reason; approved with one entry, paid by one voucher. The
+    settlement is frozen on it when approved (JSON, snapshot_schema_version 1)."""
+    __tablename__ = 'employee_termination'
+
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=False, index=True)
+    last_day = db.Column(db.Date, nullable=False)
+    reason = db.Column(db.String(30), nullable=False)
+    notes = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(20), nullable=False, default='approved')   # approved, paid, cancelled
+    settlement = db.Column(db.Text, nullable=True)
+    journal_entry_id = db.Column(db.Integer, db.ForeignKey('journal_entry.id'), nullable=True)
+    voucher_id = db.Column(db.Integer, db.ForeignKey('voucher.id'), nullable=True)
+    created_by = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime, default=db.func.now(), nullable=False)
+    paid_at = db.Column(db.DateTime, nullable=True)
+
+    employee = db.relationship('Employee', backref=db.backref('terminations', lazy='dynamic'))
+
+    def to_dict(self):
+        return {'id': self.id, 'employee_id': self.employee_id, 'last_day': self.last_day.isoformat(),
+                'reason': self.reason, 'notes': self.notes, 'status': self.status,
+                'settlement': json.loads(self.settlement) if self.settlement else None,
+                'journal_entry_id': self.journal_entry_id, 'voucher_id': self.voucher_id,
+                'created_by': self.created_by, 'paid_at': self.paid_at.isoformat() if self.paid_at else None}
+
+
 class EmployeeAdvancePlan(db.Model):
     """How an advance the books hold is repaid from the salary (PAYROLL-3): an
     amount of the employee's advance account (its balance, never more), an

@@ -90,6 +90,42 @@ const _sections = <(String, String, List<_Field>)>[
     ],
   ),
   (
+    'مكافأة الاستقالة (المادة 85)',
+    'Resignation award (art. 85)',
+    [
+      _Field(
+        'eos_resign_min_years',
+        _Kind.count,
+        'لا مكافأة قبل (سنوات)',
+        'No award below (years)',
+      ),
+      _Field(
+        'eos_resign_tier1_years',
+        _Kind.count,
+        'الشريحة الأولى حتى (سنوات)',
+        'First tier up to (years)',
+      ),
+      _Field(
+        'eos_resign_tier1_share',
+        _Kind.percent,
+        'نصيب الشريحة الأولى من المكافأة',
+        'First tier share',
+      ),
+      _Field(
+        'eos_resign_tier2_years',
+        _Kind.count,
+        'الشريحة الثانية حتى (سنوات)',
+        'Second tier up to (years)',
+      ),
+      _Field(
+        'eos_resign_tier2_share',
+        _Kind.percent,
+        'نصيب الشريحة الثانية من المكافأة',
+        'Second tier share',
+      ),
+    ],
+  ),
+  (
     'العقود',
     'Contracts',
     [

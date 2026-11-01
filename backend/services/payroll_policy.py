@@ -22,8 +22,10 @@ from models import (ContributionComponent, ContributionScheme, Employee, Payroll
                     Settings, db)
 from services.payroll_laws import PayrollRefused
 
-RATIOS = ('housing_ratio', 'transport_ratio', 'advance_cap_ratio', 'overtime_premium_ratio')
-COUNTS = ('advance_installments', 'day_divisor', 'eos_first_years', 'contract_alert_days')
+RATIOS = ('housing_ratio', 'transport_ratio', 'advance_cap_ratio', 'overtime_premium_ratio',
+          'eos_resign_tier1_share', 'eos_resign_tier2_share')       # art. 85's shares (EMP-5)
+COUNTS = ('advance_installments', 'day_divisor', 'eos_first_years', 'contract_alert_days',
+          'eos_resign_min_years', 'eos_resign_tier1_years', 'eos_resign_tier2_years')   # art. 85's years
 FLAGS = ('attendance_enabled',)
 MONTHS = ('eos_first_years_months', 'eos_after_years_months')     # a year's months of wage (art. 84)
 CHOICES = {'eos_wage_base': ('basic', 'basic_housing', 'gross')}
