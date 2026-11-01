@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../api_service.dart';
+import 'package:printing/printing.dart';
+
 import '../models/payroll_run_models.dart';
+import '../pdf/payslip_pdf_builder.dart';
 import '../services/payroll_service.dart';
 import 'contribution_schemes_screen.dart';
 import 'payroll_policy_screen.dart';
@@ -519,9 +522,23 @@ class _PayrollRunScreenState extends State<PayrollRunScreen> {
       body = const AppLoadingView(summaryBlocks: 4, rows: 5);
     } else {
       final status = run.summary.status;
+      Widget card(PayrollRunLine line) => _LineCard(
+        line: line,
+        isAr: isAr,
+        onEdit: status == 'draft' ? () => _editLine(run, line) : null,
+        onRemove: status == 'draft' ? () => _removeLine(run, line) : null,
+        onEmployee: () => _employeeData(line.employeeId, line.employeeName),
+        onPayslip: () => showDialog<void>(
+          context: context,
+          builder: (_) =>
+              _PayslipDialog(service: _service, lineId: line.id, isAr: isAr),
+        ),
+      );
       body = ListView(
         padding: const EdgeInsets.all(AppSpace.lg),
         children: [
+          _Stages(status: status, isAr: isAr),
+          const SizedBox(height: AppSpace.md),
           _Totals(run: run, isAr: isAr),
           if (run.leftOut.isNotEmpty) ...[
             const SizedBox(height: AppSpace.md),
@@ -532,27 +549,33 @@ class _PayrollRunScreenState extends State<PayrollRunScreen> {
             ),
           ],
           const SizedBox(height: AppSpace.md),
-          for (final line in run.lines)
-            Padding(
-              padding: const EdgeInsets.only(bottom: AppSpace.sm),
-              child: _LineCard(
-                line: line,
-                isAr: isAr,
-                onEdit: status == 'draft' ? () => _editLine(run, line) : null,
-                onRemove: status == 'draft'
-                    ? () => _removeLine(run, line)
-                    : null,
-                onEmployee: () =>
-                    _employeeData(line.employeeId, line.employeeName),
-                onPayslip: () => showDialog<void>(
-                  context: context,
-                  builder: (_) => _PayslipDialog(
-                    service: _service,
-                    lineId: line.id,
-                    isAr: isAr,
-                  ),
-                ),
-              ),
+          // HR-UX ر3: a table on a wide screen, a line's details in its sheet;
+          // cards on a narrow one
+          if (run.lines.isNotEmpty)
+            LayoutBuilder(
+              builder: (context, box) => box.maxWidth >= 900
+                  ? _LinesTable(
+                      lines: run.lines,
+                      isAr: isAr,
+                      onOpen: (line) => showDialog<void>(
+                        context: context,
+                        builder: (_) => Dialog(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 560),
+                            child: SingleChildScrollView(child: card(line)),
+                          ),
+                        ),
+                      ),
+                    )
+                  : Column(
+                      children: [
+                        for (final line in run.lines)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: AppSpace.sm),
+                            child: card(line),
+                          ),
+                      ],
+                    ),
             ),
           if (run.lines.isEmpty)
             AppEmptyView(
@@ -632,32 +655,275 @@ class _Totals extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    Widget figure(String label, String key) => Expanded(
+    final scheme = theme.colorScheme;
+    Widget tile(String label, String key, {bool strong = false}) => Container(
+      padding: const EdgeInsets.all(AppSpace.md),
+      decoration: BoxDecoration(
+        color: strong ? scheme.inverseSurface : scheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(AppRadius.control),
+      ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: theme.textTheme.labelMedium),
+          Text(
+            label,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: strong ? scheme.onInverseSurface : null,
+            ),
+          ),
           const SizedBox(height: AppSpace.xs),
           Text(
             formatAmount(run.totals[key] ?? 0),
             textDirection: TextDirection.ltr,
-            style: theme.textTheme.titleMedium?.copyWith(
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: strong ? scheme.onInverseSurface : null,
               fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
         ],
       ),
     );
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpace.lg),
+    final tiles = [
+      tile(isAr ? 'الأساسي' : 'Basic', 'basic_salary'),
+      tile(isAr ? 'البدلات والمكافآت' : 'Allowances & bonuses', 'allowances'),
+      tile(isAr ? 'الخصومات' : 'Deductions', 'deductions'),
+      tile(isAr ? 'الصافي للصرف' : 'Net to pay', 'net_salary', strong: true),
+    ];
+    return LayoutBuilder(
+      builder: (context, box) {
+        final columns = box.maxWidth >= 700 ? 4 : 2;
+        final width = (box.maxWidth - AppSpace.sm * (columns - 1)) / columns;
+        return Wrap(
+          key: const ValueKey('payroll-run-totals'),
+          spacing: AppSpace.sm,
+          runSpacing: AppSpace.sm,
+          children: [for (final t in tiles) SizedBox(width: width, child: t)],
+        );
+      },
+    );
+  }
+}
+
+/// The run's four stages: drafted, reviewed, approved (one accrual), paid.
+class _Stages extends StatelessWidget {
+  const _Stages({required this.status, required this.isAr});
+  final String status;
+  final bool isAr;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final tones = AppSemanticColors.of(context);
+    final reached = switch (status) {
+      'draft' => 1,
+      'approved' => 3,
+      'paid' => 4,
+      _ => -1,
+    };
+    final stages = [
+      (
+        isAr ? 'أُنشئت المسودة' : 'Drafted',
+        isAr ? 'من هياكل الرواتب' : 'from the structures',
+      ),
+      (
+        isAr ? 'المراجعة' : 'Review',
+        isAr ? 'إضافات وخصومات' : 'additions, deductions',
+      ),
+      (
+        isAr ? 'الاعتماد' : 'Approval',
+        isAr ? 'قيد استحقاق واحد' : 'one accrual',
+      ),
+      (isAr ? 'الصرف' : 'Payment', isAr ? 'تحويل ونقد معًا' : 'bank and cash'),
+    ];
+    if (reached < 0) {
+      return Card(
+        color: tones.blocked.container,
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpace.md),
+          child: Text(
+            isAr ? 'المسير ملغى' : 'The run is cancelled',
+            style: theme.textTheme.titleSmall?.copyWith(
+              color: tones.blocked.onContainer,
+            ),
+          ),
+        ),
+      );
+    }
+    Widget stage(int index) {
+      final done = index < reached;
+      final current = index == reached;
+      final tone = done ? tones.ready : (current ? tones.gold : null);
+      return Container(
+        key: ValueKey('payroll-stage-$index'),
+        padding: const EdgeInsets.all(AppSpace.sm),
+        decoration: BoxDecoration(
+          color: tone?.container ?? theme.colorScheme.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(AppRadius.control),
+          border: current ? Border.all(color: tones.gold.fg, width: 2) : null,
+        ),
         child: Row(
           children: [
-            figure(isAr ? 'الأساسي' : 'Basic', 'basic_salary'),
-            figure(isAr ? 'البدلات' : 'Allowances', 'allowances'),
-            figure(isAr ? 'الخصومات' : 'Deductions', 'deductions'),
-            figure(isAr ? 'الصافي' : 'Net', 'net_salary'),
+            CircleAvatar(
+              radius: 14,
+              backgroundColor: tone?.fg ?? theme.colorScheme.outlineVariant,
+              foregroundColor: theme.colorScheme.surface,
+              child: done
+                  ? const Icon(Icons.check, size: 16)
+                  : Text(ltrIsolate('${index + 1}')),
+            ),
+            const SizedBox(width: AppSpace.sm),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    stages[index].$1,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: tone?.onContainer,
+                    ),
+                  ),
+                  Text(
+                    stages[index].$2,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: tone?.onContainer,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, box) {
+        final columns = box.maxWidth >= 700 ? 4 : 2;
+        final width = (box.maxWidth - AppSpace.sm * (columns - 1)) / columns;
+        return Wrap(
+          spacing: AppSpace.sm,
+          runSpacing: AppSpace.sm,
+          children: [
+            for (var i = 0; i < stages.length; i++)
+              SizedBox(width: width, child: stage(i)),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// The lines as a table: a wide screen's (HR-UX ر3). A row opens its line.
+class _LinesTable extends StatelessWidget {
+  const _LinesTable({
+    required this.lines,
+    required this.isAr,
+    required this.onOpen,
+  });
+  final List<PayrollRunLine> lines;
+  final bool isAr;
+  final void Function(PayrollRunLine line) onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final tones = AppSemanticColors.of(context);
+    final tabular = theme.textTheme.bodyMedium?.copyWith(
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
+    Widget money(double v, {bool strong = false}) => Text(
+      formatAmount(v),
+      textDirection: TextDirection.ltr,
+      style: strong ? tabular?.copyWith(fontWeight: FontWeight.w800) : tabular,
+    );
+    String? note(PayrollRunLine l) {
+      if (l.bonusesHeld != null) {
+        return isAr ? 'مكافآت محجوزة: الدفاتر تقول أقل' : 'bonuses held';
+      }
+      if (l.bonusBooksCap != null) {
+        return isAr ? 'مكافأته بما تقوله الدفاتر' : 'bonus at the books';
+      }
+      if (!l.wholeMonth) {
+        return isAr
+            ? '${ltrIsolate('${l.days}')} يومًا من الشهر'
+            : '${l.days} days';
+      }
+      return null;
+    }
+
+    return Card(
+      key: const ValueKey('payroll-lines-table'),
+      clipBehavior: Clip.antiAlias,
+      child: Table(
+        columnWidths: const {0: FlexColumnWidth(2.4)},
+        defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+        children: [
+          TableRow(
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerLow,
+            ),
+            children: [
+              for (final h in [
+                isAr ? 'الموظف' : 'Employee',
+                isAr ? 'الأساسي' : 'Basic',
+                isAr ? 'البدلات والمكافآت' : 'Allowances',
+                isAr ? 'الخصومات' : 'Deductions',
+                isAr ? 'الصافي' : 'Net',
+                isAr ? 'السند' : 'Voucher',
+              ])
+                Padding(
+                  padding: const EdgeInsets.all(AppSpace.md),
+                  child: Text(h, style: theme.textTheme.labelMedium),
+                ),
+            ],
+          ),
+          for (final l in lines)
+            TableRow(
+              key: ValueKey('payroll-row-${l.employeeId}'),
+              decoration: BoxDecoration(
+                border: Border(
+                  top: BorderSide(color: theme.colorScheme.outlineVariant),
+                ),
+              ),
+              children: [
+                for (final cell in [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(l.employeeName, style: theme.textTheme.titleSmall),
+                      if (note(l) case final String n)
+                        Text(
+                          n,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: l.bonusesHeld != null
+                                ? tones.warning.fg
+                                : null,
+                          ),
+                        ),
+                    ],
+                  ),
+                  money(l.basic),
+                  money(l.allowances),
+                  l.deductions > 0 ? money(l.deductions) : const Text('—'),
+                  money(l.net, strong: true),
+                  Text(
+                    l.voucherNumber == null
+                        ? '—'
+                        : ltrIsolate(l.voucherNumber!),
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ])
+                  TableRowInkWell(
+                    onTap: () => onOpen(l),
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSpace.md),
+                      child: cell,
+                    ),
+                  ),
+              ],
+            ),
+        ],
       ),
     );
   }
@@ -1360,6 +1626,23 @@ class _PayslipDialog extends StatelessWidget {
         ),
       ),
       actions: [
+        // HR-UX ر3: the payslip on paper
+        TextButton.icon(
+          key: const ValueKey('payslip-print'),
+          onPressed: () async {
+            try {
+              final slip = await service.payslip(lineId);
+              await Printing.layoutPdf(
+                name: 'payslip-$lineId',
+                onLayout: (_) => buildPayslipPdf(slip),
+              );
+            } catch (e) {
+              if (context.mounted) AppFeedback.error(context, e.toString());
+            }
+          },
+          icon: const Icon(Icons.print_outlined),
+          label: Text(isAr ? 'طباعة' : 'Print'),
+        ),
         TextButton(
           onPressed: () => Navigator.pop(context),
           child: Text(isAr ? 'إغلاق' : 'Close'),

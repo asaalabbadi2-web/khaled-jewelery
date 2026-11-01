@@ -143,7 +143,10 @@ void main() {
   testWidgets(
     'a run is reviewed, approved whole, then paid by how each is paid',
     (tester) async {
-      tester.view.physicalSize = const Size(1200, 2000);
+      tester.view.physicalSize = const Size(
+        800,
+        2000,
+      ); // cards: a narrow screen's
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
       final server = _Server();
@@ -199,7 +202,7 @@ void main() {
       // approved whole
       await tester.tap(find.byKey(const ValueKey('payroll-run-approve')));
       await _settle(tester);
-      expect(find.textContaining('قيد استحقاق واحد'), findsOneWidget);
+      expect(find.textContaining('قيد استحقاق واحد بصافي'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('payroll-run-confirm')));
       await _settle(tester);
       expect(server.status, 'approved');
@@ -234,6 +237,50 @@ void main() {
         find.byKey(const ValueKey('payroll-run-cancel')),
         findsNothing,
         reason: 'a paid run is not cancelled',
+      );
+    },
+  );
+
+  testWidgets(
+    'on a wide screen: its stages, its totals, a table whose row opens its line',
+    (tester) async {
+      tester.view.physicalSize = const Size(1280, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: LightTheme.theme,
+          home: PayrollRunScreen(
+            api: ApiService(),
+            runId: 9,
+            service: _Server(),
+          ),
+        ),
+      );
+      await _settle(tester);
+      expect(find.byKey(const ValueKey('payroll-stage-1')), findsOneWidget);
+      expect(
+        find.textContaining('المراجعة'),
+        findsOneWidget,
+        reason: 'a draft is at its review',
+      );
+      expect(find.byKey(const ValueKey('payroll-run-totals')), findsOneWidget);
+      expect(find.byKey(const ValueKey('payroll-lines-table')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('payroll-line-10')),
+        findsNothing,
+        reason: 'rows, not cards',
+      );
+      await tester.tap(find.text('مسعد'));
+      await _settle(tester);
+      expect(
+        find.byKey(const ValueKey('payroll-line-10')),
+        findsOneWidget,
+        reason: 'its line in its sheet',
+      );
+      expect(
+        find.byKey(const ValueKey('payroll-line-edit-10')),
+        findsOneWidget,
       );
     },
   );
