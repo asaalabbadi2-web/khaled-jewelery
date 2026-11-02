@@ -45,18 +45,24 @@ def completeness(employee) -> dict:
     return {'done': asked - missing, 'of': asked}
 
 
-def _missing(employee) -> list[str]:
+def missing_items(employee) -> list[dict]:
+    """What his file lacks, each by its key and its words (HR-UX ط6: each
+    «+» on his page opens where it is filled)."""
     from services.payroll_policy import structure_on
-    missing = [label for field, label in MISSING if not getattr(employee, field)]
+    items = [{'key': field, 'label': label} for field, label in MISSING if not getattr(employee, field)]
     if structure_on(employee.id, date.max) is None:
-        missing.append('هيكل الراتب')
+        items.append({'key': 'structure', 'label': 'هيكل الراتب'})
     if not employee.payment_method:
-        missing.append('طريقة الصرف')
+        items.append({'key': 'payment_method', 'label': 'طريقة الصرف'})
     elif employee.payment_method == 'bank' and not employee.iban:
-        missing.append('الآيبان')
+        items.append({'key': 'iban', 'label': 'الآيبان'})
     if not employee.is_active and not employee.termination_date:
-        missing.append('تاريخ الإنهاء')
-    return missing
+        items.append({'key': 'termination_date', 'label': 'تاريخ الإنهاء'})
+    return items
+
+
+def _missing(employee) -> list[str]:
+    return [item['label'] for item in missing_items(employee)]
 
 
 def _accounts(employee) -> list[dict]:
@@ -97,9 +103,11 @@ def file_of(employee, *, today: date) -> dict:
     except Exception:                     # noqa: BLE001 -- a goal not set says nothing, the file stands
         goals = []
     from models import ContributionScheme
+    from services.payroll_payment import owed_salary
     return {
         'employee': employee.to_dict(),
         'missing': _missing(employee),
+        'missing_items': missing_items(employee),
         'completeness': completeness(employee),
         'users': [{'username': u.username, 'role': u.role, 'is_active': u.is_active,
                    'last_login_at': u.last_login_at.isoformat() if u.last_login_at else None}
@@ -119,6 +127,7 @@ def file_of(employee, *, today: date) -> dict:
                     'approved_count': len(approved), 'owed_in_books': owed_in_books(employee),
                     'last_paid_at': last_paid.paid_at.isoformat() if last_paid and last_paid.paid_at else None},
         'custody': custody_of(employee),
+        'salary_owed': owed_salary(employee),            # PAY-SPLIT: left with the shop, from the books
         'accounts': _accounts(employee),
         'goals': goals,
         'contract': (lambda c: c.to_dict() if c is not None else None)(contract_on(employee.id, today)),

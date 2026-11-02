@@ -50,6 +50,10 @@ class _Server extends PayrollService {
       'is_active': true,
     },
     'missing': ['الهوية الوطنية / الإقامة', 'تاريخ التعيين'],
+    'missing_items': [
+      {'key': 'national_id', 'label': 'الهوية الوطنية / الإقامة'},
+      {'key': 'hire_date', 'label': 'تاريخ التعيين'},
+    ],
     'completeness': {'done': 4, 'of': 6},
     'users': [
       {'username': 'masad', 'is_active': true},
@@ -109,7 +113,31 @@ void main() {
         findsOneWidget,
         reason: 'overview: his advances',
       );
-      expect(find.textContaining('لا عقد مسجّل'), findsNothing);
+      // HR-UX ط6 (board 2): what he lacks, each a «+» to where it is filled;
+      // four cards -- salaries, owes, leave, contract and documents
+      for (final key in [
+        'employee-overview-missing',
+        'employee-overview-salaries',
+        'employee-overview-owes',
+        'employee-overview-leave',
+        'employee-overview-contract',
+      ]) {
+        expect(find.byKey(ValueKey(key)), findsOneWidget, reason: key);
+      }
+      expect(
+        find.byKey(const ValueKey('employee-file-add-contract')),
+        findsNothing,
+        reason: 'the contract is edited in its part',
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('employee-overview-add-hire_date')),
+      );
+      await _settle(tester);
+      expect(
+        find.byType(EmployeeDataPanel),
+        findsOneWidget,
+        reason: '«+ تاريخ التعيين» opens his data',
+      );
 
       await tester.tap(find.byKey(const ValueKey('employee-page-edit')));
       await _settle(tester);
@@ -121,7 +149,10 @@ void main() {
 
       await tester.tap(find.byKey(const ValueKey('employee-part-contract')));
       await _settle(tester);
-      expect(find.textContaining('لا عقد مسجّل'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('employee-file-add-contract')),
+        findsOneWidget,
+      );
       expect(
         find.textContaining('12,880.00'),
         findsNothing,

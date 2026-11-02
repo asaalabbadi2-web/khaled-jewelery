@@ -11,6 +11,7 @@ import '../widgets/app_leave_guard.dart';
 import '../widgets/app_state_views.dart';
 import '../widgets/employee_advances_panel.dart';
 import '../widgets/employee_data_panel.dart';
+import '../widgets/employee_overview.dart';
 import '../widgets/employee_salary_panel.dart';
 import '../widgets/user_avatar_widget.dart';
 import 'employee_file_view.dart';
@@ -214,7 +215,14 @@ class _EmployeePageState extends State<EmployeePage> {
               ),
             ),
           Expanded(
-            child: _part == 'data'
+            child: _part == 'overview'
+                ? EmployeeOverview(
+                    key: ValueKey('overview-$_version'),
+                    file: file,
+                    isAr: isAr,
+                    onGo: _pick,
+                  )
+                : _part == 'data'
                 ? SingleChildScrollView(
                     child: EmployeeDataPanel(
                       key: ValueKey('data-$_version'),
@@ -312,11 +320,34 @@ class _EmployeePageState extends State<EmployeePage> {
     return AppLeaveGuard(
       controllers: const [],
       isDirty: () => _dirty,
+      // board 2: no bar of its own -- the way back above his head
       child: Scaffold(
-        appBar: AppBar(
-          title: Text('${_employee['name'] ?? (isAr ? 'الموظف' : 'Employee')}'),
+        body: SafeArea(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // board 2: the way back above his head, whatever his file's state
+              Padding(
+                padding: const EdgeInsetsDirectional.only(
+                  start: AppSpace.sm,
+                  top: AppSpace.sm,
+                ),
+                child: Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: TextButton.icon(
+                    key: const ValueKey('employee-page-back'),
+                    onPressed: () => Navigator.of(context).maybePop(),
+                    icon: const BackButtonIcon(),
+                    label: Text(
+                      _isAr ? 'الموارد البشرية · الموظفون' : 'HR · Employees',
+                    ),
+                  ),
+                ),
+              ),
+              Expanded(child: body),
+            ],
+          ),
         ),
-        body: body,
       ),
     );
   }

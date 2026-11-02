@@ -15,6 +15,7 @@ import '../theme/app_tokens.dart';
 import '../utils.dart' show normalizeNumber;
 import '../utils/arabic_number_formatter.dart';
 import '../utils/bidi.dart';
+import '../utils/month_names.dart';
 import '../utils/currency_utils.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/app_leave_guard.dart';
@@ -274,6 +275,8 @@ class PayrollRunScreen extends StatefulWidget {
     required this.runId,
     this.isArabic = true,
     this.service,
+    this.embedded = false,
+    this.onChanged,
   });
   final ApiService api;
   final int runId;
@@ -281,6 +284,13 @@ class PayrollRunScreen extends StatefulWidget {
 
   /// For tests: a service that answers without a server.
   final PayrollService? service;
+
+  /// HR-UX ط6 (board 3): the month's run inside «الرواتب» -- its own head
+  /// (the month by its name, its state, its actions) and no bar of its own.
+  final bool embedded;
+
+  /// Told after an action, for the tab holding it to read again.
+  final VoidCallback? onChanged;
 
   @override
   State<PayrollRunScreen> createState() => _PayrollRunScreenState();
@@ -318,6 +328,7 @@ class _PayrollRunScreenState extends State<PayrollRunScreen> {
       final run = await action();
       if (!mounted) return;
       setState(() => _run = run);
+      widget.onChanged?.call();
       AppFeedback.success(context, done);
     } catch (e) {
       if (mounted) AppFeedback.error(context, e.toString());
@@ -455,6 +466,40 @@ class _PayrollRunScreenState extends State<PayrollRunScreen> {
     _isAr ? 'أُضيف إلى المسودة' : 'Added to the draft',
   );
 
+  /// What may be done with the run in its state -- the bottom bar's on its
+  /// own page, its head's inside «الرواتب».
+  List<Widget> _actions(PayrollRun run) {
+    final isAr = _isAr;
+    final status = run.summary.status;
+    if (status == 'cancelled' || status == 'paid') return const [];
+    return [
+      OutlinedButton.icon(
+        key: const ValueKey('payroll-run-cancel'),
+        onPressed: _busy ? null : () => _cancel(run),
+        icon: const Icon(Icons.block),
+        label: Text(
+          status == 'draft'
+              ? (isAr ? 'إلغاء المسودة' : 'Cancel the draft')
+              : (isAr ? 'إلغاء المسير' : 'Cancel run'),
+        ),
+      ),
+      if (status == 'draft')
+        FilledButton.icon(
+          key: const ValueKey('payroll-run-approve'),
+          onPressed: _busy || run.lines.isEmpty ? null : () => _approve(run),
+          icon: const Icon(Icons.verified_outlined),
+          label: Text(isAr ? 'اعتماد المسير' : 'Approve'),
+        ),
+      if (status == 'approved')
+        FilledButton.icon(
+          key: const ValueKey('payroll-run-pay'),
+          onPressed: _busy ? null : () => _pay(run),
+          icon: const Icon(Icons.payments_outlined),
+          label: Text(isAr ? 'صرف' : 'Pay'),
+        ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final isAr = _isAr;
@@ -485,6 +530,10 @@ class _PayrollRunScreenState extends State<PayrollRunScreen> {
       body = ListView(
         padding: const EdgeInsets.all(AppSpace.lg),
         children: [
+          if (widget.embedded) ...[
+            _EmbeddedHead(run: run, isAr: isAr, actions: _actions(run)),
+            const SizedBox(height: AppSpace.md),
+          ],
           _Stages(status: status, isAr: isAr),
           const SizedBox(height: AppSpace.md),
           _Totals(run: run, isAr: isAr),
@@ -539,6 +588,7 @@ class _PayrollRunScreenState extends State<PayrollRunScreen> {
       );
     }
     final status = run?.summary.status;
+    if (widget.embedded) return body;
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -555,45 +605,77 @@ class _PayrollRunScreenState extends State<PayrollRunScreen> {
         ],
       ),
       body: body,
-      bottomNavigationBar:
-          run == null || status == 'cancelled' || status == 'paid'
+      bottomNavigationBar: run == null || _actions(run).isEmpty
           ? null
           : SafeArea(
               child: Padding(
                 padding: const EdgeInsets.all(AppSpace.md),
                 child: Row(
                   children: [
-                    if (status == 'draft')
-                      Expanded(
-                        child: FilledButton.icon(
-                          key: const ValueKey('payroll-run-approve'),
-                          onPressed: _busy || run.lines.isEmpty
-                              ? null
-                              : () => _approve(run),
-                          icon: const Icon(Icons.verified_outlined),
-                          label: Text(isAr ? 'اعتماد' : 'Approve'),
-                        ),
-                      ),
-                    if (status == 'approved')
-                      Expanded(
-                        child: FilledButton.icon(
-                          key: const ValueKey('payroll-run-pay'),
-                          onPressed: _busy ? null : () => _pay(run),
-                          icon: const Icon(Icons.payments_outlined),
-                          label: Text(isAr ? 'صرف' : 'Pay'),
-                        ),
-                      ),
-                    const SizedBox(width: AppSpace.md),
-                    OutlinedButton.icon(
-                      key: const ValueKey('payroll-run-cancel'),
-                      onPressed: _busy ? null : () => _cancel(run),
-                      icon: const Icon(Icons.block),
-                      label: Text(isAr ? 'إلغاء المسير' : 'Cancel run'),
-                    ),
+                    for (final (n, action) in _actions(run).reversed.indexed)
+                      if (n == 0)
+                        Expanded(child: action)
+                      else ...[
+                        const SizedBox(width: AppSpace.md),
+                        action,
+                      ],
                   ],
                 ),
               ),
             ),
+    );
+  }
+}
+
+/// Board 3's head of the month's run, inside «الرواتب»: «مسير الشهر», the
+/// month by its name, its state, and its actions beside them.
+class _EmbeddedHead extends StatelessWidget {
+  const _EmbeddedHead({
+    required this.run,
+    required this.isAr,
+    required this.actions,
+  });
+  final PayrollRun run;
+  final bool isAr;
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Wrap(
+      key: const ValueKey('payroll-run-head'),
+      alignment: WrapAlignment.spaceBetween,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: AppSpace.md,
+      runSpacing: AppSpace.sm,
+      children: [
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              isAr ? 'مسير الشهر' : 'The month\'s run',
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '${monthName(run.summary.month, isAr: isAr)} ${ltrIsolate('${run.summary.year}')}',
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(width: AppSpace.sm),
+                _StatusChip(run.summary.status, isAr),
+              ],
+            ),
+          ],
+        ),
+        Wrap(spacing: AppSpace.sm, runSpacing: AppSpace.sm, children: actions),
+      ],
     );
   }
 }
