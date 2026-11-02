@@ -234,7 +234,8 @@ def pay(termination, data: dict, *, by: str, now) -> Voucher:
     voucher = Voucher(voucher_number=number, voucher_type='payment', date=paid_date,
                       description=f'تسوية نهاية خدمة {employee.name}', status='pending', created_by=by,
                       party_type='other', party_name=employee.name, reference_type=ENTRY,
-                      reference_id=int(termination.id))
+                      reference_id=int(termination.id), employee_id=int(employee.id),
+                      amount_cash=round(sum(amount for _, amount in debits), 2))
     db.session.add(voucher)
     db.session.flush()
     for account_id, amount in debits:

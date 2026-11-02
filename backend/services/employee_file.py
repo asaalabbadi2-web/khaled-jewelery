@@ -87,7 +87,7 @@ def file_of(employee, *, today: date) -> dict:
     from services.bonus_accounts import owed_in_books
     from services.employee_access import custody_of
     from services.goal_achievements import goal_progress
-    from services.payroll_advances import account_balance, to_dict as plan_dict
+    from services.payroll_advances import account_balance, gold_balance, to_dict as plan_dict
     from services.employee_documents import contract_on, current_documents
     from services.employee_leave import balances as leave_balances
     from services.payroll_policy import structure_on
@@ -121,7 +121,7 @@ def file_of(employee, *, today: date) -> dict:
         'payroll': [{'id': p.id, 'month': p.month, 'year': p.year, 'net_salary': p.net_salary, 'status': p.status,
                      'payroll_run_id': p.payroll_run_id,
                      'voucher_number': p.voucher.voucher_number if p.voucher else None} for p in lines],
-        'advances': {'account_balance': account_balance(employee),
+        'advances': {'account_balance': account_balance(employee), 'gold': gold_balance(employee),
                      'plans': [plan_dict(p) for p in employee.advance_plans if p.status == 'active']},
         'bonuses': {'approved_unpaid': round(sum((b.amount or 0.0 for b in approved), 0.0), 2),
                     'approved_count': len(approved), 'owed_in_books': owed_in_books(employee),

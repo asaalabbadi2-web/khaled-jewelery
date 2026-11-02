@@ -305,7 +305,7 @@ def create_employee():
     auto_create_gold_safe = bool(data.get('auto_create_gold_safe_box', False))
     if auto_create_gold_safe and (employee.gold_safe_box_id in (None, 0)):
         try:
-            created_by = data.get('created_by', 'system')
+            created_by = _actor()
             created_gold_safe_account, created_gold_safe = create_employee_gold_safe(
                 employee_name=name,
                 employee_code=employee_code,
@@ -319,7 +319,7 @@ def create_employee():
     auto_create_cash_safe = bool(data.get('auto_create_cash_safe_box', False))
     if auto_create_cash_safe and (getattr(employee, 'cash_safe_box_id', None) in (None, 0)):
         try:
-            created_by = data.get('created_by', 'system')
+            created_by = _actor()
             created_cash_safe_account, created_cash_safe = create_employee_cash_safe(
                 employee_name=name,
                 employee_code=employee_code,
@@ -340,7 +340,7 @@ def create_employee():
         # Default: enabled (can be disabled by sending auto_create_payables_accounts=false)
         if _boolish(data.get('auto_create_payables_accounts'), default=True):
             try:
-                created_by = data.get('created_by', 'system')
+                created_by = _actor()
                 created_payables_accounts = create_employee_payables_accounts(employee, created_by=created_by)
             except Exception as exc:
                 # Nothing of the employee is kept half-made (CHART-002).
@@ -690,6 +690,13 @@ def create_employee_advance_account(employee_id):
 
 # ── PAYROLL-2: the payroll's data and policy (services/payroll_policy) ─────────
 
+def _actor() -> str:
+    """Who acts on the payroll: the session's user, never a name in the body
+    (the owner, 2 Nov 2026: runs and vouchers were «system»)."""
+    from services.approval_policy import actor
+    return actor()
+
+
 def _payroll_refusal(refused, status=400):
     body = {'error': refused.message}
     if getattr(refused, 'code', None):
@@ -751,7 +758,7 @@ def create_salary_structure(employee_id):
     from services.payroll_policy import save_structure
     data = request.get_json() or {}
     try:
-        structure = save_structure(employee_id, data, by=data.get('created_by') or 'system',
+        structure = save_structure(employee_id, data, by=_actor(),
                                    today=datetime.now().date())
     except PayrollRefused as refused:
         db.session.rollback()
@@ -768,7 +775,7 @@ def update_salary_structure(structure_id):
     structure = SalaryStructure.query.get_or_404(structure_id)
     data = request.get_json() or {}
     try:
-        save_structure(structure.employee_id, data, by=data.get('created_by') or 'system',
+        save_structure(structure.employee_id, data, by=_actor(),
                        today=datetime.now().date(), structure=structure)
     except PayrollRefused as refused:
         db.session.rollback()
@@ -932,7 +939,7 @@ def create_payroll_run():
     from services.payroll_run import generate
     data = request.get_json(silent=True) or {}
     try:
-        run, left_out = generate(data.get('month'), data.get('year'), by=data.get('created_by') or 'system')
+        run, left_out = generate(data.get('month'), data.get('year'), by=_actor())
     except PayrollRefused as refused:
         db.session.rollback()
         return _payroll_refusal(refused, 409 if refused.code == 'payroll_run_exists' else 400)
@@ -987,7 +994,7 @@ def add_payroll_run_line(run_id):
         employee = Employee.query.get_or_404(int(data.get('employee_id') or 0))
     except (TypeError, ValueError):
         abort(404)
-    by = data.get('created_by') or 'system'
+    by = _actor()
     return _run_action(run, lambda: add_line(run, employee, by=by))
 
 
@@ -1012,7 +1019,7 @@ def delete_payroll_run_line(run_id, payroll_id):
 def approve_payroll_run(run_id):
     from services.payroll_run import approve
     run = PayrollRun.query.get_or_404(run_id)
-    by = (request.get_json(silent=True) or {}).get('created_by') or 'system'
+    by = _actor()
     return _run_action(run, lambda: approve(run, by=by, now=datetime.now()))
 
 
@@ -1021,7 +1028,7 @@ def approve_payroll_run(run_id):
 def cancel_payroll_run(run_id):
     from services.payroll_run import cancel
     run = PayrollRun.query.get_or_404(run_id)
-    by = (request.get_json(silent=True) or {}).get('created_by') or 'system'
+    by = _actor()
     return _run_action(run, lambda: cancel(run, by=by, now=datetime.now()))
 
 
@@ -1033,7 +1040,7 @@ def pay_payroll_run(run_id):
     from services.payroll_run import pay_run
     run = PayrollRun.query.get_or_404(run_id)
     data = request.get_json(silent=True) or {}
-    return _run_action(run, lambda: pay_run(run, data, by=data.get('created_by') or 'system', now=datetime.now()))
+    return _run_action(run, lambda: pay_run(run, data, by=_actor(), now=datetime.now()))
 
 
 @employees_bp.route('/payroll/<int:payroll_id>/payslip', methods=['GET'])
@@ -1064,7 +1071,7 @@ def create_advance_plan(employee_id):
     from services.payroll_laws import PayrollRefused
     data = request.get_json(silent=True) or {}
     try:
-        plan = create_plan(employee_id, data, by=data.get('created_by') or 'system', today=datetime.now().date())
+        plan = create_plan(employee_id, data, by=_actor(), today=datetime.now().date())
     except PayrollRefused as refused:
         db.session.rollback()
         return _payroll_refusal(refused)
@@ -1422,7 +1429,7 @@ def update_payroll(payroll_id):
         payroll_entry.notes = data['notes']
 
     accrual_result = None
-    by = data.get('created_by', 'system')
+    by = _actor()
     try:
         if new_status == 'approved' and old_status == 'pending':
             approve(payroll_entry, by=by)                     # law 4
@@ -1485,7 +1492,7 @@ def bulk_approve_payroll():
     ids = data.get('ids')  # قائمة بـ IDs أو None لاعتماد كل الـ pending للشهر/السنة
     year  = data.get('year',  type(0) and None) or data.get('year')
     month = data.get('month', type(0) and None) or data.get('month')
-    created_by = data.get('created_by', 'system')
+    created_by = _actor()
 
     query = Payroll.query.filter(Payroll.status == 'pending')
     if ids:
@@ -1553,7 +1560,7 @@ def bulk_cancel_payroll():
     skipped = []
     for entry in entries:
         try:
-            cancel(entry, by=data.get('created_by', 'system'), now=datetime.now())
+            cancel(entry, by=_actor(), now=datetime.now())
             cancelled_count += 1
         except PayrollRefused as refused:
             skipped.append({'id': entry.id, 'reason': refused.message})
@@ -1704,7 +1711,7 @@ def post_payroll_accrual(payroll_id):
     """
     payroll_entry = Payroll.query.get_or_404(payroll_id)
     data = request.get_json() or {}
-    created_by = data.get('created_by', 'system')
+    created_by = _actor()
 
     try:
         ok, err, je = _post_payroll_accrual_internal(payroll_entry, created_by=created_by)

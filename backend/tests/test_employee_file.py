@@ -42,6 +42,7 @@ def test_the_file_says_what_is_missing_and_fills_as_the_parts_are_entered(auth_h
     assert {'national_id', 'hire_date', 'structure', 'payment_method'} <= keys, 'each by its key (HR-UX ط6)'
     assert [item['label'] for item in file['missing_items']] == file['missing']
     assert file['salary_owed'] == 0.0
+    assert file['advances']['gold'] == {}, 'his gold advance, by karat, from the books (none here)'
     _call('post', f'/api/employees/{emp}/salary-structures', auth_headers,
           {'effective_from': '2026-01-01', 'basic': 6000, 'housing': 1500, 'transport': 600})
     _call('put', f'/api/employees/{emp}', auth_headers,

@@ -666,6 +666,15 @@ List<Widget> _needs(BuildContext context, Map<String, dynamic> row, bool isAr) {
   ];
 }
 
+/// His advances in riyals and, beneath, in gold (the owner, 2 Nov 2026: «السلف
+/// الوزنية لم تُعتمد») -- both the books'.
+String _advances(Map<String, dynamic> row, bool isAr) {
+  final gold = row['advance_gold'] as Map<String, dynamic>? ?? const {};
+  return gold.isEmpty
+      ? _money(row['advance'])
+      : '${_money(row['advance'])}\n${goldCustodyText(gold, isAr: isAr)}';
+}
+
 String _custody(Map<String, dynamic> row, bool isAr) {
   final custody = row['custody'] as Map<String, dynamic>? ?? const {};
   return goldCustodyText(
@@ -797,7 +806,7 @@ class _EmployeesTable extends StatelessWidget {
                   ),
                   _ => const Text('—'),
                 },
-                Text(_money(r['advance']), style: tabular),
+                Text(_advances(r, isAr), style: tabular),
                 Text(_custody(r, isAr), style: tabular),
                 Wrap(
                   spacing: AppSpace.xs,
@@ -899,7 +908,7 @@ class _EmployeeRow extends StatelessWidget {
                     ? '—'
                     : '${ltrIsolate('${last['month']}/${last['year']}')} · ${_money(last['net_salary'])}',
               ),
-              figure(isAr ? 'السلف' : 'Advances', _money(row['advance'])),
+              figure(isAr ? 'السلف' : 'Advances', _advances(row, isAr)),
               figure(isAr ? 'العهدة' : 'Custody', _custody(row, isAr)),
               Wrap(
                 spacing: AppSpace.xs,

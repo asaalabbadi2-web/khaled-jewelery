@@ -367,6 +367,7 @@ class EmployeeOverview extends StatelessWidget {
             as Map<String, dynamic>? ??
         const {};
     final advance = (advances['account_balance'] as num?) ?? 0;
+    final goldAdvance = advances['gold'] as Map<String, dynamic>? ?? const {};
     final bold = theme.textTheme.titleSmall;
     return _card(
       context,
@@ -381,6 +382,15 @@ class EmployeeOverview extends StatelessWidget {
             style: bold?.copyWith(color: advance > 0 ? tones.blocked.fg : null),
           ),
         ),
+        if (goldAdvance.isNotEmpty)
+          _row(
+            context,
+            isAr ? 'سلفة ذهب عليه' : 'Gold advance he owes',
+            Text(
+              goldCustodyText(goldAdvance, isAr: isAr),
+              style: bold?.copyWith(color: tones.blocked.fg),
+            ),
+          ),
         _row(
           context,
           isAr ? 'رواتب مستحقة له' : 'Salary owed to him',

@@ -19,6 +19,7 @@ Run:
 """
 import json
 import uuid
+from datetime import datetime
 
 import pytest
 from flask import g
@@ -274,6 +275,7 @@ def test_a_salary_is_paid_part_by_bank_part_by_cash_the_rest_kept_owed(auth_head
     assert _call('put', emp, auth_headers, {'payment_method': 'cash', 'split_method': 'bank',
                                              'split_amount': 5000})[0] == 200
     run = _run(auth_headers)[1]
+    run_row = lambda: db.session.get(PayrollRun, run['id'])
     _call('post', f"/api/payroll/runs/{run['id']}/approve", auth_headers)
     joined = _line(run, staff['joined'])
     pay = f"/api/payroll/runs/{run['id']}/pay"
@@ -294,6 +296,12 @@ def test_a_salary_is_paid_part_by_bank_part_by_cash_the_rest_kept_owed(auth_head
             for row in VoucherAccountLine.query.filter_by(voucher_id=full.voucher_id)}
     assert legs[('credit', bank)] == 5000.0 and legs[('credit', cash)] == 3100.0, 'his split: 5,000 and the rest'
     assert sum(a for (t, _), a in legs.items() if t == 'debit') == 8100.0
+    from models import Voucher
+    voucher = db.session.get(Voucher, full.voucher_id)
+    assert (voucher.amount_cash, voucher.employee_id) == (8100.0, staff['full']), \
+        'its whole on the vouchers\' list, and whose (the owner, 2 Nov 2026)'
+    assert voucher.created_by == 'admin' and run_row().created_by == 'admin', \
+        'who acted: the session\'s user, not «system»'
     kept = db.session.get(Payroll, joined['id'])
     assert kept.voucher_id is None and kept.status == 'approved', 'nothing left: no voucher'
     assert json.loads(kept.breakdown)['kept_owed'] == 2700.0, 'kept owed to him, said'
@@ -305,6 +313,8 @@ def test_a_salary_is_paid_part_by_bank_part_by_cash_the_rest_kept_owed(auth_head
     assert (code, body.get('code')) == (409, 'pay_beyond_owed'), body
     code, body = _call('post', f'{owed}/pay', auth_headers, {'amount': 1000, 'payment_account_id': cash})
     assert code == 201 and body['owed'] == 1700.0, body
+    later = Voucher.query.filter_by(voucher_number=body['voucher_number']).one()
+    assert (later.amount_cash, later.employee_id, later.created_by) == (1000.0, staff['joined'], 'admin')
 
 
 def test_a_line_may_be_paid_from_its_own_account_with_its_advance_deducted(auth_headers, staff):
@@ -318,3 +328,32 @@ def test_a_line_may_be_paid_from_its_own_account_with_its_advance_deducted(auth_
     assert Payroll.query.filter_by(payroll_run_id=run['id'], status='paid').count() == 0
     lines[0]['advance_deduction_amount'] = 100
     assert _call('post', f"/api/payroll/runs/{run['id']}/pay", auth_headers, {'lines': lines})[0] == 200
+
+
+def test_the_salary_vouchers_saved_without_their_amount_get_it_from_their_lines(auth_headers, staff):
+    """The repair (the owner, 2 Nov 2026: «مبلغ سند صرف الرواتب لا يظهر»): 57 on
+    the 2 Nov copy, their header 0; the sum of their debit lines and whose."""
+    from models import Account, AuditLog, Voucher, VoucherAccountLine
+    from services.repair.payroll_voucher_amounts import ACTION, write_amounts
+    entry = Payroll(employee_id=staff['full'], month=MONTH, year=YEAR, basic_salary=8100.0, net_salary=8100.0,
+                    status='paid', created_by='t')
+    db.session.add(entry)
+    db.session.flush()
+    voucher = Voucher(voucher_number=f'PAY-T-{uuid.uuid4().hex[:6]}', voucher_type='payment', date=datetime(YEAR, MONTH, 30),
+                      status='pending', created_by='system', reference_type='payroll', reference_id=entry.id)
+    db.session.add(voucher)
+    db.session.flush()
+    some = Account.query.first()
+    db.session.add_all([
+        VoucherAccountLine(voucher_id=voucher.id, account_id=some.id, line_type='debit', amount_type='cash', amount=8100.0),
+        VoucherAccountLine(voucher_id=voucher.id, account_id=some.id, line_type='credit', amount_type='cash', amount=8100.0)])
+    db.session.commit()
+    plan = write_amounts(by='t')                                   # dry run
+    assert {'id': voucher.id, 'amount_cash': 8100.0, 'employee_id': staff['full']}.items() <= \
+        next(r for r in plan['written'] if r['id'] == voucher.id).items()
+    assert db.session.get(Voucher, voucher.id).amount_cash in (0, None), 'a dry run writes nothing'
+    write_amounts(by='المالك', dry_run=False)
+    written = db.session.get(Voucher, voucher.id)
+    assert (written.amount_cash, written.employee_id) == (8100.0, staff['full'])
+    assert AuditLog.query.filter_by(action=ACTION).count() >= 1
+    assert write_amounts(by='t')['written'] == [], 'once'

@@ -47,6 +47,7 @@ def test_the_overview_says_its_employees_and_what_needs_doing(auth_headers):
     _entry(emp, 9)
     result = overview(today=date(2041, 11, 1))
     row = next(r for r in result['employees'] if r['id'] == emp)
+    assert row['advance_gold'] == {}, 'his gold advance, by karat (the owner, 2 Nov 2026)'
     assert row['last_payroll']['month'] == 9 and row['gross'] is None, 'no structure: none said'
     assert 'تاريخ التعيين' in row['missing']
     kinds = {i['kind'] for i in result['followup']}

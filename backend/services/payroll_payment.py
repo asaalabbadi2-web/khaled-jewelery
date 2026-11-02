@@ -118,7 +118,10 @@ def pay(entry, *, payment_account_id=None, parts=None, paid_date, advance_deduct
                       description=f'صرف راتب {employee.name} - {entry.month}/{entry.year}',
                       status='pending', created_by=by, party_type='other', party_name=employee.name,
                       reference_type='payroll', reference_id=int(entry.id),
-                      reference_number=f'{entry.year}-{entry.month:02d}')
+                      reference_number=f'{entry.year}-{entry.month:02d}',
+                      # its whole, as the vouchers' list reads it (the owner, 2 Nov 2026:
+                      # «مبلغ سند صرف الرواتب لا يظهر») -- what left and what was deducted
+                      employee_id=int(employee.id), amount_cash=round(paid + advance_deduction, 2))
     db.session.add(voucher)
     db.session.flush()
 
@@ -236,7 +239,8 @@ def pay_owed(employee, *, amount=0.0, payment_account_id=None, advance=0.0, cons
                       else (f'خصم سلفة من مستحق رواتب {employee.name}' if advance
                             else f'صرف مستحق رواتب {employee.name}'),
                       status='pending', created_by=by, party_type='other', party_name=employee.name,
-                      reference_type='salary_owed', reference_id=int(employee.id))
+                      reference_type='salary_owed', reference_id=int(employee.id),
+                      employee_id=int(employee.id), amount_cash=round(amount + advance, 2))
     db.session.add(voucher)
     db.session.flush()
     if amount > 0:

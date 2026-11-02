@@ -60,7 +60,11 @@ class _Server extends PayrollService {
     ],
     'salary': {'structure': null},
     'payroll': <dynamic>[],
-    'advances': {'account_balance': 12880.0, 'plans': <dynamic>[]},
+    'advances': {
+      'account_balance': 12880.0,
+      'gold': {'21k': 50.6},
+      'plans': <dynamic>[],
+    },
     'bonuses': {'approved_unpaid': 0.0, 'owed_in_books': 0.0},
     'custody': <String, dynamic>{},
     'accounts': <dynamic>[],
@@ -129,6 +133,11 @@ void main() {
         find.byKey(const ValueKey('employee-file-add-contract')),
         findsNothing,
         reason: 'the contract is edited in its part',
+      );
+      expect(
+        find.textContaining('50.600 جم 21'),
+        findsOneWidget,
+        reason: 'his gold advance beside his riyals (the owner, 2 Nov 2026)',
       );
       await tester.tap(
         find.byKey(const ValueKey('employee-overview-add-hire_date')),

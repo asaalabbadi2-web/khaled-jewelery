@@ -40,6 +40,20 @@ def _rounded(value, label: str) -> float:
     return number
 
 
+def gold_balance(employee) -> dict:
+    """What gold he owes on his advance account, by karat, from the books --
+    the weight its parallel (memo) account holds (the owner, 2 Nov 2026:
+    «السلف الوزنية لم تُعتمد»: 18.64 g 21k for صالح on the 2 Nov copy)."""
+    from models import Account
+    from services.live_balances import live_balances_by_account_ids
+    account = db.session.get(Account, employee.account_id) if employee.account_id else None
+    memo_id = getattr(account, 'memo_account_id', None) if account is not None else None
+    if not memo_id:
+        return {}
+    balance = live_balances_by_account_ids([memo_id]).get(memo_id, {})
+    return {karat: round(grams, 3) for karat, grams in balance.items() if karat != 'cash' and round(grams, 3)}
+
+
 def account_balance(employee) -> float:
     """What the employee owes on his advance account, from the books."""
     from services.live_balances import live_balances_by_account_ids

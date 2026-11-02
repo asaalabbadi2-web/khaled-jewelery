@@ -30,6 +30,7 @@ def _row(employee, today: date) -> dict:
     from services.employee_accounts import employee_account
     from services.employee_file import _missing
     from services.employee_termination import _credit
+    from services.payroll_advances import gold_balance
     from services.payroll_policy import structure_on
     structure = structure_on(employee.id, today)
     line = _last_line(employee)
@@ -41,6 +42,7 @@ def _row(employee, today: date) -> dict:
         'last_payroll': ({'month': line.month, 'year': line.year, 'status': line.status,
                           'net_salary': line.net_salary} if line is not None else None),
         'advance': round(-_credit(employee.account_id), 2) + 0.0,
+        'advance_gold': gold_balance(employee),            # his gold advance, by karat
         'custody': custody_of(employee),
         'missing': _missing(employee),
         'salary_owed': _credit(salary_payable.id) if salary_payable is not None else 0.0,
