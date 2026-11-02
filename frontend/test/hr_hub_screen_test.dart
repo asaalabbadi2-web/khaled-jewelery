@@ -132,6 +132,11 @@ void main() {
       expect(find.byKey(const ValueKey('hr-payroll-month')), findsOneWidget);
       expect(find.textContaining('لم يُنشأ'), findsOneWidget);
       expect(find.byKey(const ValueKey('hr-payroll-legacy')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('hr-payroll-new-run')),
+        findsOneWidget,
+        reason: 'a new run from the tab, not through the runs before',
+      );
 
       // الإعدادات: every setting in one place; the earlier screen gone (HR-UX
       // ط5, the owner, 2 Nov 2026: «اعتمد» -- its repair made safes unasked)

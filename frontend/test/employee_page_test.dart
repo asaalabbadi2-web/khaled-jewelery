@@ -116,6 +116,7 @@ void main() {
       // HR-UX ط6 (board 2): what he lacks, each a «+» to where it is filled;
       // four cards -- salaries, owes, leave, contract and documents
       for (final key in [
+        'employee-overview-salary',
         'employee-overview-missing',
         'employee-overview-salaries',
         'employee-overview-owes',

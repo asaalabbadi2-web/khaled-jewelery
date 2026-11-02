@@ -165,36 +165,33 @@ class _HrHubScreenState extends State<HrHubScreen>
       (HrTab.settings, isAr ? 'الإعدادات' : 'Settings', 'hr-tab-settings'),
     ];
     return Scaffold(
+      // the screen's whole width (the owner, 2 Nov 2026: a cap left it small on
+      // a wide screen)
       body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1280),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpace.lg,
-                AppSpace.lg,
-                AppSpace.lg,
-                0,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpace.lg,
+            AppSpace.lg,
+            AppSpace.lg,
+            0,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _HubHead(
+                isAr: isAr,
+                onRefresh: _load,
+                onNewEmployee: _newEmployee,
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _HubHead(
-                    isAr: isAr,
-                    onRefresh: _load,
-                    onNewEmployee: _newEmployee,
-                  ),
-                  const SizedBox(height: AppSpace.lg),
-                  _TabPills(
-                    controller: _tabs,
-                    tabs: tabs,
-                    followupCount: _followupCount,
-                  ),
-                  const SizedBox(height: AppSpace.sm),
-                  Expanded(child: body),
-                ],
+              const SizedBox(height: AppSpace.lg),
+              _TabPills(
+                controller: _tabs,
+                tabs: tabs,
+                followupCount: _followupCount,
               ),
-            ),
+              const SizedBox(height: AppSpace.sm),
+              Expanded(child: body),
+            ],
           ),
         ),
       ),
@@ -990,11 +987,25 @@ class _PayrollTabState extends State<_PayrollTab> {
             .where((r) => r.status == 'draft' || r.status == 'approved')
             .firstOrNull ??
         live.firstOrNull;
+    Widget newRun() => FilledButton.icon(
+      key: const ValueKey('hr-payroll-new-run'),
+      onPressed: () => _push(
+        PrepareRunScreen(
+          api: widget.api,
+          isArabic: isAr,
+          service: widget.service,
+        ),
+      ),
+      icon: const Icon(Icons.add),
+      label: Text(isAr ? 'مسير جديد' : 'New run'),
+    );
     final links = Wrap(
       spacing: AppSpace.sm,
       runSpacing: AppSpace.sm,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
+        // the owner, 2 Nov 2026: a new run from here, not through the runs before
+        if (missing == null) newRun(),
         TextButton.icon(
           key: const ValueKey('hr-payroll-runs'),
           onPressed: () => _push(
@@ -1050,21 +1061,7 @@ class _PayrollTabState extends State<_PayrollTab> {
                         Wrap(
                           spacing: AppSpace.sm,
                           crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            FilledButton.icon(
-                              key: const ValueKey('hr-payroll-new-run'),
-                              onPressed: () => _push(
-                                PrepareRunScreen(
-                                  api: widget.api,
-                                  isArabic: isAr,
-                                  service: widget.service,
-                                ),
-                              ),
-                              icon: const Icon(Icons.add),
-                              label: Text(isAr ? 'مسير جديد' : 'New run'),
-                            ),
-                            links,
-                          ],
+                          children: [newRun(), links],
                         ),
                       ],
                     ),

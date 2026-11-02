@@ -150,6 +150,109 @@ class EmployeeOverview extends StatelessWidget {
     );
   }
 
+  /// His salary in force and how he is paid (the owner, 2 Nov 2026: «لماذا
+  /// أُزيل قسم بيانات الراتب؟» -- the board's overview had none, his page did).
+  Widget _salary(BuildContext context) {
+    final theme = Theme.of(context);
+    final tones = AppSemanticColors.of(context);
+    final salary = file['salary'] as Map<String, dynamic>? ?? const {};
+    final employee = file['employee'] as Map<String, dynamic>? ?? const {};
+    final s = salary['structure'] as Map<String, dynamic>?;
+    String way(String? m) => switch (m) {
+      'bank' => isAr ? 'تحويل بنكي' : 'bank transfer',
+      'cash' => isAr ? 'نقدًا' : 'cash',
+      _ => isAr ? 'لم تُحدَّد' : 'not set',
+    };
+    final splitMethod = employee['split_method'] as String?;
+    final split = splitMethod == null
+        ? null
+        : isAr
+        ? '${_money(employee['split_amount'])} ${splitMethod == 'bank' ? 'تحويلًا' : 'نقدًا'}، والباقي ${splitMethod == 'bank' ? 'نقدًا' : 'تحويلًا'}'
+        : '${_money(employee['split_amount'])} by $splitMethod, the rest the other way';
+    return _card(
+      context,
+      'employee-overview-salary',
+      isAr ? 'الراتب' : 'Salary',
+      [
+        if (s == null)
+          Text(
+            isAr
+                ? 'لا راتب ساري: لا يدخل المسير حتى يُضاف'
+                : 'None in force: not in the run',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: tones.warning.fg,
+            ),
+          )
+        else ...[
+          Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(
+                  text: _money(s['gross']),
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                TextSpan(text: isAr ? '  ر.س شهريًا' : '  SAR a month'),
+              ],
+            ),
+          ),
+          Text(
+            '${isAr ? 'ساري من' : 'Since'} ${ltrIsolate('${s['effective_from']}')}',
+            style: theme.textTheme.bodySmall,
+          ),
+          const SizedBox(height: AppSpace.sm),
+          for (final (key, label) in [
+            ('basic', isAr ? 'الأساسي' : 'Basic'),
+            ('housing', isAr ? 'السكن' : 'Housing'),
+            ('transport', isAr ? 'النقل' : 'Transport'),
+            ('other_allowances', isAr ? 'بدلات أخرى' : 'Other'),
+          ])
+            if (((s[key] as num?) ?? 0) != 0)
+              _row(
+                context,
+                label,
+                Text(_money(s[key]), style: theme.textTheme.bodyMedium),
+              ),
+        ],
+        _row(
+          context,
+          isAr ? 'يُصرف' : 'Paid by',
+          Text(
+            split ?? way(salary['payment_method'] as String?),
+            style: theme.textTheme.bodyMedium,
+          ),
+        ),
+        _row(
+          context,
+          isAr ? 'التأمينات' : 'Contributions',
+          Text(
+            '${salary['scheme'] ?? (isAr ? 'بلا اشتراك' : 'none')}',
+            style: theme.textTheme.bodyMedium,
+          ),
+        ),
+        const SizedBox(height: AppSpace.sm),
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: OutlinedButton(
+            key: const ValueKey('employee-overview-salary-go'),
+            onPressed: () => onGo('salary'),
+            child: Text(
+              s == null
+                  ? (isAr ? 'أضف الراتب' : 'Add the salary')
+                  : (isAr
+                        ? 'تغيير الراتب والصرف'
+                        : 'Change salary and payment'),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// His last six salaries: each its net above its bar, its month under it,
+  /// the latest gold; a bar opens his salary part (the owner: the chart said
+  /// nothing).
   Widget _salaries(BuildContext context) {
     final theme = Theme.of(context);
     final tones = AppSemanticColors.of(context);
@@ -162,12 +265,14 @@ class EmployeeOverview extends StatelessWidget {
                 .compareTo((b['year'] as int) * 100 + (b['month'] as int)),
           );
     final last = lines.length > 6 ? lines.sublist(lines.length - 6) : lines;
-    final top = last.fold<double>(
-      0,
-      (m, l) => ((l['net_salary'] as num?) ?? 0) > m
-          ? ((l['net_salary'] as num?) ?? 0).toDouble()
-          : m,
-    );
+    double net(Map<String, dynamic> l) =>
+        ((l['net_salary'] as num?) ?? 0).toDouble();
+    final top = last.fold<double>(0, (m, l) => net(l) > m ? net(l) : m);
+    String status(Object? s) => switch (s) {
+      'paid' => isAr ? 'مصروف' : 'paid',
+      'approved' => isAr ? 'معتمد' : 'approved',
+      _ => isAr ? 'مسودة' : 'draft',
+    };
     return _card(
       context,
       'employee-overview-salaries',
@@ -179,55 +284,70 @@ class EmployeeOverview extends StatelessWidget {
             style: theme.textTheme.bodyMedium,
           )
         else ...[
-          Semantics(
-            label: [
-              for (final l in last)
-                '${monthName(l['month'] as int, isAr: isAr)} ${formatAmount((l['net_salary'] as num?) ?? 0)}',
-            ].join('، '),
-            child: SizedBox(
-              height: 120,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  for (final (i, l) in last.indexed) ...[
-                    if (i > 0) const SizedBox(width: AppSpace.sm),
-                    Expanded(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          Container(
-                            height: top <= 0
-                                ? 4
-                                : 4 +
-                                      92 *
-                                          (((l['net_salary'] as num?) ?? 0) /
-                                              top),
-                            decoration: BoxDecoration(
-                              color: i == last.length - 1
-                                  ? tones.gold.fg
-                                  : tones.gold.container,
-                              borderRadius: const BorderRadius.vertical(
-                                top: Radius.circular(AppRadius.chip),
+          SizedBox(
+            height: 170,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                for (final (i, l) in last.indexed) ...[
+                  if (i > 0) const SizedBox(width: AppSpace.sm),
+                  Expanded(
+                    child: Tooltip(
+                      message:
+                          '${monthName(l['month'] as int, isAr: isAr)} ${l['year']} · ${formatAmount(net(l))} · ${status(l['status'])}'
+                          '${l['voucher_number'] == null ? '' : ' · ${l['voucher_number']}'}',
+                      child: InkWell(
+                        key: ValueKey('employee-overview-bar-${l['id']}'),
+                        onTap: () => onGo('salary'),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                formatAmount(net(l)),
+                                textDirection: TextDirection.ltr,
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  fontWeight: i == last.length - 1
+                                      ? FontWeight.w800
+                                      : null,
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(height: AppSpace.xs),
-                          Text(
-                            ltrIsolate('${l['month']}'),
-                            style: theme.textTheme.labelSmall,
-                          ),
-                        ],
+                            const SizedBox(height: 2),
+                            Container(
+                              height: top <= 0 ? 4 : 4 + 96 * (net(l) / top),
+                              decoration: BoxDecoration(
+                                color: i == last.length - 1
+                                    ? tones.gold.fg
+                                    : tones.gold.container,
+                                borderRadius: const BorderRadius.vertical(
+                                  top: Radius.circular(AppRadius.chip),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: AppSpace.xs),
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                monthName(l['month'] as int, isAr: isAr),
+                                style: theme.textTheme.labelSmall,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ],
+                  ),
                 ],
-              ),
+              ],
             ),
           ),
           const SizedBox(height: AppSpace.sm),
           Text(
             isAr
-                ? 'آخرها ${monthName(last.last['month'] as int)} ${_money(last.last['net_salary'])}'
+                ? 'آخرها ${monthName(last.last['month'] as int)} ${_money(last.last['net_salary'])} · ${status(last.last['status'])}'
+                      '${last.length > 1 ? ' — قبله ${monthName(last[last.length - 2]['month'] as int)} ${_money(last[last.length - 2]['net_salary'])}' : ''}'
                 : 'Last: ${monthName(last.last['month'] as int, isAr: false)} ${_money(last.last['net_salary'])}',
             style: theme.textTheme.bodyMedium,
           ),
@@ -381,6 +501,7 @@ class EmployeeOverview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cards = [
+      _salary(context),
       _salaries(context),
       _owes(context),
       _leave(context),
