@@ -12,13 +12,15 @@ still, a credit for each way money leaves; what is not paid is kept on his
 salary payable, owed to him -- said on the line (`kept_owed`), never moved.
 Nothing paid at all writes no voucher: the line is kept whole.
 
-His gold advance taken in riyals (PAY-GOLD; the owner, 2 Nov 2026: «أ،ب معا»,
-then «سعر التسكير الآن» and «وسيط تسوية الذهب»): grams of a karat he owes,
-no more, at the closing price on the day paid -- frozen on his line
-(`gold_deduction`). The voucher credits the clearing (1720) by the riyals,
-debits its weight twin (71720) and credits his weight account by the grams:
-riyals waiting to become gold, which the weight close reads as a sale. Or he
-returns it in gold by a weight receipt voucher, as before.
+His gold advance taken in riyals (PAY-GOLD; the owner, 2 Nov 2026: «أ،ب معا»
+and «سعر التسكير الآن»): grams of a karat he owes, no more, at the closing
+price on the day paid -- frozen on his line (`gold_deduction`). Booked as the
+shop books gold given for riyals, a purchase return (3 Nov 2026; not the
+clearing 1720/71720, which holds 2025's opening residue): the voucher credits
+513 by the riyals, debits its weight twin 7513 and credits his weight account
+by the grams. No VAT: his gold is the scrap box's, bought from people without
+it, and a return's VAT is its purchase's (the owner, 3 Nov). The weight close
+reads it as a sale. Or he returns it in gold by a weight receipt voucher.
 """
 from __future__ import annotations
 
@@ -41,7 +43,7 @@ def settled(entry) -> bool:
     return bool(entry.voucher_id) or (kept_owed(entry) > 0 and round(kept_owed(entry) - float(entry.net_salary or 0), 2) == 0)
 
 
-GOLD_CLEARING = 'gold_settlement_clearing'      # «حساب وسيط تسوية الذهب» (1720 / 71720)
+GOLD_TAKEN = ('مرتجع شراء', 'purchase_returns')   # «مردودات مشتريات ذهب» (513 / 7513)
 
 
 def gold_rates(employee, day) -> dict:
@@ -103,19 +105,19 @@ def _mark_kept(entry, amount: float) -> None:
 
 
 def _gold_lines(voucher, employee, taken: dict) -> None:
-    """The riyals to the clearing, the grams from his weight account to its twin."""
-    from accounting.mappings import AccountNotMapped, DEFAULT_MAPPING_OPERATION_TYPE, require_account
+    """The riyals to the purchase returns, the grams from his weight account to its twin."""
+    from accounting.mappings import AccountNotMapped, require_account
     try:
-        clearing = db.session.get(Account, require_account(DEFAULT_MAPPING_OPERATION_TYPE, GOLD_CLEARING))
+        returns = db.session.get(Account, require_account(*GOLD_TAKEN))
     except AccountNotMapped as missing:
-        raise PayrollRefused(str(missing), 'gold_clearing_not_mapped') from None
+        raise PayrollRefused(str(missing), 'purchase_returns_not_mapped') from None
     his = db.session.get(Account, employee.account_id) if employee.account_id else None
-    if not getattr(clearing, 'memo_account_id', None) or not getattr(his, 'memo_account_id', None):
-        raise PayrollRefused(f'لا حساب وزني لوسيط تسوية الذهب أو لسلف {employee.name}', 'gold_account_missing')
+    if not getattr(returns, 'memo_account_id', None) or not getattr(his, 'memo_account_id', None):
+        raise PayrollRefused(f'لا حساب وزني لمردودات المشتريات أو لسلف {employee.name}', 'gold_account_missing')
     words = f"خصم سلفة ذهب {taken['grams']:g} جم عيار {taken['karat']} من راتب {employee.name}"
     for account_id, side, kind, amount, karat in (
-            (clearing.id, 'credit', 'cash', taken['amount'], None),
-            (clearing.memo_account_id, 'debit', 'gold', taken['grams'], taken['karat']),
+            (returns.id, 'credit', 'cash', taken['amount'], None),
+            (returns.memo_account_id, 'debit', 'gold', taken['grams'], taken['karat']),
             (his.memo_account_id, 'credit', 'gold', taken['grams'], taken['karat'])):
         db.session.add(VoucherAccountLine(voucher_id=voucher.id, account_id=account_id, line_type=side,
                                           amount_type=kind, amount=amount, karat=karat, description=words))

@@ -1,11 +1,14 @@
 """His gold advance, taken from his salary in riyals at the closing price (PAY-GOLD; the owner, 2 Nov 2026).
 
 The owner: «أ،ب معا» -- his gold advance is returned in gold by a weight
-receipt voucher (as today), or taken from his salary in riyals; at «سعر
-التسكير الآن» (the office's, the day paid), through «وسيط تسوية الذهب»: the
-riyals to 1720, the grams from his weight account to 71720 -- riyals waiting
-to become gold, read by the weight close as a sale is. The price is frozen on
-his line; no more than he owes, of a karat he owes.
+receipt voucher (as today), or taken from his salary in riyals at «سعر
+التسكير الآن» (the office's, the day paid). Booked as the shop books gold
+given for riyals -- a purchase return (3 Nov 2026, the accountant's reading,
+not the clearing 1720/71720, which holds 2025's opening residue): the riyals
+to 513, the grams from his weight account to 7513. No VAT: his gold is the
+scrap box's, bought from people without it, and a return's VAT is its
+purchase's (the owner, 3 Nov). Read by the weight close as a sale is. The
+price is frozen on his line; no more than he owes, of a karat he owes.
 
 Run:
     python -m pytest tests/test_payroll_gold_advance.py -v
@@ -38,8 +41,7 @@ def _account(prefix, name, kind, memo=None):
 
 @pytest.fixture
 def gold(staff):
-    """He owes 10 g of 21k on his weight account; the clearing pair mapped; the office's price the day before."""
-    from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE
+    """He owes 10 g of 21k on his weight account; the purchase returns pair mapped; the office's price the day before."""
     from dual_system_helpers import create_dual_journal_entry
     from models import AccountingMapping, Employee, GoldPrice
     employee = db.session.get(Employee, staff['full'])
@@ -49,12 +51,11 @@ def gold(staff):
         employee.account_id = personal.id
     if not personal.memo_account_id:
         personal.memo_account_id = _account('796', f'ح/حساب الموظف {employee.name} وزني', 'Asset').id
-    clearing = _account('95', 'حساب وسيط تسوية الذهب', 'Asset',
-                        memo=_account('795', 'حساب وسيط تسوية الذهب وزني', 'Asset').id)
-    AccountingMapping.query.filter_by(operation_type=DEFAULT_MAPPING_OPERATION_TYPE,
-                                      account_type='gold_settlement_clearing').delete()
-    db.session.add(AccountingMapping(operation_type=DEFAULT_MAPPING_OPERATION_TYPE,
-                                     account_type='gold_settlement_clearing', account_id=clearing.id, is_active=True))
+    returns = _account('95', 'مردودات مشتريات ذهب', 'Expense',
+                       memo=_account('795', 'مردودات مشتريات ذهب وزني', 'Expense').id)
+    AccountingMapping.query.filter_by(operation_type='مرتجع شراء', account_type='purchase_returns').delete()
+    db.session.add(AccountingMapping(operation_type='مرتجع شراء', account_type='purchase_returns',
+                                     account_id=returns.id, is_active=True))
     scrap_box = _account('794', 'صندوق كسر اختبار وزني', 'Asset')
     advance = JournalEntry(date=dt.datetime(2041, 3, 1, 10), description='صرف سلفة ذهب', entry_type='سند صرف',
                            is_posted=True, posted_at=dt.datetime(2041, 3, 1, 10), posted_by='t', created_by='t')
@@ -67,7 +68,7 @@ def gold(staff):
     db.session.add(GoldPrice(price=OUNCE, date=dt.datetime(2041, 4, 30, 15)))
     db.session.add(GoldPrice(price=OUNCE, date=dt.datetime.now() - dt.timedelta(seconds=5)))   # the run's today
     db.session.commit()                                    # a savepoint under the fence
-    return {'employee': employee, 'memo': personal.memo_account_id, 'clearing': clearing}
+    return {'employee': employee, 'memo': personal.memo_account_id, 'returns': returns}
 
 
 def _rate(karat):
@@ -89,7 +90,7 @@ def _pay(headers, run, row):
     return cash, _call('post', f"/api/payroll/runs/{run['id']}/pay", headers, {'lines': lines, 'paid_date': PAID})
 
 
-def test_his_gold_advance_is_taken_in_riyals_at_the_closing_price_through_the_clearing(auth_headers, staff, gold):
+def test_his_gold_advance_is_taken_in_riyals_at_the_closing_price_as_a_purchase_return(auth_headers, staff, gold):
     from services.payroll_advances import gold_balance
     run = _approved(auth_headers)
     view = _line(run, staff['full'])
@@ -110,10 +111,13 @@ def test_his_gold_advance_is_taken_in_riyals_at_the_closing_price_through_the_cl
             for r in VoucherAccountLine.query.filter_by(voucher_id=voucher.id)}
     assert voucher.amount_cash == 8100.0, 'his whole: what left and what was taken'
     assert legs[('credit', 'cash', cash)] == pytest.approx(8100.0 - amount)
-    assert legs[('credit', 'cash', gold['clearing'].id)] == amount, 'the riyals to the clearing'
-    assert legs[('debit', 'gold', gold['clearing'].memo_account_id)] == 4.0, 'the grams to its weight twin'
+    assert legs[('credit', 'cash', gold['returns'].id)] == amount, 'the riyals to the purchase returns'
+    assert legs[('debit', 'gold', gold['returns'].memo_account_id)] == 4.0, 'the grams to its weight twin'
     assert legs[('credit', 'gold', gold['memo'])] == 4.0, 'off his gold advance'
     assert gold_balance(gold['employee']) == {'21k': 6.0}
+    assert not any(r.account_id in (gold['returns'].id,) and r.amount_type == 'cash' and r.line_type == 'debit'
+                   for r in VoucherAccountLine.query.filter_by(voucher_id=voucher.id)), 'no VAT, no other leg'
+    assert len(legs) == 5, 'his payable, the cash, the returns and its twin, his weight account: no VAT line'
 
 
 def test_no_more_than_he_owes_of_a_karat_he_owes(auth_headers, staff, gold):
