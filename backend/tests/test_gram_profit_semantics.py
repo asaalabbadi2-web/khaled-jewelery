@@ -106,6 +106,7 @@ GRAM_PROFIT_RESPONSE_KEYS = frozenset({
     'unavailable_reason',
     # The weight position engine's fifth layer and its valuation (ADR-048 phase 2b)
     'price_effect_weight', 'realized_weight', 'unrealized_start_weight', 'unrealized_end_weight',
+    'price_effect_waiting_sales_weight', 'price_effect_price_weight',      # ⑤ in two (2 Nov 2026)
     'valuation_price_per_gram', 'valuation_price_source',
 })
 

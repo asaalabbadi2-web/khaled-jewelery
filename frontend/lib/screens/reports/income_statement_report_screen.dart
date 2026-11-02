@@ -1161,8 +1161,8 @@ class _IncomeStatementReportScreenState
                   ),
                   _ProfitStep(
                     label: isArabic
-                        ? '⑤ أثر السعر على المفتوح'
-                        : '⑤ The price on what still waits',
+                        ? '⑤ ما لم يُسكَّر بعد'
+                        : '⑤ What still waits',
                     value: priceEffectWeight * valuationPrice,
                     currencySymbol: _currencySymbol,
                     weightEquiv: priceEffectWeight,
@@ -1206,7 +1206,7 @@ class _IncomeStatementReportScreenState
                   Expanded(
                     child: Text(
                       isArabic
-                          ? 'الربح الوزني = ① المتاجرة + ② الإيرادات − ③ المصاريف الوزنية − ④ المصاريف النقدية ± ⑤ أثر السعر على ما لم يُسكَّر بعد. ما عاد ذهبًا يُحسب بما اشتراه فعلًا، وما ينتظر بسعر شرائك في آخر 7 أيام شراء. الحسابات المشاركة من شجرة الحسابات (علم "يدخل في ربح الجرام").'
+                          ? 'الربح الوزني = ① المتاجرة + ② الإيرادات − ③ المصاريف الوزنية − ④ المصاريف النقدية ± ⑤ ما لم يُسكَّر بعد. ما عاد ذهبًا يُحسب بما اشتراه فعلًا، وما ينتظر بسعر التسكير الآن: ربح مبيعاته بسعر بيعها، وأثر السعر منذه. الحسابات المشاركة من شجرة الحسابات (علم "يدخل في ربح الجرام").'
                           : 'Weight profit = ① trading + ② revenues − ③ weight expenses − ④ cash expenses ± ⑤ the price on what still waits. What became gold counts at what it bought; what waits, at your purchase price of the last 7 purchase days.',
                       style: TextStyle(
                         fontSize: 11,

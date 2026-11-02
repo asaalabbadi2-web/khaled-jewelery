@@ -163,15 +163,15 @@ class _WeightPositionScreenState extends State<WeightPositionScreen> {
           // Measured against its closing price -- its sales' scrap prices,
           // by their grams -- and the scrap price now (the owner, 23 Oct 2026).
           if (p['closing_price'] != null) ...[
-            row('سعر التسكير', _price.format(_d(p['closing_price'])), key: const ValueKey('wp-closing-price')),
-            Text('متوسط سعر الكسر وقت كل بيع، بوزنه المنتظر',
+            row('سعر التسكير وقت البيع', _price.format(_d(p['closing_price'])), key: const ValueKey('wp-closing-price')),
+            Text('متوسط سعره وقت كل بيع، بوزنه المنتظر',
                 style: text.bodySmall?.copyWith(color: tone.onContainer)),
           ],
-          row('سعر الكسر الآن', _price.format(_d(p['price_now'])), key: const ValueKey('wp-price-now')),
+          row('سعر التسكير الآن', _price.format(_d(p['price_now'])), key: const ValueKey('wp-price-now')),
           Text('${p['price_now_source'] ?? ''}', style: text.bodySmall?.copyWith(color: tone.onContainer)),
           const Divider(),
           if (p['expected_at_closing_price'] != null)
-            row('ربح المبيعات بسعر التسكير', _g(p['expected_at_closing_price'], signed: true),
+            row('ربح المبيعات بسعر التسكير وقت البيع', _g(p['expected_at_closing_price'], signed: true),
                 key: const ValueKey('wp-expected')),
           if (p['price_effect_since_sale'] != null)
             row('أثر السعر منذ البيع', _g(p['price_effect_since_sale'], signed: true),
@@ -186,7 +186,7 @@ class _WeightPositionScreenState extends State<WeightPositionScreen> {
           if (oldest != null) row('أقدم مفتوح', DateFormat('yyyy-MM-dd').format(oldest)),
           const SizedBox(height: 8),
           Text(
-            'كل 1% يصعد فيه سعر الكسر ينقص غير المحقَّق ${_g(p['grams_per_price_percent'])}.',
+            'كل 1% يصعد فيه سعر التسكير ينقص غير المحقَّق ${_g(p['grams_per_price_percent'])}.',
             key: const ValueKey('wp-sensitivity'),
             style: text.bodySmall?.copyWith(color: tone.onContainer, fontWeight: FontWeight.w600),
           ),
@@ -239,7 +239,7 @@ class _WeightPositionScreenState extends State<WeightPositionScreen> {
     'revenue': '② إيرادات إضافية',
     'expense_direct': '③ مصاريف وزنية',
     'expense_cash': '④ مصاريف نقدية',
-    'price_effect': '⑤ أثر السعر على المفتوح',
+    'price_effect': '⑤ ما لم يُسكَّر بعد',
   };
 
   static Map<String, double> _five(Map<String, dynamic>? layers) {

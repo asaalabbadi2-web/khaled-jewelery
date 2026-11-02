@@ -54,7 +54,7 @@ def world(monkeypatch):
     before, after = sale(datetime(2041, 3, 9)), sale(datetime(2041, 3, 11))
     db.session.add(stamp(GoldPrice(price=OUNCE, date=since), DEWAN))
     db.session.flush()
-    waiting = [Lot('بيع', inv.date, 500.0, 1.2, market, inv.id, scrap_price=inv.scrap_buy_price_at_sale)
+    waiting = [Lot('بيع', inv.date, 500.0, 1.2, market, inv.id)
                for inv in (before, after)]
     monkeypatch.setattr(wp, '_replayed', lambda until: SimpleNamespace(open_lots=waiting))
     monkeypatch.setattr('services.repair.waiting_sales_office_price._office_since', lambda: since)

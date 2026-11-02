@@ -4057,7 +4057,7 @@ def get_sale_weight_closing(invoice_id):
 def get_weight_performance():
     """The weight profit of a period, in its five layers, and month by month (ADR-048)."""
     from services.weight_position import (collect_events, performance, performance_by_month,
-                                          scrap_prices, year_start)
+                                          office_prices, year_start)
     try:
         end = _report_date('end_date', datetime.now().date())
         start = _report_date('start_date', end.replace(day=1))
@@ -4067,7 +4067,7 @@ def get_weight_performance():
         return jsonify({'error': 'invalid_range', 'message': 'بداية الفترة بعد نهايتها'}), 400
     # The year's books and scrap prices read once, for the period and its months.
     events = collect_events(year_start(end), datetime.combine(end, datetime.max.time()))
-    prices = scrap_prices(end)
+    prices = office_prices(end)
     return jsonify({'period': performance(start, end, events, prices),
                     'months': performance_by_month(start, end, events, prices)}), 200
 
@@ -4402,8 +4402,7 @@ def get_gram_profit_report():
         # ══════════════════════════════════════════════════════════════════
         # The weight layers, from the weight position engine (ADR-048, the
         # owner 16 Oct 2026: five layers). The riyals that became gold count at
-        # what they bought; the riyals still waiting at the shop's own recent
-        # purchase price (⑤). It was each riyal of the period at the period's
+        # what they bought; the riyals still waiting at the office's price now (⑤). It was each riyal of the period at the period's
         # average buy price -- no purchases, no figure; a closing late or the
         # price moving, a wrong one. With everything turned into gold at one
         # price the two agree to the gram (tests/test_weight_position.py).
@@ -4470,8 +4469,10 @@ def get_gram_profit_report():
             'expense_cash_as_weight': _rn(total_expense_cash_weight, 3),
             'expense_cash_details': expense_cash_details,
 
-            # الطبقة ⑤ — أثر السعر على المفتوح (ADR-048)
+            # الطبقة ⑤ — ما لم يُسكَّر بعد (ADR-048): ربح مبيعات تنتظر بسعر بيعها، وأثر السعر منذه
             'price_effect_weight': _rn(price_effect_weight, 3),
+            'price_effect_waiting_sales_weight': _perf['price_effect_parts']['waiting_sales'],
+            'price_effect_price_weight': _perf['price_effect_parts']['price'],
             'realized_weight': _perf['realized'],
             'unrealized_start_weight': _perf['unrealized_start'],
             'unrealized_end_weight': _perf['unrealized_end'],

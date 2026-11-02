@@ -446,6 +446,22 @@ void main() {
     expect(find.byType(WeightPositionScreen), findsNothing);
   });
 
+  // The owner, 2 Nov 2026: ⑤ was named the price's, but most of it was the
+  // profit of sales still waiting -- the card says the two apart.
+  testWidgets('the gram profit card says what still waits in its two parts', (tester) async {
+    await open(tester, gramProfit: {
+      'net_profit': 1200.0, 'net_profit_weight': 537.26, 'weight_sold': 50.0,
+      'avg_sell_per_gram': 400.0, 'avg_buy_per_gram': 375.0, 'margin_per_gram': 25.0,
+      'price_effect_weight': 123.82, 'price_effect_waiting_sales_weight': 94.54, 'price_effect_price_weight': 29.27,
+    });
+    final line = tester.widget<Text>(find.byKey(const ValueKey('gram-profit-price-effect'))).data!;
+    expect(line, contains('ربح مبيعات تنتظر'));
+    expect(line, contains('94.54'));
+    expect(line, contains('وأثر السعر'));
+    expect(line, contains('29.27'));
+    expect(line, isNot(contains('مركز التسكير')), reason: 'the card opens the income statement');
+  });
+
   // DASH-7/10: what is wrong now -- a pill, not a block; named, and the safe below zero in its grams.
   testWidgets('the dashboard says what is wrong now', (tester) async {
     await open(tester, theme: DarkTheme.theme);

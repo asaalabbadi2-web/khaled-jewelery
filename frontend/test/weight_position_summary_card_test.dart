@@ -15,7 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 Map<String, dynamic> _summary({bool raised = true, int count = 51}) => {
       'as_of': '2026-10-16', 'open_cash': 261822.43, 'open_count': count, 'buys_now_grams': 619.378,
-      'closing_price': 428.93, 'price_now': 422.7182, 'price_now_source': 'سعر الكسر: السوق × 0.99',
+      'closing_price': 428.93, 'price_now': 422.7182, 'price_now_source': 'سعر التسكير',
       'expected_at_closing_price': 140.0, 'price_effect_since_sale': 8.869,
       'unrealized': 148.869, 'grams_per_price_percent': 6.132, 'oldest_date': '2026-10-08T19:37:30',
       'oldest_age_days': 8, 'alert': {'oldest_over_days': raised ? 7 : 10, 'raised': raised},
@@ -75,8 +75,8 @@ void main() {
     await _pump(tester, _Api(() async => _summary()));
     expect(_text(tester, 'wps-open'), '\u2066261,822\u2069 ر.س');
     expect(_text(tester, 'wps-count'), 'من \u206651\u2069 بيعًا');
-    expect(_text(tester, 'wps-buys'), 'يشتري الآن \u2066619.4\u2069 غ بسعر الكسر \u2066422.72\u2069');
-    expect(_text(tester, 'wps-closing'), 'سعر التسكير \u2066428.93\u2069');
+    expect(_text(tester, 'wps-buys'), 'يشتري الآن \u2066619.4\u2069 غ بسعر التسكير الآن \u2066422.72\u2069');
+    expect(_text(tester, 'wps-closing'), 'سعر التسكير وقت البيع \u2066428.93\u2069');
     expect(find.descendant(of: find.byKey(const ValueKey('wps-unrealized')), matching: find.text('\u2066+148.9\u2069 غ')),
         findsOneWidget);
     expect(find.descendant(of: find.byKey(const ValueKey('wps-grip')), matching: find.text('\u2066−6.1\u2069 غ')),

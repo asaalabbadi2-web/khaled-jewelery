@@ -1520,8 +1520,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
     }
 
     final profitColor = isProfit ? _tones.ready.fg : _scheme.error;
-    // ⑤ of it: how the riyals still waiting moved with the price (ADR-048).
-    final priceEffect = gd('price_effect_weight');
+    // ⑤ of it: what still waits, in two -- its sales' own profit and the
+    // price's move since (ADR-048; the owner, 2 Nov 2026).
+    final waitingSales = gd('price_effect_waiting_sales_weight');
+    final priceMove = gd('price_effect_price_weight');
 
     return InkWell(
       key: const ValueKey('gram-profit-card'),
@@ -1723,8 +1725,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
           SizedBox(height: 8),
           Text(
             isArabic
-                ? 'منه أثر السعر على ما لم يُسكَّر: ${_formatWeight(priceEffect)} — اضغط لمركز التسكير'
-                : 'Of which the price on what still waits: ${_formatWeight(priceEffect)} — tap for the position',
+                ? 'منه ما لم يُسكَّر: ربح مبيعات تنتظر ${_formatWeight(waitingSales)}، وأثر السعر ${_formatWeight(priceMove)}'
+                : 'Of which still waiting: its sales ${_formatWeight(waitingSales)}, the price ${_formatWeight(priceMove)}',
             key: const ValueKey('gram-profit-price-effect'),
             style: TextStyle(fontSize: 11, color: theme.hintColor),
           ),

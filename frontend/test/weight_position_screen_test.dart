@@ -9,7 +9,7 @@ import 'package:frontend/screens/reports/weight_position_screen.dart';
 Map<String, dynamic> _position() => {
       'as_of': '2026-10-15',
       'open_cash': 251537.07, 'open_grams_sold': 290.7, 'open_count': 2, 'buys_now_grams': 604.0,
-      'closing_price': 428.93, 'price_now': 420.17, 'price_now_source': 'سعر الكسر: السوق × 0.99',
+      'closing_price': 428.93, 'price_now': 420.17, 'price_now_source': 'سعر التسكير',
       'expected_at_closing_price': 43.33, 'price_effect_since_sale': 4.87,
       'paid_average': 429.52, 'paid_average_source': 'متوسط شراء الكسر في آخر 7 أيام',
       'unrealized': 48.2, 'market_price': 424.41,
@@ -91,7 +91,7 @@ void main() {
   testWidgets('the five layers and their total, as the server gives them', (tester) async {
     await _pump(tester);
     for (final name in ['① المتاجرة: ريالات المُباع التي عادت ذهبًا', '② إيرادات إضافية', '③ مصاريف وزنية',
-                        '④ مصاريف نقدية', '⑤ أثر السعر على المفتوح']) {
+                        '④ مصاريف نقدية', '⑤ ما لم يُسكَّر بعد']) {
       expect(find.text(name), findsOneWidget, reason: name);
     }
     final total = tester.widget<Text>(find.byKey(const ValueKey('wp-period-total')));

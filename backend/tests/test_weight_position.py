@@ -396,6 +396,8 @@ def test_gram_profit_is_the_engine_s_five_layers(app):
     whole = (body['trading_profit_weight'] + body['extra_revenue_cash_as_weight'] + body['extra_revenue_weight']
              - body['expense_weight_direct'] - body['expense_cash_as_weight'] + body['price_effect_weight'])
     assert body['net_profit_weight'] == pytest.approx(whole, abs=0.01)
+    assert body['price_effect_waiting_sales_weight'] + body['price_effect_price_weight'] == pytest.approx(
+        body['price_effect_weight'], abs=0.01), '⑤ in two: its sales waiting and the price'
 
 
 def test_the_books_are_read_in_queries_that_do_not_grow_with_the_invoices(app):
