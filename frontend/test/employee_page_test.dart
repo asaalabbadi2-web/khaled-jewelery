@@ -28,7 +28,9 @@ class _Server extends PayrollService {
   Future<List<Map<String, dynamic>>> schemes() async => const [];
 
   @override
-  Future<double> salaryOwed(int employeeId) async => 0;
+  Future<({double owed, double advanceFree, double advanceCap})> salaryOwed(
+    int employeeId,
+  ) async => (owed: 0.0, advanceFree: 0.0, advanceCap: 0.0);
 
   @override
   Future<Map<String, double>> suggest(double gross) async => {

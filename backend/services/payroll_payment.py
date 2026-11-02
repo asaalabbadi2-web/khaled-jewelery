@@ -171,24 +171,58 @@ def owed_salary(employee) -> float:
     return _credit(account.id) if account is not None else 0.0
 
 
-def pay_owed(employee, *, amount, payment_account_id, paid_date, by: str, now):
-    """What was kept owed to him, paid -- all or part, by its voucher; never more
-    than his salary payable holds (the owner, 2 Nov 2026: «أمانة في ذمته، تُصرف
-    لاحقًا»). Caller commits."""
+def advance_room(employee, day) -> dict:
+    """What of his advance may be taken from what is owed to him: what no plan
+    holds of his advance account, and the policy's cap on his salary in force
+    (else his latest) -- above it, with his consent (art. 92)."""
+    from services.payroll_advances import account_balance, cap_of, remaining
+    from services.payroll_policy import structure_on
+    planned = sum(remaining(p) for p in employee.advance_plans.filter_by(status='active'))
+    free = round(max(account_balance(employee) - planned, 0.0), 2) if employee.account_id else 0.0
+    from models import SalaryStructure
+    structure = structure_on(employee.id, day) or (SalaryStructure.query.filter_by(employee_id=employee.id)
+                                                   .order_by(SalaryStructure.effective_from.desc()).first())
+    try:
+        cap = cap_of(structure.gross) if structure is not None else 0.0
+    except PayrollRefused:
+        cap = 0.0                                        # the cap not set: every deduction needs his consent
+    return {'free': free, 'cap': cap}
+
+
+def pay_owed(employee, *, amount=0.0, payment_account_id=None, advance=0.0, consent=False,
+             paid_date, by: str, now):
+    """What was kept owed to him, paid -- all or part, by its voucher -- and/or
+    taken against his advance, no money leaving (the owner, 2 Nov 2026: «نعم
+    ابنه»): never beyond what his salary payable holds; the advance no more
+    than what no plan holds, and within the cap unless he consented (art. 92).
+    One voucher for both. Caller commits."""
     from accounting.voucher_engine import _append_safe_transactions_for_voucher, post_entry_of_approved_voucher
     from services.employee_accounts import employee_account
     try:
         amount = round(float(amount or 0.0), 2)
+        advance = round(float(advance or 0.0), 2)
     except (TypeError, ValueError):
         raise PayrollRefused('المبلغ رقم') from None
-    if amount <= 0:
+    if amount < 0 or advance < 0 or amount + advance <= 0:
         raise PayrollRefused('المبلغ موجب')
     owed = owed_salary(employee)
-    if amount > owed:
-        raise PayrollRefused(f'المستحق له في ذمة رواتبه {owed:,.2f}: لا يُصرف أكثر منه', 'pay_beyond_owed')
-    account = db.session.get(Account, int(payment_account_id)) if payment_account_id else None
-    if account is None:
-        raise PayrollRefused('حساب الصرف مطلوب')
+    if round(amount + advance, 2) > owed:
+        raise PayrollRefused(f'المستحق له في ذمة رواتبه {owed:,.2f}: لا يُصرف ولا يُخصم أكثر منه', 'pay_beyond_owed')
+    account = None
+    if amount > 0:
+        account = db.session.get(Account, int(payment_account_id)) if payment_account_id else None
+        if account is None:
+            raise PayrollRefused('حساب الصرف مطلوب')
+    if advance > 0:
+        if not employee.account_id:
+            raise PayrollRefused(f'لا حساب سلف مربوط لـ {employee.name}', 'advance_account_missing')
+        room = advance_room(employee, paid_date)
+        if advance > room['free']:
+            raise PayrollRefused(f'خصم السلفة {advance:,.2f} يزيد على غير المجدول من سلفه ({room["free"]:,.2f})',
+                                 'advance_beyond_balance')
+        if not consent and advance > room['cap']:
+            raise PayrollRefused(f'خصم السلفة يزيد على {room["cap"]:,.2f} (حد السياسة من أجره): '
+                                 'يُخصم أقل، أو يُؤشَّر «بموافقة الموظف» (المادة 92)', 'advance_over_cap')
     salary_account = employee_account(employee, 'salary_payable')
     prefix = f'PAYK-{paid_date.year}'
     latest = (Voucher.query.filter(Voucher.voucher_number.like(f'{prefix}-%'))
@@ -198,16 +232,24 @@ def pay_owed(employee, *, amount, payment_account_id, paid_date, by: str, now):
     except (ValueError, IndexError):
         sequence = 1
     voucher = Voucher(voucher_number=f'{prefix}-{sequence:04d}', voucher_type='payment', date=paid_date,
-                      description=f'صرف مستحق رواتب {employee.name}', status='pending', created_by=by,
-                      party_type='other', party_name=employee.name,
+                      description=f'مستحق رواتب {employee.name}: صرف وخصم سلفة' if amount and advance
+                      else (f'خصم سلفة من مستحق رواتب {employee.name}' if advance
+                            else f'صرف مستحق رواتب {employee.name}'),
+                      status='pending', created_by=by, party_type='other', party_name=employee.name,
                       reference_type='salary_owed', reference_id=int(employee.id))
     db.session.add(voucher)
     db.session.flush()
-    db.session.add(VoucherAccountLine(voucher_id=voucher.id, account_id=account.id, line_type='credit',
-                                      amount_type='cash', amount=amount,
-                                      description=f'صرف مستحق رواتب {employee.name} - {account.name}'))
+    if amount > 0:
+        db.session.add(VoucherAccountLine(voucher_id=voucher.id, account_id=account.id, line_type='credit',
+                                          amount_type='cash', amount=amount,
+                                          description=f'صرف مستحق رواتب {employee.name} - {account.name}'))
+    if advance > 0:
+        db.session.add(VoucherAccountLine(voucher_id=voucher.id, account_id=int(employee.account_id),
+                                          line_type='credit', amount_type='cash', amount=advance,
+                                          description=f'خصم سلفة من مستحق رواتب {employee.name}'))
     db.session.add(VoucherAccountLine(voucher_id=voucher.id, account_id=salary_account.id, line_type='debit',
-                                      amount_type='cash', amount=amount, description='مستحق رواتب لم يُصرف'))
+                                      amount_type='cash', amount=round(amount + advance, 2),
+                                      description='مستحق رواتب لم يُصرف'))
     journal_entry = post_entry_of_approved_voucher(voucher, posted_by=by)
     voucher.status, voucher.approved_at, voucher.approved_by = 'approved', now, by
     voucher.journal_entry_id = journal_entry.id

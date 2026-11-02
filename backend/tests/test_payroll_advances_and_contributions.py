@@ -191,6 +191,39 @@ def test_an_advance_not_planned_is_taken_in_the_draft_from_his_advance_account(a
     assert _accrual_lines(run['id'])[advance_account] == -2500.0, 'from his advance account, both'
 
 
+def test_what_he_left_is_taken_against_his_advance_no_money_leaving(auth_headers, employee):
+    """The owner, 2 Nov 2026 («هل هناك معالجة لخصم السلف من الذمم؟» -- «نعم
+    ابنه»): what he left with the shop, owed on his salary payable, is taken
+    against his advance by a voucher -- none beyond what is owed, none beyond
+    what no plan holds, above the cap only with his consent (art. 92)."""
+    from models import VoucherAccountLine, Voucher
+    _plan(auth_headers, employee, amount=2000, installment=500)
+    run = _run(auth_headers)
+    assert _call('post', f"/api/payroll/runs/{run['id']}/approve", auth_headers)[0] == 200
+    code, body = _call('post', f"/api/payroll/runs/{run['id']}/pay", auth_headers, {
+        'lines': [{'payroll_id': _line(run, employee)['id'], 'bank_amount': 0, 'cash_amount': 0}]})
+    assert code == 200, body                                       # he leaves it all: 7,600
+    url = f'/api/employees/{employee}/salary-owed'
+    seen = _call('get', url, auth_headers)[1]
+    assert (seen['owed'], seen['advance_free'], seen['advance_cap']) == (7600.0, 7000.0, 810.0), seen
+
+    code, body = _call('post', f'{url}/pay', auth_headers, {'advance_amount': 7100, 'consent': True})
+    assert (code, body.get('code')) == (409, 'advance_beyond_balance'), '7,000 is what no plan holds'
+    code, body = _call('post', f'{url}/pay', auth_headers, {'advance_amount': 1000})
+    assert (code, body.get('code')) == (409, 'advance_over_cap'), 'over 810, his consent'
+    code, body = _call('post', f'{url}/pay', auth_headers, {'advance_amount': 8000, 'consent': True})
+    assert (code, body.get('code')) == (409, 'pay_beyond_owed'), 'beyond the 7,600 owed'
+
+    code, body = _call('post', f'{url}/pay', auth_headers, {'advance_amount': 3000, 'consent': True})
+    assert code == 201 and body['owed'] == 4600.0, body
+    voucher = Voucher.query.filter_by(voucher_number=body['voucher_number']).one()
+    advance_account = db.session.get(Employee, employee).account_id
+    legs = {(r.line_type, r.account_id): r.amount for r in VoucherAccountLine.query.filter_by(voucher_id=voucher.id)}
+    assert legs[('credit', advance_account)] == 3000.0 and len(legs) == 2, 'no money leaves: his advance, his payable'
+    seen = _call('get', url, auth_headers)[1]
+    assert (seen['owed'], seen['advance_free']) == (4600.0, 4000.0)
+
+
 def _scheme(headers, emp, wage):
     code, scheme = _call('post', '/api/contribution-schemes', headers, {'name': f'خطة {uuid.uuid4().hex[:6]}'})
     url = f"/api/contribution-schemes/{scheme['id']}/components"

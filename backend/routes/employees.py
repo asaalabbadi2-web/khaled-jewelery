@@ -571,8 +571,10 @@ def make_employee_own_safe(employee_id):
 @require_permission('employees.payroll')
 def get_salary_owed(employee_id):
     """PAY-SPLIT: what his salary payable holds for him, from the books."""
-    from services.payroll_payment import owed_salary
-    return jsonify({'owed': owed_salary(Employee.query.get_or_404(employee_id))})
+    from services.payroll_payment import advance_room, owed_salary
+    employee = Employee.query.get_or_404(employee_id)
+    room = advance_room(employee, datetime.now().date())
+    return jsonify({'owed': owed_salary(employee), 'advance_free': room['free'], 'advance_cap': room['cap']})
 
 
 @employees_bp.route('/employees/<int:employee_id>/salary-owed/pay', methods=['POST'])
@@ -587,10 +589,12 @@ def pay_salary_owed(employee_id):
     try:
         day = date.fromisoformat(str(data.get('paid_date') or datetime.now().date().isoformat()))
         voucher = pay_owed(employee, amount=data.get('amount'), payment_account_id=data.get('payment_account_id'),
+                           advance=data.get('advance_amount'), consent=bool(data.get('consent')),
                            paid_date=day, by=actor(), now=datetime.now())
     except PayrollRefused as refused:               # a ValueError too: caught first
         db.session.rollback()
-        return _payroll_refusal(refused, 409 if refused.code == 'pay_beyond_owed' else 400)
+        return _payroll_refusal(refused, 409 if refused.code in ('pay_beyond_owed', 'advance_beyond_balance',
+                                                                'advance_over_cap') else 400)
     except ValueError:
         db.session.rollback()
         return jsonify({'error': 'تاريخ الصرف YYYY-MM-DD'}), 400

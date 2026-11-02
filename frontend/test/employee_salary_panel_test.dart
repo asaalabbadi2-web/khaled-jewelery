@@ -20,19 +20,26 @@ class _Server extends PayrollService {
   String? savedIban;
   (String?, double?)? savedSplit;
   double owed = 0;
-  (double, int)? paidOwed;
+  double advanceFree = 0;
+  (double, int?)? paidOwed;
+  (double, bool)? tookAdvance;
 
   @override
-  Future<double> salaryOwed(int employeeId) async => owed;
+  Future<({double owed, double advanceFree, double advanceCap})> salaryOwed(
+    int employeeId,
+  ) async => (owed: owed, advanceFree: advanceFree, advanceCap: 750.0);
 
   @override
   Future<String> payOwed(
     int employeeId, {
     required double amount,
-    required int paymentAccountId,
+    required int? paymentAccountId,
+    double advance = 0,
+    bool consent = false,
   }) async {
     paidOwed = (amount, paymentAccountId);
-    owed -= amount;
+    tookAdvance = (advance, consent);
+    owed -= amount + advance;
     return 'PAYK-2026-0001';
   }
 
@@ -432,5 +439,64 @@ void main() {
       findsOneWidget,
       reason: '1,700 still owed',
     );
+  });
+
+  testWidgets('what he left is taken against his advance, no account, his '
+      'consent above the cap', (tester) async {
+    await _wide(tester);
+    final server = _Server()
+      ..owed = 2700
+      ..advanceFree = 800;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LightTheme.theme,
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: EmployeeSalaryPanel(
+              service: server,
+              employeeId: 7,
+              isAr: true,
+            ),
+          ),
+        ),
+      ),
+    );
+    await _settle(tester);
+    await tester.tap(find.byKey(const ValueKey('salary-owed-pay')));
+    await _settle(tester);
+    await tester.enterText(
+      find.byKey(const ValueKey('salary-owed-amount')),
+      '0',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('salary-owed-advance')),
+      '900',
+    );
+    await _settle(tester);
+    expect(
+      find.byKey(const ValueKey('salary-owed-over')),
+      findsOneWidget,
+      reason: 'over the 800 unplanned',
+    );
+    FilledButton confirm() => tester.widget<FilledButton>(
+      find.byKey(const ValueKey('salary-owed-confirm')),
+    );
+    expect(confirm().onPressed, isNull);
+    await tester.enterText(
+      find.byKey(const ValueKey('salary-owed-advance')),
+      '800',
+    );
+    await _settle(tester);
+    expect(
+      confirm().onPressed,
+      isNull,
+      reason: 'over the 750 cap: his consent',
+    );
+    await tester.tap(find.byKey(const ValueKey('salary-owed-consent')));
+    await _settle(tester);
+    await tester.tap(find.byKey(const ValueKey('salary-owed-confirm')));
+    await _settle(tester);
+    expect(server.paidOwed, (0.0, null), reason: 'no money leaves');
+    expect(server.tookAdvance, (800.0, true));
   });
 }

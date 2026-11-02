@@ -87,8 +87,11 @@ class _EmployeeSalaryPanelState extends State<EmployeeSalaryPanel> {
   List<Map<String, dynamic>> _schemes = const [];
   _Payment? _saved;
 
-  /// PAY-SPLIT: what his salary payable holds for him -- left with the shop.
+  /// PAY-SPLIT: what his salary payable holds for him -- left with the shop
+  /// --, and what of his advance may be taken from it (the server's).
   double _owed = 0;
+  double _advanceFree = 0;
+  double _advanceCap = 0;
 
   bool get _isAr => widget.isAr;
 
@@ -130,13 +133,15 @@ class _EmployeeSalaryPanelState extends State<EmployeeSalaryPanel> {
       final schemes = await widget.service.schemes();
       final owed = widget.parts.length == SalaryPanelPart.values.length
           ? await widget.service.salaryOwed(widget.employeeId)
-          : 0.0;
+          : (owed: 0.0, advanceFree: 0.0, advanceCap: 0.0);
       if (!mounted) return;
       setState(() {
         _error = null;
         _structures = structures;
         _schemes = schemes;
-        _owed = owed;
+        _owed = owed.owed;
+        _advanceFree = owed.advanceFree;
+        _advanceCap = owed.advanceCap;
         if (widget.startChanging && !_changing && _saved == null) {
           _changing = true;
           _from.text = structures.suggestedFrom ?? '';
@@ -350,6 +355,8 @@ class _EmployeeSalaryPanelState extends State<EmployeeSalaryPanel> {
         service: widget.service,
         employeeId: widget.employeeId,
         owed: _owed,
+        advanceFree: _advanceFree,
+        advanceCap: _advanceCap,
         isAr: _isAr,
       ),
     );
@@ -394,7 +401,9 @@ class _EmployeeSalaryPanelState extends State<EmployeeSalaryPanel> {
             FilledButton(
               key: const ValueKey('salary-owed-pay'),
               onPressed: _busy ? null : _payOwed,
-              child: Text(isAr ? 'اصرف منه' : 'Pay from it'),
+              child: Text(
+                isAr ? 'اصرف منه أو اخصم سلفته' : 'Pay, or take his advance',
+              ),
             ),
           ],
         ),
@@ -1069,19 +1078,24 @@ class _EmployeeSalaryPanelState extends State<EmployeeSalaryPanel> {
   }
 }
 
-/// What was kept owed to him, paid -- all or part, from an account; the
-/// server holds it to what the books owe (PAY-SPLIT).
+/// What was kept owed to him, paid -- all or part, from an account -- and/or
+/// taken against his advance, no money leaving (the owner, 2 Nov 2026: «نعم
+/// ابنه»); the server holds both to the books, the plans and the cap.
 class _PayOwedDialog extends StatefulWidget {
   const _PayOwedDialog({
     required this.service,
     required this.employeeId,
     required this.owed,
+    required this.advanceFree,
+    required this.advanceCap,
     required this.isAr,
   });
 
   final PayrollService service;
   final int employeeId;
   final double owed;
+  final double advanceFree;
+  final double advanceCap;
   final bool isAr;
 
   @override
@@ -1092,8 +1106,10 @@ class _PayOwedDialogState extends State<_PayOwedDialog> {
   late final _amount = TextEditingController(
     text: formatAmount(widget.owed).replaceAll(',', ''),
   );
+  final _advance = TextEditingController();
   List<Map<String, dynamic>>? _accounts;
   int? _account;
+  bool _consent = false;
   bool _busy = false;
 
   @override
@@ -1112,23 +1128,27 @@ class _PayOwedDialogState extends State<_PayOwedDialog> {
   @override
   void dispose() {
     _amount.dispose();
+    _advance.dispose();
     super.dispose();
   }
 
-  double get _value => double.tryParse(normalizeNumber(_amount.text)) ?? 0;
+  double _read(TextEditingController c) =>
+      double.tryParse(normalizeNumber(c.text)) ?? 0;
 
   Future<void> _pay() async {
     setState(() => _busy = true);
     try {
       final number = await widget.service.payOwed(
         widget.employeeId,
-        amount: _value,
-        paymentAccountId: _account!,
+        amount: _read(_amount),
+        paymentAccountId: _read(_amount) > 0 ? _account : null,
+        advance: _read(_advance),
+        consent: _consent,
       );
       if (!mounted) return;
       AppFeedback.success(
         context,
-        widget.isAr ? 'صُرف بالسند ${ltrIsolate(number)}' : 'Paid: $number',
+        widget.isAr ? 'سُجّل بالسند ${ltrIsolate(number)}' : 'Done: $number',
       );
       Navigator.pop(context, true);
     } catch (e) {
@@ -1138,62 +1158,132 @@ class _PayOwedDialogState extends State<_PayOwedDialog> {
     }
   }
 
+  Widget _field(TextEditingController c, String label, String key) => TextField(
+    key: ValueKey(key),
+    controller: c,
+    onChanged: (_) => setState(() {}),
+    textDirection: TextDirection.ltr,
+    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+    inputFormatters: [
+      ArabicNumberTextInputFormatter(),
+      FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+    ],
+    decoration: InputDecoration(labelText: label),
+  );
+
   @override
   Widget build(BuildContext context) {
     final isAr = widget.isAr;
+    final theme = Theme.of(context);
+    final tones = AppSemanticColors.of(context);
     final accounts = _accounts;
+    final paid = _read(_amount);
+    final advance = _read(_advance);
+    final total = ((paid + advance) * 100).round() / 100;
+    final overCap = advance > widget.advanceCap;
     final ready =
-        !_busy && _account != null && _value > 0 && _value <= widget.owed;
+        !_busy &&
+        total > 0 &&
+        total <= widget.owed &&
+        advance <= widget.advanceFree &&
+        (paid == 0 || _account != null) &&
+        (!overCap || _consent);
+    String money(double v) => ltrIsolate(formatAmount(v));
     return AlertDialog(
-      title: Text(isAr ? 'صرف من المستحق له' : 'Pay what is owed'),
+      title: Text(isAr ? 'المستحق له' : 'What is owed to him'),
       content: SizedBox(
-        width: 420,
+        width: 440,
         child: accounts == null
             ? const LinearProgressIndicator()
-            : Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    isAr
-                        ? 'المستحق له ${ltrIsolate(formatAmount(widget.owed))}. يُصرف كله أو بعضه.'
-                        : 'Owed ${formatAmount(widget.owed)}: all of it or part.',
-                  ),
-                  const SizedBox(height: AppSpace.md),
-                  TextField(
-                    key: const ValueKey('salary-owed-amount'),
-                    controller: _amount,
-                    onChanged: (_) => setState(() {}),
-                    textDirection: TextDirection.ltr,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
+            : SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      isAr
+                          ? 'المستحق له ${money(widget.owed)}: يُصرف كله أو بعضه، ويُخصم منه من سلفته.'
+                          : 'Owed ${money(widget.owed)}: paid, all or part, and taken against his advance.',
                     ),
-                    inputFormatters: [
-                      ArabicNumberTextInputFormatter(),
-                      FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-                    ],
-                    decoration: InputDecoration(
-                      labelText: isAr ? 'المبلغ' : 'Amount',
+                    const SizedBox(height: AppSpace.md),
+                    _field(
+                      _amount,
+                      isAr ? 'يُصرف له' : 'Paid to him',
+                      'salary-owed-amount',
                     ),
-                  ),
-                  const SizedBox(height: AppSpace.sm),
-                  DropdownButtonFormField<int>(
-                    key: const ValueKey('salary-owed-account'),
-                    initialValue: _account,
-                    isExpanded: true,
-                    decoration: InputDecoration(
-                      labelText: isAr ? 'يُصرف من' : 'Paid from',
-                    ),
-                    items: [
-                      for (final a in accounts)
-                        DropdownMenuItem(
-                          value: a['id'] as int,
-                          child: Text('${a['name'] ?? ''}'),
+                    if (paid > 0) ...[
+                      const SizedBox(height: AppSpace.sm),
+                      DropdownButtonFormField<int>(
+                        key: const ValueKey('salary-owed-account'),
+                        initialValue: _account,
+                        isExpanded: true,
+                        decoration: InputDecoration(
+                          labelText: isAr ? 'يُصرف من' : 'Paid from',
                         ),
+                        items: [
+                          for (final a in accounts)
+                            DropdownMenuItem(
+                              value: a['id'] as int,
+                              child: Text('${a['name'] ?? ''}'),
+                            ),
+                        ],
+                        onChanged: (v) => setState(() => _account = v),
+                      ),
                     ],
-                    onChanged: (v) => setState(() => _account = v),
-                  ),
-                ],
+                    const SizedBox(height: AppSpace.md),
+                    _field(
+                      _advance,
+                      isAr ? 'يُخصم من سلفته' : 'Taken against his advance',
+                      'salary-owed-advance',
+                    ),
+                    const SizedBox(height: AppSpace.xs),
+                    Text(
+                      isAr
+                          ? 'غير المجدول من سلفته ${money(widget.advanceFree)} · حد السياسة ${money(widget.advanceCap)}'
+                          : 'Unplanned ${money(widget.advanceFree)} · the cap ${money(widget.advanceCap)}',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                    if (advance > 0 && overCap)
+                      CheckboxListTile(
+                        key: const ValueKey('salary-owed-consent'),
+                        contentPadding: EdgeInsets.zero,
+                        value: _consent,
+                        onChanged: (v) => setState(() => _consent = v ?? false),
+                        title: Text(
+                          isAr
+                              ? 'بموافقة الموظف على خصم فوق الحد (المادة 92)'
+                              : 'He consented above the cap (art. 92)',
+                        ),
+                      ),
+                    if (total > widget.owed || advance > widget.advanceFree)
+                      Padding(
+                        padding: const EdgeInsets.only(top: AppSpace.xs),
+                        child: Text(
+                          total > widget.owed
+                              ? (isAr
+                                    ? 'المجموع ${money(total)} يزيد على المستحق له'
+                                    : '${money(total)} is more than is owed')
+                              : (isAr
+                                    ? 'يزيد على غير المجدول من سلفته'
+                                    : 'More than his unplanned advance'),
+                          key: const ValueKey('salary-owed-over'),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: tones.blocked.fg,
+                          ),
+                        ),
+                      )
+                    else if (total > 0 && total < widget.owed)
+                      Padding(
+                        padding: const EdgeInsets.only(top: AppSpace.xs),
+                        child: Text(
+                          isAr
+                              ? 'يبقى في ذمته ${money(widget.owed - total)}'
+                              : '${money(widget.owed - total)} stays owed',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ),
+                  ],
+                ),
               ),
       ),
       actions: [
@@ -1204,7 +1294,7 @@ class _PayOwedDialogState extends State<_PayOwedDialog> {
         FilledButton(
           key: const ValueKey('salary-owed-confirm'),
           onPressed: ready ? _pay : null,
-          child: Text(isAr ? 'اصرف' : 'Pay'),
+          child: Text(isAr ? 'سجّل' : 'Record'),
         ),
       ],
     );

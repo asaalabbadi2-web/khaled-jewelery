@@ -216,19 +216,31 @@ class PayrollService {
     );
   }
 
-  /// PAY-SPLIT: what his salary payable holds for him, from the books.
-  Future<double> salaryOwed(int employeeId) async {
+  /// PAY-SPLIT: what his salary payable holds for him, from the books; and
+  /// what of his advance may be taken from it -- what no plan holds, and the
+  /// policy's cap (above it, with his consent).
+  Future<({double owed, double advanceFree, double advanceCap})> salaryOwed(
+    int employeeId,
+  ) async {
     final body =
         _body(await _api.authedGet('/employees/$employeeId/salary-owed'))
             as Map<String, dynamic>;
-    return ((body['owed'] as num?) ?? 0).toDouble();
+    double read(String key) => ((body[key] as num?) ?? 0).toDouble();
+    return (
+      owed: read('owed'),
+      advanceFree: read('advance_free'),
+      advanceCap: read('advance_cap'),
+    );
   }
 
-  /// PAY-SPLIT: what was kept owed to him, paid -- all or part.
+  /// PAY-SPLIT: what was kept owed to him, paid -- all or part -- and/or
+  /// taken against his advance, no money leaving; one voucher.
   Future<String> payOwed(
     int employeeId, {
     required double amount,
-    required int paymentAccountId,
+    required int? paymentAccountId,
+    double advance = 0,
+    bool consent = false,
   }) async {
     final body =
         _body(
@@ -237,6 +249,8 @@ class PayrollService {
                 body: jsonEncode({
                   'amount': amount,
                   'payment_account_id': paymentAccountId,
+                  'advance_amount': advance,
+                  'consent': consent,
                 }),
               ),
             )
