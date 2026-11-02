@@ -4,7 +4,10 @@ Kept in `race_honour` once each period closes (the owner, 24 Oct 2026: «سجل
 محفوظ»), so the race card's crown and target counters read what was, not what
 today's settings would make of it:
 
-- a month's leader by points («الأشهر دائمًا»); a tie at the top crowns each;
+- a month's leader by points («الأشهر دائمًا»); a tie at the top crowns each --
+  a true one: points are compared as they are, to the thousandth, never
+  rounded to whole points first (the owner, 3 Nov 2026: June 2026's 1,079.29
+  and 1,078.596 were both 1,079, eleven crowns in ten months);
 - a closed period of the employee's own goal -- daily, weekly or monthly --
   whose value reached its target, by the measure and target that pay it
   (ADR-058; «فترات هدفه التي بلغها»).
@@ -17,6 +20,8 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 
 from services.goal_achievements import PERIODS, goal_performance, goal_target
+
+POINTS_PLACES = 3            # a point is profit / 50: finer than a thousandth is no difference
 
 
 def closed_periods(today: date) -> list[tuple[str, date, date]]:
@@ -48,7 +53,7 @@ def _keep(employee_id, kind, period, start, end, value, target, now) -> object |
 def _leaders(start: date, end: date, now: datetime) -> list:
     from models import Employee
     from services.performance_measures import measure
-    points = {emp.id: int(round(measure('points', emp.id, start, end))) for emp in Employee.query.all()}
+    points = {emp.id: round(measure('points', emp.id, start, end), POINTS_PLACES) for emp in Employee.query.all()}
     top = max(points.values(), default=0)
     if top <= 0:
         return []
@@ -71,7 +76,7 @@ def _goals(period: str, start: date, end: date, now: datetime) -> list:
             continue
         value = goal_performance(emp, metric, start, end)
         if metric == 'points':
-            value = int(round(value))
+            value = round(value, POINTS_PLACES)       # reached as it is, not as it rounds
         if value >= float(target) and (honour := _keep(emp.id, 'goal', period, start, end, value,
                                                          float(target), now)) is not None:
             kept.append(honour)

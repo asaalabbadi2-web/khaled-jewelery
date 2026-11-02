@@ -160,3 +160,50 @@ def test_a_goal_is_no_goal_before_its_rule_s_validity():
     _sale(emp, 3, 900, month=5)
     backfill(date(2031, 4, 1), date(2031, 6, 1), NOW)
     assert _honours(emp)['goals_reached'] == 1, 'April is before the goal began'
+
+
+# The owner, 3 Nov 2026: «يوسف ١٠ اشهر وعبدالله ١ شهر ... رغم اننا انهينا ١٠ اشهر».
+# June 2026 on the 2 Nov copy: عبدالله 1,079.29 points, يوسف 1,078.596 -- each
+# rounded to 1,079 before they were compared, so both were crowned: eleven
+# crowns in ten months. Points are compared as they are; a tie is a true one.
+
+def test_a_lead_by_less_than_a_point_is_a_lead_not_a_tie():
+    from services.race_honours import record_closed
+    first, second = _employee(), _employee()
+    _sale(first, 3, 1079.29)
+    _sale(second, 4, 1078.596)
+    record_closed(date(2031, 6, 1), NOW)
+    assert (_honours(first)['crowns'], _honours(second)['crowns']) == (1, 0)
+
+
+def test_a_goal_short_by_less_than_a_point_is_not_reached():
+    from services.race_honours import record_closed
+    short = _employee(goal=1000)
+    _sale(short, 3, 999.6)
+    record_closed(date(2031, 6, 1), NOW)
+    assert _honours(short)['goals_reached'] == 0
+
+
+def test_a_month_crowned_twice_by_the_rounding_keeps_its_leader_alone():
+    """The repair: a month kept with more than one crown is measured again as
+    the points are; the crowns of those not at the top go, with an audit row.
+    A month with one crown is its record, not measured again."""
+    from models import AuditLog, RaceHonour
+    from services.race_honours import _keep
+    from services.repair.race_crowns_rounding import correct_rounded_ties
+    first, second, alone = _employee(), _employee(), _employee()
+    _sale(first, 3, 1079.29)
+    _sale(second, 4, 1078.596)
+    for emp in (first, second):                          # as the rounding kept them
+        _keep(emp.id, 'leader', 'monthly', MAY[0], MAY[1], 1079, None, NOW)
+    _keep(alone.id, 'leader', 'monthly', date(2031, 4, 1), date(2031, 4, 30), 5, None, NOW)
+
+    plan = correct_rounded_ties(by='test', dry_run=True)
+    assert [(r['month'], r['employee_id']) for r in plan['removed']] == [('2031-05', second.id)]
+    assert _honours(second)['crowns'] == 1, 'a dry run writes nothing'
+
+    correct_rounded_ties(by='test', dry_run=False)
+    assert (_honours(first)['crowns'], _honours(second)['crowns'], _honours(alone)['crowns']) == (1, 0, 1)
+    assert RaceHonour.query.filter_by(employee_id=first.id, kind='leader').one().value == pytest.approx(1079.29)
+    assert AuditLog.query.filter_by(action='repair_race_crowns_rounding').count() >= 1
+    assert correct_rounded_ties(by='test', dry_run=True)['removed'] == [], 'once is enough'
