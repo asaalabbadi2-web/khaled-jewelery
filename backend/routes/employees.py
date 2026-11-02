@@ -893,7 +893,8 @@ def preview_employee_contributions(employee_id):
 # ── PAYROLL-2 (M2b): a month's run (services/payroll_run) ───────────────────────
 
 def _run_view(run, status=200, left_out=None):
-    from services.payroll_payment import kept_owed, settled
+    from services.payroll_advances import gold_balance
+    from services.payroll_payment import gold_rates, kept_owed, settled
     from services.payroll_run import left_out as run_left_out, split_of
     body = run.to_dict(include_entries=True)
     body['left_out'] = left_out if left_out is not None else run_left_out(run)
@@ -907,6 +908,9 @@ def _run_view(run, status=200, left_out=None):
         row['kept_owed'] = kept_owed(line)
         if not settled(line):
             row['offered'] = split_of(line.employee, float(line.net_salary or 0.0))
+            # PAY-GOLD: what he owes in gold, and a gram of each at the closing price today
+            row['gold_advance'] = gold_balance(line.employee)
+            row['gold_rates'] = gold_rates(line.employee, datetime.now().date()) if row['gold_advance'] else {}
     return jsonify(body), status
 
 

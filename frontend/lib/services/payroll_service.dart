@@ -107,6 +107,7 @@ class PayrollService {
     required int? bankAccountId,
     required int? cashAccountId,
     required Map<int, ({double bank, double cash})> amountsByLine,
+    Map<int, ({int karat, double grams})> goldByLine = const {},
     required String paidDate,
   }) async => _run(
     await _api.authedPost(
@@ -121,6 +122,9 @@ class PayrollService {
               'payroll_id': e.key,
               'bank_amount': e.value.bank,
               'cash_amount': e.value.cash,
+              // PAY-GOLD: his gold advance taken in riyals -- the server prices it
+              if (goldByLine[e.key] case final g?)
+                'gold_deduction': {'karat': g.karat, 'grams': g.grams},
             },
         ],
       }),

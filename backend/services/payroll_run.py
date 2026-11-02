@@ -641,7 +641,7 @@ def pay_run(run, data: dict, *, by: str, now) -> None:
     """Each unsettled line by its voucher -- by bank, by cash, or part each,
     what is not paid kept owed to him (PAY-SPLIT) -- all or none. A line's
     amounts are the dialog's, else his split (split_of). Caller commits."""
-    from services.payroll_payment import pay, settled
+    from services.payroll_payment import gold_deduction_of, pay, settled
     if run.status not in ('approved', 'paid'):
         raise PayrollRefused('يُعتمد المسير أولًا، ثم يُصرف')
     try:
@@ -655,25 +655,28 @@ def pay_run(run, data: dict, *, by: str, now) -> None:
     for line in unpaid:
         row = named.get(line.id, {})
         advance = row.get('advance_deduction_amount')
+        gold = row.get('gold_deduction')
         parts = None                                         # one account named for the whole line
         if not row.get('payment_account_id'):
             keyed = 'bank_amount' in row or 'cash_amount' in row
+            taken = gold_deduction_of(line.employee, gold, paid_date) if not keyed else None
             amounts = ({'bank': row.get('bank_amount') or 0.0, 'cash': row.get('cash_amount') or 0.0} if keyed
-                       else split_of(line.employee, float(line.net_salary or 0.0) - float(advance or 0.0)))
+                       else split_of(line.employee, float(line.net_salary or 0.0) - float(advance or 0.0)
+                                     - (taken['amount'] if taken else 0.0)))
             # a way paid by is paid from its account; none at all (no way known) is not paid
             if (not keyed and not amounts) or any(float(amount or 0.0) > 0 and not by_method.get(way)
                                                    for way, amount in amounts.items()):
                 unpayable.append(line.employee.name)
             parts = [(by_method.get(way), amount) for way, amount in amounts.items()]
-        plan.append((line, row.get('payment_account_id'), parts, advance))
+        plan.append((line, row.get('payment_account_id'), parts, advance, gold))
     if unpayable:
         raise PayrollRefused('لم يُحدَّد حساب الصرف لـ: ' + '، '.join(unpayable)
                              + '. حدّد طريقة صرف الموظف (تحويل أو نقد) أو حساب السطر.')
     savepoint = db.session.begin_nested()
     try:
-        for line, account_id, parts, advance in plan:
+        for line, account_id, parts, advance, gold in plan:
             pay(line, payment_account_id=account_id, parts=parts, paid_date=paid_date,
-                advance_deduction=advance, by=by, now=now)
+                advance_deduction=advance, gold_deduction=gold, by=by, now=now)
         run.status = 'paid'
         db.session.flush()
     except Exception:

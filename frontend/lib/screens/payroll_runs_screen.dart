@@ -21,6 +21,7 @@ import '../widgets/app_feedback.dart';
 import '../widgets/app_leave_guard.dart';
 import '../widgets/app_state_views.dart';
 import '../widgets/employee_advances_panel.dart';
+import '../widgets/employee_overview.dart' show goldCustodyText;
 import '../widgets/employee_salary_panel.dart';
 
 /// A month's payroll as one document (PAYROLL-2, ADR-068): drafted from the
@@ -406,6 +407,7 @@ class _PayrollRunScreenState extends State<PayrollRunScreen> {
         bankAccountId: plan.bank,
         cashAccountId: plan.cash,
         amountsByLine: plan.amounts,
+        goldByLine: plan.gold,
         paidDate: plan.day,
       ),
       _isAr ? 'صُرف المسير' : 'Paid',
@@ -1468,6 +1470,7 @@ class _LineDialogState extends State<_LineDialog> {
 /// accounts, and the day.
 typedef _PayPlan = ({
   Map<int, ({double bank, double cash})> amounts,
+  Map<int, ({int karat, double grams})> gold,
   int? bank,
   int? cash,
   String day,
@@ -1491,9 +1494,25 @@ class _PayRow {
         : (line.paymentMethod ?? 'cash');
     this.bank.text = _plainAmount(bank);
     this.cash.text = _plainAmount(cash);
+    goldKarat = line.goldAdvance.isEmpty ? null : line.goldAdvance.keys.first;
   }
 
   final PayrollRunLine line;
+
+  /// PAY-GOLD: grams of his gold advance taken in riyals, of [goldKarat].
+  final gold = TextEditingController();
+  String? goldKarat;
+
+  double get goldGrams => goldKarat == null ? 0 : _read(gold);
+  double get goldOwed => line.goldAdvance[goldKarat] ?? 0;
+  bool get goldOver => goldGrams > goldOwed + 0.0005;
+
+  /// The grams at the server's price per gram, as the server rounds it.
+  double get goldAmount =>
+      ((goldGrams * (line.goldRates[goldKarat] ?? 0)) * 100).round() / 100;
+
+  /// What is paid now or kept: his net less the gold taken.
+  double get payable => ((line.net - goldAmount) * 100).round() / 100;
 
   /// 'bank', 'cash', 'split', 'keep' -- null: no way said, one must be chosen.
   String? mode;
@@ -1506,22 +1525,23 @@ class _PayRow {
       double.tryParse(normalizeNumber(c.text)) ?? 0;
 
   ({double bank, double cash})? get amounts => switch (mode) {
-    'bank' => (bank: line.net, cash: 0.0),
-    'cash' => (bank: 0.0, cash: line.net),
+    'bank' => (bank: payable, cash: 0.0),
+    'cash' => (bank: 0.0, cash: payable),
     'split' => (bank: _read(bank), cash: _read(cash)),
     'keep' => (bank: 0.0, cash: 0.0),
     _ => null,
   };
 
-  /// What stays owed to him -- his net less what is paid now.
+  /// What stays owed to him -- his net less the gold taken and what is paid now.
   double get kept {
     final a = amounts;
-    return a == null ? 0 : ((line.net - a.bank - a.cash) * 100).round() / 100;
+    return a == null ? 0 : ((payable - a.bank - a.cash) * 100).round() / 100;
   }
 
   void dispose() {
     bank.dispose();
     cash.dispose();
+    gold.dispose();
   }
 }
 
@@ -1581,9 +1601,16 @@ class _PayDialogState extends State<_PayDialog> {
   /// account -- else nothing is paid (all or none, the server's too).
   _PayPlan? get _plan {
     final amounts = <int, ({double bank, double cash})>{};
+    final gold = <int, ({int karat, double grams})>{};
     for (final r in _rows) {
       final a = r.amounts;
-      if (a == null || r.kept < 0) return null;
+      if (a == null || r.kept < 0 || r.goldOver || r.payable < 0) return null;
+      if (r.goldGrams > 0) {
+        gold[r.line.id] = (
+          karat: int.parse(r.goldKarat!.replaceAll('k', '')),
+          grams: r.goldGrams,
+        );
+      }
       if ((a.bank > 0 && _bank == null) || (a.cash > 0 && _cash == null)) {
         return null;
       }
@@ -1592,7 +1619,7 @@ class _PayDialogState extends State<_PayDialog> {
     final today = DateTime.now();
     final day =
         '${today.year}-${'${today.month}'.padLeft(2, '0')}-${'${today.day}'.padLeft(2, '0')}';
-    return (amounts: amounts, bank: _bank, cash: _cash, day: day);
+    return (amounts: amounts, gold: gold, bank: _bank, cash: _cash, day: day);
   }
 
   Widget _row(_PayRow r) {
@@ -1658,6 +1685,7 @@ class _PayDialogState extends State<_PayDialog> {
             onSelectionChanged: (s) =>
                 setState(() => r.mode = s.isEmpty ? null : s.first),
           ),
+          if (r.line.goldAdvance.isNotEmpty) _goldField(r),
           if (r.mode == 'split') ...[
             const SizedBox(height: AppSpace.sm),
             Wrap(
@@ -1693,6 +1721,87 @@ class _PayDialogState extends State<_PayDialog> {
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+
+  /// PAY-GOLD: his gold advance, taken in riyals at the closing price.
+  Widget _goldField(_PayRow r) {
+    final isAr = widget.isAr;
+    final theme = Theme.of(context);
+    final tones = AppSemanticColors.of(context);
+    final id = r.line.id;
+    final karat = r.goldKarat!.replaceAll('k', '');
+    final rate = r.line.goldRates[r.goldKarat] ?? 0;
+    final said = r.goldOver
+        ? (isAr
+              ? 'يزيد على سلفة الذهب عليه (${goldCustodyText({r.goldKarat!: r.goldOwed})})'
+              : 'More than he owes in gold')
+        : r.goldGrams > 0
+        ? (isAr
+              ? 'يُخصم ${ltrIsolate(formatAmount(r.goldAmount))} بسعر التسكير الآن ${ltrIsolate(formatAmount(rate))} للجرام'
+              : '${formatAmount(r.goldAmount)} at today\'s closing price ${formatAmount(rate)} a gram')
+        : (isAr
+              ? 'سلفة ذهب عليه ${goldCustodyText(r.line.goldAdvance)}: تُخصم بالريال، أو يردّها ذهبًا بسند قبض وزني'
+              : 'He owes gold: taken in riyals here, or returned by a weight receipt');
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpace.sm),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Wrap(
+            spacing: AppSpace.md,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              if (r.line.goldAdvance.length > 1)
+                SegmentedButton<String>(
+                  key: ValueKey('payroll-pay-gold-karat-$id'),
+                  showSelectedIcon: false,
+                  segments: [
+                    for (final k in r.line.goldAdvance.keys)
+                      ButtonSegment(
+                        value: k,
+                        label: Text(k.replaceAll('k', '')),
+                      ),
+                  ],
+                  selected: {r.goldKarat!},
+                  onSelectionChanged: (s) =>
+                      setState(() => r.goldKarat = s.first),
+                ),
+              SizedBox(
+                width: 200,
+                child: TextField(
+                  key: ValueKey('payroll-pay-gold-$id'),
+                  controller: r.gold,
+                  onChanged: (_) => setState(() {}),
+                  textDirection: TextDirection.ltr,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  inputFormatters: [
+                    ArabicNumberTextInputFormatter(),
+                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                  ],
+                  decoration: InputDecoration(
+                    labelText: isAr
+                        ? 'يُخصم من سلفة الذهب (جم $karat)'
+                        : 'From his gold advance (g ${karat}k)',
+                  ),
+                ),
+              ),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: AppSpace.xs),
+            child: Text(
+              said,
+              key: ValueKey('payroll-pay-gold-said-$id'),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: r.goldOver ? tones.blocked.fg : theme.hintColor,
+              ),
+            ),
+          ),
         ],
       ),
     );

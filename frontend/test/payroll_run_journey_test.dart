@@ -20,6 +20,10 @@ class _Server extends PayrollService {
 
   /// What the batch pay was sent: each line's (bank, cash), and the accounts.
   Map<int, ({double bank, double cash})>? paidWith;
+  Map<int, ({int karat, double grams})>? goldWith;
+
+  /// PAY-GOLD: مسعد owes 10 g of 21k, a gram at 400 today (the server's).
+  bool goldOwed = false;
   (int?, int?)? paidFrom;
   int? added;
 
@@ -47,6 +51,10 @@ class _Server extends PayrollService {
           ? <String, dynamic>{}
           : <String, dynamic>{method: net},
     if (status == 'paid') 'voucher': {'voucher_number': 'PAY-2041-04-000$id'},
+    if (goldOwed && id == 1 && status == 'approved') ...{
+      'gold_advance': {'21k': 10.0},
+      'gold_rates': {'21k': 400.0},
+    },
     'breakdown': {
       'eos': id == 1
           ? {'days': 400, 'provision': 350.0}
@@ -136,9 +144,11 @@ class _Server extends PayrollService {
     required int? bankAccountId,
     required int? cashAccountId,
     required Map<int, ({double bank, double cash})> amountsByLine,
+    Map<int, ({int karat, double grams})> goldByLine = const {},
     required String paidDate,
   }) async {
     paidWith = amountsByLine;
+    goldWith = goldByLine;
     paidFrom = (bankAccountId, cashAccountId);
     status = 'paid';
     return _run;
@@ -468,6 +478,76 @@ void main() {
         1: (bank: 5000.0, cash: 1000.0),
         2: (bank: 0.0, cash: 0.0),
       });
+    },
+  );
+
+  testWidgets(
+    'PAY-GOLD: his gold advance taken in riyals at the closing price -- what '
+    'he is paid is his net less it, never more grams than he owes',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 2000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final server = _Server()
+        ..status = 'approved'
+        ..goldOwed = true;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: LightTheme.theme,
+          home: PayrollRunScreen(api: ApiService(), runId: 9, service: server),
+        ),
+      );
+      await _settle(tester);
+      await tester.tap(find.byKey(const ValueKey('payroll-run-pay')));
+      await _settle(tester);
+      await _choose(tester, 'payroll-pay-bank', 'بنك الرياض');
+      await _choose(tester, 'payroll-pay-cash', 'الصندوق');
+      expect(
+        find.byKey(const ValueKey('payroll-pay-gold-2')),
+        findsNothing,
+        reason: 'he owes no gold',
+      );
+      String said() => tester
+          .widget<Text>(find.byKey(const ValueKey('payroll-pay-gold-said-1')))
+          .data!;
+      expect(said(), contains('10'), reason: 'what he owes, said');
+
+      await tester.enterText(
+        find.byKey(const ValueKey('payroll-pay-gold-1')),
+        '11',
+      );
+      await _settle(tester);
+      expect(said(), contains('يزيد على'));
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.byKey(const ValueKey('payroll-pay-confirm')),
+            )
+            .onPressed,
+        isNull,
+        reason: 'not more than he owes',
+      );
+
+      await tester.enterText(
+        find.byKey(const ValueKey('payroll-pay-gold-1')),
+        '4',
+      );
+      await _settle(tester);
+      expect(said(), allOf(contains('1,600.00'), contains('سعر التسكير')));
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const ValueKey('payroll-pay-method-2')),
+          matching: find.text('نقد'),
+        ),
+      );
+      await _settle(tester);
+      await tester.tap(find.byKey(const ValueKey('payroll-pay-confirm')));
+      await _settle(tester);
+      expect(server.paidWith?[1], (
+        bank: 5400.0,
+        cash: 0.0,
+      ), reason: 'his net less the gold taken');
+      expect(server.goldWith, {1: (karat: 21, grams: 4.0)});
     },
   );
 }

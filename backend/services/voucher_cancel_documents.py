@@ -31,8 +31,9 @@ def reopen(voucher) -> None:
         entry = db.session.get(Payroll, int(voucher.reference_id))
         if entry is not None and entry.voucher_id == voucher.id:
             entry.voucher_id, entry.paid_date, entry.status = None, None, 'approved'
-            from services.payroll_payment import _mark_kept
+            from services.payroll_payment import _mark_gold, _mark_kept
             _mark_kept(entry, 0.0)               # what it kept is owed again with the rest (PAY-SPLIT)
+            _mark_gold(entry, None)              # and the gold it took is owed again (PAY-GOLD)
             for bonus in EmployeeBonus.query.filter_by(payroll_id=entry.id, status='paid'):
                 bonus.status, bonus.paid_at, bonus.paid_by, bonus.payment_reference = 'approved', None, None, None
             if entry.run is not None and entry.run.status == 'paid':

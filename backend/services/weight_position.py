@@ -338,6 +338,8 @@ def collect_events(start: dt.datetime, end: dt.datetime) -> Events:
             # gold, no riyals turned. Its wages are the expense 510.
             events.skipped[kind or '?'] += 1
 
+    events.openings.extend(_gold_taken_from_salaries(start, end))
+
     # The revenues and expenses gram profit counts (the owner's marks), when entered.
     revenue_ids, expense_ids = gram_profit_accounts()
     marked = revenue_ids | expense_ids
@@ -369,6 +371,37 @@ def collect_events(start: dt.datetime, end: dt.datetime) -> Events:
         if amounts['expense'] > 0.005:
             events.closings.append(Closing(when, EXPENSE, amounts['expense']))
     return events
+
+
+def _gold_taken_from_salaries(start: dt.datetime, end: dt.datetime) -> list:
+    """An employee's gold advance taken from his salary in riyals (PAY-GOLD,
+    the owner 2 Nov 2026): riyals in for grams gone, through the gold
+    settlement clearing -- an opening as a sale is, at the price it was
+    taken at. From the approved salary vouchers' clearing lines."""
+    from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, get_account_id_for_mapping
+    from models import Account, Voucher, VoucherAccountLine, db
+    from pricing.gold_price_service import get_main_karat
+    from services.payroll_payment import GOLD_CLEARING
+    clearing_id = get_account_id_for_mapping(DEFAULT_MAPPING_OPERATION_TYPE, GOLD_CLEARING)
+    clearing = db.session.get(Account, clearing_id) if clearing_id else None
+    if clearing is None or not clearing.memo_account_id:
+        return []
+    main = float(get_main_karat())
+    rows = (db.session.query(Voucher, VoucherAccountLine)
+            .join(VoucherAccountLine, VoucherAccountLine.voucher_id == Voucher.id)
+            .filter(Voucher.reference_type == 'payroll', Voucher.status == 'approved',
+                    Voucher.date >= start, Voucher.date <= end,
+                    VoucherAccountLine.account_id.in_([clearing.id, clearing.memo_account_id])).all())
+    taken = collections.defaultdict(lambda: [None, 0.0, 0.0])        # voucher id -> [voucher, riyals, grams]
+    for voucher, line in rows:
+        part = taken[voucher.id]
+        part[0] = voucher
+        if line.account_id == clearing.id and line.line_type == 'credit' and line.amount_type == 'cash':
+            part[1] += float(line.amount or 0.0)
+        elif line.account_id == clearing.memo_account_id and line.line_type == 'debit' and line.amount_type == 'gold':
+            part[2] += float(line.amount or 0.0) * float(line.karat or main) / main
+    return [Lot(f'سلفة ذهب {voucher.party_name or ""}'.strip(), voucher.date, cash, grams, cash / grams)
+            for voucher, cash, grams in taken.values() if cash > 0.005 and grams > 1e-6]
 
 
 def office_prices(until: dt.date):

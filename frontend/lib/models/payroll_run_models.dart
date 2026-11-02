@@ -96,6 +96,8 @@ class PayrollRunLine {
     required this.notes,
     this.offered = const {},
     this.keptOwed = 0,
+    this.goldAdvance = const {},
+    this.goldRates = const {},
   });
 
   final int id;
@@ -148,6 +150,11 @@ class PayrollRunLine {
 
   /// What its payment kept owed to him on his salary payable.
   final double keptOwed;
+
+  /// PAY-GOLD: what he owes in gold by karat ('21k': grams), and a gram of
+  /// each at the closing price today -- the server's.
+  final Map<String, double> goldAdvance;
+  final Map<String, double> goldRates;
 
   factory PayrollRunLine.fromJson(Map<String, dynamic> json) {
     final employee = json['employee'] as Map<String, dynamic>? ?? const {};
@@ -210,6 +217,18 @@ class PayrollRunLine {
           e.key: _num(e.value),
       },
       keptOwed: _num(json['kept_owed']),
+      goldAdvance: {
+        for (final e
+            in (json['gold_advance'] as Map<String, dynamic>? ?? const {})
+                .entries)
+          e.key: _num(e.value),
+      },
+      goldRates: {
+        for (final e
+            in (json['gold_rates'] as Map<String, dynamic>? ?? const {})
+                .entries)
+          e.key: _num(e.value),
+      },
     );
   }
 }

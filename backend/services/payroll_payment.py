@@ -11,6 +11,14 @@ Paid part by bank, part by cash, part kept (PAY-SPLIT; the owner, 2 Nov 2026:
 still, a credit for each way money leaves; what is not paid is kept on his
 salary payable, owed to him -- said on the line (`kept_owed`), never moved.
 Nothing paid at all writes no voucher: the line is kept whole.
+
+His gold advance taken in riyals (PAY-GOLD; the owner, 2 Nov 2026: «أ،ب معا»,
+then «سعر التسكير الآن» and «وسيط تسوية الذهب»): grams of a karat he owes,
+no more, at the closing price on the day paid -- frozen on his line
+(`gold_deduction`). The voucher credits the clearing (1720) by the riyals,
+debits its weight twin (71720) and credits his weight account by the grams:
+riyals waiting to become gold, which the weight close reads as a sale. Or he
+returns it in gold by a weight receipt voucher, as before.
 """
 from __future__ import annotations
 
@@ -33,6 +41,56 @@ def settled(entry) -> bool:
     return bool(entry.voucher_id) or (kept_owed(entry) > 0 and round(kept_owed(entry) - float(entry.net_salary or 0), 2) == 0)
 
 
+GOLD_CLEARING = 'gold_settlement_clearing'      # «حساب وسيط تسوية الذهب» (1720 / 71720)
+
+
+def gold_rates(employee, day) -> dict:
+    """Each karat he owes in gold: its closing price per gram on *day* (the
+    office's, ADR-048 decision 5) -- what a gram of it is taken at."""
+    from pricing.gold_price_service import get_main_karat
+    from services.payroll_advances import gold_balance
+    from services.weight_position import office_prices
+    owed = gold_balance(employee)
+    if not owed:
+        return {}
+    price, _ = office_prices(day)(day)
+    main = int(get_main_karat())
+    return {key: round(price * int(key.rstrip('k')) / main, 4) for key in owed} if price else {}
+
+
+def gold_deduction_of(employee, asked, day) -> dict | None:
+    """The grams asked of a karat he owes, at its closing price on *day*:
+    {'karat', 'grams', 'price', 'amount'} -- or None, none asked."""
+    from services.payroll_advances import gold_balance
+    if not asked:
+        return None
+    try:
+        karat, grams = int(asked.get('karat')), round(float(asked.get('grams') or 0.0), 3)
+    except (TypeError, ValueError, AttributeError):
+        raise PayrollRefused('خصم سلفة الذهب: العيار والوزن رقمان') from None
+    if grams < 0:
+        raise PayrollRefused('خصم سلفة الذهب لا يكون سالبًا')
+    if grams == 0:
+        return None
+    owed = gold_balance(employee).get(f'{karat}k', 0.0)
+    if round(grams - owed, 3) > 0:
+        raise PayrollRefused(f'خصم {grams:g} جم عيار {karat} يزيد على سلفة الذهب عليه ({owed:g} جم)',
+                             'gold_beyond_owed')
+    rate = gold_rates(employee, day).get(f'{karat}k')
+    if not rate:
+        raise PayrollRefused('لا سعر تسكير لهذا اليوم: لا يُخصم الذهب بالريال', 'no_closing_price')
+    return {'karat': karat, 'grams': grams, 'price': rate, 'amount': round(grams * rate, 2)}
+
+
+def _mark_gold(entry, taken: dict | None) -> None:
+    breakdown = json.loads(entry.breakdown or '{}')
+    if taken:
+        breakdown['gold_deduction'] = taken
+    else:
+        breakdown.pop('gold_deduction', None)
+    entry.breakdown = json.dumps(breakdown, ensure_ascii=False)
+
+
 def _mark_kept(entry, amount: float) -> None:
     if amount <= 0 and not entry.breakdown:
         return                                       # an entry before the runs keeps its none
@@ -44,11 +102,32 @@ def _mark_kept(entry, amount: float) -> None:
     entry.breakdown = json.dumps(breakdown, ensure_ascii=False)
 
 
-def pay(entry, *, payment_account_id=None, parts=None, paid_date, advance_deduction=0.0, by: str, now) -> None:
+def _gold_lines(voucher, employee, taken: dict) -> None:
+    """The riyals to the clearing, the grams from his weight account to its twin."""
+    from accounting.mappings import AccountNotMapped, DEFAULT_MAPPING_OPERATION_TYPE, require_account
+    try:
+        clearing = db.session.get(Account, require_account(DEFAULT_MAPPING_OPERATION_TYPE, GOLD_CLEARING))
+    except AccountNotMapped as missing:
+        raise PayrollRefused(str(missing), 'gold_clearing_not_mapped') from None
+    his = db.session.get(Account, employee.account_id) if employee.account_id else None
+    if not getattr(clearing, 'memo_account_id', None) or not getattr(his, 'memo_account_id', None):
+        raise PayrollRefused(f'لا حساب وزني لوسيط تسوية الذهب أو لسلف {employee.name}', 'gold_account_missing')
+    words = f"خصم سلفة ذهب {taken['grams']:g} جم عيار {taken['karat']} من راتب {employee.name}"
+    for account_id, side, kind, amount, karat in (
+            (clearing.id, 'credit', 'cash', taken['amount'], None),
+            (clearing.memo_account_id, 'debit', 'gold', taken['grams'], taken['karat']),
+            (his.memo_account_id, 'credit', 'gold', taken['grams'], taken['karat'])):
+        db.session.add(VoucherAccountLine(voucher_id=voucher.id, account_id=account_id, line_type=side,
+                                          amount_type=kind, amount=amount, karat=karat, description=words))
+
+
+def pay(entry, *, payment_account_id=None, parts=None, paid_date, advance_deduction=0.0, gold_deduction=None,
+        by: str, now) -> None:
     """Paid by its voucher; a paid entry is left as it is. Caller commits.
 
     `parts`: [(account_id, amount)] -- each way money leaves; absent, the whole
-    (net less the advance) from `payment_account_id` (or the mapped cash)."""
+    (net less the advances) from `payment_account_id` (or the mapped cash).
+    `gold_deduction`: {'karat', 'grams'} of his gold advance, taken in riyals."""
     if settled(entry):
         return
     ensure_accrual(entry, by=by)
@@ -67,6 +146,11 @@ def pay(entry, *, payment_account_id=None, parts=None, paid_date, advance_deduct
     if round(advance_deduction, 2) > 0 and not employee.account_id:
         raise PayrollRefused(f'لا يمكن خصم السلفة: الموظف «{employee.name}» ليس له حساب سلف مرتبط. '
                              'اربطه من شاشة الموظفين، أو اترك خصم السلفة صفرًا.')
+    taken = gold_deduction_of(employee, gold_deduction, paid_date)
+    gold_amount = taken['amount'] if taken else 0.0
+    if round(advance_deduction + gold_amount - net, 2) > 0:
+        raise PayrollRefused(f'خصم سلفة الذهب ({gold_amount:,.2f}) مع سلفته يزيد على صافي راتب {employee.name}',
+                             'pay_beyond_net')
 
     from accounting.mappings import AccountNotMapped, get_account_id_for_mapping
     from accounting.voucher_engine import _append_safe_transactions_for_voucher, post_entry_of_approved_voucher
@@ -75,7 +159,7 @@ def pay(entry, *, payment_account_id=None, parts=None, paid_date, advance_deduct
         salary_account_id = int(ensure_payable_account(employee, 'salary_payable', by=by).id)
     except AccountNotMapped as missing:
         raise PayrollRefused(str(missing)) from None
-    payable = round(max(0.0, net - advance_deduction), 2)
+    payable = round(max(0.0, net - advance_deduction - gold_amount), 2)
     if parts is None:
         if payment_account_id:
             payment_account = db.session.get(Account, int(payment_account_id))
@@ -110,7 +194,7 @@ def pay(entry, *, payment_account_id=None, parts=None, paid_date, advance_deduct
         raise PayrollRefused(f'ما يُصرف لـ {employee.name} ({paid:,.2f}) يزيد على صافيه ({payable:,.2f})',
                              'pay_beyond_net')
     kept = round(payable - paid, 2)
-    if paid == 0 and round(advance_deduction, 2) == 0:
+    if paid == 0 and round(advance_deduction, 2) == 0 and not taken:
         _mark_kept(entry, kept)                      # nothing leaves: kept whole, no voucher
         return
 
@@ -121,7 +205,7 @@ def pay(entry, *, payment_account_id=None, parts=None, paid_date, advance_deduct
                       reference_number=f'{entry.year}-{entry.month:02d}',
                       # its whole, as the vouchers' list reads it (the owner, 2 Nov 2026:
                       # «مبلغ سند صرف الرواتب لا يظهر») -- what left and what was deducted
-                      employee_id=int(employee.id), amount_cash=round(paid + advance_deduction, 2))
+                      employee_id=int(employee.id), amount_cash=round(paid + advance_deduction + gold_amount, 2))
     db.session.add(voucher)
     db.session.flush()
 
@@ -130,12 +214,14 @@ def pay(entry, *, payment_account_id=None, parts=None, paid_date, advance_deduct
                                           line_type='credit', amount_type='cash', amount=amount,
                                           description=f'صرف راتب {employee.name} - {account.name}'))
     db.session.add(VoucherAccountLine(voucher_id=voucher.id, account_id=salary_account_id, line_type='debit',
-                                      amount_type='cash', amount=round(paid + advance_deduction, 2),
+                                      amount_type='cash', amount=round(paid + advance_deduction + gold_amount, 2),
                                       description=f'راتب {entry.month}/{entry.year}'))
     if round(advance_deduction, 2) > 0:
         db.session.add(VoucherAccountLine(voucher_id=voucher.id, account_id=int(employee.account_id),
                                           line_type='credit', amount_type='cash', amount=advance_deduction,
                                           description=f'خصم سلفة من راتب {employee.name}'))
+    if taken:
+        _gold_lines(voucher, employee, taken)
 
     journal_entry = post_entry_of_approved_voucher(voucher, posted_by=by)
     voucher.status = 'approved'
@@ -148,6 +234,7 @@ def pay(entry, *, payment_account_id=None, parts=None, paid_date, advance_deduct
     entry.paid_date = paid_date
     entry.status = 'paid'
     _mark_kept(entry, kept)
+    _mark_gold(entry, taken)
     # its bonuses, moved into its net by the run's accrual, are paid by it (PAYROLL-4)
     from models import EmployeeBonus
     for bonus in EmployeeBonus.query.filter_by(payroll_id=entry.id, status='approved'):
