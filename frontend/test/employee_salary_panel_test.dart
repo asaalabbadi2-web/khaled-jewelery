@@ -18,6 +18,28 @@ class _Server extends PayrollService {
   int? deleted;
   Map<String, Object>? added;
   String? savedIban;
+  (String?, double?)? savedSplit;
+  double owed = 0;
+  (double, int)? paidOwed;
+
+  @override
+  Future<double> salaryOwed(int employeeId) async => owed;
+
+  @override
+  Future<String> payOwed(
+    int employeeId, {
+    required double amount,
+    required int paymentAccountId,
+  }) async {
+    paidOwed = (amount, paymentAccountId);
+    owed -= amount;
+    return 'PAYK-2026-0001';
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> paymentAccounts() async => [
+    {'id': 2, 'name': 'الصندوق'},
+  ];
 
   @override
   Future<SalaryStructures> structures(int employeeId) async =>
@@ -90,7 +112,12 @@ class _Server extends PayrollService {
     required String? bankName,
     required int? schemeId,
     required double? contributionWage,
-  }) async => savedIban = iban;
+    String? splitMethod,
+    double? splitAmount,
+  }) async {
+    savedIban = iban;
+    savedSplit = (splitMethod, splitAmount);
+  }
 
   @override
   Future<List<Map<String, dynamic>>> schemes() async => const [];
@@ -325,5 +352,85 @@ void main() {
     await _settle(tester);
     expect(tester.takeException(), isNull);
     expect(find.byKey(const ValueKey('salary-change-form')), findsOneWidget);
+  });
+
+  testWidgets('PAY-SPLIT: a fixed amount by one way, the rest by the other, '
+      'kept in his file', (tester) async {
+    await _wide(tester);
+    final server = _Server();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LightTheme.theme,
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: EmployeeSalaryPanel(
+              service: server,
+              employeeId: 7,
+              isAr: true,
+            ),
+          ),
+        ),
+      ),
+    );
+    await _settle(tester);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('employee-pay-split')),
+    );
+    await tester.tap(find.byKey(const ValueKey('employee-pay-split')));
+    await _settle(tester);
+    await tester.tap(find.text('تحويل ثابت'));
+    await _settle(tester);
+    await tester.enterText(
+      find.byKey(const ValueKey('employee-pay-split-amount')),
+      '5000',
+    );
+    await _settle(tester);
+    expect(find.textContaining('والباقي من صافي الشهر نقدًا'), findsOneWidget);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('employee-payment-save')),
+    );
+    await tester.tap(find.byKey(const ValueKey('employee-payment-save')));
+    await _settle(tester);
+    expect(server.savedSplit, ('bank', 5000.0));
+  });
+
+  testWidgets('PAY-SPLIT: what he left with the shop is said and paid from, '
+      'all or part', (tester) async {
+    await _wide(tester);
+    final server = _Server()..owed = 2700;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LightTheme.theme,
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: EmployeeSalaryPanel(
+              service: server,
+              employeeId: 7,
+              isAr: true,
+            ),
+          ),
+        ),
+      ),
+    );
+    await _settle(tester);
+    expect(find.byKey(const ValueKey('salary-owed')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('salary-owed-pay')));
+    await _settle(tester);
+    await tester.enterText(
+      find.byKey(const ValueKey('salary-owed-amount')),
+      '1000',
+    );
+    await tester.tap(find.byKey(const ValueKey('salary-owed-account')));
+    await _settle(tester);
+    await tester.tap(find.text('الصندوق').last);
+    await _settle(tester);
+    await tester.tap(find.byKey(const ValueKey('salary-owed-confirm')));
+    await _settle(tester);
+    expect(server.paidOwed, (1000.0, 2));
+    expect(
+      find.byKey(const ValueKey('salary-owed')),
+      findsOneWidget,
+      reason: '1,700 still owed',
+    );
   });
 }

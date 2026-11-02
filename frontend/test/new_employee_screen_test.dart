@@ -82,6 +82,8 @@ class _Server extends PayrollService {
     required String? bankName,
     required int? schemeId,
     required double? contributionWage,
+    String? splitMethod,
+    double? splitAmount,
   }) async => this.method = method;
 
   @override

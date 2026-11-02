@@ -100,18 +100,28 @@ class PayrollService {
       _run(await _api.authedPost('/payroll/runs/$runId/cancel', body: '{}'));
 
   /// Each line from the account named for it.
+  /// Each line by bank and cash amounts from the two accounts; what a line
+  /// does not pay is kept owed to him (PAY-SPLIT) -- the server checks all.
   Future<PayrollRun> pay(
     int runId, {
-    required Map<int, int> accountByLine,
+    required int? bankAccountId,
+    required int? cashAccountId,
+    required Map<int, ({double bank, double cash})> amountsByLine,
     required String paidDate,
   }) async => _run(
     await _api.authedPost(
       '/payroll/runs/$runId/pay',
       body: jsonEncode({
         'paid_date': paidDate,
+        'bank_account_id': bankAccountId,
+        'cash_account_id': cashAccountId,
         'lines': [
-          for (final e in accountByLine.entries)
-            {'payroll_id': e.key, 'payment_account_id': e.value},
+          for (final e in amountsByLine.entries)
+            {
+              'payroll_id': e.key,
+              'bank_amount': e.value.bank,
+              'cash_amount': e.value.cash,
+            },
         ],
       }),
     ),
@@ -186,6 +196,8 @@ class PayrollService {
     required String? bankName,
     required int? schemeId,
     required double? contributionWage,
+    String? splitMethod,
+    double? splitAmount,
   }) async {
     _body(
       await _api.authedPut(
@@ -196,9 +208,40 @@ class PayrollService {
           'bank_name': bankName,
           'contribution_scheme_id': schemeId,
           'contribution_wage': contributionWage,
+          // PAY-SPLIT: a fixed amount by one way, the rest by the other
+          'split_method': splitMethod,
+          'split_amount': splitAmount,
         }),
       ),
     );
+  }
+
+  /// PAY-SPLIT: what his salary payable holds for him, from the books.
+  Future<double> salaryOwed(int employeeId) async {
+    final body =
+        _body(await _api.authedGet('/employees/$employeeId/salary-owed'))
+            as Map<String, dynamic>;
+    return ((body['owed'] as num?) ?? 0).toDouble();
+  }
+
+  /// PAY-SPLIT: what was kept owed to him, paid -- all or part.
+  Future<String> payOwed(
+    int employeeId, {
+    required double amount,
+    required int paymentAccountId,
+  }) async {
+    final body =
+        _body(
+              await _api.authedPost(
+                '/employees/$employeeId/salary-owed/pay',
+                body: jsonEncode({
+                  'amount': amount,
+                  'payment_account_id': paymentAccountId,
+                }),
+              ),
+            )
+            as Map<String, dynamic>;
+    return '${body['voucher_number']}';
   }
 
   /// id and name of each active contribution scheme.

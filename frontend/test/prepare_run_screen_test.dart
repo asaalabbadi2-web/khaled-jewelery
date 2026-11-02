@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/api_service.dart';
 import 'package:frontend/models/payroll_run_models.dart';
@@ -185,5 +186,55 @@ void main() {
     );
     await _settle(tester);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('in Arabic each figure stands under its column\'s title', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LightTheme.theme,
+        builder: (context, child) =>
+            Directionality(textDirection: TextDirection.rtl, child: child!),
+        home: PrepareRunScreen(api: ApiService(), service: _Server()),
+      ),
+    );
+    await _settle(tester);
+    double inkRight(Finder f) {
+      final paragraph = tester.renderObject<RenderParagraph>(
+        find
+            .descendant(of: f, matching: find.byType(RichText), matchRoot: true)
+            .first,
+      );
+      final boxes = paragraph.getBoxesForSelection(
+        TextSelection(
+          baseOffset: 0,
+          extentOffset: paragraph.text.toPlainText().length,
+        ),
+      );
+      return paragraph
+          .localToGlobal(
+            Offset(
+              boxes.map((b) => b.right).reduce((a, b) => a > b ? a : b),
+              0,
+            ),
+          )
+          .dx;
+    }
+
+    final lines = find.byKey(const ValueKey('prepare-lines'));
+    final head = inkRight(
+      find.descendant(of: lines, matching: find.text('الصافي')),
+    );
+    for (final net in ['7,000.00', '8,640.00']) {
+      // the net is its row's last figure (its salary may read the same)
+      final cell = inkRight(
+        find.descendant(of: lines, matching: find.textContaining(net)).last,
+      );
+      expect((cell - head).abs(), lessThan(1), reason: net);
+    }
   });
 }

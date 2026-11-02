@@ -246,7 +246,7 @@ def create_employee():
         apply_payment_fields(employee, data)
     except PayrollRefused as refused:
         db.session.rollback()
-        return jsonify({'error': refused.message}), 400
+        return _payroll_refusal(refused)
 
     created_gold_safe = None
     created_gold_safe_account = None
@@ -478,7 +478,7 @@ def update_employee(employee_id):
         apply_payment_fields(employee, data)                   # PAYROLL-2
     except PayrollRefused as refused:
         db.session.rollback()
-        return jsonify({'error': refused.message}), 400
+        return _payroll_refusal(refused)
 
     from services.approval_policy import actor
     from services.employee_access import record, stop
@@ -565,6 +565,37 @@ def make_employee_own_safe(employee_id):
         return _payroll_refusal(refused, 409 if refused.code == 'employee_has_a_safe' else 400)
     db.session.commit()
     return jsonify({'safe_box_id': safe.id, 'name': safe.name, **employee.to_dict()}), 201
+
+
+@employees_bp.route('/employees/<int:employee_id>/salary-owed', methods=['GET'])
+@require_permission('employees.payroll')
+def get_salary_owed(employee_id):
+    """PAY-SPLIT: what his salary payable holds for him, from the books."""
+    from services.payroll_payment import owed_salary
+    return jsonify({'owed': owed_salary(Employee.query.get_or_404(employee_id))})
+
+
+@employees_bp.route('/employees/<int:employee_id>/salary-owed/pay', methods=['POST'])
+@require_permission('employees.payroll')
+def pay_salary_owed(employee_id):
+    """PAY-SPLIT: what was kept owed to him, paid -- all or part."""
+    from services.approval_policy import actor
+    from services.payroll_laws import PayrollRefused
+    from services.payroll_payment import owed_salary, pay_owed
+    employee = Employee.query.get_or_404(employee_id)
+    data = request.get_json(silent=True) or {}
+    try:
+        day = date.fromisoformat(str(data.get('paid_date') or datetime.now().date().isoformat()))
+        voucher = pay_owed(employee, amount=data.get('amount'), payment_account_id=data.get('payment_account_id'),
+                           paid_date=day, by=actor(), now=datetime.now())
+    except PayrollRefused as refused:               # a ValueError too: caught first
+        db.session.rollback()
+        return _payroll_refusal(refused, 409 if refused.code == 'pay_beyond_owed' else 400)
+    except ValueError:
+        db.session.rollback()
+        return jsonify({'error': 'تاريخ الصرف YYYY-MM-DD'}), 400
+    db.session.commit()
+    return jsonify({'voucher_number': voucher.voucher_number, 'owed': owed_salary(employee)}), 201
 
 
 @employees_bp.route('/hr/overview', methods=['GET'])
@@ -851,9 +882,20 @@ def preview_employee_contributions(employee_id):
 # ── PAYROLL-2 (M2b): a month's run (services/payroll_run) ───────────────────────
 
 def _run_view(run, status=200, left_out=None):
-    from services.payroll_run import left_out as run_left_out
+    from services.payroll_payment import kept_owed, settled
+    from services.payroll_run import left_out as run_left_out, split_of
     body = run.to_dict(include_entries=True)
     body['left_out'] = left_out if left_out is not None else run_left_out(run)
+    # PAY-SPLIT: each unsettled line's way to be paid, as offered (his split),
+    # and what each settled one kept owed to him -- the server's, said
+    lines = {line.id: line for line in run.entries}
+    for row in body.get('entries') or []:
+        line = lines.get(row['id'])
+        if line is None:
+            continue
+        row['kept_owed'] = kept_owed(line)
+        if not settled(line):
+            row['offered'] = split_of(line.employee, float(line.net_salary or 0.0))
     return jsonify(body), status
 
 

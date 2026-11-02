@@ -26,7 +26,11 @@ Its deductions and its accrual (PAYROLL-3; the owner, 1 Nov 2026: «طبّق ا�
   - 'contribution' (reckoned): his share of his scheme, on the wage
     registered for it (services/payroll_policy.contributions);
   - 'advance' (reckoned): the month's installment of his advance plans
-    (services/payroll_advances).
+    (services/payroll_advances);
+  - 'advance_keyed' (keyed; the owner, 2 Nov 2026: «خصم سلفة ويتم خصمها من
+    حساب سلف الموظف»): an advance not planned, taken from this salary --
+    no more than what of his advance account no plan holds, and with his
+    installments within the policy's cap unless he consented (art. 92).
 The employer's share is the line's too, not deducted. The accrual, at the gross:
     Dr salary expense        gross + additions - absence
     Dr contributions expense the employer's share
@@ -73,7 +77,8 @@ RUN_REVERSAL = 'payroll_run_accrual_reversal'
 SNAPSHOT_SCHEMA_VERSION = 4          # 2: deduction kinds, employer share; 3: bonuses; 4: end of service
 
 ABSENCE, PENALTY, CONTRIBUTION = 'absence', 'penalty', 'contribution'
-KEYED_DEDUCTIONS = (ABSENCE, PENALTY)
+ADVANCE_KEYED = 'advance_keyed'
+KEYED_DEDUCTIONS = (ABSENCE, PENALTY, ADVANCE_KEYED)
 EOS_EXPENSE = 'eos_expense'
 CONTRIBUTIONS_EXPENSE = 'gosi_expense'
 CONTRIBUTIONS_PAYABLE = 'gosi_payable'
@@ -339,6 +344,7 @@ def edit_line(entry, data: dict) -> None:
                 bonus.payroll_id = None
     if 'notes' in data:
         entry.notes = data.get('notes')
+    _refuse_advance_beyond(entry, breakdown)
     _apply(entry, breakdown)
     if entry.net_salary < 0:
         raise PayrollRefused('الخصومات تزيد على المستحق: الصافي سالب')
@@ -358,8 +364,39 @@ def _labelled(line, *, keyed: bool = False) -> dict:
         return {'label': label, 'amount': amount}
     kind = line.get('kind') or ABSENCE
     if kind not in KEYED_DEDUCTIONS:
-        raise PayrollRefused('الخصم غياب أو جزاء؛ الاشتراكات وأقساط السلف تُحسب ولا تُكتب')
-    return {'kind': kind, 'label': label, 'amount': amount}
+        raise PayrollRefused('الخصم غياب أو جزاء أو سلفة؛ الاشتراكات وأقساط السلف المجدولة تُحسب ولا تُكتب')
+    row = {'kind': kind, 'label': label, 'amount': amount}
+    if kind == ADVANCE_KEYED and line.get('consent'):
+        row['consent'] = True
+    return row
+
+
+def _refuse_advance_beyond(entry, breakdown: dict) -> None:
+    """A keyed advance: from his advance account, what no plan holds, within
+    the cap with his installments unless he consented (art. 92)."""
+    from services.payroll_advances import account_balance, cap_of, remaining
+    keyed = [row for row in breakdown['deductions'] if kind_of(row) == ADVANCE_KEYED]
+    if not keyed:
+        return
+    employee = entry.employee
+    if not employee.account_id:
+        raise PayrollRefused(f'لا حساب سلف مربوط لـ {employee.name}', 'advance_account_missing')
+    amount = round(sum(row['amount'] for row in keyed), 2)
+    planned = sum(remaining(p) for p in employee.advance_plans.filter_by(status='active'))
+    free = round(account_balance(employee) - planned, 2)
+    if amount > free:
+        raise PayrollRefused(f'خصم السلفة {amount:,.2f} يزيد على غير المجدول من سلفه ({max(free, 0):,.2f})',
+                             'advance_beyond_balance')
+    if any(row.get('consent') for row in keyed):
+        return
+    from models import EmployeeAdvancePlan
+    without_consent = sum(row['amount'] for row in breakdown['deductions']
+                          if kind_of(row) == 'advance'
+                          and not getattr(db.session.get(EmployeeAdvancePlan, row.get('plan_id')), 'consent', False))
+    cap = cap_of(round(sum(breakdown['earned'].values()), 2))
+    if round(without_consent + amount, 2) > cap:
+        raise PayrollRefused(f'خصم السلفة مع أقساطه يزيد على {cap:,.2f} (حد السياسة من أجره): '
+                             'يُخصم أقل، أو يُؤشَّر «بموافقة الموظف» (المادة 92)', 'advance_over_cap')
 
 
 NOT_ADDED = {
@@ -438,7 +475,7 @@ def _refuse_bonuses_beyond_the_books(lines) -> None:
 def line_parts(line) -> dict:
     """A line's accrual: what it costs and to whom it is owed."""
     breakdown = json.loads(line.breakdown)
-    by_kind = {ABSENCE: 0.0, PENALTY: 0.0, CONTRIBUTION: 0.0, 'advance': 0.0}
+    by_kind = {ABSENCE: 0.0, PENALTY: 0.0, CONTRIBUTION: 0.0, 'advance': 0.0, ADVANCE_KEYED: 0.0}
     for row in breakdown.get('deductions') or []:
         by_kind[kind_of(row)] += float(row['amount'])
     earned = round(sum(breakdown['earned'].values()), 2)
@@ -449,7 +486,7 @@ def line_parts(line) -> dict:
             'contributions_expense': employer,
             'net': round(line.net_salary, 2),
             'contributions_payable': round(by_kind[CONTRIBUTION] + employer, 2),
-            'advance': round(by_kind['advance'], 2),
+            'advance': round(by_kind['advance'] + by_kind[ADVANCE_KEYED], 2),
             'penalties': round(by_kind[PENALTY], 2),
             'bonuses': bonuses,
             'eos': round(float((breakdown.get('eos') or {}).get('provision') or 0.0), 2)}
@@ -492,7 +529,7 @@ def _write_accrual(run, lines, *, by: str, now) -> JournalEntry:
             if part['advance'] > 0:
                 if not line.employee.account_id:
                     raise PayrollRefused(f'لا حساب سلف مربوط لـ {name}')
-                credits.append((int(line.employee.account_id), part['advance'], f'قسط سلفة {name}'))
+                credits.append((int(line.employee.account_id), part['advance'], f'سلفة {name}'))
     except AccountNotMapped as missing:
         raise PayrollRefused(str(missing)) from None
     if round(sum(a for _, a, _ in debits) - sum(a for _, a, _ in credits), 2) != 0:
@@ -557,10 +594,25 @@ def cancel(run, *, by: str, now) -> None:
 
 # ── 5. paid in a batch ─────────────────────────────────────────────────────────
 
+def split_of(employee, payable: float) -> dict:
+    """How his net is offered to be paid (PAY-SPLIT): by his way, whole -- or a
+    fixed amount by one way (no more than the net) and the rest by the other."""
+    payable = round(payable, 2)
+    method, fixed = employee.split_method, employee.split_amount
+    if method in ('bank', 'cash') and fixed:
+        part = round(min(float(fixed), payable), 2)
+        other = 'cash' if method == 'bank' else 'bank'
+        return {method: part, other: round(payable - part, 2)}
+    if employee.payment_method in ('bank', 'cash'):
+        return {employee.payment_method: payable}
+    return {}
+
+
 def pay_run(run, data: dict, *, by: str, now) -> None:
-    """Each unpaid line by its voucher, from the account of how its employee is
-    paid (or the one named for the line) -- all or none. Caller commits."""
-    from services.payroll_payment import pay
+    """Each unsettled line by its voucher -- by bank, by cash, or part each,
+    what is not paid kept owed to him (PAY-SPLIT) -- all or none. A line's
+    amounts are the dialog's, else his split (split_of). Caller commits."""
+    from services.payroll_payment import pay, settled
     if run.status not in ('approved', 'paid'):
         raise PayrollRefused('يُعتمد المسير أولًا، ثم يُصرف')
     try:
@@ -569,22 +621,30 @@ def pay_run(run, data: dict, *, by: str, now) -> None:
         raise PayrollRefused('تاريخ الصرف YYYY-MM-DD') from None
     by_method = {'bank': data.get('bank_account_id'), 'cash': data.get('cash_account_id')}
     named = {int(row['payroll_id']): row for row in (data.get('lines') or [])}
-    unpaid = [line for line in run.entries.order_by(Payroll.id) if not line.voucher_id]
+    unpaid = [line for line in run.entries.order_by(Payroll.id) if not settled(line)]
     plan, unpayable = [], []
     for line in unpaid:
         row = named.get(line.id, {})
-        account_id = row.get('payment_account_id') or by_method.get(line.employee.payment_method)
-        if not account_id:
-            unpayable.append(line.employee.name)
-        plan.append((line, account_id, row.get('advance_deduction_amount')))
+        advance = row.get('advance_deduction_amount')
+        parts = None                                         # one account named for the whole line
+        if not row.get('payment_account_id'):
+            keyed = 'bank_amount' in row or 'cash_amount' in row
+            amounts = ({'bank': row.get('bank_amount') or 0.0, 'cash': row.get('cash_amount') or 0.0} if keyed
+                       else split_of(line.employee, float(line.net_salary or 0.0) - float(advance or 0.0)))
+            # a way paid by is paid from its account; none at all (no way known) is not paid
+            if (not keyed and not amounts) or any(float(amount or 0.0) > 0 and not by_method.get(way)
+                                                   for way, amount in amounts.items()):
+                unpayable.append(line.employee.name)
+            parts = [(by_method.get(way), amount) for way, amount in amounts.items()]
+        plan.append((line, row.get('payment_account_id'), parts, advance))
     if unpayable:
         raise PayrollRefused('لم يُحدَّد حساب الصرف لـ: ' + '، '.join(unpayable)
                              + '. حدّد طريقة صرف الموظف (تحويل أو نقد) أو حساب السطر.')
     savepoint = db.session.begin_nested()
     try:
-        for line, account_id, advance in plan:
-            pay(line, payment_account_id=account_id, paid_date=paid_date, advance_deduction=advance,
-                by=by, now=now)
+        for line, account_id, parts, advance in plan:
+            pay(line, payment_account_id=account_id, parts=parts, paid_date=paid_date,
+                advance_deduction=advance, by=by, now=now)
         run.status = 'paid'
         db.session.flush()
     except Exception:

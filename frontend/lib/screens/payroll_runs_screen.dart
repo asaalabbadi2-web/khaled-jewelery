@@ -62,7 +62,8 @@ String leftOutWord(String reason, bool isAr) => switch (reason) {
 String _deductionWord(String? kind, bool isAr) => switch (kind) {
   'penalty' => isAr ? 'جزاء' : 'Penalty',
   'contribution' => isAr ? 'اشتراك' : 'Contribution',
-  'advance' => isAr ? 'سلفة' : 'Advance',
+  'advance' => isAr ? 'قسط سلفة' : 'Advance installment',
+  'advance_keyed' => isAr ? 'سلفة' : 'Advance',
   _ => isAr ? 'غياب' : 'Absence',
 };
 
@@ -382,7 +383,7 @@ class _PayrollRunScreenState extends State<PayrollRunScreen> {
   }
 
   Future<void> _pay(PayrollRun run) async {
-    final plan = await showDialog<(Map<int, int>, String)>(
+    final plan = await showDialog<_PayPlan>(
       context: context,
       builder: (_) =>
           _PayDialog(service: _service, lines: run.lines, isAr: _isAr),
@@ -391,8 +392,10 @@ class _PayrollRunScreenState extends State<PayrollRunScreen> {
     await _act(
       () => _service.pay(
         run.summary.id,
-        accountByLine: plan.$1,
-        paidDate: plan.$2,
+        bankAccountId: plan.bank,
+        cashAccountId: plan.cash,
+        amountsByLine: plan.amounts,
+        paidDate: plan.day,
       ),
       _isAr ? 'صُرف المسير' : 'Paid',
     );
@@ -780,11 +783,22 @@ class _LinesTable extends StatelessWidget {
     final tabular = theme.textTheme.bodyMedium?.copyWith(
       fontFeatures: const [FontFeature.tabularFigures()],
     );
-    Widget money(double v, {bool strong = false}) => Text(
-      formatAmount(v),
-      textDirection: TextDirection.ltr,
-      style: strong ? tabular?.copyWith(fontWeight: FontWeight.w800) : tabular,
+    // A figure keeps to its column's right edge, its title above it: the
+    // decimals line up (2 Nov 2026: a number read left-to-right filled its
+    // cell from the left, under the next column's title).
+    Widget figure(Widget child) =>
+        Align(alignment: Alignment.centerRight, child: child);
+    Widget money(double v, String key, {bool strong = false}) => figure(
+      Text(
+        formatAmount(v),
+        key: ValueKey(key),
+        textDirection: TextDirection.ltr,
+        style: strong
+            ? tabular?.copyWith(fontWeight: FontWeight.w800)
+            : tabular,
+      ),
     );
+    const figures = {'basic', 'allowances', 'deductions', 'net'};
     String? note(PayrollRunLine l) {
       if (l.bonusesHeld != null) {
         return isAr ? 'مكافآت محجوزة: الدفاتر تقول أقل' : 'bonuses held';
@@ -812,17 +826,26 @@ class _LinesTable extends StatelessWidget {
               color: theme.colorScheme.surfaceContainerLow,
             ),
             children: [
-              for (final h in [
-                isAr ? 'الموظف' : 'Employee',
-                isAr ? 'الأساسي' : 'Basic',
-                isAr ? 'البدلات والمكافآت' : 'Allowances',
-                isAr ? 'الخصومات' : 'Deductions',
-                isAr ? 'الصافي' : 'Net',
-                isAr ? 'السند' : 'Voucher',
+              for (final (key, h) in [
+                ('employee', isAr ? 'الموظف' : 'Employee'),
+                ('basic', isAr ? 'الأساسي' : 'Basic'),
+                ('allowances', isAr ? 'البدلات والمكافآت' : 'Allowances'),
+                ('deductions', isAr ? 'الخصومات' : 'Deductions'),
+                ('net', isAr ? 'الصافي' : 'Net'),
+                ('voucher', isAr ? 'السند' : 'Voucher'),
               ])
                 Padding(
                   padding: const EdgeInsets.all(AppSpace.md),
-                  child: Text(h, style: theme.textTheme.labelMedium),
+                  child: Align(
+                    alignment: figures.contains(key)
+                        ? Alignment.centerRight
+                        : AlignmentDirectional.centerStart,
+                    child: Text(
+                      h,
+                      key: ValueKey('payroll-head-$key'),
+                      style: theme.textTheme.labelMedium,
+                    ),
+                  ),
                 ),
             ],
           ),
@@ -851,10 +874,22 @@ class _LinesTable extends StatelessWidget {
                         ),
                     ],
                   ),
-                  money(l.basic),
-                  money(l.allowances),
-                  l.deductions > 0 ? money(l.deductions) : const Text('—'),
-                  money(l.net, strong: true),
+                  money(l.basic, 'payroll-cell-${l.employeeId}-basic'),
+                  money(
+                    l.allowances,
+                    'payroll-cell-${l.employeeId}-allowances',
+                  ),
+                  l.deductions > 0
+                      ? money(
+                          l.deductions,
+                          'payroll-cell-${l.employeeId}-deductions',
+                        )
+                      : figure(const Text('—')),
+                  money(
+                    l.net,
+                    'payroll-cell-${l.employeeId}-net',
+                    strong: true,
+                  ),
                   Text(
                     l.voucherNumber == null
                         ? '—'
@@ -1122,7 +1157,7 @@ class _LineCard extends StatelessWidget {
 // ── the line's additions and deductions ─────────────────────────────────────
 
 class _Row {
-  _Row(String label, double? amount, {this.kind})
+  _Row(String label, double? amount, {this.kind, this.consent = false})
     : label = TextEditingController(text: label),
       amount = TextEditingController(
         text: amount == null ? '' : formatAmount(amount).replaceAll(',', ''),
@@ -1130,8 +1165,12 @@ class _Row {
   final TextEditingController label;
   final TextEditingController amount;
 
-  /// A deduction's: 'absence' or 'penalty'; an addition has none.
+  /// A deduction's: 'absence', 'penalty' or 'advance_keyed'; an addition
+  /// has none.
   String? kind;
+
+  /// An advance's: above the cap with his consent (art. 92).
+  bool consent;
 }
 
 class _LineDialog extends StatefulWidget {
@@ -1156,7 +1195,7 @@ class _LineDialogState extends State<_LineDialog> {
   /// The keyed ones -- absence and penalties; the reckoned are the server's.
   late final List<_Row> _deductions = [
     for (final d in widget.line.deductionLines.where((d) => d.isKeyed))
-      _Row(d.label, d.amount, kind: d.kind ?? 'absence'),
+      _Row(d.label, d.amount, kind: d.kind ?? 'absence', consent: d.consent),
   ];
 
   List<PayrollLabelledAmount> _read(List<_Row> rows) => [
@@ -1166,6 +1205,7 @@ class _LineDialogState extends State<_LineDialog> {
           r.label.text.trim(),
           double.tryParse(normalizeNumber(r.amount.text)) ?? 0,
           kind: r.kind,
+          consent: r.kind == 'advance_keyed' && r.consent,
         ),
   ];
 
@@ -1180,7 +1220,7 @@ class _LineDialogState extends State<_LineDialog> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(title, style: Theme.of(context).textTheme.titleSmall),
-        for (var i = 0; i < rows.length; i++)
+        for (var i = 0; i < rows.length; i++) ...[
           Row(
             children: [
               if (kinds)
@@ -1188,7 +1228,11 @@ class _LineDialogState extends State<_LineDialog> {
                   key: ValueKey('$keyPrefix-kind-$i'),
                   value: rows[i].kind,
                   items: [
-                    for (final k in const ['absence', 'penalty'])
+                    for (final k in const [
+                      'absence',
+                      'penalty',
+                      'advance_keyed',
+                    ])
                       DropdownMenuItem(
                         value: k,
                         child: Text(_deductionWord(k, isAr)),
@@ -1232,6 +1276,22 @@ class _LineDialogState extends State<_LineDialog> {
               ),
             ],
           ),
+          // an advance not planned: from his advance account; above the cap
+          // with his consent (art. 92) -- the server holds both
+          if (rows[i].kind == 'advance_keyed')
+            CheckboxListTile(
+              key: ValueKey('$keyPrefix-consent-$i'),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              value: rows[i].consent,
+              onChanged: (v) => setState(() => rows[i].consent = v ?? false),
+              title: Text(
+                isAr
+                    ? 'يُخصم من حساب سلفه. فوق حد السياسة: بموافقة الموظف (المادة 92)'
+                    : 'From his advance account; above the cap with his consent',
+              ),
+            ),
+        ],
         TextButton.icon(
           key: ValueKey('$keyPrefix-add'),
           onPressed: () => setState(
@@ -1322,6 +1382,67 @@ class _LineDialogState extends State<_LineDialog> {
 
 // ── paid in a batch ─────────────────────────────────────────────────────────
 
+/// What the pay dialog returns: each line's bank and cash amounts, the two
+/// accounts, and the day.
+typedef _PayPlan = ({
+  Map<int, ({double bank, double cash})> amounts,
+  int? bank,
+  int? cash,
+  String day,
+});
+
+/// One unpaid line in the pay dialog (PAY-SPLIT): by bank, by cash, split, or
+/// kept with the shop -- what is not paid stays owed to him.
+class _PayRow {
+  _PayRow(this.line) {
+    final offered = line.offered;
+    final bank = offered['bank'] ?? 0;
+    final cash = offered['cash'] ?? 0;
+    mode = offered.isEmpty
+        ? null
+        : bank > 0 && cash > 0
+        ? 'split'
+        : bank > 0
+        ? 'bank'
+        : cash > 0
+        ? 'cash'
+        : (line.paymentMethod ?? 'cash');
+    this.bank.text = _plainAmount(bank);
+    this.cash.text = _plainAmount(cash);
+  }
+
+  final PayrollRunLine line;
+
+  /// 'bank', 'cash', 'split', 'keep' -- null: no way said, one must be chosen.
+  String? mode;
+  final bank = TextEditingController();
+  final cash = TextEditingController();
+
+  static String _plainAmount(double v) => formatAmount(v).replaceAll(',', '');
+
+  double _read(TextEditingController c) =>
+      double.tryParse(normalizeNumber(c.text)) ?? 0;
+
+  ({double bank, double cash})? get amounts => switch (mode) {
+    'bank' => (bank: line.net, cash: 0.0),
+    'cash' => (bank: 0.0, cash: line.net),
+    'split' => (bank: _read(bank), cash: _read(cash)),
+    'keep' => (bank: 0.0, cash: 0.0),
+    _ => null,
+  };
+
+  /// What stays owed to him -- his net less what is paid now.
+  double get kept {
+    final a = amounts;
+    return a == null ? 0 : ((line.net - a.bank - a.cash) * 100).round() / 100;
+  }
+
+  void dispose() {
+    bank.dispose();
+    cash.dispose();
+  }
+}
+
 class _PayDialog extends StatefulWidget {
   const _PayDialog({
     required this.service,
@@ -1341,14 +1462,21 @@ class _PayDialogState extends State<_PayDialog> {
   Object? _error;
   int? _bank;
   int? _cash;
-  late final Map<int, String?> _method = {
-    for (final l in widget.lines.where((l) => l.voucherNumber == null))
-      l.id: l.paymentMethod,
-  };
+  late final List<_PayRow> _rows = [
+    for (final l in widget.lines.where(
+      (l) => l.voucherNumber == null && l.keptOwed < l.net,
+    ))
+      _PayRow(l),
+  ];
 
   @override
   void initState() {
     super.initState();
+    _loadAccounts();
+  }
+
+  void _loadAccounts() {
+    setState(() => _error = null);
     widget.service
         .paymentAccounts()
         .then((a) {
@@ -1359,25 +1487,139 @@ class _PayDialogState extends State<_PayDialog> {
         });
   }
 
-  Map<int, int>? get _plan {
-    final plan = <int, int>{};
-    for (final e in _method.entries) {
-      final account = switch (e.value) {
-        'bank' => _bank,
-        'cash' => _cash,
-        _ => null,
-      };
-      if (account == null) return null;
-      plan[e.key] = account;
+  @override
+  void dispose() {
+    for (final r in _rows) {
+      r.dispose();
     }
-    return plan;
+    super.dispose();
+  }
+
+  /// Every line said, none paid beyond its net, each way paid from its
+  /// account -- else nothing is paid (all or none, the server's too).
+  _PayPlan? get _plan {
+    final amounts = <int, ({double bank, double cash})>{};
+    for (final r in _rows) {
+      final a = r.amounts;
+      if (a == null || r.kept < 0) return null;
+      if ((a.bank > 0 && _bank == null) || (a.cash > 0 && _cash == null)) {
+        return null;
+      }
+      amounts[r.line.id] = a;
+    }
+    final today = DateTime.now();
+    final day =
+        '${today.year}-${'${today.month}'.padLeft(2, '0')}-${'${today.day}'.padLeft(2, '0')}';
+    return (amounts: amounts, bank: _bank, cash: _cash, day: day);
+  }
+
+  Widget _row(_PayRow r) {
+    final isAr = widget.isAr;
+    final theme = Theme.of(context);
+    final tones = AppSemanticColors.of(context);
+    final id = r.line.id;
+    Widget amount(TextEditingController c, String label, String key) =>
+        SizedBox(
+          width: 150,
+          child: TextField(
+            key: ValueKey(key),
+            controller: c,
+            onChanged: (_) => setState(() {}),
+            textDirection: TextDirection.ltr,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [
+              ArabicNumberTextInputFormatter(),
+              FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+            ],
+            decoration: InputDecoration(labelText: label),
+          ),
+        );
+    return Padding(
+      key: ValueKey('payroll-pay-row-$id'),
+      padding: const EdgeInsets.symmetric(vertical: AppSpace.sm),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  r.line.employeeName,
+                  style: theme.textTheme.titleSmall,
+                ),
+              ),
+              Text(
+                formatAmount(r.line.net),
+                textDirection: TextDirection.ltr,
+                style: theme.textTheme.titleSmall,
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpace.xs),
+          SegmentedButton<String>(
+            key: ValueKey('payroll-pay-method-$id'),
+            emptySelectionAllowed: true,
+            showSelectedIcon: false,
+            segments: [
+              ButtonSegment(
+                value: 'bank',
+                label: Text(isAr ? 'تحويل' : 'Bank'),
+              ),
+              ButtonSegment(value: 'cash', label: Text(isAr ? 'نقد' : 'Cash')),
+              ButtonSegment(
+                value: 'split',
+                label: Text(isAr ? 'مقسّم' : 'Split'),
+              ),
+              ButtonSegment(value: 'keep', label: Text(isAr ? 'يبقى' : 'Keep')),
+            ],
+            selected: {?r.mode},
+            onSelectionChanged: (s) =>
+                setState(() => r.mode = s.isEmpty ? null : s.first),
+          ),
+          if (r.mode == 'split') ...[
+            const SizedBox(height: AppSpace.sm),
+            Wrap(
+              spacing: AppSpace.md,
+              children: [
+                amount(
+                  r.bank,
+                  isAr ? 'تحويل' : 'Bank',
+                  'payroll-pay-bank-amount-$id',
+                ),
+                amount(
+                  r.cash,
+                  isAr ? 'نقد' : 'Cash',
+                  'payroll-pay-cash-amount-$id',
+                ),
+              ],
+            ),
+          ],
+          if (r.mode != null && r.kept != 0)
+            Padding(
+              padding: const EdgeInsets.only(top: AppSpace.xs),
+              child: Text(
+                r.kept < 0
+                    ? (isAr
+                          ? 'يزيد ${ltrIsolate(formatAmount(-r.kept))} على صافيه'
+                          : '${formatAmount(-r.kept)} over his net')
+                    : (isAr
+                          ? 'يبقى في ذمته ${ltrIsolate(formatAmount(r.kept))}: يُصرف لاحقًا من صفحته'
+                          : '${formatAmount(r.kept)} kept owed to him'),
+                key: ValueKey('payroll-pay-kept-$id'),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: r.kept < 0 ? tones.blocked.fg : tones.warning.fg,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final isAr = widget.isAr;
     final accounts = _accounts;
-    final names = {for (final l in widget.lines) l.id: l.employeeName};
     Widget accountField(
       String label,
       int? value,
@@ -1401,14 +1643,21 @@ class _PayDialogState extends State<_PayDialog> {
     return AlertDialog(
       title: Text(isAr ? 'صرف المسير' : 'Pay the run'),
       content: SizedBox(
-        width: 480,
+        width: 560,
         child: _error != null
-            ? Text(_error.toString())
+            ? AppErrorView(
+                title: isAr
+                    ? 'تعذّر تحميل حسابات الصرف'
+                    : 'Could not load the accounts',
+                error: _error!,
+                onRetry: _loadAccounts,
+              )
             : accounts == null
             ? const LinearProgressIndicator()
             : SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     accountField(
                       isAr ? 'حساب التحويل البنكي' : 'Bank account',
@@ -1424,30 +1673,7 @@ class _PayDialogState extends State<_PayDialog> {
                       'payroll-pay-cash',
                     ),
                     const SizedBox(height: AppSpace.md),
-                    for (final e in _method.entries)
-                      Row(
-                        children: [
-                          Expanded(child: Text(names[e.key] ?? '')),
-                          SegmentedButton<String>(
-                            key: ValueKey('payroll-pay-method-${e.key}'),
-                            emptySelectionAllowed: true,
-                            segments: [
-                              ButtonSegment(
-                                value: 'bank',
-                                label: Text(isAr ? 'تحويل' : 'Bank'),
-                              ),
-                              ButtonSegment(
-                                value: 'cash',
-                                label: Text(isAr ? 'نقد' : 'Cash'),
-                              ),
-                            ],
-                            selected: {?e.value},
-                            onSelectionChanged: (s) => setState(
-                              () => _method[e.key] = s.isEmpty ? null : s.first,
-                            ),
-                          ),
-                        ],
-                      ),
+                    for (final r in _rows) _row(r),
                   ],
                 ),
               ),
@@ -1459,14 +1685,7 @@ class _PayDialogState extends State<_PayDialog> {
         ),
         FilledButton(
           key: const ValueKey('payroll-pay-confirm'),
-          onPressed: plan == null
-              ? null
-              : () {
-                  final today = DateTime.now();
-                  final day =
-                      '${today.year}-${'${today.month}'.padLeft(2, '0')}-${'${today.day}'.padLeft(2, '0')}';
-                  Navigator.pop(context, (plan, day));
-                },
+          onPressed: plan == null ? null : () => Navigator.pop(context, plan),
           child: Text(isAr ? 'اصرف' : 'Pay'),
         ),
       ],

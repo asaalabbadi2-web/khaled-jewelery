@@ -3806,6 +3806,11 @@ class Employee(db.Model):
     # The wage registered for his contributions (GOSI) -- the owner's figure;
     # NULL: each component's base from the salary structure (PAYROLL-3).
     contribution_wage = db.Column(db.Float, nullable=True)
+    # A salary paid part by bank, part by cash (PAY-SPLIT, the owner 2 Nov
+    # 2026): a fixed amount by this way, the rest of the net by the other;
+    # NULL: the whole by payment_method.
+    split_method = db.Column(db.String(10), nullable=True)
+    split_amount = db.Column(db.Float, nullable=True)
 
     account = db.relationship('Account', backref=db.backref('employees', lazy='dynamic'))
     gold_safe_box = db.relationship('SafeBox', foreign_keys=[gold_safe_box_id])
@@ -3838,6 +3843,8 @@ class Employee(db.Model):
             'iban': self.iban,
             'bank_name': self.bank_name,
             'contribution_wage': self.contribution_wage,
+            'split_method': self.split_method,
+            'split_amount': self.split_amount,
             'is_active': self.is_active,
             'notes': self.notes,
             'created_by': self.created_by,

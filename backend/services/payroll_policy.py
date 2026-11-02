@@ -307,6 +307,16 @@ def apply_payment_fields(employee, data: dict) -> None:
     if 'contribution_wage' in data:
         wage = data.get('contribution_wage')
         employee.contribution_wage = _amount(wage, 'الأجر الخاضع للاشتراك') if wage not in (None, '') else None
+    if 'split_method' in data or 'split_amount' in data:
+        # PAY-SPLIT: a fixed amount by one way, the rest by the other -- both, or neither
+        method = data.get('split_method', employee.split_method) or None
+        amount = data.get('split_amount', employee.split_amount)
+        amount = _amount(amount, 'المبلغ الثابت') if amount not in (None, '') else None
+        if (method is None) != (amount is None) or (amount is not None and amount <= 0):
+            raise PayrollRefused('التقسيم: طريقة المبلغ الثابت ومبلغه معًا، أو لا تقسيم', 'pay_split_incomplete')
+        if method is not None and method not in PAYMENT_METHODS:
+            raise PayrollRefused('طريقة المبلغ الثابت: تحويل بنكي أو نقد', 'pay_split_incomplete')
+        employee.split_method, employee.split_amount = method, amount
 
 
 def checked_iban(value) -> str | None:

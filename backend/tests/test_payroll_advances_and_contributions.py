@@ -164,6 +164,33 @@ def test_the_month_s_installments_together_are_within_the_cap(auth_headers, empl
 
 # ── contributions ──────────────────────────────────────────────────────────────
 
+def test_an_advance_not_planned_is_taken_in_the_draft_from_his_advance_account(auth_headers, employee):
+    """The owner, 2 Nov 2026: «خصم سلفة ويتم خصمها من حساب سلف الموظف» -- keyed
+    in the draft, so the payslip and the accrual say it; what no plan holds of
+    his account, within the cap with his installments unless he consented."""
+    _plan(auth_headers, employee, amount=2000, installment=500)          # 7,000 left unplanned
+    run = _run(auth_headers)
+    line = _line(run, employee)
+    url = f"/api/payroll/runs/{run['id']}/lines/{line['id']}"
+
+    def keyed(amount, **more):
+        return _call('put', url, auth_headers,
+                     {'deductions': [{'kind': 'advance_keyed', 'label': 'سلفة نقدية', 'amount': amount, **more}]})
+
+    code, body = keyed(400)
+    assert (code, body.get('code')) == (409, 'advance_over_cap'), 'with the 500 installment, over 810'
+    code, body = keyed(7100, consent=True)
+    assert (code, body.get('code')) == (409, 'advance_beyond_balance'), '7,000 is what no plan holds'
+    code, run = keyed(2000, consent=True)
+    assert code == 200, run
+    line = _line(run, employee)
+    assert line['net_salary'] == 8100.0 - 500.0 - 2000.0, 'the payslip says what he takes'
+    assert {d['kind'] for d in line['breakdown']['deductions']} >= {'advance', 'advance_keyed'}, 'the plan stays'
+    assert _call('post', f"/api/payroll/runs/{run['id']}/approve", auth_headers)[0] == 200
+    advance_account = db.session.get(Employee, employee).account_id
+    assert _accrual_lines(run['id'])[advance_account] == -2500.0, 'from his advance account, both'
+
+
 def _scheme(headers, emp, wage):
     code, scheme = _call('post', '/api/contribution-schemes', headers, {'name': f'خطة {uuid.uuid4().hex[:6]}'})
     url = f"/api/contribution-schemes/{scheme['id']}/components"

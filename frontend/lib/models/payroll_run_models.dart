@@ -32,24 +32,40 @@ class PayrollRunSummary {
 /// a kind (PAYROLL-3): 'absence' and 'penalty' are keyed by the reviewer;
 /// 'contribution' and 'advance' are reckoned by the server and not edited.
 class PayrollLabelledAmount {
-  const PayrollLabelledAmount(this.label, this.amount, {this.kind});
+  const PayrollLabelledAmount(
+    this.label,
+    this.amount, {
+    this.kind,
+    this.consent = false,
+  });
   final String label;
   final double amount;
   final String? kind;
 
-  bool get isKeyed => kind == null || kind == 'absence' || kind == 'penalty';
+  /// A keyed advance above the cap: with his consent (art. 92).
+  final bool consent;
+
+  /// Keyed by the reviewer: absence, penalty, an advance not planned
+  /// ('advance_keyed'); the others are reckoned by the server.
+  bool get isKeyed =>
+      kind == null ||
+      kind == 'absence' ||
+      kind == 'penalty' ||
+      kind == 'advance_keyed';
 
   factory PayrollLabelledAmount.fromJson(Map<String, dynamic> json) =>
       PayrollLabelledAmount(
         json['label'] as String? ?? '',
         _num(json['amount']),
         kind: json['kind'] as String?,
+        consent: json['consent'] == true,
       );
 
   Map<String, dynamic> toJson() => {
     'label': label,
     'amount': amount,
     if (kind != null) 'kind': kind,
+    if (consent) 'consent': true,
   };
 }
 
@@ -78,6 +94,8 @@ class PayrollRunLine {
     required this.eosWithoutHireDate,
     required this.eosPolicyNotSet,
     required this.notes,
+    this.offered = const {},
+    this.keptOwed = 0,
   });
 
   final int id;
@@ -123,6 +141,13 @@ class PayrollRunLine {
   /// The end of service's figures not entered in the policy: nothing provisioned.
   final bool eosPolicyNotSet;
   final String? notes;
+
+  /// PAY-SPLIT: an unsettled line's way to be paid as offered -- bank and
+  /// cash amounts, the server's (his split, else his way, whole).
+  final Map<String, double> offered;
+
+  /// What its payment kept owed to him on his salary payable.
+  final double keptOwed;
 
   factory PayrollRunLine.fromJson(Map<String, dynamic> json) {
     final employee = json['employee'] as Map<String, dynamic>? ?? const {};
@@ -179,6 +204,12 @@ class PayrollRunLine {
         _ => null,
       },
       notes: json['notes'] as String?,
+      offered: {
+        for (final e
+            in (json['offered'] as Map<String, dynamic>? ?? const {}).entries)
+          e.key: _num(e.value),
+      },
+      keptOwed: _num(json['kept_owed']),
     );
   }
 }

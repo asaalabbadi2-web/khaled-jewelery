@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/api_service.dart';
 import 'package:frontend/models/payroll_run_models.dart';
@@ -16,7 +17,10 @@ class _Server extends PayrollService {
 
   String status = 'draft';
   List<Map<String, dynamic>> deductions = [];
-  Map<int, int>? paidWith;
+
+  /// What the batch pay was sent: each line's (bank, cash), and the accounts.
+  Map<int, ({double bank, double cash})>? paidWith;
+  (int?, int?)? paidFrom;
   int? added;
 
   Map<String, dynamic> _line(
@@ -37,6 +41,11 @@ class _Server extends PayrollService {
       _ => 'paid',
     },
     'employee': {'name': name, 'payment_method': method},
+    // the server's offer (PAY-SPLIT): his way, whole; none said, none offered
+    if (status == 'approved')
+      'offered': method == null
+          ? <String, dynamic>{}
+          : <String, dynamic>{method: net},
     if (status == 'paid') 'voucher': {'voucher_number': 'PAY-2041-04-000$id'},
     'breakdown': {
       'eos': id == 1
@@ -124,10 +133,13 @@ class _Server extends PayrollService {
   @override
   Future<PayrollRun> pay(
     int runId, {
-    required Map<int, int> accountByLine,
+    required int? bankAccountId,
+    required int? cashAccountId,
+    required Map<int, ({double bank, double cash})> amountsByLine,
     required String paidDate,
   }) async {
-    paidWith = accountByLine;
+    paidWith = amountsByLine;
+    paidFrom = (bankAccountId, cashAccountId);
     status = 'paid';
     return _run;
   }
@@ -243,7 +255,11 @@ void main() {
       await _choose(tester, 'payroll-pay-cash', 'الصندوق');
       await tester.tap(find.byKey(const ValueKey('payroll-pay-confirm')));
       await _settle(tester);
-      expect(server.paidWith, {1: 1, 2: 2});
+      expect(server.paidWith, {
+        1: (bank: 6800.0, cash: 0.0),
+        2: (bank: 0.0, cash: 7500.0),
+      });
+      expect(server.paidFrom, (1, 2));
       expect(find.textContaining('PAY-2041-04-0001'), findsOneWidget);
       expect(
         find.byKey(const ValueKey('payroll-run-cancel')),
@@ -294,6 +310,164 @@ void main() {
         find.byKey(const ValueKey('payroll-line-edit-10')),
         findsOneWidget,
       );
+    },
+  );
+
+  testWidgets(
+    'in Arabic, each figure stands under its column\'s title, its decimals '
+    'aligned (the owner, 2 Nov 2026: «الأرقام ليست بمحاذاة عناوينها»)',
+    (tester) async {
+      tester.view.physicalSize = const Size(1280, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: LightTheme.theme,
+          builder: (context, child) =>
+              Directionality(textDirection: TextDirection.rtl, child: child!),
+          home: PayrollRunScreen(
+            api: ApiService(),
+            runId: 9,
+            service: _Server(),
+          ),
+        ),
+      );
+      await _settle(tester);
+      // where its letters are drawn -- not its box, which fills the column
+      // whichever edge the text keeps to
+      double inkRight(String key) {
+        final paragraph = tester.renderObject<RenderParagraph>(
+          find.descendant(
+            of: find.byKey(ValueKey(key)),
+            matching: find.byType(RichText),
+            matchRoot: true,
+          ),
+        );
+        final boxes = paragraph.getBoxesForSelection(
+          TextSelection(
+            baseOffset: 0,
+            extentOffset: paragraph.text.toPlainText().length,
+          ),
+        );
+        final right = boxes.map((b) => b.right).reduce((a, b) => a > b ? a : b);
+        return paragraph.localToGlobal(Offset(right, 0)).dx;
+      }
+
+      for (final column in ['basic', 'allowances', 'net']) {
+        final head = inkRight('payroll-head-$column');
+        for (final employee in [10, 20]) {
+          final cell = inkRight('payroll-cell-$employee-$column');
+          expect(
+            (cell - head).abs(),
+            lessThan(1),
+            reason: '$column of $employee: under its title, not beside it',
+          );
+        }
+      }
+    },
+  );
+
+  testWidgets(
+    'an advance not planned is keyed in the draft, with his consent above '
+    'the cap (the owner, 2 Nov 2026)',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 2000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final server = _Server();
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: LightTheme.theme,
+          home: PayrollRunScreen(api: ApiService(), runId: 9, service: server),
+        ),
+      );
+      await _settle(tester);
+      await tester.tap(find.byKey(const ValueKey('payroll-line-edit-10')));
+      await _settle(tester);
+      await tester.tap(find.byKey(const ValueKey('deduction-add')));
+      await _settle(tester);
+      await tester.enterText(
+        find.byKey(const ValueKey('deduction-label-0')),
+        'سلفة نقدية',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('deduction-amount-0')),
+        '2000',
+      );
+      await _choose(tester, 'deduction-kind-0', 'سلفة');
+      await tester.tap(find.byKey(const ValueKey('deduction-consent-0')));
+      await _settle(tester);
+      await tester.tap(find.byKey(const ValueKey('payroll-line-save')));
+      await _settle(tester);
+      expect(server.deductions, [
+        {
+          'label': 'سلفة نقدية',
+          'amount': 2000.0,
+          'kind': 'advance_keyed',
+          'consent': true,
+        },
+      ]);
+    },
+  );
+
+  testWidgets(
+    'PAY-SPLIT: one paid part by bank part by cash, one keeps it all with the '
+    'shop -- what is not paid said as kept owed to him',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 2000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final server = _Server()..status = 'approved';
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: LightTheme.theme,
+          home: PayrollRunScreen(api: ApiService(), runId: 9, service: server),
+        ),
+      );
+      await _settle(tester);
+      await tester.tap(find.byKey(const ValueKey('payroll-run-pay')));
+      await _settle(tester);
+      await _choose(tester, 'payroll-pay-bank', 'بنك الرياض');
+      await _choose(tester, 'payroll-pay-cash', 'الصندوق');
+      Future<void> mode(int id, String word) async {
+        await tester.tap(
+          find.descendant(
+            of: find.byKey(ValueKey('payroll-pay-method-$id')),
+            matching: find.text(word),
+          ),
+        );
+        await _settle(tester);
+      }
+
+      await mode(1, 'مقسّم');
+      await tester.enterText(
+        find.byKey(const ValueKey('payroll-pay-bank-amount-1')),
+        '5000',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('payroll-pay-cash-amount-1')),
+        '1000',
+      );
+      await _settle(tester);
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('payroll-pay-kept-1')))
+            .data,
+        allOf(contains('يبقى في ذمته'), contains('1,000.00')),
+      );
+      await mode(2, 'يبقى');
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('payroll-pay-kept-2')))
+            .data,
+        allOf(contains('يبقى في ذمته'), contains('7,500.00')),
+      );
+      await tester.tap(find.byKey(const ValueKey('payroll-pay-confirm')));
+      await _settle(tester);
+      expect(server.paidWith, {
+        1: (bank: 5000.0, cash: 1000.0),
+        2: (bank: 0.0, cash: 0.0),
+      });
     },
   );
 }

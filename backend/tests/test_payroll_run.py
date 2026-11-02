@@ -17,6 +17,7 @@ One regular run a month; its lines are the run's alone.
 Run:
     python -m pytest tests/test_payroll_run.py -v
 """
+import json
 import uuid
 
 import pytest
@@ -255,6 +256,55 @@ def test_a_run_is_paid_by_how_each_employee_is_paid_all_or_none(auth_headers, st
     assert _call('post', f"/api/payroll/runs/{run['id']}/cancel", auth_headers)[0] == 409, 'paid is not cancelled'
     code, slip = _call('get', f"/api/payroll/{_line(body, staff['joined'])['id']}/payslip", auth_headers)
     assert code == 200 and slip['breakdown']['days'] == 15 and slip['entry']['voucher_id'], slip
+
+
+def test_a_salary_is_paid_part_by_bank_part_by_cash_the_rest_kept_owed(auth_headers, staff):
+    """PAY-SPLIT (the owner, 2 Nov 2026): a fixed amount by one way and the rest
+    by the other, kept in his file and changed at the voucher; what is not paid
+    stays owed to him on his salary payable -- one voucher still, or none."""
+    from models import Account, VoucherAccountLine
+    cash = _accounts(auth_headers)[0]['id']
+    other = Account(account_number=f'97{uuid.uuid4().int % 10**8:08d}', name='بنك اختبار', type='Asset')
+    db.session.add(other)
+    db.session.commit()                                    # a savepoint under the fence
+    bank = other.id
+    emp = f"/api/employees/{staff['full']}"
+    code, body = _call('put', emp, auth_headers, {'split_method': 'bank'})
+    assert (code, body.get('code')) == (400, 'pay_split_incomplete'), 'the way and its amount, both'
+    assert _call('put', emp, auth_headers, {'payment_method': 'cash', 'split_method': 'bank',
+                                             'split_amount': 5000})[0] == 200
+    run = _run(auth_headers)[1]
+    _call('post', f"/api/payroll/runs/{run['id']}/approve", auth_headers)
+    joined = _line(run, staff['joined'])
+    pay = f"/api/payroll/runs/{run['id']}/pay"
+    code, body = _call('post', pay, auth_headers, {
+        'bank_account_id': bank, 'cash_account_id': cash,
+        'lines': [{'payroll_id': _line(run, staff['full'])['id'], 'bank_amount': 9000},
+                  {'payroll_id': joined['id'], 'bank_amount': 0, 'cash_amount': 0}]})
+    assert (code, body.get('code')) == (409, 'pay_beyond_net'), body
+    assert Payroll.query.filter(Payroll.payroll_run_id == run['id'], Payroll.voucher_id.isnot(None)).count() == 0, \
+        'none, not some'
+
+    code, body = _call('post', pay, auth_headers, {
+        'bank_account_id': bank, 'cash_account_id': cash,
+        'lines': [{'payroll_id': joined['id'], 'bank_amount': 0, 'cash_amount': 0}]})   # he leaves it all
+    assert code == 200 and body['status'] == 'paid', body
+    full = db.session.get(Payroll, _line(run, staff['full'])['id'])
+    legs = {(row.line_type, row.account_id): row.amount
+            for row in VoucherAccountLine.query.filter_by(voucher_id=full.voucher_id)}
+    assert legs[('credit', bank)] == 5000.0 and legs[('credit', cash)] == 3100.0, 'his split: 5,000 and the rest'
+    assert sum(a for (t, _), a in legs.items() if t == 'debit') == 8100.0
+    kept = db.session.get(Payroll, joined['id'])
+    assert kept.voucher_id is None and kept.status == 'approved', 'nothing left: no voucher'
+    assert json.loads(kept.breakdown)['kept_owed'] == 2700.0, 'kept owed to him, said'
+
+    # what he left is paid later, all or part, never beyond what the books owe him
+    owed = f"/api/employees/{staff['joined']}/salary-owed"
+    assert _call('get', owed, auth_headers)[1]['owed'] == 2700.0
+    code, body = _call('post', f'{owed}/pay', auth_headers, {'amount': 3000, 'payment_account_id': cash})
+    assert (code, body.get('code')) == (409, 'pay_beyond_owed'), body
+    code, body = _call('post', f'{owed}/pay', auth_headers, {'amount': 1000, 'payment_account_id': cash})
+    assert code == 201 and body['owed'] == 1700.0, body
 
 
 def test_a_line_may_be_paid_from_its_own_account_with_its_advance_deducted(auth_headers, staff):

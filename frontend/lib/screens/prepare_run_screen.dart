@@ -402,24 +402,14 @@ class _PrepareRunScreenState extends State<PrepareRunScreen> {
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: DataTable(
+              // figures keep to their column's right edge under their titles,
+              // as in the run's table: numeric's end edge is the left in Arabic
               columns: [
                 DataColumn(label: Text(_isAr ? 'الموظف' : 'Employee')),
-                DataColumn(
-                  label: Text(_isAr ? 'الراتب' : 'Salary'),
-                  numeric: true,
-                ),
-                DataColumn(
-                  label: Text(_isAr ? 'المكافآت' : 'Bonuses'),
-                  numeric: true,
-                ),
-                DataColumn(
-                  label: Text(_isAr ? 'الخصومات' : 'Deductions'),
-                  numeric: true,
-                ),
-                DataColumn(
-                  label: Text(_isAr ? 'الصافي' : 'Net'),
-                  numeric: true,
-                ),
+                DataColumn(label: Text(_isAr ? 'الراتب' : 'Salary')),
+                DataColumn(label: Text(_isAr ? 'المكافآت' : 'Bonuses')),
+                DataColumn(label: Text(_isAr ? 'الخصومات' : 'Deductions')),
+                DataColumn(label: Text(_isAr ? 'الصافي' : 'Net')),
               ],
               rows: [
                 for (final (l, bonuses) in cells)

@@ -198,9 +198,13 @@ def pay(termination, data: dict, *, by: str, now) -> Voucher:
     if termination.status != 'approved':
         raise PayrollRefused('تُصرف تسوية معتمدة غير مصروفة')
     employee = termination.employee
-    unpaid_line = (Payroll.query.join(PayrollRun, Payroll.payroll_run_id == PayrollRun.id)
-                   .filter(Payroll.employee_id == employee.id, Payroll.status == 'approved',
-                           Payroll.voucher_id.is_(None)).first())
+    from services.payroll_payment import settled
+    # a line kept whole on his salary payable (PAY-SPLIT) is owed in the books,
+    # and the settlement pays what the books owe: it is not «unpaid»
+    unpaid_line = next((line for line in Payroll.query.join(PayrollRun, Payroll.payroll_run_id == PayrollRun.id)
+                        .filter(Payroll.employee_id == employee.id, Payroll.status == 'approved',
+                                Payroll.voucher_id.is_(None))
+                        if not settled(line)), None)
     if unpaid_line is not None:
         raise PayrollRefused(f'راتب {unpaid_line.month}/{unpaid_line.year} معتمد غير مصروف: يُصرف من مسيره أولًا، '
                              'وإلا صُرف مرتين.')

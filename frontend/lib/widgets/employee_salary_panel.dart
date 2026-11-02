@@ -56,7 +56,7 @@ class EmployeeSalaryPanel extends StatefulWidget {
 
 enum SalaryPanelPart { salary, history, payment }
 
-typedef _Payment = (String?, String, String, int?, String);
+typedef _Payment = (String?, String, String, int?, String, String?, String);
 
 class _EmployeeSalaryPanelState extends State<EmployeeSalaryPanel> {
   SalaryStructures? _structures;
@@ -80,8 +80,15 @@ class _EmployeeSalaryPanelState extends State<EmployeeSalaryPanel> {
   final _wage = TextEditingController();
   String? _method;
   int? _schemeId;
+
+  /// PAY-SPLIT: a fixed amount by this way, the rest of the net by the other.
+  String? _splitMethod;
+  final _splitAmount = TextEditingController();
   List<Map<String, dynamic>> _schemes = const [];
   _Payment? _saved;
+
+  /// PAY-SPLIT: what his salary payable holds for him -- left with the shop.
+  double _owed = 0;
 
   bool get _isAr => widget.isAr;
 
@@ -95,6 +102,7 @@ class _EmployeeSalaryPanelState extends State<EmployeeSalaryPanel> {
     _iban,
     _bankName,
     _wage,
+    _splitAmount,
   ];
 
   @override
@@ -120,11 +128,15 @@ class _EmployeeSalaryPanelState extends State<EmployeeSalaryPanel> {
       final structures = await widget.service.structures(widget.employeeId);
       final payment = await widget.service.payment(widget.employeeId);
       final schemes = await widget.service.schemes();
+      final owed = widget.parts.length == SalaryPanelPart.values.length
+          ? await widget.service.salaryOwed(widget.employeeId)
+          : 0.0;
       if (!mounted) return;
       setState(() {
         _error = null;
         _structures = structures;
         _schemes = schemes;
+        _owed = owed;
         if (widget.startChanging && !_changing && _saved == null) {
           _changing = true;
           _from.text = structures.suggestedFrom ?? '';
@@ -136,6 +148,9 @@ class _EmployeeSalaryPanelState extends State<EmployeeSalaryPanel> {
           _schemeId = payment['contribution_scheme_id'] as int?;
           final wage = payment['contribution_wage'] as num?;
           _wage.text = wage == null ? '' : _plain(wage.toDouble());
+          _splitMethod = payment['split_method'] as String?;
+          final split = payment['split_amount'] as num?;
+          _splitAmount.text = split == null ? '' : _plain(split.toDouble());
           _saved = _payment;
         }
       });
@@ -151,6 +166,8 @@ class _EmployeeSalaryPanelState extends State<EmployeeSalaryPanel> {
     _bankName.text.trim(),
     _schemeId,
     _wage.text.trim(),
+    _splitMethod,
+    _splitAmount.text.trim(),
   );
 
   /// Each part typed and not saved, by its name.
@@ -305,6 +322,8 @@ class _EmployeeSalaryPanelState extends State<EmployeeSalaryPanel> {
         bankName: _bankName.text.trim().isEmpty ? null : _bankName.text.trim(),
         schemeId: _schemeId,
         contributionWage: _wage.text.trim().isEmpty ? null : _read(_wage),
+        splitMethod: _splitMethod,
+        splitAmount: _splitMethod == null ? null : _read(_splitAmount),
       );
       _saved = _payment;
       _typed();
@@ -320,6 +339,67 @@ class _EmployeeSalaryPanelState extends State<EmployeeSalaryPanel> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  // ── what is owed to him ────────────────────────────────────────────────────
+
+  Future<void> _payOwed() async {
+    final paid = await showDialog<bool>(
+      context: context,
+      builder: (_) => _PayOwedDialog(
+        service: widget.service,
+        employeeId: widget.employeeId,
+        owed: _owed,
+        isAr: _isAr,
+      ),
+    );
+    if (paid == true) {
+      await _load();
+      widget.onSaved?.call();
+    }
+  }
+
+  Widget _owedCard() {
+    final theme = Theme.of(context);
+    final tones = AppSemanticColors.of(context);
+    final isAr = _isAr;
+    return Card(
+      key: const ValueKey('salary-owed'),
+      color: tones.warning.container,
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpace.lg),
+        child: Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: AppSpace.md,
+          runSpacing: AppSpace.sm,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isAr ? 'مستحق له لم يُصرف' : 'Owed to him, not paid',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: tones.warning.onContainer,
+                  ),
+                ),
+                Text(
+                  isAr
+                      ? '${_money(_owed)} في ذمة رواتبه، تركه في المحل'
+                      : '${_money(_owed)} on his salary payable',
+                  style: TextStyle(color: tones.warning.onContainer),
+                ),
+              ],
+            ),
+            FilledButton(
+              key: const ValueKey('salary-owed-pay'),
+              onPressed: _busy ? null : _payOwed,
+              child: Text(isAr ? 'اصرف منه' : 'Pay from it'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   // ── the cards ──────────────────────────────────────────────────────────────
@@ -846,6 +926,63 @@ class _EmployeeSalaryPanelState extends State<EmployeeSalaryPanel> {
                 : 'Registered wage (empty: basic + housing)',
             'employee-contribution-wage',
           ),
+        // PAY-SPLIT (the owner, 2 Nov 2026): a fixed amount by one way, the
+        // rest of the month's net by the other -- changed at the voucher
+        SwitchListTile(
+          key: const ValueKey('employee-pay-split'),
+          contentPadding: EdgeInsets.zero,
+          value: _splitMethod != null,
+          onChanged: (on) {
+            _splitMethod = on ? (_method == 'cash' ? 'bank' : 'cash') : null;
+            if (!on) _splitAmount.clear();
+            _typed();
+          },
+          title: Text(
+            isAr ? 'يُقسَّم بين التحويل والنقد' : 'Split between bank and cash',
+          ),
+        ),
+        if (_splitMethod != null) ...[
+          Wrap(
+            spacing: AppSpace.md,
+            runSpacing: AppSpace.sm,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              SegmentedButton<String>(
+                key: const ValueKey('employee-pay-split-method'),
+                segments: [
+                  ButtonSegment(
+                    value: 'bank',
+                    label: Text(isAr ? 'تحويل ثابت' : 'Fixed by bank'),
+                  ),
+                  ButtonSegment(
+                    value: 'cash',
+                    label: Text(isAr ? 'نقد ثابت' : 'Fixed in cash'),
+                  ),
+                ],
+                selected: {_splitMethod!},
+                onSelectionChanged: (s) {
+                  _splitMethod = s.first;
+                  _typed();
+                },
+              ),
+              SizedBox(
+                width: 180,
+                child: _amountField(
+                  _splitAmount,
+                  isAr ? 'المبلغ الثابت' : 'The fixed amount',
+                  'employee-pay-split-amount',
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpace.xs),
+          Text(
+            isAr
+                ? 'والباقي من صافي الشهر ${_splitMethod == 'bank' ? 'نقدًا' : 'تحويلًا'}. يُعدَّل في نافذة الصرف.'
+                : 'The rest of the net by the other way; changed at the voucher.',
+            style: theme.textTheme.bodySmall,
+          ),
+        ],
         const SizedBox(height: AppSpace.md),
         Container(
           padding: const EdgeInsets.symmetric(
@@ -910,6 +1047,7 @@ class _EmployeeSalaryPanelState extends State<EmployeeSalaryPanel> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (_owed > 0) _owedCard(),
         _current(),
         if (_changing) _change(),
         LayoutBuilder(
@@ -925,6 +1063,148 @@ class _EmployeeSalaryPanelState extends State<EmployeeSalaryPanel> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [_history(), _paymentCard()],
                 ),
+        ),
+      ],
+    );
+  }
+}
+
+/// What was kept owed to him, paid -- all or part, from an account; the
+/// server holds it to what the books owe (PAY-SPLIT).
+class _PayOwedDialog extends StatefulWidget {
+  const _PayOwedDialog({
+    required this.service,
+    required this.employeeId,
+    required this.owed,
+    required this.isAr,
+  });
+
+  final PayrollService service;
+  final int employeeId;
+  final double owed;
+  final bool isAr;
+
+  @override
+  State<_PayOwedDialog> createState() => _PayOwedDialogState();
+}
+
+class _PayOwedDialogState extends State<_PayOwedDialog> {
+  late final _amount = TextEditingController(
+    text: formatAmount(widget.owed).replaceAll(',', ''),
+  );
+  List<Map<String, dynamic>>? _accounts;
+  int? _account;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.service
+        .paymentAccounts()
+        .then((a) {
+          if (mounted) setState(() => _accounts = a);
+        })
+        .catchError((Object e) {
+          if (mounted) AppFeedback.error(context, e);
+        });
+  }
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    super.dispose();
+  }
+
+  double get _value => double.tryParse(normalizeNumber(_amount.text)) ?? 0;
+
+  Future<void> _pay() async {
+    setState(() => _busy = true);
+    try {
+      final number = await widget.service.payOwed(
+        widget.employeeId,
+        amount: _value,
+        paymentAccountId: _account!,
+      );
+      if (!mounted) return;
+      AppFeedback.success(
+        context,
+        widget.isAr ? 'صُرف بالسند ${ltrIsolate(number)}' : 'Paid: $number',
+      );
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (mounted) AppFeedback.error(context, e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isAr = widget.isAr;
+    final accounts = _accounts;
+    final ready =
+        !_busy && _account != null && _value > 0 && _value <= widget.owed;
+    return AlertDialog(
+      title: Text(isAr ? 'صرف من المستحق له' : 'Pay what is owed'),
+      content: SizedBox(
+        width: 420,
+        child: accounts == null
+            ? const LinearProgressIndicator()
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    isAr
+                        ? 'المستحق له ${ltrIsolate(formatAmount(widget.owed))}. يُصرف كله أو بعضه.'
+                        : 'Owed ${formatAmount(widget.owed)}: all of it or part.',
+                  ),
+                  const SizedBox(height: AppSpace.md),
+                  TextField(
+                    key: const ValueKey('salary-owed-amount'),
+                    controller: _amount,
+                    onChanged: (_) => setState(() {}),
+                    textDirection: TextDirection.ltr,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    inputFormatters: [
+                      ArabicNumberTextInputFormatter(),
+                      FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                    ],
+                    decoration: InputDecoration(
+                      labelText: isAr ? 'المبلغ' : 'Amount',
+                    ),
+                  ),
+                  const SizedBox(height: AppSpace.sm),
+                  DropdownButtonFormField<int>(
+                    key: const ValueKey('salary-owed-account'),
+                    initialValue: _account,
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      labelText: isAr ? 'يُصرف من' : 'Paid from',
+                    ),
+                    items: [
+                      for (final a in accounts)
+                        DropdownMenuItem(
+                          value: a['id'] as int,
+                          child: Text('${a['name'] ?? ''}'),
+                        ),
+                    ],
+                    onChanged: (v) => setState(() => _account = v),
+                  ),
+                ],
+              ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(isAr ? 'إلغاء' : 'Cancel'),
+        ),
+        FilledButton(
+          key: const ValueKey('salary-owed-confirm'),
+          onPressed: ready ? _pay : null,
+          child: Text(isAr ? 'اصرف' : 'Pay'),
         ),
       ],
     );
