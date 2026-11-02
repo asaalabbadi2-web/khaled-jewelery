@@ -48,10 +48,14 @@ it and marks it paid. A draft may let a bonus go; a cancelled run lets them
 all go. The books are right (BONUS-BOOKS-1): an employee's bonuses come in
 only when his bonus account owes them all -- on the 31 Oct copy one owed 0
 against 2,512.50 approved, paid by a voucher outside the bonus screen; moved,
-he is paid twice. One bonus the books owe in part is paid at what they owe
-(the owner, 1 Nov 2026: «الصحيح هو ما في الدفاتر») -- its rest was paid
-outside the bonus screen; several are held, the line saying both figures,
-for which of them was paid is not guessed. tests/test_payroll_bonuses.py.
+he is paid twice. Bonuses the books owe in part are paid at what they owe
+(the owner, 1 Nov 2026: «الصحيح هو ما في الدفاتر»), shared out newest first
+(2 Nov 2026: «مكافأة أكتوبر تُصرف في مسير أكتوبر» -- مبارك's September and
+October were held): a bonus's own approval wrote it whole on his payable,
+and what was paid outside the bonus screen was paid before the newer were
+approved -- the older's. The share is each bonus's, over all his approved
+ones, so one let go of keeps its share, and the others theirs. None owed
+at all, they are held. tests/test_payroll_bonuses.py.
 
 An approved unpaid leave's days come off his line's days (EMP-4,
 services/employee_leave): its month is not whole, his pay by the divisor.
@@ -264,18 +268,20 @@ def _draft_line(run, employee, period, structure, first: date, last: date, divis
                .order_by(EmployeeBonus.id).all())
     from services.bonus_accounts import owed_in_books
     approved, owed = round(sum(float(b.amount or 0.0) for b in bonuses), 2), owed_in_books(employee)
-    capped = None
+    shares = None
     if bonuses and approved > owed:
-        if len(bonuses) == 1 and owed > 0:
-            capped = owed
-            breakdown['bonus_books_cap'] = {'approved_unpaid': approved, 'owed_in_books': owed}
+        if owed > 0:
+            shares = bonus_shares(employee)
+            breakdown['bonus_books_cap'] = {'approved_unpaid': approved,
+                                            'owed_in_books': round(sum(shares[b.id] for b in bonuses), 2)}
         else:
             breakdown['bonuses_held'] = {'approved_unpaid': approved, 'owed_in_books': owed}
             bonuses = []
     for bonus in bonuses:
         bonus.payroll_id = entry.id
         breakdown['bonuses'].append({'bonus_id': bonus.id, 'label': _bonus_label(bonus),
-                                     'amount': capped if capped is not None else round(float(bonus.amount or 0.0), 2)})
+                                     'amount': shares[bonus.id] if shares is not None
+                                     else round(float(bonus.amount or 0.0), 2)})
     _apply(entry, breakdown)
 
 
@@ -292,6 +298,21 @@ def _refresh_eos(lines) -> None:
         structure = db.session.get(SalaryStructure, breakdown['structure_id'])
         breakdown['eos'] = _eos(line.employee, structure, _month_bounds(line.month, line.year)[1])
         line.breakdown = json.dumps(breakdown, ensure_ascii=False)
+
+
+def bonus_shares(employee) -> dict:
+    """What the books owe of each of his approved bonuses: his bonus payable
+    shared out newest first, each no more than its amount."""
+    from services.bonus_accounts import owed_in_books
+    left = max(owed_in_books(employee), 0.0)
+    approved = EmployeeBonus.query.filter_by(employee_id=employee.id, status='approved').all()
+    approved.sort(key=lambda b: (b.period_end or date.min, b.id), reverse=True)
+    shares = {}
+    for bonus in approved:
+        share = round(min(float(bonus.amount or 0.0), left), 2)
+        shares[bonus.id] = share
+        left = round(left - share, 2)
+    return shares
 
 
 def _bonus_label(bonus) -> str:
@@ -342,6 +363,14 @@ def edit_line(entry, data: dict) -> None:
         for bonus in EmployeeBonus.query.filter_by(payroll_id=entry.id):
             if bonus.id not in kept:
                 bonus.payroll_id = None
+        if 'bonus_books_cap' in breakdown:             # each kept keeps its share; the figures said again
+            approved = round(sum(float(b.amount or 0.0) for b in EmployeeBonus.query.filter(
+                EmployeeBonus.id.in_(kept))), 2) if kept else 0.0
+            owed = round(sum(float(row['amount']) for row in breakdown['bonuses']), 2)
+            if approved > owed:
+                breakdown['bonus_books_cap'] = {'approved_unpaid': approved, 'owed_in_books': owed}
+            else:
+                breakdown.pop('bonus_books_cap')
     if 'notes' in data:
         entry.notes = data.get('notes')
     _refuse_advance_beyond(entry, breakdown)

@@ -53,9 +53,9 @@ def employee(auth_headers):
     return emp
 
 
-def _approved_bonus(headers, emp, amount=1500.0):
+def _approved_bonus(headers, emp, amount=1500.0, month=3):
     bonus = EmployeeBonus(employee_id=emp, bonus_type='fixed', amount=amount, status='pending',
-                          period_start=date(YEAR, 3, 1), period_end=date(YEAR, 3, 31))
+                          period_start=date(YEAR, month, 1), period_end=date(YEAR, month, 28))
     db.session.add(bonus)
     db.session.commit()
     code, body = _call('post', f'/api/bonuses/{bonus.id}/approve', headers, {})
@@ -155,3 +155,48 @@ def test_bonuses_the_books_do_not_owe_are_held_and_said_not_moved(auth_headers, 
     assert line['breakdown']['bonuses'] == [] and line['net_salary'] == 8100.0
     assert line['breakdown']['bonuses_held'] == {'approved_unpaid': 1500.0, 'owed_in_books': 0.0}
     assert db.session.get(EmployeeBonus, bonus).payroll_id is None
+
+
+def _paid_outside(emp, amount):
+    """A bonus paid by a voucher outside the bonus screen: his payable debited."""
+    from dual_system_helpers import create_dual_journal_entry
+    from models import Account
+    from services.bonus_accounts import employee_bonus_account
+    payable = employee_bonus_account(db.session.get(Employee, emp))
+    paid = JournalEntry(date=date(YEAR, 3, 31), description='صرف مكافأة بقيد يدوي', entry_type='عادي',
+                        is_posted=True, is_draft=False, created_by='t')
+    cash = Account(account_number=f'97{uuid.uuid4().int % 10**6:06d}', name='صندوق', type='Asset')
+    db.session.add_all([paid, cash])
+    db.session.flush()
+    create_dual_journal_entry(journal_entry_id=paid.id, account_id=payable.id, cash_debit=amount)
+    create_dual_journal_entry(journal_entry_id=paid.id, account_id=cash.id, cash_credit=amount)
+    db.session.commit()
+
+
+def test_several_bonuses_the_books_owe_in_part_are_paid_at_what_they_owe_newest_first(auth_headers, employee):
+    """مبارك on the 2 Nov copy (the owner: «مكافأة أكتوبر تُصرف في مسير أكتوبر»):
+    September's 2,912.50, 2,900 of it paid by a manual entry, and October's
+    2,897.50 -- the books owe 2,910. Both were held. The books are shared out
+    newest first: October's accrual stands whole; what was paid outside was
+    the older's."""
+    september = _approved_bonus(auth_headers, employee, 2912.5, month=9)
+    _paid_outside(employee, 2900.0)
+    october = _approved_bonus(auth_headers, employee, 2897.5, month=10)
+    run = _run(auth_headers)
+    line = _line(run, employee)
+    shares = {row['bonus_id']: row['amount'] for row in line['breakdown']['bonuses']}
+    assert shares == {october: 2897.5, september: 12.5}, 'what the books owe, newest first'
+    assert 'bonuses_held' not in line['breakdown']
+    assert line['breakdown']['bonus_books_cap'] == {'approved_unpaid': 5810.0, 'owed_in_books': 2910.0}
+    assert line['net_salary'] == 8100.0 + 2910.0
+
+    code, run = _call('put', f"/api/payroll/runs/{run['id']}/lines/{line['id']}", auth_headers,
+                      {'bonuses': [september]})                # October's let go to a later month
+    assert code == 200, run
+    line = _line(run, employee)
+    assert [(r['bonus_id'], r['amount']) for r in line['breakdown']['bonuses']] == [(september, 12.5)], \
+        "September keeps its share -- not the books' whole"
+    assert line['net_salary'] == 8112.5
+    assert db.session.get(EmployeeBonus, october).payroll_id is None
+    assert _call('post', f"/api/payroll/runs/{run['id']}/approve", auth_headers)[0] == 200
+
