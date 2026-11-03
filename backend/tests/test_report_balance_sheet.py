@@ -161,3 +161,18 @@ def test_a_group_s_grams_are_its_accounts_twins_too():
     report = _sheet(dt.date(2041, 9, 30))
     row = next(x for x in report.rows if x.get('account_id') == group.id)
     assert row['weight'] >= 3.0 - 1e-9, 'the supplier\'s grams under his group'
+
+
+def test_its_weight_result_is_named_as_it_is_and_the_gram_profit_beside():
+    """The owner, 4 Nov 2026: the gram profit is its five layers. The sheet's
+    grams balance on the books' weight movement (a gram bought from a customer
+    a weight gain), which is not a profit: said so, and the year's gram profit
+    beside it as a note -- not summed."""
+    from services.weight_position import performance, year_start
+    report = _sheet(dt.date(2041, 6, 30))
+    result = next(x for x in report.rows if x.get('key') == 'result')
+    assert 'ليست ربحًا' in result['name']
+    note = next(x for x in report.rows if x.get('key') == 'gram_profit')
+    assert note['style'] == 'note' and note['cash'] is None
+    expected = performance(year_start(dt.date(2041, 6, 30)).date(), dt.date(2041, 6, 30))['weight_profit']
+    assert note['weight'] == pytest.approx(expected, abs=0.001)

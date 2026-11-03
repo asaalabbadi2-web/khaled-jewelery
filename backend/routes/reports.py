@@ -34,7 +34,6 @@ from auth_decorators import get_current_user, require_auth, require_permission
 from pricing.karat_service import convert_to_main_karat, get_main_karat
 from accounting.mappings import (DEFAULT_MAPPING_OPERATION_TYPE, get_account_id_by_number, get_account_id_for_mapping,
                                  require_account)
-from accounting.wages import manufacturing_wage_expense_account_id
 from services.live_balances import live_balances_by_account_ids
 from utils import normalize_number
 from routes import (
@@ -2708,143 +2707,50 @@ def get_gold_position_report():
 @reports_bp.route('/reports/income_statement', methods=['GET'])
 @require_permission('reports.financial')
 def get_income_statement():
-    """
-    قائمة الدخل (نقدية فقط)
-
-    ملاحظة: تم حذف المؤشرات/الأقسام الوزنية من هذا التقرير لتجنب خلط
-    مؤشرات الوزن مع قائمة الدخل المالية.
-    """
+    """The income statement in the reports' contract -- riyals by the tree, grams
+    by the gram profit's five layers (services/reports/income_statement.py,
+    REPORTS ت2-2) -- with the old keys alongside until the screen moves to the
+    shell. start_date and end_date (YYYY-MM-DD, the end day whole), both."""
+    from services.reports.income_statement import income_statement, tree_income
     try:
-        start_date_str = request.args.get('start_date')
-        end_date_str = request.args.get('end_date')
-        
-        if not start_date_str or not end_date_str:
-            return jsonify({'error': 'يجب تحديد تاريخ البداية والنهاية'}), 400
-        
-        start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
-        end_date = datetime.strptime(end_date_str, '%Y-%m-%d') + timedelta(days=1)
-
-        # The lines that count (the one definition: posted, not a draft, not
-        # deleted -- it took «posted or NULL» and kept deleted lines and drafts),
-        # summed per account in the database.
-        from accounting.balances import counted_line_filters
-        from services.income_accounts import income_account_groups
-        groups = income_account_groups()
-        wanted = groups['revenue'] | groups['cost_of_sales'] | groups['operating']
-        sums = (
-            db.session.query(JournalEntryLine.account_id,
-                             func.coalesce(func.sum(JournalEntryLine.cash_debit), 0.0),
-                             func.coalesce(func.sum(JournalEntryLine.cash_credit), 0.0))
-            .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
-            .filter(JournalEntry.date >= start_date, JournalEntry.date < end_date)
-            .filter(*counted_line_filters())
-            .filter(JournalEntryLine.account_id.in_(wanted or {-1}))
-            .group_by(JournalEntryLine.account_id)
-            .all()
-        )
-        accounts = {a.id: a for a in Account.query.filter(Account.id.in_([r[0] for r in sums] or [-1])).all()}
-
-        def detail(account_id, amount):
-            account = accounts[account_id]
-            return {'account_code': account.account_number, 'account_name': account.name,
-                    'account_id': account_id, 'amount': round(amount, 2)}
-
-        revenue_details, cost_of_goods_details, operating_expense_details = [], [], []
-        for account_id, debit, credit in sums:
-            if account_id in groups['revenue']:
-                amount = float(credit) - float(debit)
-                if abs(amount) >= 0.005:
-                    revenue_details.append(detail(account_id, amount))
-            else:
-                amount = float(debit) - float(credit)
-                if abs(amount) < 0.005:
-                    continue
-                # By the chart tree (services/income_accounts.py): 51 and what is
-                # under it is the cost of sales -- wages, scrap purchases, the cost
-                # of gold sold; the rest of group 5 is operating. It classified by
-                # prefixes («50», «52» as cost), and 2026's gross profit exceeded
-                # its revenue (the owner, 11 Oct 2026).
-                (cost_of_goods_details if account_id in groups['cost_of_sales']
-                 else operating_expense_details).append(detail(account_id, amount))
-
-        total_revenue = sum(d['amount'] for d in revenue_details)
-        total_cogs = sum(d['amount'] for d in cost_of_goods_details)
-        total_operating = sum(d['amount'] for d in operating_expense_details)
-        expense_details = cost_of_goods_details + operating_expense_details
-        total_expense = total_cogs + total_operating
-
-        # The manufacturing wage is a cost of sales (510, under 51), shown on its own.
-        manufacturing_wage_acc_id = manufacturing_wage_expense_account_id()
-        manufacturing_wage_detail = next(
-            (d for d in cost_of_goods_details if d['account_id'] == manufacturing_wage_acc_id), None)
-        manufacturing_wage_amount = manufacturing_wage_detail['amount'] if manufacturing_wage_detail else 0.0
-        operating_expenses_total = total_operating
-
-        gross_profit = total_revenue - total_cogs
-        net_income = gross_profit - operating_expenses_total
-        # Which months carry the gold's cost at its moving average (ADR-042 phase 2).
-        from services.gold_cost_books import cost_basis
-        basis, cost_basis_note = cost_basis(start_date, end_date)
-
-        # حساب النسب المئوية
-        net_margin_pct = (net_income / total_revenue * 100) if total_revenue != 0 else 0.0
-        
-        return jsonify({
-            'start_date': start_date_str,
-            'end_date': end_date_str,
-            'report_type': 'income_statement',
-            'summary': {
-                # المؤشرات المالية (نقدي)
-                'net_revenue': round(total_revenue, 2),
-                'cost_of_sales': round(total_cogs, 2),
-                'cost_basis': basis,
-                'cost_basis_note': cost_basis_note,
-                'gross_profit': round(gross_profit, 2),
-                'operating_expenses': round(operating_expenses_total, 2),
-                'operating_expenses_excl_wage': round(total_operating, 2),
-                'manufacturing_wage_expense': round(manufacturing_wage_amount, 2),
-                'net_profit': round(net_income, 2),
-                'net_margin_pct': round(net_margin_pct, 2),
-            },
-            'series': [],  # يمكن إضافة بيانات السلاسل الزمنية لاحقاً
-            'revenues': {
-                'details': sorted(revenue_details, key=lambda x: x['account_code']),
-                'total': round(total_revenue, 2)
-            },
-            'expenses': {
-                'details': sorted(expense_details, key=lambda x: x['account_code']),
-                'total': round(total_expense, 2)
-            },
-            'cost_of_goods_sold': {
-                'details': sorted(cost_of_goods_details, key=lambda x: x['account_code']),
-                'total': round(total_cogs, 2)
-            },
-            'gross_profit': round(gross_profit, 2),
-            'operating_expenses': {
-                'details': sorted(operating_expense_details, key=lambda x: x['account_code']),
-                'total': round(total_operating, 2),
-                'manufacturing_wage': manufacturing_wage_detail or {
-                    'account_code': None,
-                    'account_name': 'مصروفات أجور المصنعية',
-                    'amount': round(manufacturing_wage_amount, 2),
-                }
-            },
-            'manufacturing_wage_expense': {
-                'amount': round(manufacturing_wage_amount, 2),
-                'account': manufacturing_wage_detail['account_code'] if manufacturing_wage_detail else None,
-                'name': manufacturing_wage_detail['account_name'] if manufacturing_wage_detail else 'مصروفات أجور المصنعية'
-            },
-            'expense_breakdown': sorted(
-                ([manufacturing_wage_detail] if manufacturing_wage_detail else []) + operating_expense_details,
-                key=lambda x: abs(x.get('amount', 0)),
-                reverse=True
-            )[:5],
-            'net_income': round(net_income, 2)
-        }), 200
-        
-    except Exception as e:
-        print(f"❌ Error generating income statement: {e}")
-        return jsonify({'error': f'فشل إنشاء قائمة الدخل: {str(e)}'}), 500
+        start, end = _report_date('start_date'), _report_date('end_date')
+    except ValueError:
+        return jsonify({'error': 'invalid_date', 'message': 'start_date و end_date بصيغة YYYY-MM-DD'}), 400
+    if start is None or end is None:
+        return jsonify({'error': 'يجب تحديد تاريخ البداية والنهاية'}), 400
+    tree = tree_income(start, end)
+    revenue = round(sum(d['amount'] for d in tree['revenue']), 2)
+    cogs = round(sum(d['amount'] for d in tree['cost_of_sales']), 2)
+    operating = round(sum(d['amount'] for d in tree['operating']), 2)
+    gross, net = round(revenue - cogs, 2), round(revenue - cogs - operating, 2)
+    wage = tree['wage']
+    wage_amount = wage['amount'] if wage else 0.0
+    expenses = sorted(tree['cost_of_sales'] + tree['operating'], key=lambda d: d['account_code'])
+    body = income_statement(start=start, end=end, now=datetime.now()).to_dict()
+    body.update({
+        'start_date': start.isoformat(), 'end_date': end.isoformat(), 'report_type': 'income_statement',
+        'summary': {'net_revenue': revenue, 'cost_of_sales': cogs, 'cost_basis': tree['cost_basis'],
+                    'cost_basis_note': tree['cost_basis_note'], 'gross_profit': gross,
+                    'operating_expenses': operating, 'operating_expenses_excl_wage': operating,
+                    'manufacturing_wage_expense': round(wage_amount, 2), 'net_profit': net,
+                    'net_margin_pct': round(net / revenue * 100, 2) if revenue else 0.0},
+        'series': [],
+        'revenues': {'details': tree['revenue'], 'total': revenue},
+        'expenses': {'details': expenses, 'total': round(cogs + operating, 2)},
+        'cost_of_goods_sold': {'details': tree['cost_of_sales'], 'total': cogs},
+        'gross_profit': gross,
+        'operating_expenses': {'details': tree['operating'], 'total': operating,
+                               'manufacturing_wage': wage or {'account_code': None,
+                                                              'account_name': 'مصروفات أجور المصنعية',
+                                                              'amount': round(wage_amount, 2)}},
+        'manufacturing_wage_expense': {'amount': round(wage_amount, 2),
+                                       'account': wage['account_code'] if wage else None,
+                                       'name': wage['account_name'] if wage else 'مصروفات أجور المصنعية'},
+        'expense_breakdown': sorted(([wage] if wage else []) + tree['operating'],
+                                    key=lambda x: abs(x.get('amount', 0)), reverse=True)[:5],
+        'net_income': net,
+    })
+    return jsonify(body), 200
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 📊  تقرير ربح الجرام (طريقة طبقية)
@@ -3828,139 +3734,6 @@ def get_gold_weight_trial_balance_by_safe_box():
     except Exception as e:
         print(f"❌ Error generating gold weight trial balance by safe box: {e}")
         return jsonify({'error': f'فشل إنشاء ميزان مراجعة الأوزان: {str(e)}'}), 500
-
-@reports_bp.route('/reports/income-statement/gold', methods=['GET'])
-@require_permission('reports.financial')
-def get_gold_income_statement():
-    """
-    قائمة الدخل الوزنية (الذهب)
-    
-    تعرض الإيرادات والمصروفات من الشجرة الوزنية فقط
-    
-    Query Parameters:
-    - start_date: تاريخ البداية (YYYY-MM-DD)
-    - end_date: تاريخ النهاية (YYYY-MM-DD)
-    
-    Returns:
-    - revenues: الإيرادات بالجرامات (حسابات 4Wx)
-    - expenses: المصروفات بالجرامات (حسابات 5Wx)
-    - net_profit_grams: صافي الربح بالجرامات
-    """
-    try:
-        
-        start_date_str = request.args.get('start_date')
-        end_date_str = request.args.get('end_date')
-        
-        if not start_date_str or not end_date_str:
-            return jsonify({'error': 'يجب تحديد تاريخ البداية والنهاية'}), 400
-        
-        start_date = datetime.fromisoformat(start_date_str).date()
-        end_date = datetime.fromisoformat(end_date_str).date()
-        main_karat = get_main_karat()
-        
-        # جلب حسابات الإيرادات (74xx) من شجرة المذكرة
-        from accounting.chart_tree import EXPENSES_ROOT, REVENUE_ROOT, twin_subtree_ids
-        # توأما مجموعتي الإيرادات والمصروفات المربوطان (74، 75)، بالشجرة (CHART-002)
-        revenue_accounts = Account.query.filter(
-            Account.transaction_type == 'gold',
-            Account.id.in_(twin_subtree_ids(REVENUE_ROOT))
-        ).all()
-        
-        # جلب حسابات المصروفات (75xx) من شجرة المذكرة
-        expense_accounts = Account.query.filter(
-            Account.transaction_type == 'gold',
-            Account.id.in_(twin_subtree_ids(EXPENSES_ROOT))
-        ).all()
-        
-        revenues_data = []
-        total_revenue_grams = 0.0
-        
-        for account in revenue_accounts:
-            lines = JournalEntryLine.query.join(JournalEntry).filter(
-                JournalEntryLine.account_id == account.id,
-                JournalEntry.date >= start_date,
-                JournalEntry.date <= end_date
-            ).all()
-            
-            # جمع الأوزان من جميع الأعيرة (محولة للعيار الرئيسي)
-            credit_18k = sum(line.credit_18k or 0 for line in lines) * (18 / main_karat)
-            credit_21k = sum(line.credit_21k or 0 for line in lines) * (21 / main_karat)
-            credit_22k = sum(line.credit_22k or 0 for line in lines) * (22 / main_karat)
-            credit_24k = sum(line.credit_24k or 0 for line in lines) * (24 / main_karat)
-            
-            debit_18k = sum(line.debit_18k or 0 for line in lines) * (18 / main_karat)
-            debit_21k = sum(line.debit_21k or 0 for line in lines) * (21 / main_karat)
-            debit_22k = sum(line.debit_22k or 0 for line in lines) * (22 / main_karat)
-            debit_24k = sum(line.debit_24k or 0 for line in lines) * (24 / main_karat)
-            
-            total_credit = credit_18k + credit_21k + credit_22k + credit_24k
-            total_debit = debit_18k + debit_21k + debit_22k + debit_24k
-            net_revenue = total_credit - total_debit  # الإيرادات دائنة
-            
-            if abs(net_revenue) > 0.001:
-                revenues_data.append({
-                    'account_number': account.account_number,
-                    'account_name': account.name,
-                    'amount_grams': round(net_revenue, 3)
-                })
-                total_revenue_grams += net_revenue
-        
-        expenses_data = []
-        total_expense_grams = 0.0
-        
-        for account in expense_accounts:
-            lines = JournalEntryLine.query.join(JournalEntry).filter(
-                JournalEntryLine.account_id == account.id,
-                JournalEntry.date >= start_date,
-                JournalEntry.date <= end_date
-            ).all()
-            
-            # جمع الأوزان من جميع الأعيرة (محولة للعيار الرئيسي)
-            debit_18k = sum(line.debit_18k or 0 for line in lines) * (18 / main_karat)
-            debit_21k = sum(line.debit_21k or 0 for line in lines) * (21 / main_karat)
-            debit_22k = sum(line.debit_22k or 0 for line in lines) * (22 / main_karat)
-            debit_24k = sum(line.debit_24k or 0 for line in lines) * (24 / main_karat)
-            
-            credit_18k = sum(line.credit_18k or 0 for line in lines) * (18 / main_karat)
-            credit_21k = sum(line.credit_21k or 0 for line in lines) * (21 / main_karat)
-            credit_22k = sum(line.credit_22k or 0 for line in lines) * (22 / main_karat)
-            credit_24k = sum(line.credit_24k or 0 for line in lines) * (24 / main_karat)
-            
-            total_debit = debit_18k + debit_21k + debit_22k + debit_24k
-            total_credit = credit_18k + credit_21k + credit_22k + credit_24k
-            net_expense = total_debit - total_credit  # المصروفات مدينة
-            
-            if abs(net_expense) > 0.001:
-                expenses_data.append({
-                    'account_number': account.account_number,
-                    'account_name': account.name,
-                    'amount_grams': round(net_expense, 3)
-                })
-                total_expense_grams += net_expense
-        
-        net_profit_grams = total_revenue_grams - total_expense_grams
-        net_margin_pct = (net_profit_grams / total_revenue_grams * 100) if total_revenue_grams > 0 else 0.0
-        
-        return jsonify({
-            'report_type': 'income_statement_gold',
-            'start_date': start_date_str,
-            'end_date': end_date_str,
-            'main_karat': main_karat,
-            'revenues': {
-                'details': revenues_data,
-                'total_grams': round(total_revenue_grams, 3)
-            },
-            'expenses': {
-                'details': expenses_data,
-                'total_grams': round(total_expense_grams, 3)
-            },
-            'net_profit_grams': round(net_profit_grams, 3),
-            'net_margin_pct': round(net_margin_pct, 2)
-        }), 200
-        
-    except Exception as e:
-        print(f"❌ Error generating gold income statement: {e}")
-        return jsonify({'error': f'فشل إنشاء قائمة الدخل الوزنية: {str(e)}'}), 500
 
 
 @reports_bp.route('/reports/gold_acquisition_reconciliation', methods=['GET'])

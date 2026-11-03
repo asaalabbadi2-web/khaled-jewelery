@@ -443,7 +443,12 @@ class ReportTable extends StatelessWidget {
     final tabular = theme.textTheme.bodyMedium?.copyWith(
       fontFeatures: const [FontFeature.tabularFigures()],
     );
-    Widget cell(ReportColumn c, Object? value, {bool strong = false}) {
+    Widget cell(
+      ReportColumn c,
+      Object? value, {
+      bool strong = false,
+      bool note = false,
+    }) {
       final text = reportCell(c, value);
       final negative = c.signed && value is num && value < 0 && text.isNotEmpty;
       return Padding(
@@ -461,7 +466,12 @@ class ReportTable extends StatelessWidget {
             style: (c.isFigure ? tabular : theme.textTheme.bodyMedium)
                 ?.copyWith(
                   fontWeight: strong ? FontWeight.w700 : null,
-                  color: negative ? theme.colorScheme.error : null,
+                  fontStyle: note ? FontStyle.italic : null,
+                  color: negative
+                      ? theme.colorScheme.error
+                      : note
+                      ? theme.colorScheme.onSurfaceVariant
+                      : null,
                 ),
           ),
         ),
@@ -538,6 +548,7 @@ class ReportTable extends StatelessWidget {
                                 strong:
                                     row.style == ReportRowStyle.heading ||
                                     row.style == ReportRowStyle.subtotal,
+                                note: row.style == ReportRowStyle.note,
                               ),
                     ],
                   ),

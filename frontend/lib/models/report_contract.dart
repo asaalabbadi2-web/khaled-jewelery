@@ -64,8 +64,9 @@ class ReportDrill {
   };
 }
 
-/// A statement's line: a section's heading, its total, a line said apart.
-enum ReportRowStyle { line, heading, subtotal, finding }
+/// A statement's line: a section's heading, its total, a line said apart, a
+/// note beside it (not summed).
+enum ReportRowStyle { line, heading, subtotal, finding, note }
 
 class ReportRow {
   const ReportRow({

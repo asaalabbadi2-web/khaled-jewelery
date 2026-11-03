@@ -224,7 +224,6 @@ class Matrix:
         year = 'start_date=2026-01-01&end_date=2026-12-31'
         docs = {name: get(url) for name, url in (
             ('income_statement', f'/api/reports/income_statement?{year}'),
-            ('gold_income_statement', f'/api/reports/income-statement/gold?{year}'),
             ('gram_profit', f'/api/reports/gram_profit?{year}'),
             ('analytics_summary', f'/api/analytics/summary?{year}'),
             ('inventory_reconciliation', '/api/reports/inventory_reconciliation?date=2026-10-12'),

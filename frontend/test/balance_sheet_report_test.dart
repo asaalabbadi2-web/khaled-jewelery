@@ -52,6 +52,12 @@ class _Server extends ApiService {
           style: 'finding',
         ),
         line('مجموع الأصول', 6676245.02, 42509.255, style: 'subtotal'),
+        line(
+          'ربح الجرام للسنة حتى تاريخه (الطبقات الخمس) — لا يدخل المجموع',
+          null,
+          2884.573,
+          style: 'note',
+        ),
       ],
       'totals': <String, dynamic>{},
       'checks': [
@@ -128,6 +134,12 @@ void main() {
     expect(
       find.byKey(const ValueKey('report-check-no_riyals_on_weight')),
       findsOneWidget,
+    );
+    final note = tester.widget<Text>(find.text('2,884.573'));
+    expect(
+      note.style?.fontStyle,
+      FontStyle.italic,
+      reason: 'a note, not summed',
     );
     final finding = tester.widget<Text>(
       find.text('ريالات مقيّدة على حسابات وزنية'),

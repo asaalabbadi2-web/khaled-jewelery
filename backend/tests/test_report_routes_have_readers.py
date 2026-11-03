@@ -19,8 +19,6 @@ FRONTEND = pathlib.Path(__file__).resolve().parents[2] / 'frontend' / 'lib'
 
 # Read by no screen, kept for their reader (path -> who reads it, and why).
 READ_ELSEWHERE = {
-    '/reports/income-statement/gold': 'tools/scenario_matrix.py; one side of the constitution\'s WPROFIT-001, '
-                                      'settled when the income statement is one (REPORTS ت2)',
     '/reports/inventory_reconciliation': 'tools/scenario_matrix.py (the release rehearsal)',
     '/reports/bridge-balance-monitor': 'tools/scenario_matrix.py (the release rehearsal)',
     '/reports/gold_acquisition_reconciliation': 'the nightly reconciliation reads its service; '

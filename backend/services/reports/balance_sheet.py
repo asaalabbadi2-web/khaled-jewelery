@@ -5,8 +5,9 @@ equity, by their roles) shows its groups -- the root's children, through a
 root's only child (1 «الأصول» has only 11) -- in riyals from each group's
 subtree and in grams (the main karat) from its weight twin's. The result,
 not yet closed, is the revenues' and expenses' net credit, riyals and grams:
-what the books say, so the sheet balances; the gram profit is a measure of
-its own (the income statement, ت2-2). What no group holds is said apart:
+what the books say, so the sheet balances -- its grams the books' weight
+movement, named so, not a profit; the year's gram profit (its five layers,
+the owner 4 Nov 2026) said beside it, not summed. What no group holds is said apart:
 riyals on a weight account (a finding), and whatever else a section's total
 holds beyond its groups. The sheet checks itself: assets = liabilities +
 equity + the result, in riyals and in grams; no riyals on a weight account.
@@ -118,8 +119,16 @@ def balance_sheet(*, as_of: dt.date, now: dt.datetime) -> Report:
                                          if t))
             stray_total['result'] = -cash(result_twins)
             result_cash, result_weight = -cash(result_ids | result_twins), -grams(result_ids | result_twins)
-            rows.append(line(key='result', name='النتيجة حتى تاريخه، من الدفاتر (لم تُقفل)', cash=result_cash,
-                             weight=result_weight))
+            # The grams' side of the result is the books' weight movement -- a
+            # gram bought from a customer is a weight gain there -- not a profit
+            # (the owner, 4 Nov 2026: the gram profit is its five layers); it is
+            # what balances the grams. The year's gram profit is said beside it.
+            rows.append(line(key='result', name='النتيجة حتى تاريخه (لم تُقفل) — وزنها حركة الدفاتر، ليست ربحًا',
+                             cash=result_cash, weight=result_weight))
+            from services.weight_position import performance, year_start
+            gram = performance(year_start(as_of).date(), as_of)['weight_profit']
+            rows.append(line(key='gram_profit', name='ربح الجرام للسنة حتى تاريخه (الطبقات الخمس) — لا يدخل المجموع',
+                             cash=None, weight=gram, style='note'))
             total_cash += result_cash
             total_weight += result_weight
         totals[key] = (total_cash, total_weight)
