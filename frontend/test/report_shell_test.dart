@@ -102,6 +102,7 @@ class _Server extends ApiService {
     String? startDate,
     String? endDate,
     bool karatDetail = false,
+    int? under,
   }) async {
     asked.add((start: startDate, end: endDate, karat: karatDetail));
     if (fail) throw Exception('الخادم لم يردّ');

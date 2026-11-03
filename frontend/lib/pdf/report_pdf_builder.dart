@@ -55,9 +55,19 @@ Future<Uint8List> buildReportPdf(
     ],
   );
   final body = [
+    // a statement's section heading and total, bold as the screen draws them
     for (final row in report.rows)
       pw.TableRow(
-        children: [for (final c in columns) cell(c, reportCell(c, row[c.key]))],
+        children: [
+          for (final c in columns)
+            cell(
+              c,
+              reportCell(c, row[c.key]),
+              strong:
+                  row.style == ReportRowStyle.heading ||
+                  row.style == ReportRowStyle.subtotal,
+            ),
+        ],
       ),
   ];
   final totals = report.totals.isEmpty

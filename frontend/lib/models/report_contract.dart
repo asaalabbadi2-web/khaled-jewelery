@@ -64,11 +64,19 @@ class ReportDrill {
   };
 }
 
+/// A statement's line: a section's heading, its total, a line said apart.
+enum ReportRowStyle { line, heading, subtotal, finding }
+
 class ReportRow {
-  const ReportRow({required this.values, this.drill});
+  const ReportRow({
+    required this.values,
+    this.drill,
+    this.style = ReportRowStyle.line,
+  });
 
   final Map<String, dynamic> values;
   final ReportDrill? drill;
+  final ReportRowStyle style;
 
   Object? operator [](String key) => values[key];
 }
@@ -121,6 +129,9 @@ class ReportData {
           ReportRow(
             values: Map<String, dynamic>.from(r as Map),
             drill: ReportDrill.fromJson((r)['drill']),
+            style:
+                ReportRowStyle.values.asNameMap()[(r)['style']] ??
+                ReportRowStyle.line,
           ),
       ],
       totals: Map<String, dynamic>.from(json['totals'] as Map? ?? const {}),

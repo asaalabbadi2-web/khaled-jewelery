@@ -8,7 +8,9 @@ So one screen shows, exports and prints any report (the shell, ت1):
                   'documents' (an analysis, reconciled to the books in total)
   columns         [{'key', 'label', 'kind', 'signed'}]; kind: text | money | grams | count | percent;
                   signed: its sign means something (a balance), shown so
-  rows            [{<column key>: value, ..., 'drill': {'kind', 'id'} | None}]
+  rows            [{<column key>: value, ..., 'drill': {'kind', 'id'} | None,
+                   'style': None | 'heading' | 'subtotal' | 'finding'}] -- a statement's
+                  sections, their totals, a line said apart
   totals          {<column key>: value}
   checks          [{'key', 'label', 'ok'}] -- what the report checks of itself
   read_at         when it was read (the caller's clock, ADR-015)

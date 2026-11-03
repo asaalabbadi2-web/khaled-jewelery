@@ -66,7 +66,7 @@ class SalesAnalysisReportScreen extends StatelessWidget {
           compare: on.contains(compare),
         ),
       ),
-      onDrill: (context, drill, row) {
+      onDrill: (context, drill, row, _) {
         final screen = switch (drill.kind) {
           'employee' => EmployeePage(api: api, employeeId: drill.id),
           'customer' => AccountStatementScreen(

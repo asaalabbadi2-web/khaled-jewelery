@@ -92,6 +92,20 @@ class ReportCatalog {
             requiresFilters: true,
           ),
           ReportDescriptor(
+            id: 'balance_sheet',
+            icon: Icons.account_balance,
+            titleAr: 'الميزانية العمومية',
+            titleEn: 'Balance Sheet',
+            descriptionAr:
+                'ما للمحل وما عليه في يوم، بالريال وبالجرام، متوازنة من الدفاتر.',
+            descriptionEn:
+                'What the shop owns and owes on a day, in riyals and grams.',
+            route: 'balance_sheet',
+            type: ReportType.financial,
+            requiresFilters: false,
+            keywords: ['ميزانية', 'مركز مالي', 'أصول', 'خصوم'],
+          ),
+          ReportDescriptor(
             id: 'trial_balance',
             icon: Icons.balance,
             titleAr: 'ميزان المراجعة',

@@ -137,3 +137,22 @@ def test_its_totals_are_summed_whole_and_rounded_once():
         _entry(D(2041, 9, 2 + i), a, _account(f'ميزان {i}'), 0.0, grams=0.001, karat=18)
     report = trial_balance(start=dt.date(2041, 9, 1), end=dt.date(2041, 9, 30), now=D(2041, 10, 1))
     assert {c.key: c.ok for c in report.checks}['gold_balanced'] is True
+
+
+def test_under_an_account_it_is_that_subtree_and_its_twins_only(auth_headers):
+    """The balance sheet's group opens the trial balance of its accounts (REPORTS
+    ت2-1): under an account, its subtree and their weight twins -- nothing else."""
+    from services.reports.trial_balance import trial_balance
+    group = _account('مجموعة ميزان')
+    twin = _account('توأم ميزان')
+    child = Account(account_number=f'93{uuid.uuid4().int % 10**8:08d}', name='ابن ميزان', type='Asset',
+                    parent_id=group.id, memo_account_id=twin.id)
+    db.session.add(child)
+    db.session.flush()
+    outside = _account('خارج ميزان')
+    _entry(D(2041, 10, 2), child, outside, 30.0)
+    _entry(D(2041, 10, 3), twin, outside, 0.0, grams=1.0)
+    report = trial_balance(end=dt.date(2041, 10, 31), under=group.id, now=D(2041, 11, 1))
+    assert {r['account_id'] for r in report.rows} == {child.id, twin.id}
+    code, body = _get(f'/api/trial_balance?end_date=2041-10-31&under={group.id}', auth_headers)
+    assert code == 200 and {r['account_id'] for r in body['rows']} == {child.id, twin.id}

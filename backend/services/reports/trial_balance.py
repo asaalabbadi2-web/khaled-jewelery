@@ -17,7 +17,7 @@ KARATS = (18, 21, 22, 24)
 MONEY, GRAMS = 2, 3
 
 
-def _lines(start: dt.date | None, end: dt.date | None):
+def _lines(start: dt.date | None, end: dt.date | None, accounts: set | None = None):
     from sqlalchemy import func
 
     from accounting.balances import counted_line_filters
@@ -29,6 +29,8 @@ def _lines(start: dt.date | None, end: dt.date | None):
              .join(JournalEntryLine, JournalEntryLine.account_id == Account.id)
              .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
              .filter(*counted_line_filters()))
+    if accounts is not None:
+        query = query.filter(Account.id.in_(accounts or {-1}))
     if start is not None:
         query = query.filter(JournalEntry.date >= dt.datetime.combine(start, dt.time.min))
     if end is not None:
@@ -36,16 +38,28 @@ def _lines(start: dt.date | None, end: dt.date | None):
     return query.group_by(Account.id, Account.account_number, Account.name).order_by(Account.account_number).all()
 
 
+def under_ids(account_id: int) -> set:
+    """An account's subtree and its accounts' weight twins' subtrees -- what a
+    balance sheet's group holds (REPORTS ت2-1)."""
+    from accounting.chart_tree import subtree_ids
+    from models import Account
+    money = subtree_ids(account_id)
+    twins = {m for i, m in Account.query.with_entities(Account.id, Account.memo_account_id) if m and i in money}
+    return money | (subtree_ids(*twins) if twins else set())
+
+
 def trial_balance(*, now: dt.datetime, start: dt.date | None = None, end: dt.date | None = None,
-                  karat_detail: bool = False) -> Report:
-    """*now*: the caller's clock (ADR-015), said as when it was read."""
+                  karat_detail: bool = False, under: int | None = None) -> Report:
+    """*now*: the caller's clock (ADR-015), said as when it was read. *under*: an
+    account -- its subtree and their weight twins only."""
     from pricing.karat_service import convert_to_main_karat
     rows, raw = [], collections.defaultdict(float)     # summed whole, rounded once at the end
 
     def add(key, value, places=None):
         raw[key] += value
 
-    for account_id, number, name, cash_debit, cash_credit, *karats in _lines(start, end):
+    accounts = under_ids(under) if under is not None else None
+    for account_id, number, name, cash_debit, cash_credit, *karats in _lines(start, end, accounts):
         cash_debit, cash_credit = float(cash_debit or 0.0), float(cash_credit or 0.0)
         by_karat = {k: (float(karats[2 * i] or 0.0), float(karats[2 * i + 1] or 0.0)) for i, k in enumerate(KARATS)}
         gold_debit = sum(convert_to_main_karat(d, k) for k, (d, _) in by_karat.items())

@@ -62,6 +62,7 @@ class ReportShell extends StatefulWidget {
     this.toggles = const [],
     this.choices = const [],
     this.initialRange,
+    this.singleDay = false,
     this.onDrill,
     this.emptyTitle = 'لا شيء في هذه الفترة',
     this.now,
@@ -78,8 +79,18 @@ class ReportShell extends StatefulWidget {
   /// The period it opens on; null: all periods.
   final DateTimeRange? initialRange;
 
-  /// What a row's figure opens -- its account, its document.
-  final void Function(BuildContext context, ReportDrill drill, ReportRow row)?
+  /// A report of one day (the balance sheet): a day, not a period -- the
+  /// loader's range is that day (today at the start).
+  final bool singleDay;
+
+  /// What a row's figure opens -- its account, its document; the report it
+  /// is read from (its period, its day) beside.
+  final void Function(
+    BuildContext context,
+    ReportDrill drill,
+    ReportRow row,
+    ReportData report,
+  )?
   onDrill;
   final String emptyTitle;
 
@@ -97,7 +108,28 @@ class ReportShell extends StatefulWidget {
 }
 
 class _ReportShellState extends State<ReportShell> {
-  late DateTimeRange? _range = widget.initialRange;
+  late DateTimeRange? _range =
+      widget.initialRange ??
+      (widget.singleDay ? _dayRange((widget.now ?? DateTime.now)()) : null);
+
+  static DateTimeRange _dayRange(DateTime d) {
+    final day = DateTime(d.year, d.month, d.day);
+    return DateTimeRange(start: day, end: day);
+  }
+
+  Future<void> _pickDay() async {
+    final today = (widget.now ?? DateTime.now)();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _range?.end ?? today,
+      firstDate: DateTime(today.year - 5),
+      lastDate: DateTime(today.year + 1, 12, 31),
+    );
+    if (picked == null) return;
+    setState(() => _range = _dayRange(picked));
+    _load();
+  }
+
   final Set<String> _on = {};
   late final Map<String, String> _chosen = {
     for (final c in widget.choices) c.key: c.options.first.$1,
@@ -148,7 +180,11 @@ class _ReportShellState extends State<ReportShell> {
   Future<List<int>> _pdf(ReportData report) => buildReportPdf(
     report,
     companyName: _companyName(),
-    period: _range == null ? 'كل الفترات' : _period,
+    period: _range == null
+        ? 'كل الفترات'
+        : widget.singleDay
+        ? 'في ${DateFormat('yyyy-MM-dd').format(_range!.end)}'
+        : _period,
   );
 
   Future<void> _export(String kind) async {
@@ -237,15 +273,25 @@ class _ReportShellState extends State<ReportShell> {
                     widget.subtitle!,
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
-                AppPeriodPicker(
-                  key: const ValueKey('report-period'),
-                  range: _range,
-                  now: widget.now,
-                  onChanged: (range) {
-                    setState(() => _range = range);
-                    _load();
-                  },
-                ),
+                if (widget.singleDay)
+                  OutlinedButton.icon(
+                    key: const ValueKey('report-day'),
+                    onPressed: _pickDay,
+                    icon: const Icon(Icons.event, size: 18),
+                    label: Text(
+                      'في ${ltrIsolate(DateFormat('yyyy-MM-dd').format(_range!.end))}',
+                    ),
+                  )
+                else
+                  AppPeriodPicker(
+                    key: const ValueKey('report-period'),
+                    range: _range,
+                    now: widget.now,
+                    onChanged: (range) {
+                      setState(() => _range = range);
+                      _load();
+                    },
+                  ),
                 for (final c in widget.choices)
                   SegmentedButton<String>(
                     key: ValueKey('report-choice-${c.key}'),
@@ -327,7 +373,7 @@ class _ReportShellState extends State<ReportShell> {
             report: report,
             onDrill: widget.onDrill == null
                 ? null
-                : (drill, row) => widget.onDrill!(context, drill, row),
+                : (drill, row) => widget.onDrill!(context, drill, row, report),
           ),
           const SizedBox(height: AppSpace.md),
           Text(
@@ -393,6 +439,7 @@ class ReportTable extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final tones = AppSemanticColors.of(context);
     final tabular = theme.textTheme.bodyMedium?.copyWith(
       fontFeatures: const [FontFeature.tabularFigures()],
     );
@@ -458,13 +505,23 @@ class ReportTable extends StatelessWidget {
                       ),
                   ],
                 ),
+                // a statement's lines: a section's heading, its total, a
+                // line said apart (a finding)
                 for (final (i, row) in report.rows.indexed)
                   TableRow(
                     key: ValueKey('report-row-$i'),
                     decoration: BoxDecoration(
+                      color: switch (row.style) {
+                        ReportRowStyle.heading =>
+                          theme.colorScheme.surfaceContainerLow,
+                        ReportRowStyle.finding => tones.warning.container,
+                        _ => null,
+                      },
                       border: Border(
                         top: BorderSide(
-                          color: theme.colorScheme.outlineVariant,
+                          color: row.style == ReportRowStyle.subtotal
+                              ? theme.colorScheme.outline
+                              : theme.colorScheme.outlineVariant,
                         ),
                       ),
                     ),
@@ -475,7 +532,13 @@ class ReportTable extends StatelessWidget {
                                 onTap: () => onDrill!(row.drill!, row),
                                 child: cell(c, row[c.key]),
                               )
-                            : cell(c, row[c.key]),
+                            : cell(
+                                c,
+                                row[c.key],
+                                strong:
+                                    row.style == ReportRowStyle.heading ||
+                                    row.style == ReportRowStyle.subtotal,
+                              ),
                     ],
                   ),
                 if (report.totals.isNotEmpty)

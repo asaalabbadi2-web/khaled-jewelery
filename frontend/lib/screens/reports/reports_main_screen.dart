@@ -11,6 +11,7 @@ import '../accounts_screen.dart';
 import '../general_ledger_screen_v2.dart';
 import '../payroll_report_screen.dart';
 import 'bonus_payables_report_screen.dart';
+import 'balance_sheet_report_screen.dart';
 import 'sales_analysis_report_screen.dart';
 import 'trial_balance_report_screen.dart';
 import 'category_weight_audit_report_screen.dart';
@@ -57,6 +58,8 @@ Widget? reportDestination(String route, ApiService api, bool isArabic) {
         api: api,
         isArabic: isArabic,
       );
+    case 'balance_sheet':
+      return BalanceSheetReportScreen(api: api);
     case 'sales_analysis':
       return SalesAnalysisReportScreen(api: api);
     case 'sales_overview':

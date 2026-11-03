@@ -20,7 +20,15 @@ class TrialBalanceReportScreen extends StatelessWidget {
     this.now,
     this.saver,
     this.printer,
+    this.under,
+    this.asOf,
+    this.title,
   });
+
+  /// A balance sheet's group (REPORTS ت2-1): its accounts only, to [asOf].
+  final int? under;
+  final DateTime? asOf;
+  final String? title;
 
   /// The server; tests pass a fake.
   final ApiService? api;
@@ -39,8 +47,10 @@ class TrialBalanceReportScreen extends StatelessWidget {
     final server = api ?? ApiService();
     final day = DateFormat('yyyy-MM-dd');
     return ReportShell(
-      title: 'ميزان المراجعة',
-      subtitle: 'أرصدة الحسابات نقدًا ووزنًا',
+      title: title ?? 'ميزان المراجعة',
+      subtitle: asOf == null
+          ? 'أرصدة الحسابات نقدًا ووزنًا'
+          : 'أرصدة حساباته نقدًا ووزنًا حتى ${day.format(asOf!)}',
       now: now,
       saver: saver,
       printer: printer,
@@ -49,11 +59,14 @@ class TrialBalanceReportScreen extends StatelessWidget {
       load: (range, on, _) async => ReportData.fromJson(
         await server.getTrialBalance(
           startDate: range == null ? null : day.format(range.start),
-          endDate: range == null ? null : day.format(range.end),
+          endDate: range == null
+              ? (asOf == null ? null : day.format(asOf!))
+              : day.format(range.end),
           karatDetail: on.contains(karatDetail),
+          under: under,
         ),
       ),
-      onDrill: (context, drill, row) {
+      onDrill: (context, drill, row, _) {
         if (drill.kind != 'account') return;
         Navigator.of(context).push(
           MaterialPageRoute(

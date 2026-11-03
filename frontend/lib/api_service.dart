@@ -2618,12 +2618,15 @@ class ApiService {
     String? startDate,
     String? endDate,
     bool karatDetail = false,
+    int? under,
   }) async {
     // Build query parameters
     final queryParams = <String, String>{};
     if (startDate != null) queryParams['start_date'] = startDate;
     if (endDate != null) queryParams['end_date'] = endDate;
     if (karatDetail) queryParams['karat_detail'] = 'true';
+    // REPORTS ت2-1: a balance sheet's group -- its accounts and their twins
+    if (under != null) queryParams['under'] = '$under';
 
     final uri = Uri.parse(
       '$_baseUrl/trial_balance',
@@ -2635,6 +2638,18 @@ class ApiService {
     } else {
       throw _apiError(response);
     }
+  }
+
+  /// The balance sheet on a day in the reports' contract (REPORTS ت2-1).
+  Future<Map<String, dynamic>> getBalanceSheet({required String asOf}) async {
+    final uri = Uri.parse(
+      '$_baseUrl/reports/balance-sheet',
+    ).replace(queryParameters: {'as_of': asOf});
+    final response = await _authedGet(uri);
+    if (response.statusCode == 200) {
+      return json.decode(utf8.decode(response.bodyBytes));
+    }
+    throw _apiError(response);
   }
 
   /// Sales analysis in the reports' contract (REPORTS ت1-2): by employee,

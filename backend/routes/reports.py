@@ -2189,14 +2189,16 @@ def get_trial_balance():
     """The trial balance in the reports' contract (services/reports/trial_balance.py,
     REPORTS ت0-3), with the old keys alongside until the screen reads the
     contract (ت1). start_date / end_date (YYYY-MM-DD, the end day whole),
-    karat_detail."""
+    karat_detail, under (an account: its subtree and their twins)."""
     from services.reports.trial_balance import trial_balance
     try:
         start, end = _report_date('start_date'), _report_date('end_date')
     except ValueError:
         return jsonify({'error': 'invalid_date', 'message': 'start_date و end_date بصيغة YYYY-MM-DD'}), 400
     karat_detail = request.args.get('karat_detail', 'false').lower() == 'true'
-    report = trial_balance(start=start, end=end, karat_detail=karat_detail, now=datetime.now()).to_dict()
+    under = request.args.get('under', type=int)
+    report = trial_balance(start=start, end=end, karat_detail=karat_detail, under=under,
+                           now=datetime.now()).to_dict()
     report.update({'trial_balance': report['rows'], 'count': len(report['rows']),
                    'filters': {'start_date': report['period']['start'], 'end_date': report['period']['end'],
                                'karat_detail': karat_detail}})
@@ -2860,6 +2862,19 @@ def _report_date(name, default=None):
     if not raw:
         return default
     return datetime.strptime(raw, '%Y-%m-%d').date()
+
+
+@reports_bp.route('/reports/balance-sheet', methods=['GET'])
+@require_permission('reports.financial')
+def get_balance_sheet():
+    """The balance sheet on a day (as_of, YYYY-MM-DD, today if none) in the
+    reports' contract (services/reports/balance_sheet.py, REPORTS ت2-1)."""
+    from services.reports.balance_sheet import balance_sheet
+    try:
+        as_of = _report_date('as_of', datetime.now().date())
+    except ValueError:
+        return jsonify({'error': 'invalid_date', 'message': 'as_of بصيغة YYYY-MM-DD'}), 400
+    return jsonify(balance_sheet(as_of=as_of, now=datetime.now()).to_dict())
 
 
 @reports_bp.route('/reports/sales-analysis', methods=['GET'])
