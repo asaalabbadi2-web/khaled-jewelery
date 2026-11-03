@@ -11,7 +11,7 @@ import '../accounts_screen.dart';
 import '../general_ledger_screen_v2.dart';
 import '../payroll_report_screen.dart';
 import 'bonus_payables_report_screen.dart';
-import '../trial_balance_screen_v2.dart';
+import 'trial_balance_report_screen.dart';
 import 'category_weight_audit_report_screen.dart';
 import 'sales_by_customer_report_screen.dart';
 import 'sales_by_item_report_screen.dart';
@@ -126,7 +126,7 @@ Widget? reportDestination(String route, ApiService api, bool isArabic) {
             : 'Gold Safe Boxes Inventory (Employees)',
       );
     case 'trial_balance':
-      return const TrialBalanceScreenV2();
+      return const TrialBalanceReportScreen();
     case 'general_ledger':
       return const GeneralLedgerScreenV2();
     case 'account_statement':

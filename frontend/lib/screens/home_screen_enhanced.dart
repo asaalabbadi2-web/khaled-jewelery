@@ -42,7 +42,7 @@ import 'journal_entries_list_screen.dart';
 import 'journal_entry_form.dart';
 import 'recurring_templates_screen.dart';
 import 'general_ledger_screen_v2.dart';
-import 'trial_balance_screen_v2.dart';
+import 'reports/trial_balance_report_screen.dart';
 import 'settings_screen_enhanced.dart';
 import 'branches_management_screen.dart';
 import 'gold_price_manual_screen_enhanced.dart';
@@ -1914,7 +1914,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         onSelected: () async {
           await Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => TrialBalanceScreenV2()),
+            MaterialPageRoute(builder: (_) => const TrialBalanceReportScreen()),
           );
         },
       );
@@ -5089,7 +5089,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       case 'trial_balance':
         result = await Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => TrialBalanceScreenV2()),
+          MaterialPageRoute(builder: (_) => const TrialBalanceReportScreen()),
         );
         break;
       case 'chart_of_accounts':

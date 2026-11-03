@@ -6,6 +6,10 @@
 String pdfSanitize(String input) {
   if (input.isEmpty) return input;
   return input
+      // Direction marks and isolates draw nothing on a page laid out in
+      // visual order, and Cairo has no glyph for them: a negative's mark
+      // (formatAmount) printed as a box (REPORTS ت1-1).
+      .replaceAll(RegExp('[\u200e\u200f\u2066-\u2069]'), '')
       .replaceAll('\u2192', '->') // →
       .replaceAll('\u2190', '<-') // ←
       .replaceAll('\u2194', '<->') // ↔
@@ -124,7 +128,10 @@ String pdfVisualArabic(String input) {
       var holdsRtl = false, holdsLatin = false;
       for (var j = o + 1; j < i; j++) {
         final rr = shapedRunes[j];
-        if (isStrongRtl(rr) || (rr >= 0x30 && rr <= 0x39) || (rr >= 0x660 && rr <= 0x669) || (rr >= 0x6F0 && rr <= 0x6F9)) {
+        if (isStrongRtl(rr) ||
+            (rr >= 0x30 && rr <= 0x39) ||
+            (rr >= 0x660 && rr <= 0x669) ||
+            (rr >= 0x6F0 && rr <= 0x6F9)) {
           holdsRtl = true;
         } else if (isStrongLtr(rr)) {
           holdsLatin = true;
@@ -150,32 +157,32 @@ String pdfVisualArabic(String input) {
 
   bool isNeutralThatShouldStickToRtl(int r) {
     // Whitespace (keep with RTL so word spacing doesn't disappear/split)
-    if (r == 0x20 /* space */) return true;
-    if (r == 0x00A0 /* NBSP */) return true;
-    if (r == 0x09 /* \t */) return true;
-    if (r == 0x0A /* \n */) return true;
-    if (r == 0x0D /* \r */) return true;
+    if (r == 0x20 /* space */ ) return true;
+    if (r == 0x00A0 /* NBSP */ ) return true;
+    if (r == 0x09 /* \t */ ) return true;
+    if (r == 0x0A /* \n */ ) return true;
+    if (r == 0x0D /* \r */ ) return true;
 
     // Parentheses / brackets that should visually wrap RTL text.
-    if (r == 0x28 /* ( */ || r == 0x29 /* ) */) return true;
+    if (r == 0x28 /* ( */ || r == 0x29 /* ) */ ) return true;
     // Ornate parentheses used in some Arabic text.
-    if (r == 0xFD3E /* ﴾ */ || r == 0xFD3F /* ﴿ */) return true;
-    if (r == 0x5B /* [ */ || r == 0x5D /* ] */) return true;
-    if (r == 0x7B /* { */ || r == 0x7D /* } */) return true;
+    if (r == 0xFD3E /* ﴾ */ || r == 0xFD3F /* ﴿ */ ) return true;
+    if (r == 0x5B /* [ */ || r == 0x5D /* ] */ ) return true;
+    if (r == 0x7B /* { */ || r == 0x7D /* } */ ) return true;
     // Angle quotes and guillemets (common in Arabic docs).
-    if (r == 0x00AB /* « */ || r == 0x00BB /* » */) return true;
+    if (r == 0x00AB /* « */ || r == 0x00BB /* » */ ) return true;
 
     // Common punctuation in Arabic UI labels.
-    if (r == 0x060C /* ، */) return true;
-    if (r == 0x061B /* ؛ */) return true;
-    if (r == 0x061F /* ؟ */) return true;
-    if (r == 0x003A /* : */) return true;
-    if (r == 0x002F /* / */) return true;
-    if (r == 0x002D /* - */) return true;
-    if (r == 0x2013 /* – */ || r == 0x2014 /* — */) return true;
-    if (r == 0x002E /* . */) return true;
+    if (r == 0x060C /* ، */ ) return true;
+    if (r == 0x061B /* ؛ */ ) return true;
+    if (r == 0x061F /* ؟ */ ) return true;
+    if (r == 0x003A /* : */ ) return true;
+    if (r == 0x002F /* / */ ) return true;
+    if (r == 0x002D /* - */ ) return true;
+    if (r == 0x2013 /* – */ || r == 0x2014 /* — */ ) return true;
+    if (r == 0x002E /* . */ ) return true;
     // Mirrored with the Arabic they stand in (an arrow written «->», PRINT-5).
-    if (r == 0x003C /* < */ || r == 0x003E /* > */) return true;
+    if (r == 0x003C /* < */ || r == 0x003E /* > */ ) return true;
 
     // Our private-use placeholders (used to protect tokens like ر.س).
     if (r >= 0xE000 && r <= 0xF8FF) return true;
@@ -379,7 +386,9 @@ _ProtectedText _protectCurrencyTokens(String input) {
   const normalizedRialSign = '\uFDFC';
 
   // Match (ر.س), ر.س, (ريال), ريال, (﷼), or ﷼.
-  final re = RegExp('\\(\\s*ر\\s*\\.\\s*س\\s*\\)|\\(\\s*ريال\\s*\\)|\\(\\s*\uFDFC\\s*\\)|ر\\s*\\.\\s*س|ريال|\uFDFC');
+  final re = RegExp(
+    '\\(\\s*ر\\s*\\.\\s*س\\s*\\)|\\(\\s*ريال\\s*\\)|\\(\\s*\uFDFC\\s*\\)|ر\\s*\\.\\s*س|ريال|\uFDFC',
+  );
 
   final matches = re.allMatches(input).toList(growable: false);
   if (matches.isEmpty) return _ProtectedText(input, const {});
@@ -401,9 +410,13 @@ _ProtectedText _protectCurrencyTokens(String input) {
     if (isRialSign) {
       placeholderToToken[placeholder] = normalizedRialSign;
     } else if (isRiyal) {
-      placeholderToToken[placeholder] = isParen ? normalizedRiyalParen : normalizedRiyal;
+      placeholderToToken[placeholder] = isParen
+          ? normalizedRiyalParen
+          : normalizedRiyal;
     } else {
-      placeholderToToken[placeholder] = isParen ? normalizedParen : normalizedPlain;
+      placeholderToToken[placeholder] = isParen
+          ? normalizedParen
+          : normalizedPlain;
     }
     buf.writeCharCode(placeholder);
 
@@ -472,7 +485,7 @@ String _shapeArabic(String input) {
     }
 
     // Lam-Alef ligatures.
-    if (r == 0x0644 /* ل */) {
+    if (r == 0x0644 /* ل */ ) {
       final ni = nextRelevantIndex(i + 1);
       if (ni != null) {
         final next = runes[ni];
@@ -480,7 +493,8 @@ String _shapeArabic(String input) {
         if (ligature != null) {
           final pi = previousRelevantIndex(i - 1);
           final prev = pi == null ? null : runes[pi];
-          final connectPrev = prev != null && _canConnectToNext(prev) && _canConnectToPrev(r);
+          final connectPrev =
+              prev != null && _canConnectToNext(prev) && _canConnectToPrev(r);
 
           out.add(connectPrev ? ligature.finalForm : ligature.isolatedForm);
           // Skip the alef character we consumed.
@@ -509,8 +523,10 @@ String _shapeArabic(String input) {
     final prev = pi == null ? null : runes[pi];
     final next = ni == null ? null : runes[ni];
 
-    final connectPrev = prev != null && _canConnectToNext(prev) && _canConnectToPrev(r);
-    final connectNext = next != null && _canConnectToPrev(next) && _canConnectToNext(r);
+    final connectPrev =
+        prev != null && _canConnectToNext(prev) && _canConnectToPrev(r);
+    final connectNext =
+        next != null && _canConnectToPrev(next) && _canConnectToNext(r);
 
     final shaped = switch ((connectPrev, connectNext)) {
       (true, true) => forms.medial ?? forms.finalForm,
@@ -524,7 +540,9 @@ String _shapeArabic(String input) {
     // maksura (U+FEEF) as two dots alone -- «مدى» printed as «مدي», its
     // alef maksura seeming joined to the dal (PRINT-5). Its base glyphs are
     // the isolated shapes.
-    if (!connectPrev && !connectNext && (r == 0x064A /* ي */ || r == 0x0649 /* ى */)) {
+    if (!connectPrev &&
+        !connectNext &&
+        (r == 0x064A /* ي */ || r == 0x0649 /* ى */ )) {
       out.add(r);
     } else {
       out.add(shaped);
@@ -602,35 +620,150 @@ const Map<int, _ArabicForms> _arabicForms = {
   0x0623: _ArabicForms(isolated: 0xFE83, finalForm: 0xFE84),
   0x0624: _ArabicForms(isolated: 0xFE85, finalForm: 0xFE86),
   0x0625: _ArabicForms(isolated: 0xFE87, finalForm: 0xFE88),
-  0x0626: _ArabicForms(isolated: 0xFE89, finalForm: 0xFE8A, initial: 0xFE8B, medial: 0xFE8C),
+  0x0626: _ArabicForms(
+    isolated: 0xFE89,
+    finalForm: 0xFE8A,
+    initial: 0xFE8B,
+    medial: 0xFE8C,
+  ),
   0x0627: _ArabicForms(isolated: 0xFE8D, finalForm: 0xFE8E),
-  0x0628: _ArabicForms(isolated: 0xFE8F, finalForm: 0xFE90, initial: 0xFE91, medial: 0xFE92),
+  0x0628: _ArabicForms(
+    isolated: 0xFE8F,
+    finalForm: 0xFE90,
+    initial: 0xFE91,
+    medial: 0xFE92,
+  ),
   0x0629: _ArabicForms(isolated: 0xFE93, finalForm: 0xFE94),
-  0x062A: _ArabicForms(isolated: 0xFE95, finalForm: 0xFE96, initial: 0xFE97, medial: 0xFE98),
-  0x062B: _ArabicForms(isolated: 0xFE99, finalForm: 0xFE9A, initial: 0xFE9B, medial: 0xFE9C),
-  0x062C: _ArabicForms(isolated: 0xFE9D, finalForm: 0xFE9E, initial: 0xFE9F, medial: 0xFEA0),
-  0x062D: _ArabicForms(isolated: 0xFEA1, finalForm: 0xFEA2, initial: 0xFEA3, medial: 0xFEA4),
-  0x062E: _ArabicForms(isolated: 0xFEA5, finalForm: 0xFEA6, initial: 0xFEA7, medial: 0xFEA8),
+  0x062A: _ArabicForms(
+    isolated: 0xFE95,
+    finalForm: 0xFE96,
+    initial: 0xFE97,
+    medial: 0xFE98,
+  ),
+  0x062B: _ArabicForms(
+    isolated: 0xFE99,
+    finalForm: 0xFE9A,
+    initial: 0xFE9B,
+    medial: 0xFE9C,
+  ),
+  0x062C: _ArabicForms(
+    isolated: 0xFE9D,
+    finalForm: 0xFE9E,
+    initial: 0xFE9F,
+    medial: 0xFEA0,
+  ),
+  0x062D: _ArabicForms(
+    isolated: 0xFEA1,
+    finalForm: 0xFEA2,
+    initial: 0xFEA3,
+    medial: 0xFEA4,
+  ),
+  0x062E: _ArabicForms(
+    isolated: 0xFEA5,
+    finalForm: 0xFEA6,
+    initial: 0xFEA7,
+    medial: 0xFEA8,
+  ),
   0x062F: _ArabicForms(isolated: 0xFEA9, finalForm: 0xFEAA),
   0x0630: _ArabicForms(isolated: 0xFEAB, finalForm: 0xFEAC),
   0x0631: _ArabicForms(isolated: 0xFEAD, finalForm: 0xFEAE),
   0x0632: _ArabicForms(isolated: 0xFEAF, finalForm: 0xFEB0),
-  0x0633: _ArabicForms(isolated: 0xFEB1, finalForm: 0xFEB2, initial: 0xFEB3, medial: 0xFEB4),
-  0x0634: _ArabicForms(isolated: 0xFEB5, finalForm: 0xFEB6, initial: 0xFEB7, medial: 0xFEB8),
-  0x0635: _ArabicForms(isolated: 0xFEB9, finalForm: 0xFEBA, initial: 0xFEBB, medial: 0xFEBC),
-  0x0636: _ArabicForms(isolated: 0xFEBD, finalForm: 0xFEBE, initial: 0xFEBF, medial: 0xFEC0),
-  0x0637: _ArabicForms(isolated: 0xFEC1, finalForm: 0xFEC2, initial: 0xFEC3, medial: 0xFEC4),
-  0x0638: _ArabicForms(isolated: 0xFEC5, finalForm: 0xFEC6, initial: 0xFEC7, medial: 0xFEC8),
-  0x0639: _ArabicForms(isolated: 0xFEC9, finalForm: 0xFECA, initial: 0xFECB, medial: 0xFECC),
-  0x063A: _ArabicForms(isolated: 0xFECD, finalForm: 0xFECE, initial: 0xFECF, medial: 0xFED0),
-  0x0641: _ArabicForms(isolated: 0xFED1, finalForm: 0xFED2, initial: 0xFED3, medial: 0xFED4),
-  0x0642: _ArabicForms(isolated: 0xFED5, finalForm: 0xFED6, initial: 0xFED7, medial: 0xFED8),
-  0x0643: _ArabicForms(isolated: 0xFED9, finalForm: 0xFEDA, initial: 0xFEDB, medial: 0xFEDC),
-  0x0644: _ArabicForms(isolated: 0xFEDD, finalForm: 0xFEDE, initial: 0xFEDF, medial: 0xFEE0),
-  0x0645: _ArabicForms(isolated: 0xFEE1, finalForm: 0xFEE2, initial: 0xFEE3, medial: 0xFEE4),
-  0x0646: _ArabicForms(isolated: 0xFEE5, finalForm: 0xFEE6, initial: 0xFEE7, medial: 0xFEE8),
-  0x0647: _ArabicForms(isolated: 0xFEE9, finalForm: 0xFEEA, initial: 0xFEEB, medial: 0xFEEC),
+  0x0633: _ArabicForms(
+    isolated: 0xFEB1,
+    finalForm: 0xFEB2,
+    initial: 0xFEB3,
+    medial: 0xFEB4,
+  ),
+  0x0634: _ArabicForms(
+    isolated: 0xFEB5,
+    finalForm: 0xFEB6,
+    initial: 0xFEB7,
+    medial: 0xFEB8,
+  ),
+  0x0635: _ArabicForms(
+    isolated: 0xFEB9,
+    finalForm: 0xFEBA,
+    initial: 0xFEBB,
+    medial: 0xFEBC,
+  ),
+  0x0636: _ArabicForms(
+    isolated: 0xFEBD,
+    finalForm: 0xFEBE,
+    initial: 0xFEBF,
+    medial: 0xFEC0,
+  ),
+  0x0637: _ArabicForms(
+    isolated: 0xFEC1,
+    finalForm: 0xFEC2,
+    initial: 0xFEC3,
+    medial: 0xFEC4,
+  ),
+  0x0638: _ArabicForms(
+    isolated: 0xFEC5,
+    finalForm: 0xFEC6,
+    initial: 0xFEC7,
+    medial: 0xFEC8,
+  ),
+  0x0639: _ArabicForms(
+    isolated: 0xFEC9,
+    finalForm: 0xFECA,
+    initial: 0xFECB,
+    medial: 0xFECC,
+  ),
+  0x063A: _ArabicForms(
+    isolated: 0xFECD,
+    finalForm: 0xFECE,
+    initial: 0xFECF,
+    medial: 0xFED0,
+  ),
+  0x0641: _ArabicForms(
+    isolated: 0xFED1,
+    finalForm: 0xFED2,
+    initial: 0xFED3,
+    medial: 0xFED4,
+  ),
+  0x0642: _ArabicForms(
+    isolated: 0xFED5,
+    finalForm: 0xFED6,
+    initial: 0xFED7,
+    medial: 0xFED8,
+  ),
+  0x0643: _ArabicForms(
+    isolated: 0xFED9,
+    finalForm: 0xFEDA,
+    initial: 0xFEDB,
+    medial: 0xFEDC,
+  ),
+  0x0644: _ArabicForms(
+    isolated: 0xFEDD,
+    finalForm: 0xFEDE,
+    initial: 0xFEDF,
+    medial: 0xFEE0,
+  ),
+  0x0645: _ArabicForms(
+    isolated: 0xFEE1,
+    finalForm: 0xFEE2,
+    initial: 0xFEE3,
+    medial: 0xFEE4,
+  ),
+  0x0646: _ArabicForms(
+    isolated: 0xFEE5,
+    finalForm: 0xFEE6,
+    initial: 0xFEE7,
+    medial: 0xFEE8,
+  ),
+  0x0647: _ArabicForms(
+    isolated: 0xFEE9,
+    finalForm: 0xFEEA,
+    initial: 0xFEEB,
+    medial: 0xFEEC,
+  ),
   0x0648: _ArabicForms(isolated: 0xFEED, finalForm: 0xFEEE),
   0x0649: _ArabicForms(isolated: 0xFEEF, finalForm: 0xFEF0),
-  0x064A: _ArabicForms(isolated: 0xFEF1, finalForm: 0xFEF2, initial: 0xFEF3, medial: 0xFEF4),
+  0x064A: _ArabicForms(
+    isolated: 0xFEF1,
+    finalForm: 0xFEF2,
+    initial: 0xFEF3,
+    medial: 0xFEF4,
+  ),
 };

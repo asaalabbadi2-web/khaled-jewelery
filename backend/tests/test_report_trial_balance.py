@@ -102,6 +102,7 @@ def test_it_says_the_reports_contract(auth_headers, books):
     assert {c['key'] for c in body['columns']} >= {'account_number', 'account_name', 'cash_debit', 'cash_credit',
                                                   'gold_debit', 'gold_credit'}
     assert _row(body, a)['drill'] == {'kind': 'account', 'id': a.id}, 'every line opens its account'
+    assert {c['key'] for c in body['columns'] if c['signed']} == {'cash_balance', 'gold_balance'}, 'balances, by sign'
     checks = {c['key']: c['ok'] for c in body['checks']}
     assert checks == {'cash_balanced': True, 'gold_balanced': True}
     assert body['read_at']

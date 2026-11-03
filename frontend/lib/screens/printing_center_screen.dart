@@ -17,7 +17,7 @@ import 'journal_entry_print_screen.dart';
 import 'general_ledger_screen_v2.dart';
 import 'reports/category_weight_audit_report_screen.dart';
 import 'reports/sales_overview_report_screen.dart';
-import 'trial_balance_screen_v2.dart';
+import 'reports/trial_balance_report_screen.dart';
 import '../utils/invoice_direct_print.dart';
 import '../widgets/app_feedback.dart';
 import '../utils/invoice_type_label.dart';
@@ -2297,7 +2297,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
               'Note': 'Pick the reporting period & karat detail inside',
               'Precision': 'Shows full gold & cash balances',
             },
-            builder: (_) => const TrialBalanceScreenV2(),
+            builder: (_) => const TrialBalanceReportScreen(),
           );
           break;
         }
@@ -3937,7 +3937,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
         await Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => const TrialBalanceScreenV2(),
+            builder: (_) => const TrialBalanceReportScreen(),
           ),
         );
         break;

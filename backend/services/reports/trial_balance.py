@@ -80,14 +80,14 @@ def trial_balance(*, now: dt.datetime, start: dt.date | None = None, end: dt.dat
 
     columns = [Column('account_number', 'رقم الحساب'), Column('account_name', 'الحساب'),
                Column('cash_debit', 'مدين نقد', 'money'), Column('cash_credit', 'دائن نقد', 'money'),
-               Column('cash_balance', 'الرصيد نقد', 'money')]
+               Column('cash_balance', 'الرصيد نقد', 'money', signed=True)]
     if karat_detail:
         for k in KARATS:
             columns += [Column(f'debit_{k}k', f'مدين {k}', 'grams'), Column(f'credit_{k}k', f'دائن {k}', 'grams'),
-                        Column(f'balance_{k}k', f'الرصيد {k}', 'grams')]
+                        Column(f'balance_{k}k', f'الرصيد {k}', 'grams', signed=True)]
     else:
         columns += [Column('gold_debit', 'مدين وزن', 'grams'), Column('gold_credit', 'دائن وزن', 'grams'),
-                    Column('gold_balance', 'الرصيد وزن', 'grams')]
+                    Column('gold_balance', 'الرصيد وزن', 'grams', signed=True)]
     checks = [Check('cash_balanced', 'مجموع المدين = مجموع الدائن (نقد)', abs(raw['cash_balance']) < 0.005),
               Check('gold_balanced', 'مجموع المدين = مجموع الدائن (وزن)', abs(raw['gold_balance']) < 0.0005)]
     return Report(id='trial_balance', title='ميزان المراجعة', basis='posted_entries', columns=columns, rows=rows,
