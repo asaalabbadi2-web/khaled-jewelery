@@ -102,8 +102,6 @@ class ReportCard extends StatelessWidget {
                     context,
                     report.requiresFilters ? 'فلترة مطلوبة' : 'بدون فلترة',
                   ),
-                  if (!report.available)
-                    _buildTag(context, 'قريباً', isWarning: true),
                 ],
               ),
             ),
@@ -113,18 +111,10 @@ class ReportCard extends StatelessWidget {
     );
   }
 
-  Widget _buildTag(
-    BuildContext context,
-    String label, {
-    bool isWarning = false,
-  }) {
+  Widget _buildTag(BuildContext context, String label) {
     final theme = Theme.of(context);
-    final bg = isWarning
-        ? theme.colorScheme.secondary.withValues(alpha: 0.12)
-        : theme.colorScheme.primary.withValues(alpha: 0.12);
-    final fg = isWarning
-        ? theme.colorScheme.secondary
-        : theme.colorScheme.primary;
+    final bg = theme.colorScheme.primary.withValues(alpha: 0.12);
+    final fg = theme.colorScheme.primary;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),

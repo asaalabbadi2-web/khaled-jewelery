@@ -1173,14 +1173,12 @@ from routes.clearing import _compute_clearing_due_amount         # noqa: F401
 
 # ═══════════════════════════════════════════════════════════════
 # Reports domain → routes/reports.py (cluster 3)
-# (GET /dual_system/income_statement, GET /dual_system/account_statement,
-#  GET /reports/income_statement, GET /reports/gram_profit,
+# (GET /reports/income_statement, GET /reports/gram_profit,
 #  GET /reports/bridge-balance-monitor,
-#  GET /reports/trial-balance/cash, GET /reports/trial-balance/gold,
 #  GET /reports/inventory_reconciliation,
 #  GET /reports/gold-weight-trial-balance,
 #  GET /reports/income-statement/gold,
-#  GET /dashboard/summary-debug, GET /dashboard/admin)
+#  GET /dashboard/admin; five read by no one went, REPORTS ت0-1)
 
 # ---------------------------------------------------------------------------
 # Temporary PDF hosting — used by the WhatsApp share flow.

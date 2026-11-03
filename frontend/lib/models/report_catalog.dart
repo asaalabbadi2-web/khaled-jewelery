@@ -23,7 +23,6 @@ class ReportCatalog {
                 'Quick KPIs, charts, and alerts from the ledger and shift closings.',
             route: 'admin_dashboard',
             type: ReportType.financial,
-            available: true,
             requiresFilters: false,
           ),
           ReportDescriptor(
@@ -37,7 +36,6 @@ class ReportCatalog {
                 'Sales riyals waiting to become gold again, their worth at your purchase price, and the weight profit in five layers.',
             route: 'weight_position',
             type: ReportType.financial,
-            available: true,
             requiresFilters: false,
           ),
           ReportDescriptor(
@@ -51,7 +49,6 @@ class ReportCatalog {
                 'What the nightly book checks and settlement jobs found — standing risk first.',
             route: 'reconciliation_findings',
             type: ReportType.financial,
-            available: true,
             requiresFilters: false,
           ),
           ReportDescriptor(
@@ -65,7 +62,6 @@ class ReportCatalog {
                 "A period's return: output VAT against input VAT, the net owed or due back -- one entry at the period's end.",
             route: 'vat_returns',
             type: ReportType.financial,
-            available: true,
             requiresFilters: false,
           ),
           ReportDescriptor(
@@ -79,7 +75,6 @@ class ReportCatalog {
                 'Interactive analysis of main-karat equivalent weight and cash flows by office, transaction type, or employee.',
             route: 'analytics_dashboard',
             type: ReportType.financial,
-            available: true,
             requiresFilters: true,
           ),
           ReportDescriptor(
@@ -93,33 +88,8 @@ class ReportCatalog {
                 'Analyze revenues, expenses, and net profit by period.',
             route: 'income_statement',
             type: ReportType.financial,
-            available: true,
             keywords: ['أرباح', 'خسائر', 'ميزانية'],
             requiresFilters: true,
-          ),
-          ReportDescriptor(
-            id: 'balance_sheet',
-            icon: Icons.account_balance,
-            titleAr: 'الميزانية العمومية',
-            titleEn: 'Balance Sheet',
-            descriptionAr: 'عرض الأصول والخصوم وحقوق الملكية بنهاية الفترة.',
-            descriptionEn:
-                'Show assets, liabilities, and equity at period end.',
-            route: 'balance_sheet',
-            type: ReportType.financial,
-            requiresFilters: false,
-          ),
-          ReportDescriptor(
-            id: 'cash_flow',
-            icon: Icons.swap_vert_circle,
-            titleAr: 'التدفقات النقدية',
-            titleEn: 'Cash Flow',
-            descriptionAr:
-                'متابعة التدفقات النقدية من التشغيل والاستثمار والتمويل.',
-            descriptionEn:
-                'Track cash flows from operations, investing, financing.',
-            route: 'cash_flow',
-            type: ReportType.financial,
           ),
           ReportDescriptor(
             id: 'trial_balance',
@@ -130,7 +100,6 @@ class ReportCatalog {
             descriptionEn: 'Review total balances by account and karat.',
             route: 'trial_balance',
             type: ReportType.accounting,
-            available: true,
             requiresFilters: true,
           ),
           ReportDescriptor(
@@ -144,7 +113,6 @@ class ReportCatalog {
                 'Distribute customer balances across aging buckets and highlight top overdue accounts.',
             route: 'customer_balances_aging',
             type: ReportType.accounting,
-            available: true,
             requiresFilters: true,
           ),
         ],
@@ -166,7 +134,6 @@ class ReportCatalog {
                 'Daily/monthly sales with weight and value indicators.',
             route: 'sales_overview',
             type: ReportType.sales,
-            available: true,
           ),
           ReportDescriptor(
             id: 'sales_by_customer',
@@ -177,7 +144,6 @@ class ReportCatalog {
             descriptionEn: 'Analyze top customers and related balances.',
             route: 'sales_by_customer',
             type: ReportType.sales,
-            available: true,
           ),
           ReportDescriptor(
             id: 'sales_by_item',
@@ -188,7 +154,6 @@ class ReportCatalog {
             descriptionEn: 'Item performance by karat, weight, profitability.',
             route: 'sales_by_item',
             type: ReportType.sales,
-            available: true,
           ),
           ReportDescriptor(
             id: 'sales_by_karat',
@@ -201,7 +166,6 @@ class ReportCatalog {
                 'Distribution of sales, weights and values by gold karat (18, 21, 22, 24).',
             route: 'sales_by_karat',
             type: ReportType.sales,
-            available: true,
             requiresFilters: true,
           ),
           ReportDescriptor(
@@ -215,7 +179,6 @@ class ReportCatalog {
                 'Compare value and weight trends for sales versus purchases.',
             route: 'sales_vs_purchases_trend',
             type: ReportType.sales,
-            available: true,
             requiresFilters: true,
           ),
         ],
@@ -238,7 +201,6 @@ class ReportCatalog {
                 'View main-karat weight balances by (location/safe box) and category, with a movement log.',
             route: 'category_weight_audit',
             type: ReportType.inventory,
-            available: true,
             requiresFilters: false,
           ),
         ],
@@ -261,7 +223,6 @@ class ReportCatalog {
                 'Official customer gold balances (memo ledger) with main-karat equivalent.',
             route: 'customer_gold_balances',
             type: ReportType.gold,
-            available: true,
             requiresFilters: false,
           ),
           ReportDescriptor(
@@ -273,7 +234,6 @@ class ReportCatalog {
             descriptionEn: 'Historical daily gold price with comparisons.',
             route: 'gold_price_history',
             type: ReportType.gold,
-            available: true,
             requiresFilters: true,
           ),
           ReportDescriptor(
@@ -285,7 +245,6 @@ class ReportCatalog {
             descriptionEn: 'Net gold position by karat and branch.',
             route: 'gold_position',
             type: ReportType.gold,
-            available: true,
             requiresFilters: true,
           ),
           ReportDescriptor(
@@ -297,7 +256,6 @@ class ReportCatalog {
             descriptionEn: 'Gold safe boxes inventory with quick totals.',
             route: 'safe_boxes_screen',
             type: ReportType.gold,
-            available: true,
             requiresFilters: true,
           ),
           ReportDescriptor(
@@ -311,7 +269,6 @@ class ReportCatalog {
                 'Reconcile gold safe ledger balances with linked weight accounts and show variances.',
             route: 'gold_weight_trial_balance',
             type: ReportType.gold,
-            available: true,
             requiresFilters: false,
           ),
         ],
@@ -332,17 +289,6 @@ class ReportCatalog {
             descriptionEn: 'Employees payroll with deductions and additions.',
             route: 'payroll_report',
             type: ReportType.payroll,
-            available: true,
-          ),
-          ReportDescriptor(
-            id: 'attendance_summary',
-            icon: Icons.access_time,
-            titleAr: 'ملخص الحضور والانصراف',
-            titleEn: 'Attendance Summary',
-            descriptionAr: 'تحليل حضور الموظفين ومتوسط الساعات.',
-            descriptionEn: 'Analyze employees attendance and average hours.',
-            route: 'attendance_summary',
-            type: ReportType.payroll,
           ),
           ReportDescriptor(
             id: 'bonus_payables',
@@ -353,7 +299,6 @@ class ReportCatalog {
             descriptionEn: 'Approved unpaid bonuses per employee, reconciled to the payable account.',
             route: 'bonus_payables',
             type: ReportType.payroll,
-            available: true,
             requiresFilters: false,
           ),
         ],
@@ -374,7 +319,6 @@ class ReportCatalog {
             descriptionEn: 'All journal entries with running balances.',
             route: 'general_ledger',
             type: ReportType.accounting,
-            available: true,
           ),
           ReportDescriptor(
             id: 'account_statement',
@@ -385,17 +329,6 @@ class ReportCatalog {
             descriptionEn:
                 'Display flows of selected account by karat and cash.',
             route: 'account_statement',
-            type: ReportType.accounting,
-            available: true,
-          ),
-          ReportDescriptor(
-            id: 'customer_statement',
-            icon: Icons.person_search,
-            titleAr: 'كشف حساب العملاء',
-            titleEn: 'Customer Statement',
-            descriptionAr: 'متابعة أرصدة العملاء والقيود المرتبطة بهم.',
-            descriptionEn: 'Track customer balances and related entries.',
-            route: 'customer_statement',
             type: ReportType.accounting,
           ),
         ],

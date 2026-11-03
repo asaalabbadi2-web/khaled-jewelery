@@ -44,9 +44,7 @@ class ReportCategorySection extends StatelessWidget {
                   child: ReportCard(
                     report: report,
                     isArabic: isArabic,
-                    onTap: report.available
-                        ? () => onReportSelected?.call(report)
-                        : null,
+                    onTap: () => onReportSelected?.call(report),
                   ),
                 );
               }).toList(),

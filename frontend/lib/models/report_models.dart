@@ -11,7 +11,6 @@ class ReportDescriptor {
   final String route;
   final ReportType type;
   final bool requiresFilters;
-  final bool available;
 
   /// The words people use for it, which its title does not hold -- the home
   /// screen's search finds it by them (ADR-057 ق٠).
@@ -27,7 +26,6 @@ class ReportDescriptor {
     required this.route,
     required this.type,
     this.requiresFilters = true,
-    this.available = false,
     this.keywords = const [],
   });
 

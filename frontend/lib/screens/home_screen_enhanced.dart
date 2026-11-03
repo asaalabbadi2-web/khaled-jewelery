@@ -1221,10 +1221,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       final reports = isAr ? 'التقارير' : 'Reports';
       for (final category in ReportCatalog.buildDefaultCatalog()) {
         for (final r in category.reports) {
-          if (!r.available ||
-              reportDestination(r.route, api, isAr) == null) {
-            continue;
-          }
+          if (reportDestination(r.route, api, isAr) == null) continue;
           out.add(
             screen(
               r.localizedTitle(isAr),
