@@ -107,10 +107,10 @@ class TestNoWriter:
 
         Note for whoever extends this: `Customer` and `Office` keep identically
         named columns on purpose, so the rule is deliberately scoped to the
-        `supplier` / `Supplier` spellings. Beware the reverse trap too —
-        `routes/reports.py` has a loop variable named `supplier` that actually
-        holds a `Customer` (`Customer.customer_type == 'مورد'`), which is why
-        this checks writes and class references rather than every read."""
+        `supplier` / `Supplier` spellings. Beware the reverse trap too — a
+        loop variable named `supplier` may hold a `Customer` (routes/reports.py
+        once had one, `Customer.customer_type == 'مورد'`), which
+        is why this checks writes and class references rather than every read."""
         columns = '|'.join(CACHED_COLUMNS)
         patterns = [
             re.compile(r'\bsupplier\s*\.\s*(' + columns + r')\s*(\+=|-=|=(?!=))'),

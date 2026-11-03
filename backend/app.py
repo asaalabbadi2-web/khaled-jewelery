@@ -64,6 +64,8 @@ try:
 	from routes.invoices import invoices_bp
 	from routes.employees import employees_bp
 	from routes.reports import reports_bp
+	from routes.sales_race import sales_race_bp
+	from routes.admin_dashboard import admin_dashboard_bp
 	from routes.catalog import catalog_bp
 	from routes.safe_boxes import safe_boxes_bp
 	from routes.journals import journals_bp
@@ -469,6 +471,8 @@ app.register_blueprint(accounts_bp, url_prefix='/api')   # Accounts domain
 app.register_blueprint(invoices_bp, url_prefix='/api')   # Invoices domain
 app.register_blueprint(employees_bp, url_prefix='/api')  # Employees domain
 app.register_blueprint(reports_bp, url_prefix='/api')    # Reports domain
+app.register_blueprint(sales_race_bp, url_prefix='/api')  # the sales race's settings, the home leaderboard
+app.register_blueprint(admin_dashboard_bp, url_prefix='/api')  # the manager's dashboard
 app.register_blueprint(catalog_bp, url_prefix='/api')    # Catalog domain (items, categories)
 app.register_blueprint(safe_boxes_bp, url_prefix='/api') # Safe-boxes domain
 app.register_blueprint(journals_bp, url_prefix='/api')  # Journal-entries domain

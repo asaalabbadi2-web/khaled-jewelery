@@ -111,9 +111,8 @@ class TestTheBell:
 
     def test_nothing_writes_scheduler_alerts_any_more(self):
         """The dashboard and the old alerts route no longer refresh a SystemAlert."""
-        from routes import reports, system
-        assert 'refresh_bell' not in inspect.getsource(reports.get_admin_dashboard) \
-            if hasattr(reports, 'get_admin_dashboard') else True
+        from routes import admin_dashboard, system
+        assert 'refresh_bell' not in inspect.getsource(admin_dashboard.get_admin_dashboard)
         assert 'refresh_bell' not in inspect.getsource(system.list_system_alerts)
         assert not hasattr(hb, 'sync_scheduler_alert') and not hasattr(hb, 'refresh_bell')
 

@@ -36,7 +36,7 @@ ALLOWED = {
     ('payment_methods_routes.py', 'get_invoice_type_options'): POS,
     ('payment_methods_routes.py', 'get_payment_types'): POS,
     ('bonus_routes.py', 'get_invoice_types'): 'a fixed list of invoice type names',
-    ('routes/reports.py', 'get_home_leaderboard'): 'the sales race on the home screen, for every employee',
+    ('routes/sales_race.py', 'get_home_leaderboard'): 'the sales race on the home screen, for every employee',
     ('routes/employees.py', 'get_unseen_achievements'): OWN + ' achievements',
     ('routes/employees.py', 'my_goal_progress'): OWN + ' goals so far («هدفي», ADR-058)',
     ('routes/employees.py', 'my_portal'): OWN + ' portal: the session\'s employee, never an id (EMP-PORTAL-1)',

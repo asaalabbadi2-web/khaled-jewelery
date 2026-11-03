@@ -40,7 +40,8 @@ READERS = {
     'services/sale_stones.py': 'write',              # a sale line's stones sold by their value (ت6ج)
     'services/gold_allocation_service.py': 'write',  # the supplier's gold owed (ت-4: from the corrected lines)
     'category_weight_tracking.py': 'write',          # category weight movements at posting
-    'routes/reports.py': 'derived',                  # sales by item, by karat, the dashboard, gram profit
+    'routes/reports.py': 'derived',                  # sales by item, by karat, gram profit
+    'routes/admin_dashboard.py': 'derived',          # the manager's dashboard (from reports.py, REPORTS ت0-2)
     'routes/__init__.py': 'derived',                 # an invoice's main-karat weight
     'routes/catalog.py': 'derived',                  # whether an item was invoiced
     'summary_routes.py': 'derived',                  # top items

@@ -50,3 +50,11 @@ def test_every_report_route_has_a_reader():
 
 def test_a_route_named_as_read_elsewhere_still_exists():
     assert set(READ_ELSEWHERE) <= _report_paths(), 'a reader named for a route that is gone'
+
+
+def test_the_reports_blueprint_holds_only_reports():
+    """REPORTS ت0-2: the sales race's settings and the home leaderboard, and the
+    manager's dashboard, are their own (routes/sales_race.py, routes/admin_dashboard.py)."""
+    strays = sorted({rule.rule for rule in flask_app.url_map.iter_rules() if rule.endpoint.startswith('reports.')
+                     and rule.rule.startswith(('/api/sales-race', '/api/home/', '/api/dashboard/'))})
+    assert strays == [], f'not reports, in routes/reports.py: {strays}'
