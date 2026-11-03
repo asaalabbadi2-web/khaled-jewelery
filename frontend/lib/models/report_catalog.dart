@@ -125,6 +125,19 @@ class ReportCatalog {
         nameEn: 'Sales Reports',
         reports: const [
           ReportDescriptor(
+            id: 'sales_analysis',
+            icon: Icons.insights,
+            titleAr: 'تحليل المبيعات',
+            titleEn: 'Sales Analysis',
+            descriptionAr:
+                'المبيعات حسب الموظف أو العميل أو اليوم أو الشهر، مطابقة للدفاتر، مع المقارنة بالفترة السابقة.',
+            descriptionEn:
+                'Sales by employee, customer, day or month, agreeing with the books.',
+            route: 'sales_analysis',
+            type: ReportType.sales,
+            keywords: ['مبيعات', 'موظف', 'عميل', 'مقارنة'],
+          ),
+          ReportDescriptor(
             id: 'sales_overview',
             icon: Icons.receipt_long,
             titleAr: 'ملخص المبيعات',
@@ -295,8 +308,10 @@ class ReportCatalog {
             icon: Icons.card_giftcard,
             titleAr: 'المكافآت المستحقة',
             titleEn: 'Bonus Payables',
-            descriptionAr: 'المكافآت المعتمدة غير المصروفة لكل موظف، ومطابقتها برصيد حساب المكافآت المستحقة.',
-            descriptionEn: 'Approved unpaid bonuses per employee, reconciled to the payable account.',
+            descriptionAr:
+                'المكافآت المعتمدة غير المصروفة لكل موظف، ومطابقتها برصيد حساب المكافآت المستحقة.',
+            descriptionEn:
+                'Approved unpaid bonuses per employee, reconciled to the payable account.',
             route: 'bonus_payables',
             type: ReportType.payroll,
             requiresFilters: false,

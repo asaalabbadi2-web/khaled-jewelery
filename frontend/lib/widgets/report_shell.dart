@@ -33,8 +33,23 @@ class ReportToggle {
   final String label;
 }
 
+/// One choice of a report's own (the sales analysis's «حسب»): its options,
+/// the first chosen at the start.
+@immutable
+class ReportChoice {
+  const ReportChoice(this.key, this.label, this.options);
+
+  final String key;
+  final String label;
+  final List<(String, String)> options;
+}
+
 typedef ReportLoader =
-    Future<ReportData> Function(DateTimeRange? range, Set<String> on);
+    Future<ReportData> Function(
+      DateTimeRange? range,
+      Set<String> on,
+      Map<String, String> chosen,
+    );
 typedef ReportSaver =
     Future<void> Function(String fileName, List<int> bytes, String mimeType);
 
@@ -45,6 +60,7 @@ class ReportShell extends StatefulWidget {
     required this.load,
     this.subtitle,
     this.toggles = const [],
+    this.choices = const [],
     this.initialRange,
     this.onDrill,
     this.emptyTitle = 'لا شيء في هذه الفترة',
@@ -57,6 +73,7 @@ class ReportShell extends StatefulWidget {
   final String? subtitle;
   final ReportLoader load;
   final List<ReportToggle> toggles;
+  final List<ReportChoice> choices;
 
   /// The period it opens on; null: all periods.
   final DateTimeRange? initialRange;
@@ -82,6 +99,9 @@ class ReportShell extends StatefulWidget {
 class _ReportShellState extends State<ReportShell> {
   late DateTimeRange? _range = widget.initialRange;
   final Set<String> _on = {};
+  late final Map<String, String> _chosen = {
+    for (final c in widget.choices) c.key: c.options.first.$1,
+  };
   ReportData? _report;
   Object? _error;
   bool _loading = true;
@@ -100,7 +120,7 @@ class _ReportShellState extends State<ReportShell> {
       _error = null;
     });
     try {
-      final report = await widget.load(_range, Set.of(_on));
+      final report = await widget.load(_range, Set.of(_on), Map.of(_chosen));
       if (!mounted || ask != _ask) return;
       setState(() {
         _report = report;
@@ -226,6 +246,20 @@ class _ReportShellState extends State<ReportShell> {
                     _load();
                   },
                 ),
+                for (final c in widget.choices)
+                  SegmentedButton<String>(
+                    key: ValueKey('report-choice-${c.key}'),
+                    showSelectedIcon: false,
+                    segments: [
+                      for (final (value, label) in c.options)
+                        ButtonSegment(value: value, label: Text(label)),
+                    ],
+                    selected: {_chosen[c.key]!},
+                    onSelectionChanged: (s) {
+                      setState(() => _chosen[c.key] = s.first);
+                      _load();
+                    },
+                  ),
                 for (final t in widget.toggles)
                   FilterChip(
                     key: ValueKey('report-toggle-${t.key}'),

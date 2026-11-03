@@ -2862,6 +2862,24 @@ def _report_date(name, default=None):
     return datetime.strptime(raw, '%Y-%m-%d').date()
 
 
+@reports_bp.route('/reports/sales-analysis', methods=['GET'])
+@require_permission('reports.financial')
+def get_sales_analysis():
+    """Sales analysis in the reports' contract (services/reports/sales_analysis.py,
+    REPORTS ت1-2): start_date / end_date (the end day whole), by (employee,
+    customer, day, month), compare (the period before, of the same length)."""
+    from services.reports.sales_analysis import BY, sales_analysis
+    try:
+        start, end = _report_date('start_date'), _report_date('end_date')
+    except ValueError:
+        return jsonify({'error': 'invalid_date', 'message': 'start_date و end_date بصيغة YYYY-MM-DD'}), 400
+    by = request.args.get('by', 'employee')
+    if by not in BY:
+        return jsonify({'error': 'invalid_by', 'message': f'by: {" | ".join(BY)}'}), 400
+    compare = request.args.get('compare', 'false').lower() == 'true'
+    return jsonify(sales_analysis(start=start, end=end, by=by, compare=compare, now=datetime.now()).to_dict())
+
+
 @reports_bp.route('/reports/weight-position', methods=['GET'])
 @require_permission('reports.financial')
 def get_weight_position():

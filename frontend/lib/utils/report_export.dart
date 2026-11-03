@@ -22,6 +22,7 @@ String reportCell(ReportColumn column, Object? value) {
     ReportColumnKind.money when number != null => formatAmount(number),
     ReportColumnKind.grams when number != null => formatGrams(number),
     ReportColumnKind.count when number != null => '${number.round()}',
+    ReportColumnKind.percent when number != null => '${formatAmount(number)}%',
     _ => '$value',
   };
 }

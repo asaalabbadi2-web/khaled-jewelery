@@ -46,7 +46,7 @@ class TrialBalanceReportScreen extends StatelessWidget {
       printer: printer,
       toggles: const [ReportToggle(karatDetail, 'تفصيل العيارات')],
       emptyTitle: 'لا قيود مرحّلة في هذه الفترة',
-      load: (range, on) async => ReportData.fromJson(
+      load: (range, on, _) async => ReportData.fromJson(
         await server.getTrialBalance(
           startDate: range == null ? null : day.format(range.start),
           endDate: range == null ? null : day.format(range.end),

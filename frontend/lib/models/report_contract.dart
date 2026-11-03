@@ -4,7 +4,7 @@
 library;
 
 /// A column's kind: how its figures are written.
-enum ReportColumnKind { text, money, grams, count }
+enum ReportColumnKind { text, money, grams, count, percent }
 
 class ReportColumn {
   const ReportColumn({

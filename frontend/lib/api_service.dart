@@ -2637,6 +2637,29 @@ class ApiService {
     }
   }
 
+  /// Sales analysis in the reports' contract (REPORTS ت1-2): by employee,
+  /// customer, day or month; compared with the period before.
+  Future<Map<String, dynamic>> getSalesAnalysis({
+    String? startDate,
+    String? endDate,
+    String by = 'employee',
+    bool compare = false,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/reports/sales-analysis').replace(
+      queryParameters: {
+        'start_date': ?startDate,
+        'end_date': ?endDate,
+        'by': by,
+        if (compare) 'compare': 'true',
+      },
+    );
+    final response = await _authedGet(uri);
+    if (response.statusCode == 200) {
+      return json.decode(utf8.decode(response.bodyBytes));
+    }
+    throw _apiError(response);
+  }
+
   Future<Map<String, dynamic>> getSalesOverviewReport({
     DateTime? startDate,
     DateTime? endDate,

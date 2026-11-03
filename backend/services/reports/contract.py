@@ -6,7 +6,7 @@ So one screen shows, exports and prints any report (the shell, ت1):
   period          {'start', 'end'} (ISO dates; either may be None) -- or an 'as_of'
   basis           where its figures come from: 'posted_entries' (the books) or
                   'documents' (an analysis, reconciled to the books in total)
-  columns         [{'key', 'label', 'kind', 'signed'}]; kind: text | money | grams | count;
+  columns         [{'key', 'label', 'kind', 'signed'}]; kind: text | money | grams | count | percent;
                   signed: its sign means something (a balance), shown so
   rows            [{<column key>: value, ..., 'drill': {'kind', 'id'} | None}]
   totals          {<column key>: value}
@@ -19,7 +19,7 @@ import datetime as dt
 from dataclasses import dataclass, field
 
 BASES = ('posted_entries', 'documents')
-KINDS = ('text', 'money', 'grams', 'count')
+KINDS = ('text', 'money', 'grams', 'count', 'percent')
 
 
 @dataclass(frozen=True)
