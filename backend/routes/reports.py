@@ -2186,199 +2186,21 @@ def get_customer_balances_aging():
 @reports_bp.route('/trial_balance', methods=['GET'])
 @require_permission('reports.financial')
 def get_trial_balance():
-    """
-    Enhanced Trial Balance with date filtering and karat detail support
-    Query Parameters:
-    - start_date: Filter entries from this date (YYYY-MM-DD)
-    - end_date: Filter entries to this date (YYYY-MM-DD)
-    - karat_detail: If true, return karat breakdown; if false, return normalized totals
-    """
-    # Get optional query parameters
-    start_date = request.args.get('start_date')
-    end_date = request.args.get('end_date')
+    """The trial balance in the reports' contract (services/reports/trial_balance.py,
+    REPORTS ت0-3), with the old keys alongside until the screen reads the
+    contract (ت1). start_date / end_date (YYYY-MM-DD, the end day whole),
+    karat_detail."""
+    from services.reports.trial_balance import trial_balance
+    try:
+        start, end = _report_date('start_date'), _report_date('end_date')
+    except ValueError:
+        return jsonify({'error': 'invalid_date', 'message': 'start_date و end_date بصيغة YYYY-MM-DD'}), 400
     karat_detail = request.args.get('karat_detail', 'false').lower() == 'true'
-    
-    # Start building the query
-    query = db.session.query(
-        Account.id,
-        Account.name,
-        Account.account_number,
-        func.sum(JournalEntryLine.cash_debit).label('total_cash_debit'),
-        func.sum(JournalEntryLine.cash_credit).label('total_cash_credit'),
-        func.sum(JournalEntryLine.debit_18k).label('total_debit_18k'),
-        func.sum(JournalEntryLine.credit_18k).label('total_credit_18k'),
-        func.sum(JournalEntryLine.debit_21k).label('total_debit_21k'),
-        func.sum(JournalEntryLine.credit_21k).label('total_credit_21k'),
-        func.sum(JournalEntryLine.debit_22k).label('total_debit_22k'),
-        func.sum(JournalEntryLine.credit_22k).label('total_credit_22k'),
-        func.sum(JournalEntryLine.debit_24k).label('total_debit_24k'),
-        func.sum(JournalEntryLine.credit_24k).label('total_credit_24k')
-    ).join(Account).join(JournalEntry)
-
-    # Always restrict to posted, non-deleted, non-draft entries — the same
-    # set that _rebuild_all_account_balances() uses.  Without is_draft=False
-    # the endpoint includes "posted-but-still-draft" JEs whose lines are
-    # unbalanced, causing Dr-Cr to diverge from stored Account.balance_*
-    # values (116,378 divergence observed in production July 2026).
-    je_filters = [
-        JournalEntry.is_posted == True,
-        func.coalesce(JournalEntry.is_deleted, False) == False,
-        func.coalesce(JournalEntryLine.is_deleted, False) == False,
-    ]
-    if _db_has_column('journal_entry', 'is_draft'):
-        je_filters.append(JournalEntry.is_draft == False)
-    query = query.filter(*je_filters)
-
-    # Apply date filters if provided
-    if start_date:
-        try:
-            start_dt = datetime.strptime(start_date, '%Y-%m-%d')
-            query = query.filter(JournalEntry.entry_date >= start_dt)
-        except ValueError:
-            return jsonify({'error': 'Invalid start_date format. Use YYYY-MM-DD'}), 400
-    
-    if end_date:
-        try:
-            end_dt = datetime.strptime(end_date, '%Y-%m-%d')
-            query = query.filter(JournalEntry.entry_date <= end_dt)
-        except ValueError:
-            return jsonify({'error': 'Invalid end_date format. Use YYYY-MM-DD'}), 400
-    
-    query_result = query.group_by(Account.id, Account.name, Account.account_number).all()
-
-    trial_balance = []
-    
-    # Initialize grand totals
-    if karat_detail:
-        totals = {
-            'cash_debit': 0, 'cash_credit': 0,
-            'debit_18k': 0, 'credit_18k': 0,
-            'debit_21k': 0, 'credit_21k': 0,
-            'debit_22k': 0, 'credit_22k': 0,
-            'debit_24k': 0, 'credit_24k': 0,
-        }
-    else:
-        totals = {
-            'gold_debit': 0, 'gold_credit': 0,
-            'cash_debit': 0, 'cash_credit': 0,
-        }
-
-    for row in query_result:
-        cash_debit = row.total_cash_debit or 0
-        cash_credit = row.total_cash_credit or 0
-        
-        if karat_detail:
-            # Return karat breakdown
-            debit_18k = row.total_debit_18k or 0
-            credit_18k = row.total_credit_18k or 0
-            debit_21k = row.total_debit_21k or 0
-            credit_21k = row.total_credit_21k or 0
-            debit_22k = row.total_debit_22k or 0
-            credit_22k = row.total_credit_22k or 0
-            debit_24k = row.total_debit_24k or 0
-            credit_24k = row.total_credit_24k or 0
-            
-            # Only add accounts that have transactions
-            if any([cash_debit, cash_credit, debit_18k, credit_18k, debit_21k, credit_21k, 
-                    debit_22k, credit_22k, debit_24k, credit_24k]):
-                
-                # Calculate balances for each karat
-                balance_18k = debit_18k - credit_18k
-                balance_21k = debit_21k - credit_21k
-                balance_22k = debit_22k - credit_22k
-                balance_24k = debit_24k - credit_24k
-                cash_balance = cash_debit - cash_credit
-                
-                trial_balance.append({
-                    'account_id': row.id,
-                    'account_number': row.account_number,
-                    'account_name': row.name,
-                    'cash_debit': cash_debit,
-                    'cash_credit': cash_credit,
-                    'cash_balance': cash_balance,
-                    'debit_18k': debit_18k,
-                    'credit_18k': credit_18k,
-                    'balance_18k': balance_18k,
-                    'debit_21k': debit_21k,
-                    'credit_21k': credit_21k,
-                    'balance_21k': balance_21k,
-                    'debit_22k': debit_22k,
-                    'credit_22k': credit_22k,
-                    'balance_22k': balance_22k,
-                    'debit_24k': debit_24k,
-                    'credit_24k': credit_24k,
-                    'balance_24k': balance_24k,
-                })
-                
-                # Update totals
-                totals['cash_debit'] += cash_debit
-                totals['cash_credit'] += cash_credit
-                totals['debit_18k'] += debit_18k
-                totals['credit_18k'] += credit_18k
-                totals['debit_21k'] += debit_21k
-                totals['credit_21k'] += credit_21k
-                totals['debit_22k'] += debit_22k
-                totals['credit_22k'] += credit_22k
-                totals['debit_24k'] += debit_24k
-                totals['credit_24k'] += credit_24k
-        else:
-            # Normalize gold weights to main karat
-            gold_debit = (
-                convert_to_main_karat(row.total_debit_18k or 0, 18) +
-                convert_to_main_karat(row.total_debit_21k or 0, 21) +
-                convert_to_main_karat(row.total_debit_22k or 0, 22) +
-                convert_to_main_karat(row.total_debit_24k or 0, 24)
-            )
-            gold_credit = (
-                convert_to_main_karat(row.total_credit_18k or 0, 18) +
-                convert_to_main_karat(row.total_credit_21k or 0, 21) +
-                convert_to_main_karat(row.total_credit_22k or 0, 22) +
-                convert_to_main_karat(row.total_credit_24k or 0, 24)
-            )
-            
-            # Only add accounts that have transactions
-            if gold_debit != 0 or gold_credit != 0 or cash_debit != 0 or cash_credit != 0:
-                gold_balance = gold_debit - gold_credit
-                cash_balance = cash_debit - cash_credit
-                
-                trial_balance.append({
-                    'account_id': row.id,
-                    'account_number': row.account_number,
-                    'account_name': row.name,
-                    'gold_debit': gold_debit,
-                    'gold_credit': gold_credit,
-                    'gold_balance': gold_balance,
-                    'cash_debit': cash_debit,
-                    'cash_credit': cash_credit,
-                    'cash_balance': cash_balance,
-                })
-                
-                totals['gold_debit'] += gold_debit
-                totals['gold_credit'] += gold_credit
-                totals['cash_debit'] += cash_debit
-                totals['cash_credit'] += cash_credit
-
-    # Calculate total balances
-    if karat_detail:
-        totals['cash_balance'] = totals['cash_debit'] - totals['cash_credit']
-        totals['balance_18k'] = totals['debit_18k'] - totals['credit_18k']
-        totals['balance_21k'] = totals['debit_21k'] - totals['credit_21k']
-        totals['balance_22k'] = totals['debit_22k'] - totals['credit_22k']
-        totals['balance_24k'] = totals['debit_24k'] - totals['credit_24k']
-    else:
-        totals['gold_balance'] = totals['gold_debit'] - totals['gold_credit']
-        totals['cash_balance'] = totals['cash_debit'] - totals['cash_credit']
-
-    return jsonify({
-        'trial_balance': trial_balance,
-        'totals': totals,
-        'filters': {
-            'start_date': start_date,
-            'end_date': end_date,
-            'karat_detail': karat_detail,
-        },
-        'count': len(trial_balance),
-    })
+    report = trial_balance(start=start, end=end, karat_detail=karat_detail, now=datetime.now()).to_dict()
+    report.update({'trial_balance': report['rows'], 'count': len(report['rows']),
+                   'filters': {'start_date': report['period']['start'], 'end_date': report['period']['end'],
+                               'karat_detail': karat_detail}})
+    return jsonify(report)
 
 @reports_bp.route('/reports/gold_price_history', methods=['GET'])
 @require_permission('reports.financial')
