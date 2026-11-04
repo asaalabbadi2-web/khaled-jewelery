@@ -124,3 +124,20 @@ def test_by_item_the_piece_and_the_lines_by_weight(sold):
     assert rows['بلا صنف (بالوزن)']['value'] == pytest.approx(1000.0)
     assert {c.key for c in report.columns} >= {'per_gram', 'last'}
     assert {c.key: c.ok for c in report.checks} == {'books_agree': True}
+
+
+def test_by_day_or_month_it_asks_for_a_chart_of_its_value(sold):
+    """REPORTS ت4-2 (the owner, 4 Nov 2026: a chart in the shell): a report
+    over time names its chart -- its x, its figure -- and the shell draws it."""
+    assert _analysis('month').to_dict()['chart'] == {'x': 'group', 'y': 'value'}
+    assert _analysis('category').to_dict()['chart'] is None
+
+
+def test_a_chart_names_the_report_s_own_columns():
+    from services.reports.contract import Chart, Column, Report
+    with pytest.raises(ValueError):
+        Report(id='x', title='x', basis='documents', columns=[Column('group', 'g'), Column('value', 'v', 'money')],
+               rows=[], totals={}, read_at=D(2041, 7, 1), chart=Chart('group', 'nothing'))
+    with pytest.raises(ValueError):
+        Report(id='x', title='x', basis='documents', columns=[Column('group', 'g'), Column('value', 'v', 'money')],
+               rows=[], totals={}, read_at=D(2041, 7, 1), chart=Chart('group', 'group'))

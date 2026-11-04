@@ -62,7 +62,15 @@ class _Server extends ApiService {
           'last': '2026-10-31',
           'drill': {'kind': employee ? 'employee' : 'customer', 'id': 19},
         },
+        if (by == 'month')
+          {
+            'group_id': '2026-10',
+            'group': '2026-10',
+            'invoices': 244,
+            'value': 1394020.1,
+          },
       ],
+      'chart': by == 'month' ? {'x': 'group', 'y': 'value'} : null,
       'totals': {'invoices': 67, 'value': 434670.0, 'share': 100.0},
       'checks': [
         {
@@ -144,6 +152,21 @@ void main() {
     expect(find.byKey(const ValueKey('report-head-last')), findsOneWidget);
     final date = tester.widget<Text>(find.text('2026-10-31'));
     expect(date.textDirection, TextDirection.ltr);
+  });
+
+  testWidgets('over time the report draws its chart over the table, its '
+      'title naming it (REPORTS ت4-2)', (tester) async {
+    await _open(tester);
+    expect(find.byKey(const ValueKey('report-chart')), findsNothing);
+    await tester.tap(find.text('الشهر').first);
+    await _settle(tester);
+    expect(find.byKey(const ValueKey('report-chart')), findsOneWidget);
+    expect(find.text('القيمة حسب العميل'), findsOneWidget);
+    expect(
+      find.text('10/26'),
+      findsOneWidget,
+      reason: 'a month, short, on the axis',
+    );
   });
 
   testWidgets('«حسب» reads again; compared, the previous period comes', (

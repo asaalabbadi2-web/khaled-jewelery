@@ -14,6 +14,7 @@ import '../utils/report_export.dart';
 import 'app_feedback.dart';
 import 'app_period_picker.dart';
 import 'app_state_views.dart';
+import 'report_chart.dart';
 
 /// One screen for any report (REPORTS ت1, ADR-083): the period (the ready ones
 /// a tap away, UI-4) and the report's own switches above; its four states --
@@ -371,6 +372,10 @@ class _ReportShellState extends State<ReportShell> {
               runSpacing: AppSpace.sm,
               children: [for (final c in report.checks) _check(context, c)],
             ),
+            const SizedBox(height: AppSpace.md),
+          ],
+          if (ReportBarChart.drawn(report)) ...[
+            ReportBarChart(report: report),
             const SizedBox(height: AppSpace.md),
           ],
           ReportTable(

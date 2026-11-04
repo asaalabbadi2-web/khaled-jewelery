@@ -44,6 +44,15 @@ class Check:
     ok: bool
 
 
+@dataclass(frozen=True)
+class Chart:
+    """The one chart a report asks the shell to draw over its table (REPORTS
+    ت4-2): its rows along *x* (a text column), the height of figure *y*. One
+    series, one axis; the table stays the record."""
+    x: str
+    y: str
+
+
 @dataclass
 class Report:
     id: str
@@ -56,10 +65,15 @@ class Report:
     start: dt.date | None = None
     end: dt.date | None = None
     checks: list = field(default_factory=list)
+    chart: Chart | None = None
 
     def __post_init__(self):
         if self.basis not in BASES:
             raise ValueError(f'a report is read from {"|".join(BASES)}, not {self.basis!r}')
+        if self.chart is not None:
+            kinds = {c.key: c.kind for c in self.columns}
+            if kinds.get(self.chart.x) != 'text' or kinds.get(self.chart.y) in (None, 'text', 'date'):
+                raise ValueError(f'a chart is a text column along and a figure up, not {self.chart!r}')
 
     def to_dict(self) -> dict:
         return {
@@ -68,6 +82,7 @@ class Report:
                        'end': self.end.isoformat() if self.end else None},
             'columns': [{'key': c.key, 'label': c.label, 'kind': c.kind, 'signed': c.signed} for c in self.columns],
             'rows': self.rows, 'totals': self.totals,
+            'chart': {'x': self.chart.x, 'y': self.chart.y} if self.chart else None,
             'checks': [{'key': c.key, 'label': c.label, 'ok': c.ok} for c in self.checks],
             'read_at': self.read_at.isoformat(),
         }

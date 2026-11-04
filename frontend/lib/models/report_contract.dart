@@ -65,6 +65,20 @@ class ReportDrill {
   };
 }
 
+/// The one chart a report asks for over its table (REPORTS ت4-2): its rows
+/// along [x] (a text column), the height of figure [y].
+class ReportChart {
+  const ReportChart({required this.x, required this.y});
+
+  final String x;
+  final String y;
+
+  static ReportChart? fromJson(Object? json) => switch (json) {
+    {'x': final String x, 'y': final String y} => ReportChart(x: x, y: y),
+    _ => null,
+  };
+}
+
 /// A statement's line: a section's heading, its total, a line said apart, a
 /// note beside it (not summed).
 enum ReportRowStyle { line, heading, subtotal, finding, note }
@@ -95,6 +109,7 @@ class ReportData {
     required this.readAt,
     this.start,
     this.end,
+    this.chart,
   });
 
   final String id;
@@ -109,6 +124,9 @@ class ReportData {
   final DateTime? readAt;
   final DateTime? start;
   final DateTime? end;
+
+  /// The chart it asks for over its table, if any.
+  final ReportChart? chart;
 
   /// Where its figures come from, in words.
   String get basisLabel => basis == 'documents'
@@ -137,6 +155,7 @@ class ReportData {
           ),
       ],
       totals: Map<String, dynamic>.from(json['totals'] as Map? ?? const {}),
+      chart: ReportChart.fromJson(json['chart']),
       checks: [
         for (final c in (json['checks'] as List? ?? const []))
           ReportCheck.fromJson(c as Map<String, dynamic>),

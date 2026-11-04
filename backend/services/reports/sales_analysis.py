@@ -26,7 +26,7 @@ from __future__ import annotations
 import collections
 import datetime as dt
 
-from services.reports.contract import Check, Column, Report
+from services.reports.contract import Chart, Check, Column, Report
 
 BY = ('employee', 'customer', 'day', 'month', 'gold_type', 'category', 'item', 'karat')
 LINES = ('category', 'item', 'karat')
@@ -245,4 +245,5 @@ def sales_analysis(*, now: dt.datetime, start: dt.date | None = None, end: dt.da
     books = _books(start, end)
     checks = [Check('books_agree', 'مطابق لإيراد المبيعات في الدفاتر', abs(round(total_value - books, 2)) < 0.01)]
     return Report(id='sales_analysis', title='تحليل المبيعات', basis='documents', columns=columns, rows=rows,
-                  totals=totals, checks=checks, start=start, end=end, read_at=now)
+                  totals=totals, checks=checks, start=start, end=end, read_at=now,
+                  chart=Chart('group', 'value') if by in ('day', 'month') else None)
