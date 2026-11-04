@@ -2657,6 +2657,7 @@ class ApiService {
     String? endDate,
     String by = 'kind',
     bool compare = false,
+    bool againstSales = false,
   }) async {
     final uri = Uri.parse('$_baseUrl/reports/purchases-analysis').replace(
       queryParameters: {
@@ -2664,6 +2665,7 @@ class ApiService {
         'end_date': ?endDate,
         'by': by,
         if (compare) 'compare': 'true',
+        if (againstSales) 'against_sales': 'true',
       },
     );
     final response = await _authedGet(uri);
@@ -2994,41 +2996,6 @@ class ApiService {
     }
 
     return const [];
-  }
-
-  Future<Map<String, dynamic>> getSalesVsPurchasesTrend({
-    DateTime? startDate,
-    DateTime? endDate,
-    String groupInterval = 'day',
-    bool includeUnposted = false,
-    String? goldType,
-  }) async {
-    final queryParams = <String, String>{'group_interval': groupInterval};
-
-    if (startDate != null) {
-      queryParams['start_date'] = startDate.toIso8601String().split('T').first;
-    }
-    if (endDate != null) {
-      queryParams['end_date'] = endDate.toIso8601String().split('T').first;
-    }
-    if (includeUnposted) {
-      queryParams['include_unposted'] = 'true';
-    }
-    if (goldType != null && goldType.isNotEmpty) {
-      queryParams['gold_type'] = goldType;
-    }
-
-    final uri = Uri.parse(
-      '$_baseUrl/reports/sales_vs_purchases_trend',
-    ).replace(queryParameters: queryParams);
-
-    final response = await _authedGet(uri);
-
-    if (response.statusCode == 200) {
-      return json.decode(utf8.decode(response.bodyBytes));
-    } else {
-      throw _apiError(response);
-    }
   }
 
   Future<Map<String, dynamic>> getCustomerBalancesAgingReport({

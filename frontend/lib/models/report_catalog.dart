@@ -200,19 +200,6 @@ class ReportCatalog {
             type: ReportType.sales,
             keywords: ['مشتريات', 'كسر', 'مورد', 'مكتب', 'شراء'],
           ),
-          ReportDescriptor(
-            id: 'sales_vs_purchases_trend',
-            icon: Icons.auto_graph,
-            titleAr: 'اتجاه المبيعات مقابل المشتريات',
-            titleEn: 'Sales vs Purchases Trend',
-            descriptionAr:
-                'مقارنة الاتجاهات الزمنية للقيمة والوزن بين المبيعات والمشتريات.',
-            descriptionEn:
-                'Compare value and weight trends for sales versus purchases.',
-            route: 'sales_vs_purchases_trend',
-            type: ReportType.sales,
-            requiresFilters: true,
-          ),
         ],
       ),
       ReportCategory(

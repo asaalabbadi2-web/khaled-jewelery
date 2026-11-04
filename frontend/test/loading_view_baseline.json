@@ -44,7 +44,6 @@
   "lib/screens/reports/inventory_cost_analysis_screen.dart": 1,
   "lib/screens/reports/invoice_approval_screen.dart": 1,
   "lib/screens/reports/reconciliation_findings_screen.dart": 1,
-  "lib/screens/reports/sales_vs_purchases_trend_report_screen.dart": 1,
   "lib/screens/reports/system_alerts_screen.dart": 1,
   "lib/screens/reports/vat_returns_screen.dart": 1,
   "lib/screens/reports/weight_position_screen.dart": 1,

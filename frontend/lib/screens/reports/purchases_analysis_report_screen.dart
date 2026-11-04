@@ -12,8 +12,10 @@ import '../employee_page.dart';
 /// or karat -- in the riyals the books keep (a customer's or an office's
 /// price, a supplier's wage: its gold is a debt in grams) and in grams --
 /// checked against the books (the server says whether they agree, and by how
-/// much). Over time it draws its chart. A party opens its statement, an
-/// employee his page.
+/// much). Over time it draws its chart; against sales (ت4-4ب, the old
+/// «اتجاه المبيعات مقابل المشتريات») each day, month, karat or employee
+/// says its sales beside, and the chart draws both. A party opens its
+/// statement, an employee his page.
 class PurchasesAnalysisReportScreen extends StatelessWidget {
   const PurchasesAnalysisReportScreen({
     super.key,
@@ -34,6 +36,7 @@ class PurchasesAnalysisReportScreen extends StatelessWidget {
 
   static const by = 'by';
   static const compare = 'compare';
+  static const againstSales = 'against_sales';
 
   @override
   Widget build(BuildContext context) {
@@ -60,7 +63,10 @@ class PurchasesAnalysisReportScreen extends StatelessWidget {
           ('karat', 'العيار'),
         ]),
       ],
-      toggles: const [ReportToggle(compare, 'قارِن بالفترة السابقة')],
+      toggles: const [
+        ReportToggle(compare, 'قارِن بالفترة السابقة'),
+        ReportToggle(againstSales, 'قارِن بالمبيعات'),
+      ],
       emptyTitle: 'لا مشتريات في هذه الفترة',
       load: (range, on, chosen) async => ReportData.fromJson(
         await api.getPurchasesAnalysis(
@@ -68,6 +74,7 @@ class PurchasesAnalysisReportScreen extends StatelessWidget {
           endDate: range == null ? null : day.format(range.end),
           by: chosen[by] ?? 'kind',
           compare: on.contains(compare),
+          againstSales: on.contains(againstSales),
         ),
       ),
       onDrill: (context, drill, row, _) {

@@ -79,6 +79,7 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
     required this.sectionCyan,
     required this.silver,
     required this.bronze,
+    required this.chartSeries,
   });
 
   final SemanticTone ready;
@@ -117,6 +118,12 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
   /// ميداليات الترتيب: الذهب `gold`، ثم هذان.
   final SemanticTone silver;
   final SemanticTone bronze;
+
+  /// ألوان سلاسل الرسم بترتيب ثابت (REPORTS ت4-4ب، ADR-083): الأولى ذهبي
+  /// الثيم، والثانية أزرق. فُحصت بمدقّق الألوان في الوضعين على سطحهما: نطاق
+  /// الإضاءة، والتشبّع، وتمييز عمى الألوان (ΔE ≥ 27)، والرؤية العادية، وتباين
+  /// ٣:١ — وذهبي الداكن خطوة أغمق من primary، فهو خارج النطاق.
+  final List<Color> chartSeries;
 
   /// لون نوع الفاتورة.
   SemanticTone invoice(InvoiceKind kind) => switch (kind) {
@@ -338,6 +345,7 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
       Color(0xFFF4E1CF),
       Color(0xFF3E1F06),
     ),
+    chartSeries: [Color(0xFF87600A), Color(0xFF2A78D6)],
   );
 
   static const dark = AppSemanticColors(
@@ -484,6 +492,7 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
       Color(0xFF4A2E14),
       Color(0xFFF5D9BC),
     ),
+    chartSeries: [Color(0xFFC98500), Color(0xFF3987E5)],
   );
 
   @override
@@ -536,6 +545,10 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
       sectionCyan: SemanticTone.lerp(sectionCyan, other.sectionCyan, t),
       silver: SemanticTone.lerp(silver, other.silver, t),
       bronze: SemanticTone.lerp(bronze, other.bronze, t),
+      chartSeries: [
+        for (var i = 0; i < chartSeries.length; i++)
+          Color.lerp(chartSeries[i], other.chartSeries[i], t)!,
+      ],
     );
   }
 }

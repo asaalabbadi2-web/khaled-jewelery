@@ -5,15 +5,19 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' show NumberFormat;
 
 import '../models/report_contract.dart';
+import '../theme/app_semantic_colors.dart';
 import '../theme/app_tokens.dart';
 import '../utils/report_export.dart';
 
 /// The one chart a report asks for over its table (REPORTS ت4-2, ADR-083; the
-/// owner, 4 Nov 2026): its rows along x, one figure up -- one series, one axis,
-/// in the theme's primary, its title naming it (no legend for one series).
-/// Time reads left to right, as the figures do. A bar's tooltip says its row
-/// as the table writes it; the table stays the record, and what reads it
-/// (Excel, PDF, print) is unchanged. Fewer than two points: no chart.
+/// owner, 4 Nov 2026): its rows along x, its figures up -- one axis for all,
+/// each series in the theme's chart colours in fixed order (ت4-4ب; validated
+/// in both modes), side by side in a row's group. One series: its title names
+/// it, no legend; more: a legend names each, and a bar's tooltip says its
+/// series -- identity never by colour alone. Time reads left to right, as the
+/// figures do. A tooltip writes its value as the table does; the table stays
+/// the record, and what reads it (Excel, PDF, print) is unchanged. Fewer than
+/// two points: no chart.
 class ReportBarChart extends StatelessWidget {
   const ReportBarChart({super.key, required this.report});
 
@@ -22,12 +26,17 @@ class ReportBarChart extends StatelessWidget {
   static bool drawn(ReportData report) =>
       report.chart != null && _points(report).length >= 2;
 
-  static List<(String, double)> _points(ReportData report) {
+  /// (x, its figures in series order -- 0 where a row has none).
+  static List<(String, List<double>)> _points(ReportData report) {
     final chart = report.chart!;
     return [
       for (final row in report.rows)
-        if (row.style == ReportRowStyle.line && row[chart.y] is num)
-          ('${row[chart.x] ?? ''}', (row[chart.y] as num).toDouble()),
+        if (row.style == ReportRowStyle.line &&
+            chart.series.any((y) => row[y] is num))
+          (
+            '${row[chart.x] ?? ''}',
+            [for (final y in chart.series) (row[y] as num?)?.toDouble() ?? 0],
+          ),
     ];
   }
 
@@ -64,11 +73,16 @@ class ReportBarChart extends StatelessWidget {
     final chart = report.chart!;
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final yColumn = report.columns.firstWhere((c) => c.key == chart.y);
+    final series = [
+      for (final y in chart.series)
+        report.columns.firstWhere((c) => c.key == y),
+    ];
+    final colors = AppSemanticColors.of(context).chartSeries;
     final xColumn = report.columns.firstWhere((c) => c.key == chart.x);
     final points = _points(report);
-    final high = points.map((p) => p.$2).reduce((a, b) => a > b ? a : b);
-    final low = points.map((p) => p.$2).reduce((a, b) => a < b ? a : b);
+    final values = [for (final p in points) ...p.$2];
+    final high = values.reduce((a, b) => a > b ? a : b);
+    final low = values.reduce((a, b) => a < b ? a : b);
     final step = _step(math.max(high, 0) - math.min(low, 0));
     final top = high > 0 ? (high / step).ceil() * step : step;
     final bottom = low < 0 ? (low / step).floor() * step : 0.0;
@@ -77,7 +91,8 @@ class ReportBarChart extends StatelessWidget {
     final axis = theme.textTheme.labelSmall?.copyWith(
       color: cs.onSurfaceVariant,
     );
-    final title = '${yColumn.label} حسب ${xColumn.label}';
+    final title =
+        '${series.map((c) => c.label).join(' و')} حسب ${xColumn.label}';
 
     return Card(
       key: const ValueKey('report-chart'),
@@ -88,6 +103,31 @@ class ReportBarChart extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(title, style: theme.textTheme.titleSmall),
+            if (series.length > 1) ...[
+              const SizedBox(height: AppSpace.sm),
+              Wrap(
+                key: const ValueKey('report-chart-legend'),
+                spacing: AppSpace.md,
+                children: [
+                  for (final (i, c) in series.indexed)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 10,
+                          height: 10,
+                          decoration: BoxDecoration(
+                            color: colors[i % colors.length],
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                        const SizedBox(width: AppSpace.xs),
+                        Text(c.label, style: axis),
+                      ],
+                    ),
+                ],
+              ),
+            ],
             const SizedBox(height: AppSpace.md),
             Semantics(
               label: title,
@@ -98,7 +138,11 @@ class ReportBarChart extends StatelessWidget {
                   child: LayoutBuilder(
                     builder: (context, box) {
                       final slot = box.maxWidth / points.length;
-                      final width = (slot * 0.6).clamp(3.0, 24.0);
+                      // a row's bars share 60 % of its slot, 2px apart
+                      final width = (slot * 0.6 / series.length).clamp(
+                        2.0,
+                        24.0,
+                      );
                       return BarChart(
                         BarChartData(
                           alignment: BarChartAlignment.spaceAround,
@@ -150,10 +194,11 @@ class ReportBarChart extends StatelessWidget {
                           barTouchData: BarTouchData(
                             touchTooltipData: BarTouchTooltipData(
                               getTooltipColor: (_) => cs.inverseSurface,
-                              getTooltipItem: (group, _, rod, _) =>
+                              getTooltipItem: (group, _, rod, index) =>
                                   BarTooltipItem(
                                     '${points[group.x].$1}\n'
-                                    '${reportCell(yColumn, rod.toY)}',
+                                    '${series.length > 1 ? '${series[index].label}: ' : ''}'
+                                    '${reportCell(series[index], rod.toY)}',
                                     theme.textTheme.labelMedium!.copyWith(
                                       color: cs.onInverseSurface,
                                     ),
@@ -161,22 +206,24 @@ class ReportBarChart extends StatelessWidget {
                             ),
                           ),
                           barGroups: [
-                            for (final (i, (_, v)) in points.indexed)
+                            for (final (i, (_, vs)) in points.indexed)
                               BarChartGroupData(
                                 x: i,
+                                barsSpace: 2,
                                 barRods: [
-                                  BarChartRodData(
-                                    toY: v,
-                                    color: cs.primary,
-                                    width: width,
-                                    borderRadius: v >= 0
-                                        ? const BorderRadius.vertical(
-                                            top: Radius.circular(4),
-                                          )
-                                        : const BorderRadius.vertical(
-                                            bottom: Radius.circular(4),
-                                          ),
-                                  ),
+                                  for (final (s, v) in vs.indexed)
+                                    BarChartRodData(
+                                      toY: v,
+                                      color: colors[s % colors.length],
+                                      width: width,
+                                      borderRadius: v >= 0
+                                          ? const BorderRadius.vertical(
+                                              top: Radius.circular(4),
+                                            )
+                                          : const BorderRadius.vertical(
+                                              bottom: Radius.circular(4),
+                                            ),
+                                    ),
                                 ],
                               ),
                           ],

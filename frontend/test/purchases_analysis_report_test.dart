@@ -12,6 +12,7 @@ import 'package:frontend/theme/app_theme.dart';
 
 class _Server extends ApiService {
   final asked = <({String? start, String? end, String by})>[];
+  final against = <bool>[];
 
   @override
   Future<Map<String, dynamic>> getPurchasesAnalysis({
@@ -19,9 +20,36 @@ class _Server extends ApiService {
     String? endDate,
     String by = 'kind',
     bool compare = false,
+    bool againstSales = false,
   }) async {
     asked.add((start: startDate, end: endDate, by: by));
+    against.add(againstSales);
     final party = by == 'party';
+    if (by == 'month') {
+      return {
+        'id': 'purchases_analysis',
+        'title': 'تحليل المشتريات',
+        'basis': 'documents',
+        'period': {'start': startDate, 'end': endDate},
+        'columns': [
+          {'key': 'group', 'label': 'الشهر', 'kind': 'text'},
+          {'key': 'value', 'label': 'الريال', 'kind': 'money'},
+          {'key': 'sales_value', 'label': 'المبيعات (ريال)', 'kind': 'money'},
+        ],
+        'rows': [
+          {'group': '2026-09', 'value': 759610.18, 'sales_value': 936987.0},
+          {'group': '2026-10', 'value': 1068611.57, 'sales_value': 1394020.1},
+        ],
+        'totals': <String, dynamic>{},
+        'checks': [],
+        'chart': {
+          'x': 'group',
+          'y': 'value',
+          if (againstSales) 'also': ['sales_value'],
+        },
+        'read_at': '2026-11-04T10:32:00',
+      };
+    }
     return {
       'id': 'purchases_analysis',
       'title': 'تحليل المشتريات',
@@ -100,5 +128,38 @@ void main() {
       find.byType(AccountStatementScreen),
     );
     expect((statement.accountId, statement.entityType), (11, 'supplier'));
+  });
+
+  testWidgets('against sales the chart draws both, a legend naming each '
+      '(REPORTS ت4-4ب)', (tester) async {
+    tester.view.physicalSize = const Size(1400, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final server = _Server();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LightTheme.theme,
+        home: Directionality(
+          textDirection: TextDirection.rtl,
+          child: PurchasesAnalysisReportScreen(
+            api: server,
+            now: () => DateTime(2026, 10, 31),
+          ),
+        ),
+      ),
+    );
+    await _settle(tester);
+    await tester.tap(find.text('الشهر').first);
+    await _settle(tester);
+    expect(
+      find.byKey(const ValueKey('report-chart-legend')),
+      findsNothing,
+      reason: 'one series: its title names it',
+    );
+    await tester.tap(find.byKey(const ValueKey('report-toggle-against_sales')));
+    await _settle(tester);
+    expect(server.against.last, isTrue);
+    expect(find.byKey(const ValueKey('report-chart-legend')), findsOneWidget);
+    expect(find.text('الريال والمبيعات (ريال) حسب الشهر'), findsOneWidget);
   });
 }

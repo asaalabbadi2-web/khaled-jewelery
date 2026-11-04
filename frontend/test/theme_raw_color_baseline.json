@@ -48,7 +48,6 @@
   "lib/screens/reports/inventory_cost_analysis_screen.dart": 22,
   "lib/screens/reports/reports_main_screen.dart": 2,
   "lib/screens/reports/safe_box_hero_details_screen.dart": 10,
-  "lib/screens/reports/sales_vs_purchases_trend_report_screen.dart": 21,
   "lib/screens/reports/widgets/hero_profit_section.dart": 13,
   "lib/screens/reports/widgets/sensitive_operations_section.dart": 7,
   "lib/screens/reports/widgets/vaults_section.dart": 13,

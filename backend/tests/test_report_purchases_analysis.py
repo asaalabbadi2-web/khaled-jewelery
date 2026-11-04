@@ -168,3 +168,42 @@ def test_the_route_answers_the_contract(auth_headers, bought):
     g.pop('current_user', None)
     bad = flask_app.test_client().get('/api/reports/purchases-analysis?by=nothing', headers=auth_headers)
     assert bad.status_code == 400 and bad.get_json()['error'] == 'invalid_by'
+
+
+def _sell(headers, world, when, price, grams):
+    return _post(headers, {
+        'customer_id': world['customer'].id, 'invoice_type': 'بيع', 'gold_type': 'new',
+        'date': when.isoformat(), 'total': price, 'total_weight': grams, 'total_tax': 0.0, 'amount_paid': price,
+        'payments': [{'payment_method_id': world['pm'].id, 'amount': price}],
+        'items': [{'name': 'سلسال', 'karat': 21, 'weight': grams, 'price': price, 'net': price, 'quantity': 1,
+                   'wage': 0, 'selling_price': price}]})
+
+
+def test_against_sales_each_month_says_what_was_sold_and_charts_both(auth_headers, world, bought):
+    """REPORTS ت4-4ب: the old «اتجاه المبيعات مقابل المشتريات» -- by day, month,
+    karat or employee, the sales of the same group beside, in riyals and grams,
+    and the chart draws both."""
+    from services.reports.purchases_analysis import purchases_analysis
+    _sell(auth_headers, world, D(2042, 3, 15, 10), 2000.0, 3.0)
+    report = purchases_analysis(now=D(2042, 5, 1), start=dt.date(2042, 3, 1), end=dt.date(2042, 4, 30), by='month',
+                                against_sales=True)
+    march = _rows(report)['2042-03']
+    assert march['value'] == pytest.approx(450.0)
+    assert march['sales_value'] == pytest.approx(2000.0) and march['sales_weight'] == pytest.approx(3.0)
+    assert _rows(report)['2042-04']['sales_value'] in (None, 0.0)
+    assert report.to_dict()['chart'] == {'x': 'group', 'y': 'value', 'also': ['sales_value']}
+    assert report.totals['sales_value'] == pytest.approx(2000.0)
+    by_kind = purchases_analysis(now=D(2042, 5, 1), start=dt.date(2042, 3, 1), end=dt.date(2042, 3, 31), by='kind',
+                                 against_sales=True)
+    assert 'sales_value' not in {c.key for c in by_kind.columns}
+    assert any(r.get('style') == 'note' for r in by_kind.rows), 'says the comparison is not by kind'
+
+
+def test_a_chart_s_other_series_are_its_own_figures():
+    from services.reports.contract import Chart, Column, Report
+    columns = [Column('group', 'g'), Column('value', 'v', 'money'), Column('sales_value', 's', 'money')]
+    assert Report(id='x', title='x', basis='documents', columns=columns, rows=[], totals={}, read_at=D(2042, 5, 1),
+                  chart=Chart('group', 'value', ('sales_value',))).to_dict()['chart']['also'] == ['sales_value']
+    with pytest.raises(ValueError):
+        Report(id='x', title='x', basis='documents', columns=columns, rows=[], totals={}, read_at=D(2042, 5, 1),
+               chart=Chart('group', 'value', ('nothing',)))

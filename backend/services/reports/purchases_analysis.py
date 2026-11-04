@@ -13,6 +13,10 @@ posted purchases and purchase returns, not withdrawn:
     supplier return's wage.
 Its grams are the document's in the main karat (_invoice_weight_in_main_karat);
 by karat, its lines' -- their grams, the value shared by them.
+Against sales (ت4-4ب, the old «اتجاه المبيعات مقابل المشتريات»): by day,
+month, karat or employee -- the dimensions the sales analysis shares -- each
+group says the sales of the same group, their riyals and grams, and the chart
+draws both; by kind or party it says it does not apply.
 And checked against the books: what it sums is the net debit on the purchase
 roles' accounts in its period, plus the wage inventory's net debit from the
 purchases' and their returns' own entries. On the 2 Nov copy October agrees
@@ -32,6 +36,7 @@ from services.reports.contract import Chart, Check, Column, Report
 from services.reports.sales_analysis import _bounds, previous_period
 
 BY = ('kind', 'party', 'employee', 'day', 'month', 'karat')
+AGAINST_SALES = ('employee', 'day', 'month', 'karat')    # the dimensions the sales analysis shares
 CUSTOMER, SUPPLIER, CUSTOMER_RETURN, SUPPLIER_RETURN = 'شراء من عميل', 'شراء', 'مرتجع شراء', 'مرتجع شراء (مورد)'
 TYPES = (CUSTOMER, SUPPLIER, CUSTOMER_RETURN, SUPPLIER_RETURN)
 KINDS = {'customer': 'من العملاء', 'office': 'من المكاتب', 'supplier': 'من الموردين'}
@@ -168,9 +173,17 @@ def _sums(documents, by, names) -> dict:
     return sums
 
 
+def _sales(start, end, by) -> dict:
+    """The sales analysis's groups, by the same dimension: {group id: its sums}."""
+    from services.reports import sales_analysis as sales
+    documents = sales._documents(start, end)
+    return sales._sums(documents, by, sales._names(documents))
+
+
 def purchases_analysis(*, now: dt.datetime, start: dt.date | None = None, end: dt.date | None = None,
-                       by: str = 'kind', compare: bool = False) -> Report:
-    """*now*: the caller's clock (ADR-015). *compare* needs a period: the one before it (previous_period)."""
+                       by: str = 'kind', compare: bool = False, against_sales: bool = False) -> Report:
+    """*now*: the caller's clock (ADR-015). *compare* needs a period: the one before
+    it (previous_period). *against_sales*: by AGAINST_SALES, the sales beside."""
     if by not in BY:
         raise ValueError(f'by is {"|".join(BY)}, not {by!r}')
     documents = _documents(start, end)
@@ -181,6 +194,13 @@ def purchases_analysis(*, now: dt.datetime, start: dt.date | None = None, end: d
     if compared:
         before = _documents(*previous_period(start, end))
         previous = {k: s['value'] for k, s in _sums(before, by, _names(before)).items()}
+
+    sold = _sales(start, end, by) if against_sales and by in AGAINST_SALES else None
+    if sold is not None:
+        # a group that sold and bought nothing still says its sales
+        for key in sold.keys() - sums.keys():
+            sums[key] = {'group_id': key, 'group': sold[key]['group'], 'drill': sold[key]['drill'],
+                         'invoices': 0, 'returns': 0, 'value': 0.0, 'weight': 0.0, 'last': None}
 
     rows = []
     order = sorted(sums.values(), key=lambda s: s['group'] if by in ('day', 'month') else -s['value'])
@@ -195,12 +215,21 @@ def purchases_analysis(*, now: dt.datetime, start: dt.date | None = None, end: d
             prev = previous.get(s['group_id'])
             row['prev_value'] = round(prev, 2) if prev is not None else None
             row['change'] = round((s['value'] - prev) / prev * 100, 2) if prev else None
+        if sold is not None:
+            sale = sold.get(s['group_id'])
+            row['sales_value'] = round(sale['value'], 2) if sale else None
+            row['sales_weight'] = round(sale['weight'], 3) if sale else None
         rows.append(row)
+    if against_sales and sold is None:
+        rows.append({'group': 'المقارنة بالمبيعات حسب اليوم والشهر والعيار والموظف فقط', 'style': 'note'})
 
     totals = {'invoices': sum(1 for _, sign, *_ in documents if sign > 0),
               'returns': sum(1 for _, sign, *_ in documents if sign < 0),
               'value': round(total_value, 2), 'weight': round(sum(s['weight'] for s in sums.values()), 3),
               'share': 100.0 if total_value else None}
+    if sold is not None:
+        totals['sales_value'] = round(sum(s['value'] for s in sold.values()), 2)
+        totals['sales_weight'] = round(sum(s['weight'] for s in sold.values()), 3)
     if compared:
         prev_total = sum(previous.values())
         totals['prev_value'] = round(prev_total, 2)
@@ -208,12 +237,17 @@ def purchases_analysis(*, now: dt.datetime, start: dt.date | None = None, end: d
 
     label = {'kind': 'النوع', 'party': 'الطرف', 'employee': 'الموظف', 'day': 'اليوم', 'month': 'الشهر',
              'karat': 'العيار'}[by]
+    beside = sold is not None                    # beside the sales, each side says whose it is
     columns = [Column('group', label), Column('invoices', 'الفواتير', 'count'), Column('returns', 'المرتجعات', 'count'),
-               Column('value', 'الريال', 'money'), Column('weight', 'الوزن', 'grams'),
+               Column('value', 'المشتريات (ريال)' if beside else 'الريال', 'money'),
+               Column('weight', 'المشتريات (جم)' if beside else 'الوزن', 'grams'),
                Column('share', 'الحصة', 'percent')]
     if compared:
         columns += [Column('prev_value', 'الفترة السابقة', 'money'),
                     Column('change', 'التغيّر', 'percent', signed=True)]
+    if sold is not None:
+        columns += [Column('sales_value', 'المبيعات (ريال)', 'money'),
+                    Column('sales_weight', 'المبيعات (جم)', 'grams')]
     if by == 'party':
         columns.append(Column('last', 'آخر شراء', 'date'))
     books = _books(start, end)
@@ -225,4 +259,5 @@ def purchases_analysis(*, now: dt.datetime, start: dt.date | None = None, end: d
     checks = [Check('books_agree', says, abs(gap) < 0.01)]
     return Report(id='purchases_analysis', title='تحليل المشتريات', basis='documents', columns=columns, rows=rows,
                   totals=totals, checks=checks, start=start, end=end, read_at=now,
-                  chart=Chart('group', 'value') if by in ('day', 'month') else None)
+                  chart=Chart('group', 'value', ('sales_value',) if sold is not None else ())
+                  if by in ('day', 'month') else None)

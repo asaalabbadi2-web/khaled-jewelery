@@ -66,15 +66,26 @@ class ReportDrill {
 }
 
 /// The one chart a report asks for over its table (REPORTS ت4-2): its rows
-/// along [x] (a text column), the height of figure [y].
+/// along [x] (a text column), the height of figure [y] -- and of [also],
+/// figures beside it (ت4-4ب), one axis for all.
 class ReportChart {
-  const ReportChart({required this.x, required this.y});
+  const ReportChart({required this.x, required this.y, this.also = const []});
 
   final String x;
   final String y;
+  final List<String> also;
+
+  /// Its figures, in order: [y], then [also].
+  List<String> get series => [y, ...also];
 
   static ReportChart? fromJson(Object? json) => switch (json) {
-    {'x': final String x, 'y': final String y} => ReportChart(x: x, y: y),
+    {'x': final String x, 'y': final String y} => ReportChart(
+      x: x,
+      y: y,
+      also: [
+        for (final a in ((json as Map)['also'] as List? ?? const [])) '$a',
+      ],
+    ),
     _ => null,
   };
 }

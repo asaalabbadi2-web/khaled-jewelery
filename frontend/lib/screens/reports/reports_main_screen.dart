@@ -17,7 +17,6 @@ import 'purchases_analysis_report_screen.dart';
 import 'sales_analysis_report_screen.dart';
 import 'trial_balance_report_screen.dart';
 import 'category_weight_audit_report_screen.dart';
-import 'sales_vs_purchases_trend_report_screen.dart';
 import 'customer_balances_aging_report_screen.dart';
 import 'supplier_aging_report_screen.dart';
 import 'gold_price_history_report_screen.dart';
@@ -69,11 +68,6 @@ Widget? reportDestination(String route, ApiService api, bool isArabic) {
       return PurchasesAnalysisReportScreen(api: api);
     case 'income_statement':
       return IncomeStatementReportScreen(
-        api: api,
-        isArabic: isArabic,
-      );
-    case 'sales_vs_purchases_trend':
-      return SalesVsPurchasesTrendReportScreen(
         api: api,
         isArabic: isArabic,
       );

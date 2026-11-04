@@ -47,10 +47,12 @@ class Check:
 @dataclass(frozen=True)
 class Chart:
     """The one chart a report asks the shell to draw over its table (REPORTS
-    ت4-2): its rows along *x* (a text column), the height of figure *y*. One
-    series, one axis; the table stays the record."""
+    ت4-2): its rows along *x* (a text column), the height of figure *y* --
+    and of *also*, figures beside it (ت4-4ب: purchases against sales), one
+    axis for all. The table stays the record."""
     x: str
     y: str
+    also: tuple = ()
 
 
 @dataclass
@@ -72,8 +74,9 @@ class Report:
             raise ValueError(f'a report is read from {"|".join(BASES)}, not {self.basis!r}')
         if self.chart is not None:
             kinds = {c.key: c.kind for c in self.columns}
-            if kinds.get(self.chart.x) != 'text' or kinds.get(self.chart.y) in (None, 'text', 'date'):
-                raise ValueError(f'a chart is a text column along and a figure up, not {self.chart!r}')
+            figures = (self.chart.y, *self.chart.also)
+            if kinds.get(self.chart.x) != 'text' or any(kinds.get(y) in (None, 'text', 'date') for y in figures):
+                raise ValueError(f'a chart is a text column along and figures up, not {self.chart!r}')
 
     def to_dict(self) -> dict:
         return {
@@ -82,7 +85,8 @@ class Report:
                        'end': self.end.isoformat() if self.end else None},
             'columns': [{'key': c.key, 'label': c.label, 'kind': c.kind, 'signed': c.signed} for c in self.columns],
             'rows': self.rows, 'totals': self.totals,
-            'chart': {'x': self.chart.x, 'y': self.chart.y} if self.chart else None,
+            'chart': ({'x': self.chart.x, 'y': self.chart.y,
+                       **({'also': list(self.chart.also)} if self.chart.also else {})} if self.chart else None),
             'checks': [{'key': c.key, 'label': c.label, 'ok': c.ok} for c in self.checks],
             'read_at': self.read_at.isoformat(),
         }
