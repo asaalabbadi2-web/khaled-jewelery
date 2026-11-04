@@ -423,11 +423,14 @@ class _ReportShellState extends State<ReportShell> {
             color: tone.onContainer,
           ),
           const SizedBox(width: AppSpace.xs),
-          Text(
-            check.label,
-            style: Theme.of(
-              context,
-            ).textTheme.labelLarge?.copyWith(color: tone.onContainer),
+          // a check that says by how much it fails is long: it wraps, never overflows
+          Flexible(
+            child: Text(
+              check.label,
+              style: Theme.of(
+                context,
+              ).textTheme.labelLarge?.copyWith(color: tone.onContainer),
+            ),
           ),
         ],
       ),

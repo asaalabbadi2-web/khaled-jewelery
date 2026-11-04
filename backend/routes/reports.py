@@ -1929,6 +1929,24 @@ def get_supplier_aging():
     return jsonify(supplier_aging(as_of=as_of, dimension=dimension, now=datetime.now()).to_dict())
 
 
+@reports_bp.route('/reports/purchases-analysis', methods=['GET'])
+@require_permission('reports.purchases')
+def get_purchases_analysis():
+    """Purchases analysis in the reports' contract (services/reports/purchases_analysis.py,
+    REPORTS ت4-4أ): start_date / end_date (the end day whole), by (kind, party, employee,
+    day, month, karat), compare (the period before)."""
+    from services.reports.purchases_analysis import BY, purchases_analysis
+    try:
+        start, end = _report_date('start_date'), _report_date('end_date')
+    except ValueError:
+        return jsonify({'error': 'invalid_date', 'message': 'start_date و end_date بصيغة YYYY-MM-DD'}), 400
+    by = request.args.get('by', 'kind')
+    if by not in BY:
+        return jsonify({'error': 'invalid_by', 'message': f'by: {" | ".join(BY)}'}), 400
+    compare = request.args.get('compare', 'false').lower() == 'true'
+    return jsonify(purchases_analysis(start=start, end=end, by=by, compare=compare, now=datetime.now()).to_dict())
+
+
 @reports_bp.route('/reports/sales-analysis', methods=['GET'])
 @require_permission('reports.financial')
 def get_sales_analysis():

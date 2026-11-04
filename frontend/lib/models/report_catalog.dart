@@ -161,8 +161,8 @@ class ReportCatalog {
         id: 'sales',
         icon: Icons.point_of_sale,
         accentColor: const Color(0xFF2E7D32),
-        nameAr: 'تقارير المبيعات',
-        nameEn: 'Sales Reports',
+        nameAr: 'تقارير المبيعات والمشتريات',
+        nameEn: 'Sales & Purchases Reports',
         reports: const [
           ReportDescriptor(
             id: 'sales_analysis',
@@ -186,6 +186,19 @@ class ReportCatalog {
               'عيار',
               'كسر',
             ],
+          ),
+          ReportDescriptor(
+            id: 'purchases_analysis',
+            icon: Icons.shopping_basket,
+            titleAr: 'تحليل المشتريات',
+            titleEn: 'Purchases Analysis',
+            descriptionAr:
+                'المشتريات من العملاء والمكاتب والموردين، بريال الدفاتر وبالجرام، حسب النوع أو الطرف أو الموظف أو اليوم أو الشهر أو العيار، مطابقة للدفاتر.',
+            descriptionEn:
+                'Purchases from customers, offices and suppliers, in the books\' riyals and grams, agreeing with the books.',
+            route: 'purchases_analysis',
+            type: ReportType.sales,
+            keywords: ['مشتريات', 'كسر', 'مورد', 'مكتب', 'شراء'],
           ),
           ReportDescriptor(
             id: 'sales_vs_purchases_trend',

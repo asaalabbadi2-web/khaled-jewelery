@@ -2650,6 +2650,29 @@ class ApiService {
     throw _apiError(response);
   }
 
+  /// Purchases analysis in the reports' contract (REPORTS ت4-4أ): in the
+  /// books' riyals and in grams, by kind, party, employee, day, month or karat.
+  Future<Map<String, dynamic>> getPurchasesAnalysis({
+    String? startDate,
+    String? endDate,
+    String by = 'kind',
+    bool compare = false,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/reports/purchases-analysis').replace(
+      queryParameters: {
+        'start_date': ?startDate,
+        'end_date': ?endDate,
+        'by': by,
+        if (compare) 'compare': 'true',
+      },
+    );
+    final response = await _authedGet(uri);
+    if (response.statusCode == 200) {
+      return json.decode(utf8.decode(response.bodyBytes));
+    }
+    throw _apiError(response);
+  }
+
   Future<Map<String, dynamic>> getAnalyticsSummary({
     required String groupBy,
     DateTime? startDate,
