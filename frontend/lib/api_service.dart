@@ -2640,6 +2640,21 @@ class ApiService {
     }
   }
 
+  /// The cash flow of a period, by the direct method (REPORTS ت2-3).
+  Future<Map<String, dynamic>> getCashFlow({
+    required String startDate,
+    required String endDate,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/reports/cash-flow').replace(
+      queryParameters: {'start_date': startDate, 'end_date': endDate},
+    );
+    final response = await _authedGet(uri);
+    if (response.statusCode == 200) {
+      return json.decode(utf8.decode(response.bodyBytes));
+    }
+    throw _apiError(response);
+  }
+
   /// The balance sheet on a day in the reports' contract (REPORTS ت2-1).
   Future<Map<String, dynamic>> getBalanceSheet({required String asOf}) async {
     final uri = Uri.parse(

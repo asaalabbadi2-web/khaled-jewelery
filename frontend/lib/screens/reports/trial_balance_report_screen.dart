@@ -23,12 +23,16 @@ class TrialBalanceReportScreen extends StatelessWidget {
     this.under,
     this.asOf,
     this.title,
+    this.range,
   });
 
   /// A balance sheet's group (REPORTS ت2-1): its accounts only, to [asOf].
   final int? under;
   final DateTime? asOf;
   final String? title;
+
+  /// The period it opens on (the cash flow's group: its period).
+  final DateTimeRange? range;
 
   /// The server; tests pass a fake.
   final ApiService? api;
@@ -52,6 +56,7 @@ class TrialBalanceReportScreen extends StatelessWidget {
           ? 'أرصدة الحسابات نقدًا ووزنًا'
           : 'أرصدة حساباته نقدًا ووزنًا حتى ${day.format(asOf!)}',
       now: now,
+      initialRange: range,
       saver: saver,
       printer: printer,
       toggles: const [ReportToggle(karatDetail, 'تفصيل العيارات')],

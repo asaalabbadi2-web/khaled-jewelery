@@ -106,6 +106,19 @@ class ReportCatalog {
             keywords: ['ميزانية', 'مركز مالي', 'أصول', 'خصوم'],
           ),
           ReportDescriptor(
+            id: 'cash_flow',
+            icon: Icons.swap_vert_circle,
+            titleAr: 'التدفقات النقدية',
+            titleEn: 'Cash Flow',
+            descriptionAr:
+                'من أين جاءت الريالات وأين ذهبت: التشغيل والاستثمار والتمويل، مغلقة على رصيد النقد.',
+            descriptionEn:
+                'Where the riyals came from and went: operating, investing, financing.',
+            route: 'cash_flow',
+            type: ReportType.financial,
+            keywords: ['تدفق', 'نقد', 'صندوق', 'بنك'],
+          ),
+          ReportDescriptor(
             id: 'trial_balance',
             icon: Icons.balance,
             titleAr: 'ميزان المراجعة',

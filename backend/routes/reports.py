@@ -2770,6 +2770,22 @@ def _report_date(name, default=None):
     return datetime.strptime(raw, '%Y-%m-%d').date()
 
 
+@reports_bp.route('/reports/cash-flow', methods=['GET'])
+@require_permission('reports.financial')
+def get_cash_flow():
+    """The cash flow, by the direct method, in the reports' contract
+    (services/reports/cash_flow.py, REPORTS ت2-3): start_date and end_date
+    (YYYY-MM-DD, the end day whole), both."""
+    from services.reports.cash_flow import cash_flow
+    try:
+        start, end = _report_date('start_date'), _report_date('end_date')
+    except ValueError:
+        return jsonify({'error': 'invalid_date', 'message': 'start_date و end_date بصيغة YYYY-MM-DD'}), 400
+    if start is None or end is None:
+        return jsonify({'error': 'period_required', 'message': 'التدفقات النقدية لفترة: start_date و end_date'}), 400
+    return jsonify(cash_flow(start=start, end=end, now=datetime.now()).to_dict())
+
+
 @reports_bp.route('/reports/balance-sheet', methods=['GET'])
 @require_permission('reports.financial')
 def get_balance_sheet():
