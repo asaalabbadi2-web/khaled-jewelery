@@ -1959,10 +1959,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           await Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => GoldPriceHistoryReportScreen(
-                api: api,
-                isArabic: isAr,
-              ),
+              builder: (_) => GoldPriceHistoryReportScreen(api: api),
             ),
           );
         },
@@ -2774,10 +2771,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => GoldPriceHistoryReportScreen(
-                    api: api,
-                    isArabic: widget.isArabic,
-                  ),
+                  builder: (_) => GoldPriceHistoryReportScreen(api: api),
                 ),
               );
             },
@@ -4914,10 +4908,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         result = await Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => GoldPriceHistoryReportScreen(
-              api: api,
-              isArabic: widget.isArabic,
-            ),
+            builder: (_) => GoldPriceHistoryReportScreen(api: api),
           ),
         );
         break;

@@ -3032,36 +3032,21 @@ class ApiService {
     }
   }
 
+  /// The gold price's history in the reports' contract (REPORTS ت5-4): by
+  /// day, week or month, in Riyadh's days.
   Future<Map<String, dynamic>> getGoldPriceHistoryReport({
-    DateTime? startDate,
-    DateTime? endDate,
-    String groupInterval = 'day',
-    int limit = 180,
+    required String startDate,
+    required String endDate,
+    String by = 'day',
   }) async {
-    final queryParams = <String, String>{
-      'group_interval': groupInterval,
-      'limit': limit.toString(),
-    };
-
-    if (startDate != null) {
-      queryParams['start_date'] = startDate.toIso8601String().split('T').first;
-    }
-
-    if (endDate != null) {
-      queryParams['end_date'] = endDate.toIso8601String().split('T').first;
-    }
-
-    final uri = Uri.parse(
-      '$_baseUrl/reports/gold_price_history',
-    ).replace(queryParameters: queryParams);
-
+    final uri = Uri.parse('$_baseUrl/reports/gold_price_history').replace(
+      queryParameters: {'start_date': startDate, 'end_date': endDate, 'by': by},
+    );
     final response = await _authedGet(uri);
-
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
-    } else {
-      throw _apiError(response);
     }
+    throw _apiError(response);
   }
 
   /// The shop's gold by its place on a day in the reports' contract

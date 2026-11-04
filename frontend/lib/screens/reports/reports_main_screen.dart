@@ -84,10 +84,7 @@ Widget? reportDestination(String route, ApiService api, bool isArabic) {
         isArabic: isArabic,
       );
     case 'gold_price_history':
-      return GoldPriceHistoryReportScreen(
-        api: api,
-        isArabic: isArabic,
-      );
+      return GoldPriceHistoryReportScreen(api: api);
     case 'gold_by_place':
       return GoldByPlaceReportScreen(api: api);
     case 'safe_gold_reconciliation':

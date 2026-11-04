@@ -4,7 +4,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from flask import Blueprint, current_app, jsonify, request
-from statistics import pstdev
 from sqlalchemy import String, and_, case, cast, func, or_
 from sqlalchemy.orm import joinedload
 
@@ -14,7 +13,6 @@ from models import (
     AccountingMapping,
     Customer,
     Employee,
-    GoldPrice,
     Invoice,
     InvoiceItem,
     InvoiceKaratLine,
@@ -1092,250 +1090,23 @@ def get_trial_balance():
 @reports_bp.route('/reports/gold_price_history', methods=['GET'])
 @require_permission('reports.financial')
 def get_gold_price_history_report():
-    """تحليل تاريخي لأسعار الذهب (أونصة دولار → جرام بالريال والعيار الرئيسي)."""
-
-    group_interval = (request.args.get('group_interval') or 'day').lower()
-    if group_interval not in {'day', 'week', 'month'}:
-        group_interval = 'day'
-
-    start_param = request.args.get('start_date')
-    end_param = request.args.get('end_date')
-    limit_param = request.args.get('limit')
-
-    try:
-        start_value = _parse_iso_date(start_param, 'start_date') if start_param else None
-        end_value = _parse_iso_date(end_param, 'end_date') if end_param else None
-    except ValueError as exc:
-        return jsonify({'error': str(exc)}), 400
-
-    # Days are Riyadh's; the stored times are UTC (pricing/price_clock.py).
+    """The gold price's history in the reports' contract (services/reports/gold_price_history.py,
+    REPORTS ت5-4): start_date / end_date (Riyadh days; the last 90 if none), by (day, week, month)."""
     from pricing import price_clock
-    now = price_clock.utc_now()
-    today = price_clock.riyadh_today(now)
-    default_start = today - timedelta(days=90)
-    applied_start = start_value or default_start
-    applied_end = end_value or today
-
-    if applied_start > applied_end:
-        return jsonify({'error': 'start_date must be before end_date'}), 400
-
+    from services.reports.gold_price_history import BY, gold_price_history
     try:
-        limit = int(limit_param) if limit_param else 180
+        start, end = _report_date('start_date'), _report_date('end_date')
     except ValueError:
-        return jsonify({'error': 'Invalid limit parameter'}), 400
-    limit = max(12, min(limit, 730))
+        return jsonify({'error': 'invalid_date', 'message': 'start_date و end_date بصيغة YYYY-MM-DD'}), 400
+    by = request.args.get('by', 'day')
+    if by not in BY:
+        return jsonify({'error': 'invalid_by', 'message': f'by: {" | ".join(BY)}'}), 400
+    end = end or price_clock.riyadh_today(price_clock.utc_now())
+    start = start or end - timedelta(days=90)
+    if start > end:
+        return jsonify({'error': 'invalid_period', 'message': 'start_date بعد end_date'}), 400
+    return jsonify(gold_price_history(start=start, end=end, by=by, now=datetime.now()).to_dict())
 
-    start_dt, _ = price_clock.riyadh_day_bounds_utc(applied_start)
-    _, end_dt = price_clock.riyadh_day_bounds_utc(applied_end)
-
-    price_rows = (
-        GoldPrice.query
-        .filter(GoldPrice.date >= start_dt)
-        .filter(GoldPrice.date < end_dt)
-        .order_by(GoldPrice.date.asc())
-        .all()
-    )
-
-    # Riyals a gram are each price's own: the office's, by the terms it was
-    # saved with -- by the ounce before them (OFFICE-PRICE-1).
-    from pricing.office_price import row_gram_price
-    main_karat = get_main_karat()
-
-    def mean(values):
-        return sum(values) / len(values) if values else 0.0
-
-    def round_money(value, digits=2):
-        if value is None:
-            return None
-        return round(float(value), digits)
-
-    def bucket_key(dt_value: datetime):
-        if group_interval == 'month':
-            return dt_value.strftime('%Y-%m')
-        if group_interval == 'week':
-            iso_year, iso_week, _ = dt_value.isocalendar()
-            return f'{iso_year}-W{iso_week:02d}'
-        return dt_value.strftime('%Y-%m-%d')
-
-    def bucket_label(dt_value: datetime):
-        if group_interval == 'month':
-            return dt_value.strftime('%b %Y')
-        if group_interval == 'week':
-            iso_year, iso_week, _ = dt_value.isocalendar()
-            return f'الأسبوع {iso_week:02d} - {iso_year}'
-        return dt_value.strftime('%d %b %Y')
-
-    bucket_map = {}
-    price_points = []
-
-    for row in price_rows:
-        timestamp = price_clock.to_riyadh(row.date or now)
-        price_value = float(row.price or 0.0)
-        sar_24, sar_main = row_gram_price(row, 24), row_gram_price(row, main_karat)
-        key = bucket_key(timestamp)
-        bucket = bucket_map.get(key)
-        if bucket is None:
-            bucket = {
-                'key': key,
-                'label': bucket_label(timestamp),
-                'count': 0,
-                'total_price': 0.0,
-                'min_price': None,
-                'max_price': None,
-                'first_price': None,
-                'last_price': None,
-                'first_date': None,
-                'last_date': None,
-                'sar_24': [],
-                'sar_main': [],
-            }
-            bucket_map[key] = bucket
-        bucket['sar_24'].append(sar_24)
-        bucket['sar_main'].append(sar_main)
-
-        bucket['count'] += 1
-        bucket['total_price'] += price_value
-        bucket['min_price'] = price_value if bucket['min_price'] is None else min(bucket['min_price'], price_value)
-        bucket['max_price'] = price_value if bucket['max_price'] is None else max(bucket['max_price'], price_value)
-        if bucket['first_price'] is None:
-            bucket['first_price'] = price_value
-            bucket['first_date'] = timestamp
-        bucket['last_price'] = price_value
-        bucket['last_date'] = timestamp
-
-        price_points.append({'bucket': key, 'price_usd': price_value, 'timestamp': timestamp,
-                             'sar_24': sar_24, 'sar_main': sar_main})
-
-    if not price_points:
-        return jsonify({
-            'summary': {
-                'records_considered': 0,
-                'buckets_count': 0,
-                'average_price_usd': 0.0,
-                'average_price_sar_24k': 0.0,
-                'average_price_sar_main_karat': 0.0,
-                'percent_change': 0.0,
-                'volatility_percent': 0.0,
-            },
-            'series': [],
-            'latest_price': None,
-            'filters': {
-                'start_date': applied_start.isoformat(),
-                'end_date': applied_end.isoformat(),
-                'group_interval': group_interval,
-                'limit': limit,
-            },
-        })
-
-    keys_in_order = list(bucket_map.keys())
-    if len(keys_in_order) > limit:
-        keys_to_keep = keys_in_order[-limit:]
-        trimmed = {}
-        for key in keys_to_keep:
-            trimmed[key] = bucket_map[key]
-        bucket_map = trimmed
-        keep_set = set(keys_to_keep)
-        price_points = [point for point in price_points if point['bucket'] in keep_set]
-
-    series_payload = []
-
-    for bucket in bucket_map.values():
-        avg_price = bucket['total_price'] / bucket['count'] if bucket['count'] else 0.0
-        avg_sar_24 = mean(bucket['sar_24'])
-        high_sar = max(bucket['sar_24']) if bucket['sar_24'] else None
-        low_sar = min(bucket['sar_24']) if bucket['sar_24'] else None
-        change_percent = None
-        if bucket['first_price'] and bucket['first_price'] != 0:
-            change_percent = ((bucket['last_price'] - bucket['first_price']) / bucket['first_price']) * 100
-
-        trend = 'flat'
-        if change_percent is not None:
-            if change_percent > 0.2:
-                trend = 'up'
-            elif change_percent < -0.2:
-                trend = 'down'
-
-        series_payload.append({
-            'period': bucket['key'],
-            'label': bucket['label'],
-            'points': bucket['count'],
-            'avg_price_usd': round_money(avg_price),
-            'avg_price_sar_24k': round_money(avg_sar_24),
-            'avg_price_sar_main_karat': round_money(mean(bucket['sar_main'])),
-            'high_price_usd': round_money(bucket['max_price']),
-            'low_price_usd': round_money(bucket['min_price']),
-            'high_price_sar_24k': round_money(high_sar),
-            'low_price_sar_24k': round_money(low_sar),
-            'first_timestamp': bucket['first_date'].isoformat() if bucket['first_date'] else None,
-            'last_timestamp': bucket['last_date'].isoformat() if bucket['last_date'] else None,
-            'change_percent': round_money(change_percent),
-            'trend': trend,
-        })
-
-    price_series = sorted(price_points, key=lambda entry: entry['timestamp'])
-    start_point = price_series[0]
-    end_point = price_series[-1]
-    highest_point = max(price_series, key=lambda entry: entry['price_usd'])
-    lowest_point = min(price_series, key=lambda entry: entry['price_usd'])
-
-    prices_list = [entry['price_usd'] for entry in price_series]
-    avg_price_usd = sum(prices_list) / len(prices_list)
-    avg_price_sar_24 = mean([entry['sar_24'] for entry in price_series])
-    percent_change = None
-    if start_point['price_usd']:
-        percent_change = ((end_point['price_usd'] - start_point['price_usd']) / start_point['price_usd']) * 100
-
-    volatility_percent = None
-    if len(prices_list) > 1 and avg_price_usd:
-        volatility_percent = (pstdev(prices_list) / avg_price_usd) * 100
-
-    summary = {
-        'records_considered': len(price_series),
-        'buckets_count': len(series_payload),
-        'start_price_usd': round_money(start_point['price_usd']),
-        'end_price_usd': round_money(end_point['price_usd']),
-        'start_price_sar_24k': round_money(start_point['sar_24']),
-        'end_price_sar_24k': round_money(end_point['sar_24']),
-        'average_price_usd': round_money(avg_price_usd),
-        'average_price_sar_24k': round_money(avg_price_sar_24),
-        'average_price_sar_main_karat': round_money(mean([entry['sar_main'] for entry in price_series])),
-        'absolute_change_usd': round_money(end_point['price_usd'] - start_point['price_usd']),
-        'absolute_change_sar_24k': round_money(
-            end_point['sar_24'] - start_point['sar_24']
-        ),
-        'percent_change': round_money(percent_change),
-        'volatility_percent': round_money(volatility_percent),
-        'highest_price': {
-            'value_usd': round_money(highest_point['price_usd']),
-            'value_sar_24k': round_money(highest_point['sar_24']),
-            'timestamp': highest_point['timestamp'].isoformat(),
-        },
-        'lowest_price': {
-            'value_usd': round_money(lowest_point['price_usd']),
-            'value_sar_24k': round_money(lowest_point['sar_24']),
-            'timestamp': lowest_point['timestamp'].isoformat(),
-        },
-        'main_karat': main_karat,
-    }
-
-    latest_price = {
-        'price_usd': round_money(end_point['price_usd']),
-        'price_sar_24k': round_money(end_point['sar_24']),
-        'price_sar_main_karat': round_money(end_point['sar_main']),
-        'timestamp': end_point['timestamp'].isoformat(),
-    }
-
-    return jsonify({
-        'summary': summary,
-        'series': series_payload,
-        'latest_price': latest_price,
-        'filters': {
-            'start_date': applied_start.isoformat(),
-            'end_date': applied_end.isoformat(),
-            'group_interval': group_interval,
-            'limit': limit,
-        },
-    })
 
 @reports_bp.route('/reports/income_statement', methods=['GET'])
 @require_permission('reports.financial')

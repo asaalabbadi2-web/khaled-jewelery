@@ -69,11 +69,20 @@ class ReportDrill {
 /// along [x] (a text column), the height of figure [y] -- and of [also],
 /// figures beside it (ت4-4ب), one axis for all.
 class ReportChart {
-  const ReportChart({required this.x, required this.y, this.also = const []});
+  const ReportChart({
+    required this.x,
+    required this.y,
+    this.also = const [],
+    this.kind = 'bar',
+  });
 
   final String x;
   final String y;
   final List<String> also;
+
+  /// 'bar' (from zero: amounts) or 'line' (its axis spans its values: a price
+  /// over time, ت5-4).
+  final String kind;
 
   /// Its figures, in order: [y], then [also].
   List<String> get series => [y, ...also];
@@ -85,6 +94,7 @@ class ReportChart {
       also: [
         for (final a in ((json as Map)['also'] as List? ?? const [])) '$a',
       ],
+      kind: '${json['kind'] ?? 'bar'}',
     ),
     _ => null,
   };
@@ -140,9 +150,11 @@ class ReportData {
   final ReportChart? chart;
 
   /// Where its figures come from, in words.
-  String get basisLabel => basis == 'documents'
-      ? 'من المستندات المرحّلة، مطابقًا للدفاتر في المجموع'
-      : 'من القيود المرحّلة';
+  String get basisLabel => switch (basis) {
+    'documents' => 'من المستندات المرحّلة، مطابقًا للدفاتر في المجموع',
+    'prices' => 'من أسعار الذهب المسجّلة',
+    _ => 'من القيود المرحّلة',
+  };
 
   factory ReportData.fromJson(Map<String, dynamic> json) {
     final period = json['period'] as Map<String, dynamic>? ?? const {};

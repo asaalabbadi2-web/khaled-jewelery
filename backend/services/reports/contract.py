@@ -21,7 +21,7 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass, field
 
-BASES = ('posted_entries', 'documents')
+BASES = ('posted_entries', 'documents', 'prices')   # prices: the recorded gold prices (ت5-4)
 KINDS = ('text', 'money', 'grams', 'count', 'percent', 'date')   # date: YYYY-MM-DD, never the wide column
 
 
@@ -49,10 +49,12 @@ class Chart:
     """The one chart a report asks the shell to draw over its table (REPORTS
     ت4-2): its rows along *x* (a text column), the height of figure *y* --
     and of *also*, figures beside it (ت4-4ب: purchases against sales), one
-    axis for all. The table stays the record."""
+    axis for all. *kind*: bars from zero (amounts), or a line whose axis spans
+    its values (a price over time, ت5-4). The table stays the record."""
     x: str
     y: str
     also: tuple = ()
+    kind: str = 'bar'
 
 
 @dataclass
@@ -74,6 +76,8 @@ class Report:
             raise ValueError(f'a report is read from {"|".join(BASES)}, not {self.basis!r}')
         if self.chart is not None:
             kinds = {c.key: c.kind for c in self.columns}
+            if self.chart.kind not in ('bar', 'line'):
+                raise ValueError(f'a chart is a bar or a line, not {self.chart.kind!r}')
             figures = (self.chart.y, *self.chart.also)
             if kinds.get(self.chart.x) != 'text' or any(kinds.get(y) in (None, 'text', 'date') for y in figures):
                 raise ValueError(f'a chart is a text column along and figures up, not {self.chart!r}')
@@ -86,7 +90,8 @@ class Report:
             'columns': [{'key': c.key, 'label': c.label, 'kind': c.kind, 'signed': c.signed} for c in self.columns],
             'rows': self.rows, 'totals': self.totals,
             'chart': ({'x': self.chart.x, 'y': self.chart.y,
-                       **({'also': list(self.chart.also)} if self.chart.also else {})} if self.chart else None),
+                       **({'also': list(self.chart.also)} if self.chart.also else {}),
+                       **({'kind': self.chart.kind} if self.chart.kind != 'bar' else {})} if self.chart else None),
             'checks': [{'key': c.key, 'label': c.label, 'ok': c.ok} for c in self.checks],
             'read_at': self.read_at.isoformat(),
         }

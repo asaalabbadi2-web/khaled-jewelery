@@ -650,7 +650,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
       isArabic: isArabic,
       money: _money,
       onTap: () => Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => GoldPriceHistoryReportScreen(api: widget.api, isArabic: isArabic),
+        builder: (_) => GoldPriceHistoryReportScreen(api: widget.api),
       )),
     );
 

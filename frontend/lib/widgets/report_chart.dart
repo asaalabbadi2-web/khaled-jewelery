@@ -83,9 +83,21 @@ class ReportBarChart extends StatelessWidget {
     final values = [for (final p in points) ...p.$2];
     final high = values.reduce((a, b) => a > b ? a : b);
     final low = values.reduce((a, b) => a < b ? a : b);
-    final step = _step(math.max(high, 0) - math.min(low, 0));
-    final top = high > 0 ? (high / step).ceil() * step : step;
-    final bottom = low < 0 ? (low / step).floor() * step : 0.0;
+    // bars stand on zero; a line's axis spans its values (a price over time)
+    final line = chart.kind == 'line';
+    final step = line
+        ? _step(high - low > 0 ? high - low : high.abs() + 1)
+        : _step(math.max(high, 0) - math.min(low, 0));
+    final top = line
+        ? (high / step).ceil() * step
+        : high > 0
+        ? (high / step).ceil() * step
+        : step;
+    final bottom = line
+        ? (low / step).floor() * step
+        : low < 0
+        ? (low / step).floor() * step
+        : 0.0;
     final every = (points.length / 12).ceil();
     final compact = NumberFormat.compact(locale: 'en');
     final axis = theme.textTheme.labelSmall?.copyWith(
@@ -93,6 +105,49 @@ class ReportBarChart extends StatelessWidget {
     );
     final title =
         '${series.map((c) => c.label).join(' و')} حسب ${xColumn.label}';
+    final grid = FlGridData(
+      drawVerticalLine: false,
+      horizontalInterval: step,
+      getDrawingHorizontalLine: (_) =>
+          FlLine(color: cs.outlineVariant, strokeWidth: 0.5),
+    );
+    final titles = FlTitlesData(
+      rightTitles: const AxisTitles(),
+      topTitles: const AxisTitles(),
+      leftTitles: AxisTitles(
+        sideTitles: SideTitles(
+          showTitles: true,
+          reservedSize: 44,
+          interval: step,
+          getTitlesWidget: (value, meta) =>
+              Text(compact.format(value), style: axis),
+        ),
+      ),
+      bottomTitles: AxisTitles(
+        sideTitles: SideTitles(
+          showTitles: true,
+          reservedSize: 22,
+          interval: every.toDouble(),
+          getTitlesWidget: (value, meta) {
+            final i = value.round();
+            if (i < 0 || i >= points.length || i % every != 0) {
+              return const SizedBox.shrink();
+            }
+            return Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(_short(points[i].$1), style: axis),
+            );
+          },
+        ),
+      ),
+    );
+    final tooltipStyle = theme.textTheme.labelMedium!.copyWith(
+      color: cs.onInverseSurface,
+    );
+    String tip(int x, int s, double v) =>
+        '${points[x].$1}\n'
+        '${series.length > 1 ? '${series[s].label}: ' : ''}'
+        '${reportCell(series[s], v)}';
 
     return Card(
       key: const ValueKey('report-chart'),
@@ -137,6 +192,47 @@ class ReportBarChart extends StatelessWidget {
                   textDirection: TextDirection.ltr,
                   child: LayoutBuilder(
                     builder: (context, box) {
+                      if (line) {
+                        return LineChart(
+                          LineChartData(
+                            minX: 0,
+                            maxX: (points.length - 1).toDouble(),
+                            minY: bottom,
+                            maxY: top,
+                            gridData: grid,
+                            borderData: FlBorderData(show: false),
+                            titlesData: titles,
+                            lineTouchData: LineTouchData(
+                              touchTooltipData: LineTouchTooltipData(
+                                getTooltipColor: (_) => cs.inverseSurface,
+                                getTooltipItems: (spots) => [
+                                  for (final spot in spots)
+                                    LineTooltipItem(
+                                      tip(
+                                        spot.x.round(),
+                                        spot.barIndex,
+                                        spot.y,
+                                      ),
+                                      tooltipStyle,
+                                    ),
+                                ],
+                              ),
+                            ),
+                            lineBarsData: [
+                              for (final s in series.indexed)
+                                LineChartBarData(
+                                  spots: [
+                                    for (final (i, (_, vs)) in points.indexed)
+                                      FlSpot(i.toDouble(), vs[s.$1]),
+                                  ],
+                                  color: colors[s.$1 % colors.length],
+                                  barWidth: 2,
+                                  dotData: const FlDotData(show: false),
+                                ),
+                            ],
+                          ),
+                        );
+                      }
                       final slot = box.maxWidth / points.length;
                       // a row's bars share 60 % of its slot, 2px apart
                       final width = (slot * 0.6 / series.length).clamp(
@@ -148,60 +244,16 @@ class ReportBarChart extends StatelessWidget {
                           alignment: BarChartAlignment.spaceAround,
                           minY: bottom,
                           maxY: top,
-                          gridData: FlGridData(
-                            drawVerticalLine: false,
-                            horizontalInterval: step,
-                            getDrawingHorizontalLine: (_) => FlLine(
-                              color: cs.outlineVariant,
-                              strokeWidth: 0.5,
-                            ),
-                          ),
+                          gridData: grid,
                           borderData: FlBorderData(show: false),
-                          titlesData: FlTitlesData(
-                            rightTitles: const AxisTitles(),
-                            topTitles: const AxisTitles(),
-                            leftTitles: AxisTitles(
-                              sideTitles: SideTitles(
-                                showTitles: true,
-                                reservedSize: 44,
-                                interval: step,
-                                getTitlesWidget: (value, meta) =>
-                                    Text(compact.format(value), style: axis),
-                              ),
-                            ),
-                            bottomTitles: AxisTitles(
-                              sideTitles: SideTitles(
-                                showTitles: true,
-                                reservedSize: 22,
-                                getTitlesWidget: (value, meta) {
-                                  final i = value.round();
-                                  if (i < 0 ||
-                                      i >= points.length ||
-                                      i % every != 0) {
-                                    return const SizedBox.shrink();
-                                  }
-                                  return Padding(
-                                    padding: const EdgeInsets.only(top: 4),
-                                    child: Text(
-                                      _short(points[i].$1),
-                                      style: axis,
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                          ),
+                          titlesData: titles,
                           barTouchData: BarTouchData(
                             touchTooltipData: BarTouchTooltipData(
                               getTooltipColor: (_) => cs.inverseSurface,
                               getTooltipItem: (group, _, rod, index) =>
                                   BarTooltipItem(
-                                    '${points[group.x].$1}\n'
-                                    '${series.length > 1 ? '${series[index].label}: ' : ''}'
-                                    '${reportCell(series[index], rod.toY)}',
-                                    theme.textTheme.labelMedium!.copyWith(
-                                      color: cs.onInverseSurface,
-                                    ),
+                                    tip(group.x, index, rod.toY),
+                                    tooltipStyle,
                                   ),
                             ),
                           ),
