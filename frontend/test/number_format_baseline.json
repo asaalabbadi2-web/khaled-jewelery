@@ -29,7 +29,6 @@
   "lib/screens/reports/category_weight_audit_report_screen.dart": 4,
   "lib/screens/reports/customer_gold_balances_report_screen.dart": 1,
   "lib/screens/reports/dual_system_reconciliation_screen.dart": 9,
-  "lib/screens/reports/gold_position_report_screen.dart": 1,
   "lib/screens/reports/gold_price_history_report_screen.dart": 1,
   "lib/screens/reports/income_statement_report_screen.dart": 7,
   "lib/screens/reports/inventory_cost_analysis_screen.dart": 17,

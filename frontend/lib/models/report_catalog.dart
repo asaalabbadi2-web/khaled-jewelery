@@ -256,15 +256,17 @@ class ReportCatalog {
             requiresFilters: true,
           ),
           ReportDescriptor(
-            id: 'gold_position',
+            id: 'gold_by_place',
             icon: Icons.scale,
-            titleAr: 'مركز الذهب',
-            titleEn: 'Gold Position',
-            descriptionAr: 'تحليل صافي الذهب حسب العيار والمؤسسة.',
-            descriptionEn: 'Net gold position by karat and branch.',
-            route: 'gold_position',
+            titleAr: 'الذهب حسب مكانه',
+            titleEn: 'Gold by Place',
+            descriptionAr:
+                'أين ذهب المحل في يوم: كل خزينة ومخزن وعهدة ومكتب، بجرامات كل عيار وبالعيار الرئيسي، مطابقًا لأصول الميزانية بالوزن.',
+            descriptionEn:
+                'Where the shop\'s gold is on a day, place by place, agreeing with the balance sheet in grams.',
+            route: 'gold_by_place',
             type: ReportType.gold,
-            requiresFilters: true,
+            keywords: ['ذهب', 'مركز', 'خزينة', 'مخزون', 'عهدة', 'مكان'],
           ),
           ReportDescriptor(
             id: 'gold_safe_boxes_inventory',

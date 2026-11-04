@@ -4,7 +4,8 @@ The repository's law: routes are thin, queries live in services. On the 2 Nov
 tree routes/reports.py held 211 query lines; ت0-1 deleted five unread
 reports, ت0-2 moved what was not a report, ت0-3 moved the trial balance, ت2-2 the income statement (and deleted the tree's weight one),
 ت4-3 deleted the four old sales reports (the sales analysis answers them),
-ت4-4ب the sales-against-purchases trend (the purchases analysis answers it).
+ت4-4ب the sales-against-purchases trend (the purchases analysis answers it),
+ت5-2 the gold position (the gold by place answers it).
 Each report moved lowers BASELINE to what is left -- this fails above it, and
 fails below it until it is lowered, so the gain is kept.
 
@@ -16,7 +17,7 @@ import re
 
 ROUTES = pathlib.Path(__file__).resolve().parents[1] / 'routes' / 'reports.py'
 QUERY = re.compile(r'db\.session\.query\(|\.query\.|\.query\b\(|\.filter\(')
-BASELINE = 86
+BASELINE = 80
 
 
 def _count() -> int:

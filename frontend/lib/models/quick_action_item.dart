@@ -587,7 +587,7 @@ class DefaultQuickActions {
     QuickActionItem(
       id: 'gold_position_report',
       icon: Icons.scale,
-      label: 'تقرير مركز الذهب',
+      label: 'الذهب حسب مكانه',
       route: 'gold_position',
       colorHex: '#FDD835',
       isActive: false,

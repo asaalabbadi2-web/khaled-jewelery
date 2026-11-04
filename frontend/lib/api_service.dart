@@ -3064,48 +3064,17 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> getGoldPositionReport({
-    bool includeZero = false,
-    double? minVariance,
-    List<String>? safeTypes,
-    List<int>? officeIds,
-    List<num>? karats,
-  }) async {
-    final queryParams = <String, String>{};
-
-    if (includeZero) {
-      queryParams['include_zero'] = 'true';
-    }
-
-    if (minVariance != null) {
-      queryParams['min_variance'] = minVariance.toString();
-    }
-
-    if (safeTypes != null && safeTypes.isNotEmpty) {
-      queryParams['safe_types'] = safeTypes.join(',');
-    }
-
-    if (officeIds != null && officeIds.isNotEmpty) {
-      queryParams['office_ids'] = officeIds
-          .map((id) => id.toString())
-          .join(',');
-    }
-
-    if (karats != null && karats.isNotEmpty) {
-      queryParams['karats'] = karats.map((k) => k.toString()).join(',');
-    }
-
+  /// The shop's gold by its place on a day in the reports' contract
+  /// (REPORTS ت5-2): the balance sheet's assets in grams, place by place.
+  Future<Map<String, dynamic>> getGoldByPlace({required String asOf}) async {
     final uri = Uri.parse(
-      '$_baseUrl/reports/gold_position',
-    ).replace(queryParameters: queryParams.isEmpty ? null : queryParams);
-
+      '$_baseUrl/reports/gold-by-place',
+    ).replace(queryParameters: {'as_of': asOf});
     final response = await _authedGet(uri);
-
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
-    } else {
-      throw _apiError(response);
     }
+    throw _apiError(response);
   }
 
   Future<Map<String, dynamic>> getEmployeeScrapLedgerReport({

@@ -21,7 +21,6 @@ from models import (
     InvoicePayment,
     JournalEntry,
     JournalEntryLine,
-    Office,
     SafeBox,
     SafeBoxTransaction,
 )
@@ -1339,259 +1338,6 @@ def get_gold_price_history_report():
         },
     })
 
-@reports_bp.route('/reports/gold_position', methods=['GET'])
-@require_permission('reports.gold_position')
-def get_gold_position_report():
-    """عرض مركز الذهب الإجمالي حسب الحسابات والخزائن والمكاتب مع تحويل للعيار الرئيسي."""
-
-    include_zero = request.args.get('include_zero', 'false').lower() == 'true'
-    min_variance_param = request.args.get('min_variance')
-    safe_types_param = request.args.get('safe_types')
-    office_ids_param = request.args.get('office_ids')
-    karats_param = request.args.get('karats')
-
-    try:
-        min_variance = float(min_variance_param) if min_variance_param else 0.05
-        min_variance = max(0.0, min(min_variance, 1000.0))
-    except ValueError:
-        return jsonify({'error': 'Invalid min_variance value'}), 400
-
-    def parse_float(value, default=0.0):
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return default
-
-    def round_weight(value):
-        return round(float(value or 0.0), 3)
-
-    main_karat = get_main_karat()
-
-    def normalize_to_main(weight_value, karat_value):
-        value = parse_float(weight_value)
-        karat = parse_float(karat_value, main_karat)
-        if value == 0 or main_karat == 0:
-            return 0.0
-        return (value * karat) / float(main_karat)
-
-    karat_profiles = [
-        {'label': '18k', 'field': 'balance_18k', 'karat': 18},
-        {'label': '21k', 'field': 'balance_21k', 'karat': 21},
-        {'label': '22k', 'field': 'balance_22k', 'karat': 22},
-        {'label': '24k', 'field': 'balance_24k', 'karat': 24},
-    ]
-
-    karat_filter = set()
-    if karats_param:
-        for piece in karats_param.split(','):
-            piece = piece.strip().lower().replace('k', '').replace('عيار', '')
-            if not piece:
-                continue
-            try:
-                karat_filter.add(float(piece))
-            except ValueError:
-                return jsonify({'error': f'Invalid karat value: {piece}'}), 400
-
-    safe_types_filter = set()
-    if safe_types_param:
-        safe_types_filter = {
-            token.strip().lower()
-            for token in safe_types_param.split(',')
-            if token.strip()
-        }
-
-    office_ids_filter = set()
-    if office_ids_param:
-        for piece in office_ids_param.split(','):
-            piece = piece.strip()
-            if not piece:
-                continue
-            try:
-                office_ids_filter.add(int(piece))
-            except ValueError:
-                return jsonify({'error': f'office_ids must be numeric, got {piece}'}), 400
-
-    summary_by_karat = {profile['label']: 0.0 for profile in karat_profiles}
-    total_main = 0.0
-    long_total = 0.0
-    short_total = 0.0
-
-    def build_breakdown(getter, accumulate=True):
-        weights = {}
-        normalized_total = 0.0
-        for profile in karat_profiles:
-            karat_value = profile['karat']
-            if karat_filter and karat_value not in karat_filter:
-                weights[profile['label']] = 0.0
-                continue
-            raw_value = parse_float(getter(profile['field']))
-            weights[profile['label']] = round_weight(raw_value)
-            if accumulate:
-                summary_by_karat[profile['label']] += raw_value
-            normalized_total += normalize_to_main(raw_value, karat_value)
-        return weights, normalized_total
-
-    account_rows = []
-    accounts_query = Account.query.filter(Account.tracks_weight == True)
-    for account in accounts_query:
-        weights, normalized_total = build_breakdown(lambda field: getattr(account, field, 0.0))
-        total_main += normalized_total
-        if normalized_total > 0:
-            long_total += normalized_total
-        elif normalized_total < 0:
-            short_total += normalized_total
-
-        if not include_zero and abs(normalized_total) < min_variance:
-            continue
-
-        account_rows.append({
-            'id': account.id,
-            'account_number': account.account_number,
-            'name': account.name,
-            'type': account.type,
-            'weights': weights,
-            'total_main_karat': round_weight(normalized_total),
-            'tracks_weight': account.tracks_weight,
-        })
-
-    top_long_accounts = [row for row in account_rows if row['total_main_karat'] > 0]
-    top_long_accounts.sort(key=lambda entry: entry['total_main_karat'], reverse=True)
-    top_long_accounts = top_long_accounts[:5]
-
-    top_short_accounts = [row for row in account_rows if row['total_main_karat'] < 0]
-    top_short_accounts.sort(key=lambda entry: entry['total_main_karat'])
-    top_short_accounts = top_short_accounts[:5]
-
-    safe_box_rows = []
-    safe_boxes_query = SafeBox.query.filter(SafeBox.is_active.is_(True))
-    if safe_types_filter:
-        safe_boxes_query = safe_boxes_query.filter(SafeBox.safe_type.in_(safe_types_filter))
-
-    for safe_box in safe_boxes_query.all():
-        account = safe_box.account
-        if not account or not account.tracks_weight:
-            continue
-        weights, normalized_total = build_breakdown(lambda field: getattr(account, field, 0.0), accumulate=False)
-        if not include_zero and abs(normalized_total) < min_variance:
-            continue
-
-        safe_box_rows.append({
-            'id': safe_box.id,
-            'name': safe_box.name,
-            'safe_type': safe_box.safe_type,
-            'karat': safe_box.karat,
-            'account_id': account.id,
-            'account_number': account.account_number,
-            'weights': weights,
-            'total_main_karat': round_weight(normalized_total),
-            'is_default': safe_box.is_default,
-        })
-
-    office_rows = []
-    offices_query = Office.query
-    if office_ids_filter:
-        offices_query = offices_query.filter(Office.id.in_(office_ids_filter))
-    else:
-        offices_query = offices_query.filter(Office.active.is_(True))
-
-    for office in offices_query.all():
-        weights = {}
-        normalized_total = 0.0
-        for profile in karat_profiles:
-            karat_val = profile['karat']
-            if karat_filter and karat_val not in karat_filter:
-                weights[profile['label']] = 0.0
-                continue
-            # Office fields are named balance_gold_XXk
-            field_name = profile['field']
-            office_field = field_name.replace('balance_', 'balance_gold_')
-            raw_value = parse_float(getattr(office, office_field, 0.0))
-            weights[profile['label']] = round_weight(raw_value)
-            normalized_total += normalize_to_main(raw_value, karat_val)
-
-        if not include_zero and abs(normalized_total) < min_variance:
-            continue
-
-        office_rows.append({
-            'id': office.id,
-            'name': office.name,
-            'office_code': office.office_code,
-            'weights': weights,
-            'total_main_karat': round_weight(normalized_total),
-            'active': office.active,
-        })
-
-    distribution = []
-    distribution_total_main = 0.0
-    for profile in karat_profiles:
-        raw_total = summary_by_karat[profile['label']]
-        normalized = normalize_to_main(raw_total, profile['karat'])
-        distribution_total_main += normalized
-        distribution.append({
-            'karat': profile['label'],
-            'raw_weight': round_weight(raw_total),
-            'normalized_main_karat': round_weight(normalized),
-        })
-
-    latest_price = GoldPrice.query.order_by(GoldPrice.date.desc()).first()
-    price_reference = None
-    if latest_price and latest_price.price:
-        # The office's price, by the terms it was saved with (OFFICE-PRICE-1).
-        from pricing.office_price import row_gram_price
-        per_gram_24k = round_weight(row_gram_price(latest_price, 24))
-        per_gram_main = round_weight(row_gram_price(latest_price, main_karat))
-        price_reference = {
-            'source_date': latest_price.date.isoformat() if latest_price.date else None,
-            'price_usd_ounce': round_weight(latest_price.price),
-            'price_sar_per_gram_24k': per_gram_24k,
-            'price_sar_per_gram_main_karat': per_gram_main,
-            'main_karat': main_karat,
-        }
-
-    estimated_value = None
-    if price_reference:
-        estimated_value = round_weight(total_main * price_reference['price_sar_per_gram_main_karat'])
-
-    summary = {
-        'total_by_karat': {
-            profile['label']: round_weight(summary_by_karat[profile['label']])
-            for profile in karat_profiles
-        },
-        'total_main_karat': round_weight(total_main),
-        'long_position_main': round_weight(long_total),
-        'short_position_main': round_weight(short_total),
-        'net_position_main': round_weight(total_main),
-        'distribution': distribution,
-        'distribution_total_main': round_weight(distribution_total_main),
-        'estimated_value_sar': estimated_value,
-        'price_reference': price_reference,
-        'main_karat': main_karat,
-    }
-
-    return jsonify({
-        'summary': summary,
-        'accounts': account_rows,
-        'safe_boxes': safe_box_rows,
-        'offices': office_rows,
-        'top_long_accounts': top_long_accounts,
-        'top_short_accounts': top_short_accounts,
-        'filters': {
-            'include_zero': include_zero,
-            'min_variance': min_variance,
-            'safe_types': list(safe_types_filter) if safe_types_filter else None,
-            'office_ids': list(office_ids_filter) if office_ids_filter else None,
-            'karats': list(karat_filter) if karat_filter else None,
-        },
-    })
-
-# 🔥 النظام المزدوج: التقارير الوزنية
-# ═══════════════════════════════════════════════════════════════
-
-
-# ═══════════════════════════════════════════════════════════════
-# 📊 قائمة الدخل التقليدية (نقدية)
-# ═══════════════════════════════════════════════════════════════
-
 @reports_bp.route('/reports/income_statement', methods=['GET'])
 @require_permission('reports.financial')
 def get_income_statement():
@@ -1698,6 +1444,19 @@ def get_customer_balances():
     except ValueError:
         return jsonify({'error': 'invalid_date', 'message': 'as_of بصيغة YYYY-MM-DD'}), 400
     return jsonify(customer_balances(as_of=as_of, now=datetime.now()).to_dict())
+
+
+@reports_bp.route('/reports/gold-by-place', methods=['GET'])
+@require_permission('reports.gold_position')
+def get_gold_by_place():
+    """The shop's gold by its place on a day (as_of, YYYY-MM-DD, today if none) in the
+    reports' contract (services/reports/gold_by_place.py, REPORTS ت5-2)."""
+    from services.reports.gold_by_place import gold_by_place
+    try:
+        as_of = _report_date('as_of', datetime.now().date())
+    except ValueError:
+        return jsonify({'error': 'invalid_date', 'message': 'as_of بصيغة YYYY-MM-DD'}), 400
+    return jsonify(gold_by_place(as_of=as_of, now=datetime.now()).to_dict())
 
 
 @reports_bp.route('/reports/supplier-aging', methods=['GET'])

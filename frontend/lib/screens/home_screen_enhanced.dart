@@ -66,7 +66,7 @@ import 'shift_closing_screen.dart';
 import 'import_documents_screen.dart';
 import 'reports/admin_dashboard_screen.dart';
 import 'reports/gold_price_history_report_screen.dart';
-import 'reports/gold_position_report_screen.dart';
+import 'reports/gold_by_place_report_screen.dart';
 import 'reports/reports_main_screen.dart';
 import 'system_reset_screen.dart';
 import 'printing_center_screen.dart';
@@ -5098,15 +5098,10 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           MaterialPageRoute(builder: (_) => const AccountsScreen(openOnTree: true)),
         );
         break;
-      case 'gold_position':
+      case 'gold_position':                  // the quick action's saved route (REPORTS ت5-2)
         result = await Navigator.push(
           context,
-          MaterialPageRoute(
-            builder: (_) => GoldPositionReportScreen(
-              api: api,
-              isArabic: widget.isArabic,
-            ),
-          ),
+          MaterialPageRoute(builder: (_) => GoldByPlaceReportScreen(api: api)),
         );
         break;
       case 'payroll_report':

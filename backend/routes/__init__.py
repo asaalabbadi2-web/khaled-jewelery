@@ -1098,7 +1098,7 @@ def _resolve_account_id_for_amount_type(account_id, amount_type, *, safe_account
 #  GET /vouchers/stats)
 
 # Reports domain → routes/reports.py (cluster 2)
-# (GET /reports/gold_price_history, GET /reports/gold_position)
+# (GET /reports/gold_price_history)
 
 # ========================================
 # Add Bank Information to Accounts

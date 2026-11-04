@@ -36,6 +36,19 @@ def groups_of(root_id: int) -> list:
     return children
 
 
+def weight_accounts(money_ids, own_twin=None, twins=None) -> set:
+    """The grams' accounts of *money_ids*: their weight twins' subtrees, and the
+    group's own twin's -- a supplier's grams sit on his account's twin
+    (72100020 is 2100020's), not under the group's (2 Nov copy: 183.527 g).
+    One rule for the balance sheet and the gold by place (ت5-2)."""
+    from accounting.chart_tree import subtree_ids
+    from models import Account
+    if twins is None:
+        twins = {i: m for i, m in Account.query.with_entities(Account.id, Account.memo_account_id) if m}
+    roots = {twins[i] for i in money_ids if i in twins} | ({own_twin} if own_twin else set())
+    return subtree_ids(*roots) if roots else set()
+
+
 def _balances(as_of: dt.date) -> dict:
     """{account id: (riyals debit - credit, grams of the main karat debit - credit)} to the end of *as_of*."""
     from sqlalchemy import func
@@ -64,11 +77,7 @@ def balance_sheet(*, as_of: dt.date, now: dt.datetime) -> Report:
     twins = {i: m for i, m in Account.query.with_entities(Account.id, Account.memo_account_id) if m}
 
     def weight_side(money_ids, own_twin=None):
-        """The grams' accounts of *money_ids*: their twins' subtrees, and the
-        group's own twin's -- a supplier's grams sit on his account's twin
-        (72100020 is 2100020's), not under the group's (2 Nov copy: 183.527 g)."""
-        roots = {twins[i] for i in money_ids if i in twins} | ({own_twin} if own_twin else set())
-        return subtree_ids(*roots) if roots else set()
+        return weight_accounts(money_ids, own_twin, twins)
 
     def cash(ids):
         return sum(balances.get(i, (0.0, 0.0))[0] for i in ids)
