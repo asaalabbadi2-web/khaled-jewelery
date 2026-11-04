@@ -4690,39 +4690,21 @@ class ApiService {
   // Payroll API
   // ---------------------------------------------------------------------------
 
-  Future<List<PayrollModel>> getPayroll({
-    int? employeeId,
-    int? year,
-    int? month,
-    String? status,
+  /// The payroll in the reports' contract (REPORTS ت6-2ب): by month,
+  /// employee or line, against the salary expense in the books.
+  Future<Map<String, dynamic>> getPayrollReport({
+    required String startDate,
+    required String endDate,
+    String by = 'month',
   }) async {
-    final queryParameters = <String, String>{};
-    if (employeeId != null) {
-      queryParameters['employee_id'] = employeeId.toString();
-    }
-    if (year != null) {
-      queryParameters['year'] = year.toString();
-    }
-    if (month != null) {
-      queryParameters['month'] = month.toString();
-    }
-    if (status != null && status.isNotEmpty) {
-      queryParameters['status'] = status;
-    }
-
-    final uri = Uri.parse(
-      '$_baseUrl/payroll',
-    ).replace(queryParameters: queryParameters);
+    final uri = Uri.parse('$_baseUrl/reports/payroll').replace(
+      queryParameters: {'start_date': startDate, 'end_date': endDate, 'by': by},
+    );
     final response = await _authedGet(uri);
-
     if (response.statusCode == 200) {
-      final raw = json.decode(utf8.decode(response.bodyBytes)) as List<dynamic>;
-      return raw
-          .map((e) => PayrollModel.fromJson(e as Map<String, dynamic>))
-          .toList();
-    } else {
-      throw _apiError(response);
+      return json.decode(utf8.decode(response.bodyBytes));
     }
+    throw _apiError(response);
   }
 
   Future<PayrollModel> createPayroll(Map<String, dynamic> payload) async {

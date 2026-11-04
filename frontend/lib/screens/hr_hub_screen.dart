@@ -136,7 +136,7 @@ class _HrHubScreenState extends State<HrHubScreen>
             overview: overview,
             isAr: isAr,
             onLegacy: () =>
-                _push(PayrollReportScreen(api: widget.api, isArabic: isAr)),
+                _push(PayrollReportScreen(api: widget.api)),
             onChanged: _load,
           ),
           _FollowupTab(

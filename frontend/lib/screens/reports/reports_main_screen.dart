@@ -99,10 +99,7 @@ Widget? reportDestination(String route, ApiService api, bool isArabic) {
     case 'account_statement':
       return const AccountsScreen(initialOnlyDetailAccounts: true);
     case 'payroll_report':
-      return PayrollReportScreen(
-        api: api,
-        isArabic: isArabic,
-      );
+      return PayrollReportScreen(api: api);
     case 'bonus_payables':
       return BonusPayablesReportScreen(
         api: api,
