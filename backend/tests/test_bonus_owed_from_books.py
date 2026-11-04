@@ -91,5 +91,6 @@ def test_the_payables_report_carries_it(app, auth_headers):
     employee, account = _employee_with_account()
     _entry(account, credit=100.0, ref='voucher')
     body = flask_app.test_client().get('/api/bonuses/payables-report', headers=auth_headers).get_json()
-    assert any(r['employee_id'] == employee.id and r['owed_in_books'] == pytest.approx(100.0)
-               for r in body['owed_by_employee'])
+    # the reports' contract since REPORTS ت6-3: each employee's row, his books' side
+    assert any(r.get('drill') == {'kind': 'employee', 'id': employee.id} and r['books'] == pytest.approx(100.0)
+               for r in body['rows'])

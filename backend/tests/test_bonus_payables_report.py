@@ -52,23 +52,29 @@ def _entry(account, *, credit=0.0, debit=0.0, posted=True):
 
 
 def _report(headers):
-    resp = flask_app.test_client().get('/api/bonuses/payables-report', headers=headers)
+    resp = flask_app.test_client().get('/api/bonuses/payables-report?as_of=2026-10-31', headers=headers)
     assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
     return resp.get_json()
 
 
-def test_the_payable_is_the_books_with_the_employees_accounts(app, auth_headers):
-    payable = _payable()
-    before = _report(auth_headers)['account_info']
-    employee_account = Account(account_number=f'2310{uuid.uuid4().hex[:4]}', name='ح/ذمم موظف - مكافآت',
-                               type='Liability', parent_id=payable.id)
-    db.session.add(employee_account)
-    db.session.flush()
-    _entry(employee_account, credit=150.0)          # an approved bonus owed
-    _entry(employee_account, debit=40.0)            # part paid
-    _entry(employee_account, credit=999.0, posted=False)   # a draft does not count
+def _apart(body):
+    """What the payables hold beside the employees' accounts (REPORTS ت6-3)."""
+    return next((r['books'] for r in body['rows'] if r.get('style') == 'finding' and r.get('drill') is None), 0.0)
 
-    info = _report(auth_headers)['account_info']
-    assert info['account_number'] == payable.account_number
-    assert info['account_name'] == payable.name
-    assert info['balance'] == pytest.approx((before['balance'] or 0.0) + 110.0)
+
+def test_the_payable_is_the_books_with_the_employees_accounts(app, auth_headers):
+    """In the reports' contract since REPORTS ت6-3: an account under the payable
+    held by no employee is said apart, from the counted lines."""
+    payable = _payable()
+    before = _apart(_report(auth_headers))
+    loose = Account(account_number=f'2310{uuid.uuid4().hex[:4]}', name='ح/ذمم موظف - مكافآت',
+                    type='Liability', parent_id=payable.id)
+    db.session.add(loose)
+    db.session.flush()
+    _entry(loose, credit=150.0)          # an approved bonus owed
+    _entry(loose, debit=40.0)            # part paid
+    _entry(loose, credit=999.0, posted=False)   # a draft does not count
+
+    body = _report(auth_headers)
+    assert body['id'] == 'bonus_payables'
+    assert _apart(body) == pytest.approx(before + 110.0)

@@ -30,7 +30,6 @@
   "lib/screens/recurring_templates_screen.dart": 1,
   "lib/screens/report_previewer_screen.dart": 1,
   "lib/screens/reports/analytics_dashboard_screen.dart": 1,
-  "lib/screens/reports/bonus_payables_report_screen.dart": 1,
   "lib/screens/reports/category_weight_audit_report_screen.dart": 3,
   "lib/screens/reports/dual_system_reconciliation_screen.dart": 1,
   "lib/screens/reports/employee_scrap_ledger_report_screen.dart": 1,

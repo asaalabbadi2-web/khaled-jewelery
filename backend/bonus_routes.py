@@ -16,7 +16,7 @@ Endpoints:
 
 from flask import Blueprint, request, jsonify, g
 from services.record_ownership import refuse_unless_self
-from models import db, Employee, BonusRule, EmployeeBonus, Voucher, VoucherAccountLine, Account, Office, SafeBox, GoalAchievement, Invoice, BonusInvoiceLink
+from models import db, Employee, BonusRule, EmployeeBonus, Voucher, VoucherAccountLine, Office, SafeBox, GoalAchievement, Invoice, BonusInvoiceLink
 from bonus_calculator import BonusCalculator
 from services.approval_policy import actor
 from datetime import datetime, date, timedelta
@@ -1940,95 +1940,15 @@ def get_bonuses_owed():
 @require_any_permission('bonus.calculate', 'bonus.approve', 'bonus.pay')
 @require_auth
 def get_bonuses_payables_report():
-    """
-    تقرير المستحقات غير المدفوعة (approved)
-    
-    يوضح إجمالي المكافآت المستحقة لكل موظف والتي لم تُدفع بعد
-    هذا المبلغ يجب أن يطابق رصيد حساب "مكافآت مستحقة" (215)
-    """
+    """The bonuses owed on a day (as_of, YYYY-MM-DD, today if none) in the reports' contract
+    (services/reports/bonus_payables.py, REPORTS ت6-3): the approved documents beside the books."""
+    from routes.reports import _report_date
+    from services.reports.bonus_payables import bonus_payables
     try:
-        # إحصائيات حسب الحالة
-        stats_by_status = db.session.query(
-            EmployeeBonus.status,
-            func.count(EmployeeBonus.id).label('count'),
-            func.sum(EmployeeBonus.amount).label('total')
-        ).group_by(EmployeeBonus.status).all()
-        
-        status_summary = {}
-        for status, count, total in stats_by_status:
-            status_summary[status] = {
-                'count': count,
-                'total': float(total or 0)
-            }
-        
-        # المستحقات غير المدفوعة لكل موظف (approved فقط)
-        unpaid_by_employee = db.session.query(
-            Employee.id,
-            Employee.name,
-            Employee.employee_code,
-            func.count(EmployeeBonus.id).label('count'),
-            func.sum(EmployeeBonus.amount).label('total')
-        ).join(
-            EmployeeBonus, Employee.id == EmployeeBonus.employee_id
-        ).filter(
-            EmployeeBonus.status == 'approved'
-        ).group_by(
-            Employee.id, Employee.name, Employee.employee_code
-        ).all()
-        
-        employees_payables = []
-        total_unpaid = 0
-        
-        for emp_id, emp_name, emp_code, count, total in unpaid_by_employee:
-            employees_payables.append({
-                'employee_id': emp_id,
-                'employee_name': emp_name,
-                'employee_code': emp_code,
-                'bonuses_count': count,
-                'total_amount': float(total)
-            })
-            total_unpaid += float(total)
-        
-        # The payable's balance is the books': the account the bonuses post to
-        # (the one finder) with the employees' accounts under it, from the
-        # counted journal lines. (It read account 215 -- none -- from voucher
-        # lines, and called it 2310.)
-        bonuses_payable_account = _find_bonus_payable_account()
-        account_balance = None
-        balance_matches = None
-
-        if bonuses_payable_account:
-            tree, frontier = {bonuses_payable_account.id}, [bonuses_payable_account.id]
-            while frontier:
-                children = [a.id for a in Account.query.filter(Account.parent_id.in_(frontier)).all()]
-                frontier = [c for c in children if c not in tree]
-                tree.update(frontier)
-            live = live_balances_by_account_ids(tree)
-            # A liability: credit less debit.
-            account_balance = round(-sum(v['cash'] for v in live.values()), 2)
-            balance_matches = abs(account_balance - total_unpaid) < 0.01
-        
-        return jsonify({
-            'success': True,
-            'report_date': date.today().isoformat(),
-            'status_summary': status_summary,
-            'employees_payables': employees_payables,
-            'total_unpaid': total_unpaid,
-            # What the books say each employee is owed (BONUS-BOOKS-1).
-            'owed_by_employee': owed_by_employee(),
-            'account_info': {
-                'account_number': bonuses_payable_account.account_number,
-                'account_name': bonuses_payable_account.name,
-                'balance': account_balance,
-                'balance_matches': balance_matches
-            } if bonuses_payable_account else None
-        }), 200
-        
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'message': str(e)
-        }), 500
+        as_of = _report_date('as_of', datetime.now().date())
+    except ValueError:
+        return jsonify({'error': 'invalid_date', 'message': 'as_of بصيغة YYYY-MM-DD'}), 400
+    return jsonify(bonus_payables(as_of=as_of, now=datetime.now()).to_dict())
 
 
 # ==========================================

@@ -7482,15 +7482,19 @@ class ApiService {
     throw ApiException.text('فشل في تحميل المستحق من الدفاتر');
   }
 
-  Future<Map<String, dynamic>> getBonusesPayablesReport() async {
-    final response = await _authedGet(
-      Uri.parse('$_baseUrl/bonuses/payables-report'),
-    );
+  /// The bonuses owed on a day in the reports' contract (REPORTS ت6-3): the
+  /// approved documents beside what the books owe each employee.
+  Future<Map<String, dynamic>> getBonusesPayablesReport({
+    required String asOf,
+  }) async {
+    final uri = Uri.parse(
+      '$_baseUrl/bonuses/payables-report',
+    ).replace(queryParameters: {'as_of': asOf});
+    final response = await _authedGet(uri);
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
-    } else {
-      throw ApiException.text('فشل في تحميل تقرير المكافآت المستحقة');
     }
+    throw _apiError(response);
   }
 
   // ==========================================

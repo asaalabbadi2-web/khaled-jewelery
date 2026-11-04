@@ -101,10 +101,7 @@ Widget? reportDestination(String route, ApiService api, bool isArabic) {
     case 'payroll_report':
       return PayrollReportScreen(api: api);
     case 'bonus_payables':
-      return BonusPayablesReportScreen(
-        api: api,
-        isArabic: isArabic,
-      );
+      return BonusPayablesReportScreen(api: api);
   }
   return null;
 }
