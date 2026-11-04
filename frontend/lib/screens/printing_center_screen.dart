@@ -16,7 +16,7 @@ import 'customers_screen.dart';
 import 'journal_entry_print_screen.dart';
 import 'general_ledger_screen_v2.dart';
 import 'reports/category_weight_audit_report_screen.dart';
-import 'reports/sales_overview_report_screen.dart';
+import 'reports/sales_analysis_report_screen.dart';
 import 'reports/trial_balance_report_screen.dart';
 import '../utils/invoice_direct_print.dart';
 import '../widgets/app_feedback.dart';
@@ -2237,10 +2237,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
               'Recent range': 'Last 30 days (adjustable later)',
               'Mode': 'Interactive report workspace',
             },
-            builder: (_) => SalesOverviewReportScreen(
-              api: _apiService,
-              isArabic: widget.isArabic,
-            ),
+            builder: (_) => SalesAnalysisReportScreen(api: _apiService),
           );
           break;
         }
@@ -3913,10 +3910,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
         await Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => SalesOverviewReportScreen(
-              api: widget.api,
-              isArabic: widget.isArabic,
-            ),
+            builder: (_) => SalesAnalysisReportScreen(api: widget.api),
           ),
         );
         break;

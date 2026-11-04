@@ -28,9 +28,6 @@ def rollback_after_each(app, db_fence):
 
 
 @pytest.mark.parametrize('url', [
-    f'/api/reports/sales_overview?{PERIOD}',
-    f'/api/reports/sales_by_customer?{PERIOD}',
-    f'/api/reports/sales_by_item?{PERIOD}',
     f'/api/analytics/summary?{PERIOD}',
     '/api/reports/customer_balances_aging',
     '/api/reports/bridge-balance-monitor',

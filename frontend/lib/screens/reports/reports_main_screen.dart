@@ -16,11 +16,7 @@ import 'cash_flow_report_screen.dart';
 import 'sales_analysis_report_screen.dart';
 import 'trial_balance_report_screen.dart';
 import 'category_weight_audit_report_screen.dart';
-import 'sales_by_customer_report_screen.dart';
-import 'sales_by_item_report_screen.dart';
-import 'sales_by_karat_report_screen.dart';
 import 'sales_vs_purchases_trend_report_screen.dart';
-import 'sales_overview_report_screen.dart';
 import 'customer_balances_aging_report_screen.dart';
 import 'supplier_aging_report_screen.dart';
 import 'gold_price_history_report_screen.dart';
@@ -68,28 +64,8 @@ Widget? reportDestination(String route, ApiService api, bool isArabic) {
       return SupplierAgingReportScreen(api: api);
     case 'sales_analysis':
       return SalesAnalysisReportScreen(api: api);
-    case 'sales_overview':
-      return SalesOverviewReportScreen(
-        api: api,
-        isArabic: isArabic,
-      );
     case 'income_statement':
       return IncomeStatementReportScreen(
-        api: api,
-        isArabic: isArabic,
-      );
-    case 'sales_by_customer':
-      return SalesByCustomerReportScreen(
-        api: api,
-        isArabic: isArabic,
-      );
-    case 'sales_by_item':
-      return SalesByItemReportScreen(
-        api: api,
-        isArabic: isArabic,
-      );
-    case 'sales_by_karat':
-      return SalesByKaratReportScreen(
         api: api,
         isArabic: isArabic,
       );
