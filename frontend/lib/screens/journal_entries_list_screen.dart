@@ -15,6 +15,7 @@ import '../utils/currency_utils.dart' as cu;
 import '../widgets/cancelled_vouchers_bar.dart';
 import '../widgets/widgets.dart';
 import 'journal_entry_form.dart';
+import 'journal_entry_print_screen.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/confirm_financial_action.dart';
 import '../widgets/app_state_views.dart';
@@ -629,7 +630,9 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
     return pages;
   }
 
-  Future<void> _openPreview(Map<String, dynamic> entry) async {
+  /// The entry with its lines, read from the server behind a loader; null
+  /// when the read fails (said to the user).
+  Future<Map<String, dynamic>?> _loadEntry(Map<String, dynamic> entry) async {
     // عرض شاشة تحميل مؤقتة
     var loaderVisible = true;
     showDialog(
@@ -641,15 +644,47 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
     try {
       final id = entry['id'];
       final details = await _apiService.getJournalEntryById(id is int ? id : int.parse(id.toString()));
-      if (!mounted) return;
+      if (!mounted) return null;
       if (loaderVisible) {
         Navigator.of(context, rootNavigator: true).pop();
         loaderVisible = false;
       }
 
-      final merged = <String, dynamic>{...entry, ...details};
+      return <String, dynamic>{...entry, ...details};
+    } catch (e) {
+      if (loaderVisible && mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+      if (mounted) {
+        AppFeedback.error(
+          context,
+          e,
+          title: widget.isArabic ? 'تعذّر تحميل القيد' : 'Unable to load the entry',
+        );
+      }
+      return null;
+    }
+  }
 
-      await showModalBottomSheet<void>(
+  /// The entry's printout (PRINT-CENTRE: the printing centre printed it
+  /// alone, and it went).
+  Future<void> _openPrint(Map<String, dynamic> entry) async {
+    final merged = await _loadEntry(entry);
+    if (merged == null || !mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => JournalEntryPrintScreen(
+          journalEntry: merged,
+          isArabic: widget.isArabic,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openPreview(Map<String, dynamic> entry) async {
+    final merged = await _loadEntry(entry);
+    if (merged == null || !mounted) return;
+    await showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,
         backgroundColor: Colors.transparent,
@@ -662,18 +697,6 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
           onDelete: entry['is_posted'] != true ? () { Navigator.pop(ctx); _deleteEntry(entry); } : null,
         ),
       );
-    } catch (e) {
-      if (loaderVisible && mounted) {
-        Navigator.of(context, rootNavigator: true).pop();
-      }
-      if (mounted) {
-        AppFeedback.error(
-          context,
-          e,
-          title: widget.isArabic ? 'تعذّر تحميل القيد' : 'Unable to load the entry',
-        );
-      }
-    }
   }
 
   Future<void> _openEditor([Map<String, dynamic>? entry]) async {
@@ -825,8 +848,10 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
     final isPosted = entry['is_posted'] == true;
     switch (action) {
       case _JournalEntryRowAction.preview:
-      case _JournalEntryRowAction.print:
         await _openPreview(entry);
+        break;
+      case _JournalEntryRowAction.print:
+        await _openPrint(entry);
         break;
       case _JournalEntryRowAction.edit:
         if (!isPosted) {

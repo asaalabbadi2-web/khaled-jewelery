@@ -626,16 +626,6 @@ class DefaultQuickActions {
       group: QuickActionGroup.admin,
     ),
     QuickActionItem(
-      id: 'printing_center',
-      icon: Icons.print,
-      label: 'مركز الطباعة',
-      route: 'printing_center',
-      colorHex: '#1976D2',
-      isActive: true,
-      order: 1,
-      group: QuickActionGroup.admin,
-    ),
-    QuickActionItem(
       id: 'safe_boxes',
       icon: Icons.wallet,
       label: 'إدارة الخزائن',

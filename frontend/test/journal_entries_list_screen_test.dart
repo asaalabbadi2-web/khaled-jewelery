@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/settings_provider.dart';
 import 'package:frontend/screens/journal_entries_list_screen.dart';
+import 'package:frontend/screens/journal_entry_print_screen.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -164,6 +165,30 @@ void main() {
     await tester.tap(find.text(label).last);
     await tester.pumpAndSettle();
   }
+
+  // PRINT-CENTRE (the owner, 5 Nov 2026): the printing centre goes; an
+  // entry's paper was printed there alone -- the list's «طباعة» opened a
+  // preview with nothing to print.
+  testWidgets("«طباعة» opens the entry's printout, its lines in it", (
+    tester,
+  ) async {
+    await open(tester, () async {
+      await tester.ensureVisible(find.byTooltip('الإجراءات').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('الإجراءات').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('طباعة').last);
+      // The printout draws its PDF as it goes: frames, not a settle.
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      final screen = find.byType(JournalEntryPrintScreen);
+      expect(screen, findsOneWidget);
+      final printed = tester.widget<JournalEntryPrintScreen>(screen);
+      expect(printed.journalEntry['entry_number'], 'JE-2026-00042');
+      expect((printed.journalEntry['lines'] as List).length, 2);
+    });
+  });
 
   testWidgets('posting asks first, saying the entry; going back posts '
       'nothing', (tester) async {

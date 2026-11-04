@@ -69,7 +69,6 @@ import 'reports/gold_price_history_report_screen.dart';
 import 'reports/gold_by_place_report_screen.dart';
 import 'reports/reports_main_screen.dart';
 import 'system_reset_screen.dart';
-import 'printing_center_screen.dart';
 import 'security_sessions_screen.dart';
 import 'change_password_screen.dart';
 import 'user_profile_screen.dart';
@@ -2086,19 +2085,6 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         },
       );
     }
-    addDestination(
-      icon: Icons.print,
-      title: isAr ? 'مركز الطباعة' : 'Printing Center',
-      color: _tone.sectionPurple.fg,
-      onSelected: () async {
-        await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => PrintingCenterScreen(isArabic: isAr),
-          ),
-        );
-      },
-    );
     // The price is everyone's to read; its screen offers the update to who
     // may make it (ADR-057 ق٢) -- it was refused whole to the others.
     addDestination(
@@ -4229,8 +4215,6 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         return isAr ? 'صنف جديد' : 'New item';
       case 'items_list':
         return isAr ? 'إدارة المخزون' : 'Manage stock';
-      case 'printing_center':
-        return isAr ? 'طباعة المستندات' : 'Print documents';
       case 'posting_management':
         return isAr ? 'اعتماد الفواتير' : 'Invoice approvals';
       case 'shift_closing':
@@ -4725,7 +4709,6 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     'suppliers_list':          null,
     'add_item':                null,
     'items_list':              null,
-    'printing_center':         null,
     'melting_renewal':         null,
   };
 
@@ -4909,14 +4892,6 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           context,
           MaterialPageRoute(
             builder: (_) => GoldPriceHistoryReportScreen(api: api),
-          ),
-        );
-        break;
-      case 'printing_center':
-        result = await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => PrintingCenterScreen(isArabic: widget.isArabic),
           ),
         );
         break;
