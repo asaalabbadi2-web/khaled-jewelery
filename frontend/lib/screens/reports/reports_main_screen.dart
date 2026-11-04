@@ -6,6 +6,7 @@ import '../../api_service.dart';
 import '../../providers/auth_provider.dart';
 import '../../models/report_catalog.dart';
 import '../../models/report_models.dart';
+import '../../theme/app_tokens.dart';
 import '../../widgets/report_category_section.dart';
 import '../accounts_screen.dart';
 import '../general_ledger_screen_v2.dart';
@@ -28,33 +29,20 @@ import 'analytics_dashboard_screen.dart';
 import 'admin_dashboard_screen.dart';
 import 'weight_position_screen.dart';
 
-/// مركز التقارير الموحد - قاعدة البناء لجميع تقارير النظام
 /// The screen a report's route opens (ADR-057 ق٠) -- one place for the
 /// reports centre and the home screen's search. Null for a route not built.
 Widget? reportDestination(String route, ApiService api, bool isArabic) {
   switch (route) {
     case 'admin_dashboard':
-      return AdminDashboardScreen(
-        api: api,
-        isArabic: isArabic,
-      );
+      return AdminDashboardScreen(api: api, isArabic: isArabic);
     case 'weight_position':
       return WeightPositionScreen(api: api, isArabic: isArabic);
     case 'reconciliation_findings':
-      return ReconciliationFindingsScreen(
-        api: api,
-        isArabic: isArabic,
-      );
+      return ReconciliationFindingsScreen(api: api, isArabic: isArabic);
     case 'vat_returns':
-      return VatReturnsScreen(
-        api: api,
-        isArabic: isArabic,
-      );
+      return VatReturnsScreen(api: api, isArabic: isArabic);
     case 'analytics_dashboard':
-      return AnalyticsDashboardScreen(
-        api: api,
-        isArabic: isArabic,
-      );
+      return AnalyticsDashboardScreen(api: api, isArabic: isArabic);
     case 'cash_flow':
       return CashFlowReportScreen(api: api);
     case 'balance_sheet':
@@ -66,17 +54,11 @@ Widget? reportDestination(String route, ApiService api, bool isArabic) {
     case 'purchases_analysis':
       return PurchasesAnalysisReportScreen(api: api);
     case 'income_statement':
-      return IncomeStatementReportScreen(
-        api: api,
-        isArabic: isArabic,
-      );
+      return IncomeStatementReportScreen(api: api, isArabic: isArabic);
     case 'customer_balances':
       return CustomerBalancesReportScreen(api: api);
     case 'category_weight_audit':
-      return CategoryWeightAuditReportScreen(
-        api: api,
-        isArabic: isArabic,
-      );
+      return CategoryWeightAuditReportScreen(api: api, isArabic: isArabic);
     case 'gold_price_history':
       return GoldPriceHistoryReportScreen(api: api);
     case 'gold_by_place':
@@ -106,6 +88,10 @@ Widget? reportDestination(String route, ApiService api, bool isArabic) {
   return null;
 }
 
+/// The reports centre: a search, then the owner's questions and the reports
+/// that answer each (REPORTS-HUB, the owner 5 Nov 2026: «حسب السؤال»,
+/// «بطاقة مضغوطة»). Nothing above the search: the card «كل تقاريرك في مكان
+/// واحد» took the screen and said nothing.
 class ReportsMainScreen extends StatefulWidget {
   final ApiService api;
   final bool isArabic;
@@ -120,7 +106,9 @@ class _ReportsMainScreenState extends State<ReportsMainScreen> {
   late final List<ReportCategory> _allCategories;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
-  ReportType? _selectedType;
+
+  /// The widest the list grows: wider, the eye loses the row.
+  static const double _maxWidth = 1200;
 
   @override
   void initState() {
@@ -141,51 +129,47 @@ class _ReportsMainScreenState extends State<ReportsMainScreen> {
     setState(() => _searchQuery = _searchController.text.trim());
   }
 
-  void _toggleFilter(ReportType type) {
-    setState(() {
-      _selectedType = _selectedType == type ? null : type;
-    });
+  void _clearSearch() {
+    _searchController.clear();
+    setState(() => _searchQuery = '');
+  }
+
+  bool _matches(
+    ReportCategory category,
+    ReportDescriptor report,
+    String query,
+  ) {
+    if (query.isEmpty) return true;
+    final isArabic = widget.isArabic;
+    return [
+      report.localizedTitle(isArabic),
+      report.localizedDescription(isArabic),
+      category.localizedName(isArabic),
+      ...report.keywords,
+    ].any((text) => text.toLowerCase().contains(query));
   }
 
   Iterable<ReportCategory> get _filteredCategories sync* {
+    final query = _searchQuery.toLowerCase();
+    // The manager's dashboard is the manager's alone (DASH-3, 30 Oct 2026).
+    final manager = Provider.of<AuthProvider>(
+      context,
+      listen: false,
+    ).hasPermission('dashboard.admin');
     for (final category in _allCategories) {
-      final filteredReports = category.reports.where((report) {
-        // The manager's dashboard is the manager's alone (DASH-3, 30 Oct 2026).
-        if (report.id == 'admin_dashboard' &&
-            !Provider.of<AuthProvider>(context, listen: false).hasPermission('dashboard.admin')) {
-          return false;
-        }
-        final matchesType =
-            _selectedType == null || report.type == _selectedType;
-        final query = _searchQuery.toLowerCase();
-        if (query.isEmpty && matchesType) return true;
-
-        final titleMatches = report
-            .localizedTitle(widget.isArabic)
-            .toLowerCase()
-            .contains(query);
-        final descriptionMatches = report
-            .localizedDescription(widget.isArabic)
-            .toLowerCase()
-            .contains(query);
-        final categoryMatches = category
-            .localizedName(widget.isArabic)
-            .toLowerCase()
-            .contains(query);
-
-        return matchesType &&
-            (titleMatches || descriptionMatches || categoryMatches);
-      }).toList();
-
-      if (filteredReports.isEmpty) continue;
-
+      final reports = [
+        for (final report in category.reports)
+          if ((report.id != 'admin_dashboard' || manager) &&
+              _matches(category, report, query))
+            report,
+      ];
+      if (reports.isEmpty) continue;
       yield ReportCategory(
         id: category.id,
         icon: category.icon,
-        accentColor: category.accentColor,
         nameAr: category.nameAr,
         nameEn: category.nameEn,
-        reports: filteredReports,
+        reports: reports,
       );
     }
   }
@@ -193,103 +177,45 @@ class _ReportsMainScreenState extends State<ReportsMainScreen> {
   @override
   Widget build(BuildContext context) {
     final isArabic = widget.isArabic;
+    final filtered = _filteredCategories.toList();
 
     return Directionality(
       textDirection: isArabic ? TextDirection.rtl : TextDirection.ltr,
       child: Scaffold(
         appBar: AppBar(
           title: Text(isArabic ? 'مركز التقارير' : 'Reports Center'),
-          actions: [
-            IconButton(
-              tooltip: isArabic ? 'تحديث القائمة' : 'Refresh',
-              icon: const Icon(Icons.refresh),
-              onPressed: () => setState(() {}),
-            ),
-          ],
         ),
         body: SafeArea(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final horizontalPadding = constraints.maxWidth > 1024
-                  ? 48.0
-                  : 16.0;
-              final filtered = _filteredCategories.toList();
-
-              return ListView(
-                padding: EdgeInsets.symmetric(
-                  horizontal: horizontalPadding,
-                  vertical: 24,
-                ),
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: _maxWidth),
+              child: ListView(
+                padding: const EdgeInsets.all(AppSpace.lg),
                 children: [
-                  _buildHeader(context, isArabic),
-                  const SizedBox(height: 24),
-                  _buildSearchBar(context, isArabic),
-                  const SizedBox(height: 16),
-                  _buildTypeFilters(context, isArabic),
-                  const SizedBox(height: 24),
+                  _buildSearchBar(isArabic),
+                  const SizedBox(height: AppSpace.xl),
                   if (filtered.isEmpty)
                     _buildEmptyState(context, isArabic)
-                  else ...[
+                  else
                     for (final category in filtered) ...[
                       ReportCategorySection(
                         category: category,
                         isArabic: isArabic,
-                        onReportSelected: _handleReportTap,
+                        onReportSelected: _openReport,
                       ),
-                      const SizedBox(height: 32),
+                      const SizedBox(height: AppSpace.xl),
                     ],
-                  ],
                 ],
-              );
-            },
+              ),
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildHeader(BuildContext context, bool isArabic) {
-    final theme = Theme.of(context);
-    final textTheme = theme.textTheme;
-
-    return Card(
-      elevation: 0,
-      color: theme.colorScheme.surfaceContainerHighest,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: isArabic
-              ? CrossAxisAlignment.end
-              : CrossAxisAlignment.start,
-          children: [
-            Text(
-              isArabic ? 'كل تقاريرك في مكان واحد' : 'All reports in one place',
-              style: textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              isArabic
-                  ? 'استعرض تقارير المبيعات والمخزون والمحاسبة والذهب بسهولة، وحدد الفلاتر المناسبة قبل التحليل.'
-                  : 'Explore sales, inventory, accounting, and gold reports with tailored filters.',
-              style: textTheme.bodyLarge?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-                height: 1.4,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSearchBar(BuildContext context, bool isArabic) {
-    final hint = isArabic
-        ? 'ابحث عن تقرير أو فئة...'
-        : 'Search for a report...';
-
+  Widget _buildSearchBar(bool isArabic) {
     return TextField(
       controller: _searchController,
       decoration: InputDecoration(
@@ -298,107 +224,37 @@ class _ReportsMainScreenState extends State<ReportsMainScreen> {
             ? null
             : IconButton(
                 icon: const Icon(Icons.clear),
-                tooltip: isArabic ? 'إزالة البحث' : 'Clear search',
-                onPressed: () {
-                  _searchController.clear();
-                  setState(() => _searchQuery = '');
-                },
+                tooltip: isArabic ? 'مسح البحث' : 'Clear search',
+                onPressed: _clearSearch,
               ),
-        hintText: hint,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+        hintText: isArabic
+            ? 'ابحث عن تقرير: الميزانية، العملاء، الرواتب...'
+            : 'Search for a report...',
       ),
     );
-  }
-
-  Widget _buildTypeFilters(BuildContext context, bool isArabic) {
-    final types = ReportType.values;
-
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          ChoiceChip(
-            label: Text(isArabic ? 'الكل' : 'All'),
-            selected: _selectedType == null,
-            onSelected: (_) {
-              setState(() => _selectedType = null);
-            },
-            selectedColor: Theme.of(context).colorScheme.primary,
-            labelStyle: TextStyle(
-              color: _selectedType == null
-                  ? Theme.of(context).colorScheme.onPrimary
-                  : null,
-            ),
-          ),
-          const SizedBox(width: 12),
-          ...types.map((type) {
-            final selected = _selectedType == type;
-            return Padding(
-              padding: const EdgeInsetsDirectional.only(end: 12),
-              child: ChoiceChip(
-                label: Text(_localizedTypeLabel(type, isArabic)),
-                selected: selected,
-                onSelected: (_) => _toggleFilter(type),
-                selectedColor: Theme.of(context).colorScheme.primary,
-                labelStyle: TextStyle(
-                  color: selected
-                      ? Theme.of(context).colorScheme.onPrimary
-                      : null,
-                ),
-              ),
-            );
-          }),
-        ],
-      ),
-    );
-  }
-
-  String _localizedTypeLabel(ReportType type, bool isArabic) {
-    switch (type) {
-      case ReportType.financial:
-        return isArabic ? 'مالية' : 'Financial';
-      case ReportType.sales:
-        return isArabic ? 'مبيعات' : 'Sales';
-      case ReportType.inventory:
-        return isArabic ? 'مخزون' : 'Inventory';
-      case ReportType.gold:
-        return isArabic ? 'ذهب' : 'Gold';
-      case ReportType.payroll:
-        return isArabic ? 'رواتب' : 'Payroll';
-      case ReportType.accounting:
-        return isArabic ? 'محاسبة' : 'Accounting';
-      case ReportType.other:
-        return isArabic ? 'أخرى' : 'Other';
-    }
   }
 
   Widget _buildEmptyState(BuildContext context, bool isArabic) {
-    final headline = isArabic ? 'لا توجد تقارير مطابقة' : 'No reports found';
-    final subtitle = isArabic
-        ? 'جرّب تغيير كلمات البحث أو إزالة عوامل التصفية.'
-        : 'Try adjusting your filters or search keywords.';
-
-    return Column(
-      children: [
-        const SizedBox(height: 48),
-        Icon(Icons.search_off, size: 72, color: Colors.grey.shade400),
-        const SizedBox(height: 16),
-        Text(headline, style: Theme.of(context).textTheme.titleLarge),
-        const SizedBox(height: 8),
-        Text(
-          subtitle,
-          style: Theme.of(
-            context,
-          ).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade600),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 48),
-      ],
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpace.xxl),
+      child: Column(
+        children: [
+          Icon(Icons.search_off, color: theme.colorScheme.onSurfaceVariant),
+          const SizedBox(height: AppSpace.md),
+          Text(
+            isArabic ? 'لا توجد تقارير مطابقة' : 'No reports found',
+            style: theme.textTheme.titleMedium,
+          ),
+          const SizedBox(height: AppSpace.sm),
+          TextButton.icon(
+            onPressed: _clearSearch,
+            icon: const Icon(Icons.clear),
+            label: Text(isArabic ? 'مسح البحث' : 'Clear search'),
+          ),
+        ],
+      ),
     );
-  }
-
-  void _handleReportTap(ReportDescriptor report) {
-    _openReport(report);
   }
 
   Future<void> _openReport(ReportDescriptor report) async {
@@ -407,22 +263,8 @@ class _ReportsMainScreenState extends State<ReportsMainScreen> {
       widget.api,
       widget.isArabic,
     );
-
-    if (destination == null) {
-      final message = widget.isArabic
-          ? 'التقرير غير متوفر حالياً'
-          : 'This report is not available yet.';
-
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(message)));
-      }
-      return;
-    }
-
-    if (!mounted) return;
-
+    // Every listed report opens (test/report_catalog_test.dart).
+    if (destination == null || !mounted) return;
     await Navigator.of(
       context,
     ).push(MaterialPageRoute(builder: (_) => destination));

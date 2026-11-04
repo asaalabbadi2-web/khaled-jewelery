@@ -1,7 +1,6 @@
 {
   "lib/features/invoice/widgets/barcode_scanner_screen.dart": 11,
   "lib/main.dart": 6,
-  "lib/models/report_catalog.dart": 6,
   "lib/models/safe_box_model.dart": 6,
   "lib/pdf/account_statement_pdf_builder.dart": 72,
   "lib/pdf/invoice_pdf_builder.dart": 3,
@@ -39,7 +38,6 @@
   "lib/screens/reports/employee_scrap_ledger_report_screen.dart": 3,
   "lib/screens/reports/income_statement_report_screen.dart": 73,
   "lib/screens/reports/inventory_cost_analysis_screen.dart": 22,
-  "lib/screens/reports/reports_main_screen.dart": 2,
   "lib/screens/reports/safe_box_hero_details_screen.dart": 10,
   "lib/screens/reports/widgets/hero_profit_section.dart": 13,
   "lib/screens/reports/widgets/sensitive_operations_section.dart": 7,
@@ -69,6 +67,5 @@
   "lib/widgets/invoice_type_banner.dart": 5,
   "lib/widgets/journal_balance_row.dart": 1,
   "lib/widgets/original_invoice_selector.dart": 12,
-  "lib/widgets/report_card.dart": 1,
   "lib/widgets/safe_box_picker_dialog.dart": 4
 }
