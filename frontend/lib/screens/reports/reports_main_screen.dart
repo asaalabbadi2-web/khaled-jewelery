@@ -21,7 +21,7 @@ import 'customer_balances_aging_report_screen.dart';
 import 'supplier_aging_report_screen.dart';
 import 'gold_price_history_report_screen.dart';
 import 'gold_by_place_report_screen.dart';
-import 'gold_weight_trial_balance_report_screen.dart';
+import 'safe_gold_reconciliation_report_screen.dart';
 import 'income_statement_report_screen.dart';
 import 'customer_balances_report_screen.dart';
 import '../safe_boxes_screen.dart';
@@ -90,11 +90,8 @@ Widget? reportDestination(String route, ApiService api, bool isArabic) {
       );
     case 'gold_by_place':
       return GoldByPlaceReportScreen(api: api);
-    case 'gold_weight_trial_balance':
-      return GoldWeightTrialBalanceReportScreen(
-        api: api,
-        isArabic: isArabic,
-      );
+    case 'safe_gold_reconciliation':
+      return SafeGoldReconciliationReportScreen(api: api);
     case 'safe_boxes_screen':
       return SafeBoxesScreen(
         api: api,

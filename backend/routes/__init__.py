@@ -1174,7 +1174,6 @@ from routes.clearing import _compute_clearing_due_amount         # noqa: F401
 # (GET /reports/income_statement, GET /reports/gram_profit,
 #  GET /reports/bridge-balance-monitor,
 #  GET /reports/inventory_reconciliation,
-#  GET /reports/gold-weight-trial-balance,
 #  GET /reports/income-statement/gold,
 #  GET /dashboard/admin; five read by no one went, REPORTS ت0-1)
 

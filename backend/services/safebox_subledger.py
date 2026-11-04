@@ -216,9 +216,10 @@ GOLD_DRIFT_THRESHOLD = 0.01
 KARATS = ('18k', '21k', '22k', '24k')
 
 
-def gold_subledger_by_box(safe_ids=None) -> dict:
+def gold_subledger_by_box(safe_ids=None, before=None) -> dict:
     """{safe_box_id: {'21k': (statement_grams, ledger_grams), ...}} for every
-    gold safe (or those in *safe_ids*)."""
+    gold safe (or those in *safe_ids*); *before* (a datetime), each side to it --
+    the statement by its rows' time, the books by their entries' date (REPORTS ت5-3)."""
     boxes = SafeBox.query.filter(SafeBox.safe_type == 'gold')
     if safe_ids is not None:
         boxes = boxes.filter(SafeBox.id.in_([int(s) for s in safe_ids]))
@@ -235,6 +236,7 @@ def gold_subledger_by_box(safe_ids=None) -> dict:
         .outerjoin(mirrored, and_(SafeBoxTransaction.ref_type == 'journal_entry',
                                   mirrored.id == SafeBoxTransaction.ref_id))
         .filter(SafeBoxTransaction.safe_box_id.in_(ids))
+        .filter(*((SafeBoxTransaction.created_at < before,) if before is not None else ()))
         .filter(_sb_ref_type_norm() != 'shift_closing_settlement')
         .filter(or_(SafeBoxTransaction.ref_type != 'journal_entry',
                     SafeBoxTransaction.ref_type.is_(None),
@@ -252,6 +254,7 @@ def gold_subledger_by_box(safe_ids=None) -> dict:
         .join(SafeBox, SafeBox.account_id == JournalEntryLine.account_id)
         .filter(SafeBox.id.in_(ids))
         .filter(*_gl_counting_filters())
+        .filter(*((JournalEntry.date < before,) if before is not None else ()))
         .group_by(SafeBox.id)
         .all()
     )

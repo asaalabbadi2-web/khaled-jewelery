@@ -566,7 +566,7 @@ class Matrix:
                           ('report_admin_dashboard', '/api/dashboard/admin'),
                           ('report_trial_balance', '/api/trial_balance'),
                           ('report_bonus_payables', '/api/bonuses/payables-report'),
-                          ('report_gold_trial_balance', '/api/reports/gold-weight-trial-balance?start_date=2026-01-01&end_date=2026-12-31')):
+                          ('report_gold_trial_balance', '/api/reports/safe-gold-reconciliation?as_of=2026-12-31')):
             self.run(name, lambda u=url: (self.client.get(u, headers=self.headers).status_code, {}))
         return self.rows
 

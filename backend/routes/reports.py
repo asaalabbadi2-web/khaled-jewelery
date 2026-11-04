@@ -1,7 +1,7 @@
 """Reports domain routes — reports_bp registered under /api in app.py."""
 from __future__ import annotations
 
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
 
 from flask import Blueprint, current_app, jsonify, request
 from statistics import pstdev
@@ -22,7 +22,6 @@ from models import (
     JournalEntry,
     JournalEntryLine,
     SafeBox,
-    SafeBoxTransaction,
 )
 from core.database import _db_has_column
 from core.dates import _parse_iso_date
@@ -1459,6 +1458,20 @@ def get_gold_by_place():
     return jsonify(gold_by_place(as_of=as_of, now=datetime.now()).to_dict())
 
 
+@reports_bp.route('/reports/safe-gold-reconciliation', methods=['GET'])
+@require_permission('reports.financial')
+def get_safe_gold_reconciliation():
+    """The gold safes' statements against the books on a day (as_of, YYYY-MM-DD, today
+    if none), in the reports' contract (services/reports/safe_gold_reconciliation.py,
+    REPORTS ت5-3)."""
+    from services.reports.safe_gold_reconciliation import safe_gold_reconciliation
+    try:
+        as_of = _report_date('as_of', datetime.now().date())
+    except ValueError:
+        return jsonify({'error': 'invalid_date', 'message': 'as_of بصيغة YYYY-MM-DD'}), 400
+    return jsonify(safe_gold_reconciliation(as_of=as_of, now=datetime.now()).to_dict())
+
+
 @reports_bp.route('/reports/supplier-aging', methods=['GET'])
 @require_permission('reports.purchases')
 def get_supplier_aging():
@@ -2248,206 +2261,6 @@ def get_inventory_reconciliation_report():
     except Exception as e:
         print(f"❌ Error generating inventory reconciliation report: {e}")
         return jsonify({'error': f'فشل إنشاء تقرير مطابقة المخزون: {str(e)}'}), 500
-
-@reports_bp.route('/reports/gold-weight-trial-balance', methods=['GET'])
-@require_permission('reports.financial')
-def get_gold_weight_trial_balance_by_safe_box():
-    """ميزان مراجعة الأوزان (مطابقة الخزائن ↔ الحسابات الوزنية المرتبطة).
-
-    الهدف:
-    - جرد أرصدة كل خزنة ذهب من دفتر الخزينة (SafeBoxTransaction)
-    - مقارنة الرصيد مع الحساب الوزني المرتبط (عادةً 7xxx) من القيود اليومية
-    - إظهار الفرق (Variance) لاكتشاف أي تعديل يدوي على الحساب دون دفتر الخزنة (أو العكس)
-
-    Query Parameters:
-    - date: تاريخ نهاية التقرير (YYYY-MM-DD) - افتراضي: اليوم
-
-    Returns:
-    - rows: لكل خزنة: رصيد الخزنة، رصيد الحساب، والفرق لكل عيار + إجمالي محول للعيار الرئيسي
-    """
-    try:
-
-        end_date_str = request.args.get('date')
-        if end_date_str:
-            end_date = datetime.fromisoformat(end_date_str).date()
-        else:
-            end_date = datetime.now().date()
-
-        main_karat = float(get_main_karat())
-        end_dt = datetime.combine(end_date, time.max)
-
-        def _to_float(v):
-            try:
-                return float(v or 0.0)
-            except Exception:
-                return 0.0
-
-        def _normalize_to_main(weight: float, karat: int) -> float:
-            k = float(karat)
-            if main_karat <= 0:
-                return float(weight or 0.0)
-            return float(weight or 0.0) * (k / main_karat)
-
-        def _total_main_from_by_karat(by_karat: dict) -> float:
-            return (
-                _normalize_to_main(_to_float(by_karat.get('18k')), 18)
-                + _normalize_to_main(_to_float(by_karat.get('21k')), 21)
-                + _normalize_to_main(_to_float(by_karat.get('22k')), 22)
-                + _normalize_to_main(_to_float(by_karat.get('24k')), 24)
-            )
-
-        def _safe_ledger_balance_by_karat(safe_id: int) -> dict:
-            # Use SQL aggregates for performance.
-            sign = case(
-                (SafeBoxTransaction.direction == 'in', 1.0),
-                else_=-1.0,
-            )
-            sums = (
-                db.session.query(
-                    func.coalesce(func.sum(SafeBoxTransaction.weight_18k * sign), 0.0).label('b18'),
-                    func.coalesce(func.sum(SafeBoxTransaction.weight_21k * sign), 0.0).label('b21'),
-                    func.coalesce(func.sum(SafeBoxTransaction.weight_22k * sign), 0.0).label('b22'),
-                    func.coalesce(func.sum(SafeBoxTransaction.weight_24k * sign), 0.0).label('b24'),
-                )
-                .filter(SafeBoxTransaction.safe_box_id == safe_id)
-                .filter(SafeBoxTransaction.created_at <= end_dt)
-                .first()
-            )
-
-            by_karat = {
-                '18k': round(_to_float(getattr(sums, 'b18', 0.0)), 3),
-                '21k': round(_to_float(getattr(sums, 'b21', 0.0)), 3),
-                '22k': round(_to_float(getattr(sums, 'b22', 0.0)), 3),
-                '24k': round(_to_float(getattr(sums, 'b24', 0.0)), 3),
-            }
-            return {
-                'by_karat': by_karat,
-                'total_main_karat': round(_total_main_from_by_karat(by_karat), 3),
-                'main_karat': int(main_karat),
-            }
-
-        def _account_balance_by_karat(account_id: int) -> dict:
-            if not account_id:
-                by_karat = {'18k': 0.0, '21k': 0.0, '22k': 0.0, '24k': 0.0}
-                return {
-                    'by_karat': by_karat,
-                    'total_main_karat': 0.0,
-                    'main_karat': int(main_karat),
-                }
-
-            sums = (
-                db.session.query(
-                    func.coalesce(func.sum(JournalEntryLine.debit_18k), 0.0).label('d18'),
-                    func.coalesce(func.sum(JournalEntryLine.credit_18k), 0.0).label('c18'),
-                    func.coalesce(func.sum(JournalEntryLine.debit_21k), 0.0).label('d21'),
-                    func.coalesce(func.sum(JournalEntryLine.credit_21k), 0.0).label('c21'),
-                    func.coalesce(func.sum(JournalEntryLine.debit_22k), 0.0).label('d22'),
-                    func.coalesce(func.sum(JournalEntryLine.credit_22k), 0.0).label('c22'),
-                    func.coalesce(func.sum(JournalEntryLine.debit_24k), 0.0).label('d24'),
-                    func.coalesce(func.sum(JournalEntryLine.credit_24k), 0.0).label('c24'),
-                )
-                .join(JournalEntry)
-                .filter(JournalEntryLine.account_id == account_id)
-                .filter(JournalEntry.date <= end_date)
-                .first()
-            )
-
-            b18 = _to_float(getattr(sums, 'd18', 0.0)) - _to_float(getattr(sums, 'c18', 0.0))
-            b21 = _to_float(getattr(sums, 'd21', 0.0)) - _to_float(getattr(sums, 'c21', 0.0))
-            b22 = _to_float(getattr(sums, 'd22', 0.0)) - _to_float(getattr(sums, 'c22', 0.0))
-            b24 = _to_float(getattr(sums, 'd24', 0.0)) - _to_float(getattr(sums, 'c24', 0.0))
-
-            by_karat = {
-                '18k': round(b18, 3),
-                '21k': round(b21, 3),
-                '22k': round(b22, 3),
-                '24k': round(b24, 3),
-            }
-            return {
-                'by_karat': by_karat,
-                'total_main_karat': round(_total_main_from_by_karat(by_karat), 3),
-                'main_karat': int(main_karat),
-            }
-
-        def _variance(a: dict, b: dict) -> dict:
-            by_karat = {
-                '18k': round(_to_float(a.get('18k')) - _to_float(b.get('18k')), 3),
-                '21k': round(_to_float(a.get('21k')) - _to_float(b.get('21k')), 3),
-                '22k': round(_to_float(a.get('22k')) - _to_float(b.get('22k')), 3),
-                '24k': round(_to_float(a.get('24k')) - _to_float(b.get('24k')), 3),
-            }
-            total_main = round(_total_main_from_by_karat(by_karat), 3)
-            return {
-                'by_karat': by_karat,
-                'total_main_karat': total_main,
-                'main_karat': int(main_karat),
-            }
-
-        safes = (
-            SafeBox.query
-            .filter(SafeBox.safe_type == 'gold')
-            .order_by(SafeBox.is_active.desc(), SafeBox.name.asc())
-            .all()
-        )
-
-        rows = []
-        balanced_count = 0
-        total_variance_main = 0.0
-
-        for sb in safes:
-            safe_bal = _safe_ledger_balance_by_karat(int(sb.id))
-            acc = Account.query.get(sb.account_id) if sb.account_id else None
-            acc_bal = _account_balance_by_karat(int(sb.account_id) if sb.account_id else 0)
-
-            var = _variance(safe_bal['by_karat'], acc_bal['by_karat'])
-
-            # Consider balanced when variance is within a tiny tolerance.
-            tol = 0.0005
-            is_balanced = (
-                abs(_to_float(var.get('total_main_karat'))) < tol
-                and all(abs(_to_float(v)) < tol for v in (var.get('by_karat') or {}).values())
-            )
-
-            if is_balanced:
-                balanced_count += 1
-            total_variance_main += abs(_to_float(var.get('total_main_karat')))
-
-            rows.append({
-                'safe_box': {
-                    'id': sb.id,
-                    'name': sb.name,
-                    'safe_type': sb.safe_type,
-                    'karat': sb.karat,
-                    'is_active': bool(sb.is_active),
-                    'account_id': sb.account_id,
-                    'account_number': acc.account_number if acc else None,
-                    'account_name': acc.name if acc else None,
-                },
-                'safe_balance': safe_bal,
-                'account_balance': acc_bal,
-                'variance': var,
-                'is_balanced': bool(is_balanced),
-            })
-
-        return jsonify({
-            'report_type': 'gold_weight_trial_balance',
-            'date': end_date.isoformat(),
-            'main_karat': int(main_karat),
-            'rows': rows,
-            'summary': {
-                'total_safe_boxes': len(rows),
-                'balanced_safe_boxes': balanced_count,
-                'unbalanced_safe_boxes': len(rows) - balanced_count,
-                'total_abs_variance_main_karat': round(float(total_variance_main), 3),
-            },
-        }), 200
-
-    except ValueError:
-        return jsonify({'error': 'صيغة التاريخ غير صحيحة. استخدم YYYY-MM-DD'}), 400
-    except Exception as e:
-        print(f"❌ Error generating gold weight trial balance by safe box: {e}")
-        return jsonify({'error': f'فشل إنشاء ميزان مراجعة الأوزان: {str(e)}'}), 500
-
 
 @reports_bp.route('/reports/gold_acquisition_reconciliation', methods=['GET'])
 @require_permission('reports.financial')

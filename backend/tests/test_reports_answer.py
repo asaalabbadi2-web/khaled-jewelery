@@ -31,7 +31,7 @@ def rollback_after_each(app, db_fence):
     f'/api/analytics/summary?{PERIOD}',
     '/api/reports/customer_balances_aging',
     '/api/reports/bridge-balance-monitor',
-    f'/api/reports/gold-weight-trial-balance?{PERIOD}',
+    '/api/reports/safe-gold-reconciliation?as_of=2026-12-31',
     '/api/system/reset/info',
 ])
 def test_the_report_answers(app, auth_headers, url):

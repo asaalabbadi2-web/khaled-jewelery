@@ -5735,33 +5735,19 @@ class ApiService {
     throw _apiError(response);
   }
 
-  /// ميزان مراجعة الأوزان (مطابقة خزائن الذهب ↔ الحسابات الوزنية المرتبطة)
-  /// Endpoint: GET /reports/gold-weight-trial-balance?date=YYYY-MM-DD
-  Future<Map<String, dynamic>> getGoldWeightTrialBalance({
-    DateTime? date,
+  /// The gold safes' statements against the books on a day, in the reports'
+  /// contract (REPORTS ت5-3): the nightly check's one computation.
+  Future<Map<String, dynamic>> getSafeGoldReconciliation({
+    required String asOf,
   }) async {
-    final queryParams = <String, String>{};
-    if (date != null) {
-      // Backend expects date only.
-      final yyyy = date.year.toString().padLeft(4, '0');
-      final mm = date.month.toString().padLeft(2, '0');
-      final dd = date.day.toString().padLeft(2, '0');
-      queryParams['date'] = '$yyyy-$mm-$dd';
-    }
-
     final uri = Uri.parse(
-      '$_baseUrl/reports/gold-weight-trial-balance',
-    ).replace(queryParameters: queryParams.isEmpty ? null : queryParams);
-
+      '$_baseUrl/reports/safe-gold-reconciliation',
+    ).replace(queryParameters: {'as_of': asOf});
     final response = await _authedGet(uri);
-    final bodyStr = utf8.decode(response.bodyBytes);
     if (response.statusCode == 200) {
-      final decoded = json.decode(bodyStr);
-      if (decoded is Map<String, dynamic>) return decoded;
-      return <String, dynamic>{'raw': decoded};
+      return json.decode(utf8.decode(response.bodyBytes));
     }
-
-    throw ApiException.text(bodyStr);
+    throw _apiError(response);
   }
 
   /// الحصول على خزائن الدفع النشطة (نقدي + بنكي + مستحقات تحصيل)
