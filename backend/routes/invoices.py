@@ -528,14 +528,29 @@ def get_invoices():
             else:
                 query = query.filter(Invoice.id == -1)
 
+    # A posted supplier purchase shows its running account's state, not
+    # Invoice.status (REPORTS ت3-2ج, the owner 4 Nov 2026): its row, the status
+    # filter, the order by status and the tab's amounts. Read once, when asked.
+    purchase_reading = []
+
+    def _reading():
+        if not purchase_reading:
+            from services.supplier_running_account import purchase_states
+            purchase_reading.append(purchase_states())
+        return purchase_reading[0]
+
     if status and status != 'all':
         normalized_status = (status or '').strip().lower()
         if normalized_status in ('paid_full', 'paid'):
-            query = query.filter(Invoice.status == 'paid')
+            wanted = ['paid']
         elif normalized_status == 'remaining':
-            query = query.filter(Invoice.status.in_(['unpaid', 'partially_paid']))
+            wanted = ['unpaid', 'partially_paid']
         else:
-            query = query.filter(Invoice.status == status)
+            wanted = [status]
+        reading = _reading()
+        shown = [i for i, r in reading.items() if r['shown'] in wanted]
+        query = query.filter(or_(and_(Invoice.id.notin_(list(reading) or [-1]), Invoice.status.in_(wanted)),
+                                 Invoice.id.in_(shown or [-1])))
 
     if invoice_group and invoice_group not in ('all', 'الكل'):
         group_value = (invoice_group or '').strip().lower()
@@ -743,10 +758,15 @@ def get_invoices():
             query = query.order_by(Invoice.total_weight.asc(), created_sort_expr.desc(), Invoice.id.asc())
         order = None
     elif sort_by == 'status':
+        by_shown = defaultdict(list)
+        for invoice_id, r in _reading().items():
+            by_shown[r['shown']].append(invoice_id)
+        status_expr = (case(*[(Invoice.id.in_(ids), shown) for shown, ids in by_shown.items()],
+                            else_=Invoice.status) if by_shown else Invoice.status)
         if sort_order == 'desc':
-            query = query.order_by(Invoice.status.desc(), created_sort_expr.desc(), Invoice.id.desc())
+            query = query.order_by(status_expr.desc(), created_sort_expr.desc(), Invoice.id.desc())
         else:
-            query = query.order_by(Invoice.status.asc(), created_sort_expr.desc(), Invoice.id.asc())
+            query = query.order_by(status_expr.asc(), created_sort_expr.desc(), Invoice.id.asc())
         order = None
     elif sort_by == 'type':
         if sort_order == 'desc':
@@ -912,6 +932,7 @@ def get_invoices():
             Invoice.id,
         ).all()
 
+        reading = _reading() if any(row[0] == 'شراء' and row[7] for row in summary_rows) else {}
         for row in summary_rows:
             tab_key = _classify_tab(row[0], row[7])
             if not tab_key:
@@ -934,6 +955,14 @@ def get_invoices():
             settled_value = paid_cash_value + barter_value
             paid_clamped = max(0.0, min(total_value, settled_value))
             remaining_value = max(0.0, total_value - settled_value)
+            on_account = reading.get(inv_id)
+            if on_account and on_account['state'] == 'not_on_account':
+                # the supplier's ledger holds no debt of it; its status says so
+                paid_clamped = remaining_value = 0.0
+            elif on_account:
+                # its cash debt, as its running account closed it
+                remaining_value = max(0.0, on_account['cash_remaining'])
+                paid_clamped = max(0.0, on_account['cash_original'] - remaining_value)
 
             bucket['total_amount'] += total_value
             bucket['paid_amount'] += paid_clamped
@@ -990,9 +1019,15 @@ def get_invoices():
     paginated_invoices = query.paginate(page=page, per_page=per_page, error_out=False)
     invoices = paginated_invoices.items
 
+    from services.supplier_running_account import is_supplier_purchase, purchase_states
+    page_purchases = [inv.id for inv in invoices if is_supplier_purchase(inv)]
+    on_account = ({i: _reading()[i] for i in page_purchases if i in _reading()} if purchase_reading
+                  else purchase_states(page_purchases) if page_purchases else {})
     result = []
     for inv in invoices:
         invoice_dict = inv.to_dict()  # 🆕 استخدام to_dict() لتضمين payments
+        if inv.id in on_account:
+            invoice_dict['running_account'] = on_account[inv.id]
         
         # إضافة أسماء العملاء والموردين
         customer_name = inv.customer.name if inv.customer else (inv.supplier.name if inv.supplier else "N/A")
@@ -1058,6 +1093,10 @@ def get_invoice_by_id(invoice_id: int):
 
     invoice_dict['customer_name'] = customer_name
     invoice_dict['supplier_name'] = supplier_name
+    from services.supplier_running_account import is_supplier_purchase, purchase_states
+    if is_supplier_purchase(invoice):
+        # its running account's state (REPORTS ت3-2ج)
+        invoice_dict['running_account'] = purchase_states([invoice.id]).get(invoice.id)
 
     return jsonify(without_cost(invoice_dict))
 

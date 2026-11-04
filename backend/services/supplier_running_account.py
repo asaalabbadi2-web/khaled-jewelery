@@ -259,3 +259,42 @@ def _invoices(gold, cash) -> list:
                     'cash_original': cash_item.original if cash_item else 0.0,
                     'cash_remaining': cash_item.remaining if cash_item else 0.0})
     return out
+
+
+# ── A purchase's shown status (REPORTS ت3-2ج; the owner 4 Nov 2026) ──────────
+
+SHOWN = {'paid': 'paid', 'partial': 'partially_paid', 'open': 'unpaid', 'reversed': 'cancelled',
+         'not_on_account': 'not_on_account'}
+
+
+def is_supplier_purchase(invoice) -> bool:
+    """A posted supplier purchase: what the reading answers for."""
+    return (invoice.invoice_type == 'شراء' and invoice.supplier_id is not None
+            and bool(invoice.is_posted) and invoice.status != 'rejected')
+
+
+def purchase_states(invoice_ids=None) -> dict:
+    """{invoice id: {'state', 'basis', 'shown', 'cash_original', 'cash_remaining', 'gold_remaining'}}
+    for the posted supplier purchases among *invoice_ids* (all of them when
+    None), each supplier read once. One the supplier's ledger does not hold is
+    'not_on_account'. *shown* is the list's status word for the state."""
+    from models import Invoice, Supplier, db
+    query = Invoice.query.filter(Invoice.invoice_type == 'شراء', Invoice.supplier_id.isnot(None),
+                                 Invoice.is_posted.is_(True), Invoice.status != 'rejected')
+    if invoice_ids is not None:
+        query = query.filter(Invoice.id.in_(list(invoice_ids) or [-1]))
+    by_supplier = collections.defaultdict(set)
+    for invoice_id, supplier_id in query.with_entities(Invoice.id, Invoice.supplier_id):
+        by_supplier[supplier_id].add(invoice_id)
+    out = {}
+    for supplier_id, ids in by_supplier.items():
+        supplier = db.session.get(Supplier, supplier_id)
+        read = {i['invoice_id']: i for i in running_account(supplier)['invoices']} if supplier else {}
+        for invoice_id in ids:
+            i = read.get(invoice_id)
+            state = i['state'] if i else 'not_on_account'
+            out[invoice_id] = {'state': state, 'basis': i['basis'] if i else None, 'shown': SHOWN[state],
+                               'cash_original': round(i['cash_original'], 2) if i else None,
+                               'cash_remaining': round(i['cash_remaining'], 2) if i else None,
+                               'gold_remaining': round(i['gold_remaining'], 3) if i else None}
+    return out

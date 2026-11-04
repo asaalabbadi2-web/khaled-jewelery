@@ -11,6 +11,7 @@ import '../app_events.dart';
 import '../models/employee_model.dart';
 import '../providers/auth_provider.dart';
 import '../services/data_sync_bus.dart';
+import '../utils/purchase_running_account.dart';
 import '../utils/invoice_direct_print.dart';
 import '../widgets/widgets.dart';
 import 'add_return_invoice_screen.dart';
@@ -842,6 +843,8 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
         return isArabic ? 'مدفوعة جزئياً' : 'Partially Paid';
       case 'cancelled':
         return isArabic ? 'ملغاة' : 'Cancelled';
+      case 'not_on_account':
+        return isArabic ? 'ليست على حساب المورد' : 'Not on the account';
       default:
         return status;
     }
@@ -865,7 +868,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
       stats['total_amount'] = tabInvoices.fold(0.0, (sum, invoice) {
         try {
           final normalized = _normalizeStatus(
-            (invoice['status'] ?? '').toString(),
+            shownInvoiceStatus(invoice),
           );
           if (normalized == 'cancelled') return sum;
           return sum + ((invoice['total'] ?? 0) as num).toDouble();
@@ -877,9 +880,11 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
       stats['paid_amount'] = tabInvoices.fold(0.0, (sum, invoice) {
         try {
           final normalized = _normalizeStatus(
-            (invoice['status'] ?? '').toString(),
+            shownInvoiceStatus(invoice),
           );
           if (normalized == 'cancelled') return sum;
+          final onAccount = runningAccountCash(invoice);
+          if (onAccount != null) return sum + onAccount.$1;
 
           final total = _tryParseDouble(invoice['total']);
           final paidCash = _tryParseDouble(
@@ -902,9 +907,11 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
       stats['unpaid_amount'] = tabInvoices.fold(0.0, (sum, invoice) {
         try {
           final normalized = _normalizeStatus(
-            (invoice['status'] ?? '').toString(),
+            shownInvoiceStatus(invoice),
           );
           if (normalized == 'cancelled') return sum;
+          final onAccount = runningAccountCash(invoice);
+          if (onAccount != null) return sum + onAccount.$2;
 
           final total = _tryParseDouble(invoice['total']);
           final cashObligation = invoice.containsKey('cash_obligation')
@@ -933,7 +940,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
       stats['vat_total'] = tabInvoices.fold(0.0, (sum, invoice) {
         try {
           final normalized = _normalizeStatus(
-            (invoice['status'] ?? '').toString(),
+            shownInvoiceStatus(invoice),
           );
           if (normalized == 'cancelled') return sum;
           return sum + _tryParseDouble(invoice['total_tax']);
@@ -945,7 +952,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
       stats['sold_weight_total'] = tabInvoices.fold(0.0, (sum, invoice) {
         try {
           final normalized = _normalizeStatus(
-            (invoice['status'] ?? '').toString(),
+            shownInvoiceStatus(invoice),
           );
           if (normalized == 'cancelled') return sum;
           return sum + _extractInvoiceTotalWeight(invoice);
@@ -2248,7 +2255,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
     final karat = _extractInvoiceKaratLabel(invoice) ?? '—';
     final employeeName = _extractInvoiceEmployeeName(invoice) ?? '—';
     final normalizedStatus = _normalizeStatus(
-      (invoice['status'] ?? '').toString(),
+      shownInvoiceStatus(invoice),
     );
 
     return Material(
@@ -2335,7 +2342,10 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
               ),
               _buildStickyBodyCell(
                 width: widths['status']!,
-                child: _buildStatusBadge(normalizedStatus),
+                child: _buildStatusBadge(
+                  normalizedStatus,
+                  reason: runningAccountReason(invoice),
+                ),
               ),
               _buildStickyBodyCell(
                 width: widths['actions']!,
@@ -2587,7 +2597,12 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
     );
   }
 
-  Widget _buildStatusBadge(String status) {
+  Widget _buildStatusBadge(String status, {String? reason}) {
+    final badge = _statusBadge(status);
+    return reason == null ? badge : Tooltip(message: reason, child: badge);
+  }
+
+  Widget _statusBadge(String status) {
     final isAr = widget.isArabic;
     final theme = Theme.of(context);
     Color color;
@@ -2641,7 +2656,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
   Widget _buildInvoiceActionsMenu(Map<String, dynamic> invoice) {
     final isAr = widget.isArabic;
     final isCancelled =
-        _normalizeStatus((invoice['status'] ?? '').toString()) == 'cancelled';
+        _normalizeStatus(shownInvoiceStatus(invoice)) == 'cancelled';
     final canEditContent = invoice['is_posted'] != true && !isCancelled;
     final isPosted = invoice['is_posted'] == true;
     final isManager = Provider.of<AuthProvider>(context, listen: false).isManager;
@@ -3147,7 +3162,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
     try {
       final isAr = widget.isArabic;
       final normalizedStatus = _normalizeStatus(
-        (invoice['status'] ?? '').toString(),
+        shownInvoiceStatus(invoice),
       );
       final bool isPaid = normalizedStatus == 'paid';
       final bool isCancelled = normalizedStatus == 'cancelled';
@@ -3631,7 +3646,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
     final textTheme = theme.textTheme;
 
     final normalizedStatus = _normalizeStatus(
-      (invoice['status'] ?? '').toString(),
+      shownInvoiceStatus(invoice),
     );
     final isCancelled = normalizedStatus == 'cancelled';
 
@@ -3815,9 +3830,13 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                     Row(
                       children: [
                         _buildInfoChip(
-                          label: isAr
-                              ? 'الحالة: ${_translateStatus(normalizedStatus, isAr)}'
-                              : 'Status: ${_translateStatus(normalizedStatus, isAr)}',
+                          label: [
+                            isAr
+                                ? 'الحالة: ${_translateStatus(normalizedStatus, isAr)}'
+                                : 'Status: ${_translateStatus(normalizedStatus, isAr)}',
+                            if (runningAccountReason(invoice) case final why?)
+                              why,
+                          ].join(' — '),
                           colorScheme: colorScheme,
                         ),
                         const SizedBox(width: 8),

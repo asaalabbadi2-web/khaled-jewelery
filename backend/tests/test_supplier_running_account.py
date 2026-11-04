@@ -72,6 +72,9 @@ def _post(supplier, weight, day, grams, reference_type, reference_id):
     side = {'credit_21k': grams} if grams > 0 else {'debit_21k': -grams}
     create_dual_journal_entry(journal_entry_id=entry.id, account_id=weight.id, supplier_id=supplier.id,
                               apply_golden_rule=False, **side)
+    if reference_type == 'voucher':
+        # an approved voucher's entry is linked to it (journal_entry_guard holds it at commit)
+        db.session.get(Voucher, reference_id).journal_entry_id = entry.id
     db.session.flush()
     return entry
 
