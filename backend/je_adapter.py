@@ -100,6 +100,8 @@ def _build_account_map(
         or purchases_acc
     )
     vat_payable = _m('بيع', 'vat_payable') or None
+    # where a sale's grams go, and come back on its return (CUSTGOLD-001)
+    sold_weight = _m('افتراضي', 'gold_cost_of_sales_weight') or None
     vat_receivable = (
         _m('شراء', 'vat_receivable')
         or _m('شراء من عميل', 'vat_receivable')
@@ -119,6 +121,7 @@ def _build_account_map(
         cash_account_id=int(cash_account_id) if cash_account_id else 0,
         vat_payable_account_id=int(vat_payable) if vat_payable else None,
         vat_receivable_account_id=int(vat_receivable) if vat_receivable else None,
+        sold_weight_account_id=sold_weight,
     )
 
 

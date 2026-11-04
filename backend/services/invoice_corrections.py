@@ -148,7 +148,7 @@ def _grams(karat_weights: dict) -> dict:
 def correct_line(invoice: Invoice, *, line_id, lines, safe_box_id, reason: str, by: str, now) -> InvoiceCorrection:
     """Correct one line of a posted invoice -- or CorrectionRefused. Runs in the
     caller's transaction (the preview rolls it back)."""
-    from accounting.mappings import get_account_id_for_mapping, require_account
+    from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, get_account_id_for_mapping, require_account
     from accounting.safe_boxes import _rebuild_safe_box_transactions_for_journal_entry
     from accounting.voucher_engine import _generate_journal_entry_number
     from dual_system_helpers import create_dual_journal_entry, verify_dual_balance
@@ -254,7 +254,8 @@ def correct_line(invoice: Invoice, *, line_id, lines, safe_box_id, reason: str, 
     # The gold, each line with its category: the line as posted undone, the
     # right lines done, against the side the invoice posted it against.
     if sale:
-        counter = getattr(db.session.get(Account, party), 'memo_account_id', None) or party
+        # a sale's grams sit on the cost of sales by weight, not its customer (CUSTGOLD-001)
+        counter = require_account(DEFAULT_MAPPING_OPERATION_TYPE, 'gold_cost_of_sales_weight')
     else:
         purchases = (get_account_id_for_mapping('شراء من عميل', 'purchases_gold_scrap')
                      or get_account_id_for_mapping('شراء من عميل', 'purchases_gold')

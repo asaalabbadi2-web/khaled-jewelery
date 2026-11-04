@@ -79,15 +79,18 @@ def _cash(lines, account_id):
     return round(sum(float(l.cash_debit or 0) - float(l.cash_credit or 0) for l in lines if l.account_id == account_id), 2)
 
 
-def test_a_karat_put_right_moves_the_showroom_and_the_customers_gold(auth_headers, world):
+def test_a_karat_put_right_moves_the_showroom_and_the_gold_sold(auth_headers, world):
     _square('worked', world['showroom'], weight=100.0, value=50000.0)
     invoice, line = _sold(auth_headers, world)                     # 10 g of 21k at 7,000
     _holds_18k(world)
     correction, lines = _entry(_correct(auth_headers, invoice, line, [
         {'karat': 21, 'weight': 6.0, 'price': 4200.0}, {'karat': 18, 'weight': 4.0, 'price': 2800.0}]))
     assert _grams(lines, world['showroom'].id) == {21: 4.0, 18: -4.0}, 'the 21k not sold back, the 18k sold out'
+    # the grams sold sit on the cost of sales by weight, not the customer (CUSTGOLD-001)
+    sold = get_account_id_for_mapping(DEFAULT_MAPPING_OPERATION_TYPE, 'gold_cost_of_sales_weight')
+    assert _grams(lines, sold) == {21: -4.0, 18: 4.0}
     customer_gold = db.session.get(Account, world['customer'].account_id).memo_account_id
-    assert _grams(lines, customer_gold) == {21: -4.0, 18: 4.0}
+    assert _grams(lines, customer_gold) == {}
     assert not any(float(l.cash_debit or 0) for l in lines), 'no money'
     assert [(int(i.karat), i.weight) for i in InvoiceItem.query.filter_by(invoice_id=invoice.id).order_by(InvoiceItem.id)] \
         == [(21, 6.0), (18, 4.0)]

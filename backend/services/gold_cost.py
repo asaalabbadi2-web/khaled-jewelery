@@ -111,6 +111,8 @@ def pool_accounts() -> dict[str, set[int]]:
         # stock, read as the value written on it)
         'purchase_cash': own('شراء من عميل', 'purchases_gold_scrap'),
         'customers': twin_subtree_ids(CUSTOMER_RECEIVABLES_ROOT),
+        # where a sale's grams go since CUSTGOLD-001: the cost of sales by weight, not its customer
+        'sold_weight': _mapped_subtree(DEFAULT, 'gold_cost_of_sales_weight'),
         'sales_twin': twin_subtree_ids(REVENUE_ROOT),                # early sales wrote these
         'weight_expense': twin_subtree_ids(OPERATING_EXPENSES_ROOT),  # operating expenses, by weight
         'weight_cost_of_sales': twin_subtree_ids(COST_OF_SALES_ROOT),  # purchases and their returns, by weight
@@ -229,7 +231,9 @@ def replay(*, opening_price: float, since: date | None = None, until: date | Non
     cost_of_sales_cash = pools['cost_of_sales']
     value_accounts = {'worked': pools['worked_value'], 'scrap': pools['scrap_value']}
     pools_of = pools
-    customers, equity = pools['customers'], pools['equity']
+    # A sale's grams went to its customer's twin -- since CUSTGOLD-001 to the
+    # cost of sales by weight: either way a sale, and back, its return.
+    customers, equity = pools['customers'] | pools['sold_weight'], pools['equity']
     sales_twin = pools['sales_twin']
     # By the nature of the account the gold went to (the owner, 11 Oct 2026):
     expense_accounts = pools['weight_expense']

@@ -47,6 +47,7 @@ def _mock_mapping(op_type, key, overrides=None):
         ('شراء', 'manufacturing_wage'): 5200,
         ('شراء', 'vat_receivable'): 1500,
         ('مرتجع شراء', 'purchase_returns'): 5300,
+        ('افتراضي', 'gold_cost_of_sales_weight'): 75210,
     }
     d = {**_defaults, **(overrides or {})}
     return d.get((op_type, key))
@@ -321,14 +322,17 @@ class TestSaleJeForInvoice:
         assert inv_weight_credit is not None, "يجب أن يكون هناك دائن وزني على مخزون عيار 21"
         assert inv_weight_credit[1]['weight_21k_credit'] == 10.0
 
-    def test_creates_customer_weight_debit(self):
+    def test_debits_the_cost_of_sales_by_weight_not_the_customer(self):
+        """The grams sold are the cost of sales by weight (CUSTGOLD-001)."""
         calls = self._run_sale()
-        customer_weight = next(
+        sold = next(
             (c for c in calls
-             if c[1].get('account_id') == 70021
+             if c[1].get('account_id') == 75210
              and c[1].get('weight_21k_debit', 0) > 0), None
         )
-        assert customer_weight is not None, "يجب أن يكون هناك مدين وزني على حساب وزن العميل"
+        assert sold is not None, "يجب أن يكون هناك مدين وزني على تكلفة مبيعات الذهب وزني"
+        assert sold[1]['weight_21k_debit'] == 10.0
+        assert not [c for c in calls if c[1].get('account_id') == 70021], "لا وزن على حساب وزن العميل"
 
     def test_je_is_balanced(self):
         """التحقق أن إجمالي المدين = إجمالي الدائن نقداً"""

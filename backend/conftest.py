@@ -303,9 +303,15 @@ def initialize_db():
         revenue = _group('4', 'الإيرادات', 'Revenue')
         expenses = _group('5', 'المصروفات', 'Expense')
         _group('41', 'إيرادات النشاط', 'Revenue', parent=revenue)
-        _group('51', 'تكلفة المبيعات', 'Expense', parent=expenses)
+        cost_of_sales = _group('51', 'تكلفة المبيعات', 'Expense', parent=expenses)
+        # A sale's grams go to the cost of sales by weight, 7521 (CUSTGOLD-001).
+        _group('521', 'تكلفة مبيعات الذهب', 'Expense', parent=cost_of_sales)
         _group('52', 'مصاريف تشغيلية', 'Expense', parent=expenses)
-        _group('130', 'المخزون', 'Asset', parent=assets)
+        stock = _group('130', 'المخزون', 'Asset', parent=assets)
+        # The gold stocks under it, as on production: a sale's grams leave a stock
+        # the sheet sees for the cost of sales by weight it also sees (CUSTGOLD-001).
+        for number in ('1300', '1310'):
+            Account.query.filter_by(account_number=number).one().parent_id = stock.id
         _group('33', 'فروقات تقييم الذهب', 'Equity', parent=equity)
         # Release 5b: the cash group (its twin, the cash weight side), a party's
         # opening equity, and the VAT accounts' parents.

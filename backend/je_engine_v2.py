@@ -262,6 +262,9 @@ class AccountMap:
     vat_receivable_account_id: Optional[int] = None   # ضريبة شراء ذمم
     vat_payable_account_id: Optional[int] = None      # ضريبة بيع التزام
 
+    # ── تكلفة مبيعات الذهب وزني: مقابل وزن البيع ومرتجعه (CUSTGOLD-001) ──
+    sold_weight_account_id: Optional[int] = None
+
     def inventory_for_karat(self, karat: int) -> int:
         mapping = {
             18: self.inventory_account_18k,
@@ -300,6 +303,14 @@ def _require_vat(account_id, role):
     """A VAT amount is never dropped for want of its account (ADR-043 rule 4)."""
     if not account_id:
         raise ValueError(f'ضريبة بلا حساب مربوط ({role}): لا يُرحَّل القيد')
+
+
+def _require_sold_weight(account_id):
+    """A sale's grams go to the cost of sales by weight, never back onto the
+    customer for want of it (CUSTGOLD-001)."""
+    if not account_id:
+        raise ValueError('وزن البيع بلا حساب مربوط (gold_cost_of_sales_weight): لا يُرحَّل القيد')
+    return account_id
 
 
 def build_purchase_je(
@@ -497,7 +508,7 @@ def build_sale_je(
         دائن: مبيعات ذهب             SAR (sale_cash)
         دائن: ض.ق.م. مستحقة         SAR (vat) [إن وجدت]
         دائن: مخزون وزني (عيار X)    grams - ← يخرج من المخزون
-        مدين: عميل وزني              grams + ← سجل ما حصل عليه العميل
+        مدين: تكلفة مبيعات الذهب وزني grams + ← الذهب المباع، لا ذهب عند العميل (CUSTGOLD-001)
     """
     je = JournalEntry(description=description)
 
@@ -536,10 +547,10 @@ def build_sale_je(
             w = WeightByKarat.from_dict({str(karat): weight})
             je.add(_weight_credit(inv_acc, w, f"{description} - مخزون عيار {karat} يخرج"))
 
-    # ── مدين: عميل وزني (ذهب تم تسليمه للعميل) ──
+    # ── مدين: تكلفة مبيعات الذهب وزني (الذهب المباع، CUSTGOLD-001) ──
     if not weights.is_empty():
-        je.add(_weight_debit(customer.weight_account_id, weights,
-                             f"{description} - ذهب مُسلَّم للعميل [{customer.party_name}]"))
+        je.add(_weight_debit(_require_sold_weight(accounts.sold_weight_account_id), weights,
+                             f"{description} - ذهب مباع للعميل [{customer.party_name}]"))
 
     je.assert_balanced()
     return je
@@ -567,7 +578,7 @@ def build_sale_return_je(
         مدين: مخزون وزني             grams + (يعود للمخزون)
         دائن: صندوق                  SAR (cash_refunded)
         دائن: عميل مالي              SAR (المتبقي)
-        دائن: عميل وزني              grams - (يُعاد للمخزون)
+        دائن: تكلفة مبيعات الذهب وزني grams - (البيع يُعكس، CUSTGOLD-001)
     """
     je = JournalEntry(description=description)
 
@@ -600,10 +611,10 @@ def build_sale_return_je(
         je.add(_cash_credit(customer.financial_account_id, remaining,
                             f"{description} - رصيد للعميل [{customer.party_name}]"))
 
-    # ── دائن: عميل وزني (عكس الذهب المُسلّم للعميل) ──
+    # ── دائن: تكلفة مبيعات الذهب وزني (عكس البيع) ──
     if not weights.is_empty():
-        je.add(_weight_credit(customer.weight_account_id, weights,
-                              f"{description} - عكس ذهب العميل [{customer.party_name}]"))
+        je.add(_weight_credit(_require_sold_weight(accounts.sold_weight_account_id), weights,
+                              f"{description} - عكس ذهب مباع [{customer.party_name}]"))
 
     je.assert_balanced()
     return je

@@ -46,6 +46,7 @@ def accounts():
         cash_account_id=1100,
         vat_receivable_account_id=1500,
         vat_payable_account_id=2500,
+        sold_weight_account_id=75210,
     )
 
 
