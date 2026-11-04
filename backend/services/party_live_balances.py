@@ -28,20 +28,11 @@ def _db_has_column(table_name: str, column_name: str) -> bool:
     return exists
 
 
-def compute_live_supplier_balances(
-    suppliers: Iterable[Supplier],
-) -> Dict[int, Dict[str, float]]:
-    """Compute supplier balances directly from the journal (ledger).
-
-    Returns mapping supplier_id -> {'cash','18k','21k','22k','24k'}.
-
-    This mirrors the filtering behavior used by the suppliers list endpoint:
-    - include supplier payable liability lines (the payables group's tree, 21 on production)
-    - include the supplier's own financial + memo accounts
-    - include mis-tagged lines posted to the supplier's own accounts when
-      supplier_id is NULL.
-    """
-
+def _supplier_scope(suppliers):
+    """Which ledger lines are a supplier's -- the one rule the balance and the
+    running account read (REPORTS ت3-2): (supplier ids, {account id: supplier
+    id} of their own accounts, those account ids, the account filter for
+    tagged lines, the entry filters)."""
     suppliers = list(suppliers)
     supplier_ids: List[int] = []
     for s in suppliers:
@@ -162,12 +153,6 @@ def compute_live_supplier_balances(
     # reversal names the purchase, not the reservation, and leaving out the
     # execution alone put its amount in the office's favour (RESERVATION-BALANCE-1).
 
-    # Always return an entry for each supplier in input.
-    balances_by_supplier: Dict[int, Dict[str, float]] = {
-        int(sid): {'cash': 0.0, '18k': 0.0, '21k': 0.0, '22k': 0.0, '24k': 0.0}
-        for sid in supplier_ids
-    }
-
     # What is owed to suppliers: the Liability accounts under the role's group (21 on
     # production) -- by the tree, not the number's prefix (CHART-002).
     from accounting.chart_tree import SUPPLIER_PAYABLES_ROOT, role_subtree_ids
@@ -175,6 +160,32 @@ def compute_live_supplier_balances(
     account_filter = payable_filter
     if allowed_account_ids:
         account_filter = or_(Account.id.in_(allowed_account_ids), payable_filter)
+
+    return supplier_ids, allowed_account_to_supplier, allowed_account_ids, account_filter, jl_filters
+
+
+def compute_live_supplier_balances(
+    suppliers: Iterable[Supplier],
+) -> Dict[int, Dict[str, float]]:
+    """Compute supplier balances directly from the journal (ledger).
+
+    Returns mapping supplier_id -> {'cash','18k','21k','22k','24k'}.
+
+    This mirrors the filtering behavior used by the suppliers list endpoint:
+    - include supplier payable liability lines (the payables group's tree, 21 on production)
+    - include the supplier's own financial + memo accounts
+    - include mis-tagged lines posted to the supplier's own accounts when
+      supplier_id is NULL.
+    """
+
+    supplier_ids, allowed_account_to_supplier, allowed_account_ids, account_filter, jl_filters = \
+        _supplier_scope(suppliers)
+
+    # Always return an entry for each supplier in input.
+    balances_by_supplier: Dict[int, Dict[str, float]] = {
+        int(sid): {'cash': 0.0, '18k': 0.0, '21k': 0.0, '22k': 0.0, '24k': 0.0}
+        for sid in supplier_ids
+    }
 
     # (A) Tagged lines on allowed accounts only (same account_filter as statement endpoint).
     # We intentionally do NOT fall back to a relaxed (no account filter) path because that
@@ -283,6 +294,35 @@ def compute_live_supplier_balances(
             cur['24k'] += float(getattr(r, 'b24', 0.0) or 0.0)
 
     return balances_by_supplier
+
+
+def supplier_ledger_lines(supplier) -> List[dict]:
+    """A supplier's ledger lines one by one, by the same rule as its balance
+    (_supplier_scope): {'entry_id', 'date', 'reference_type', 'reference_id',
+    'cash', '18k', '21k', '22k', '24k'} -- each debit less credit, as the
+    balance reads them -- by date, then entry. Their sum is
+    compute_live_supplier_balances' (tests/test_supplier_running_account.py)."""
+    supplier_ids, allowed_account_to_supplier, _, account_filter, jl_filters = _supplier_scope([supplier])
+    if not supplier_ids:
+        return []
+    sid = supplier_ids[0]
+    own = [a for a, owner in allowed_account_to_supplier.items() if owner == sid]
+    columns = (JournalEntryLine.journal_entry_id, JournalEntry.date, JournalEntry.reference_type,
+               JournalEntry.reference_id,
+               func.coalesce(JournalEntryLine.cash_debit, 0.0) - func.coalesce(JournalEntryLine.cash_credit, 0.0),
+               *(func.coalesce(getattr(JournalEntryLine, f'debit_{k}k'), 0.0)
+                 - func.coalesce(getattr(JournalEntryLine, f'credit_{k}k'), 0.0) for k in (18, 21, 22, 24)))
+    tagged = (db.session.query(*columns).join(JournalEntry)
+              .join(Account, JournalEntryLine.account_id == Account.id)
+              .filter(JournalEntryLine.supplier_id == sid, *jl_filters, account_filter))
+    untagged = (db.session.query(*columns).join(JournalEntry)
+                .filter(JournalEntryLine.supplier_id.is_(None), JournalEntryLine.customer_id.is_(None),
+                        JournalEntryLine.account_id.in_(own or [-1]), *jl_filters))
+    rows = [*tagged.all(), *untagged.all()]
+    rows.sort(key=lambda r: (r[1], r[0]))
+    return [{'entry_id': int(r[0]), 'date': r[1], 'reference_type': r[2], 'reference_id': r[3],
+             'cash': float(r[4] or 0.0), '18k': float(r[5] or 0.0), '21k': float(r[6] or 0.0),
+             '22k': float(r[7] or 0.0), '24k': float(r[8] or 0.0)} for r in rows]
 
 
 # ── Customers (BALANCE-001 B1, the owner 2 Oct 2026) ─────────────────────────
