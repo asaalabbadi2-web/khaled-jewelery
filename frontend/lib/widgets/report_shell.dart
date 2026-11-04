@@ -479,6 +479,8 @@ class ReportTable extends StatelessWidget {
     }
 
     final columns = report.columns;
+    // the last text column -- the description -- takes the room
+    final wide = columns.lastIndexWhere((c) => !c.isFigure);
     // The table fills its card; on a narrow screen it keeps its columns
     // and slides sideways.
     return Card(
@@ -486,12 +488,19 @@ class ReportTable extends StatelessWidget {
       child: LayoutBuilder(
         builder: (context, box) => SingleChildScrollView(
           scrollDirection: Axis.horizontal,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              minWidth: box.maxWidth.isFinite ? box.maxWidth : 720,
-            ),
+          // A text column takes the room the figures leave and wraps (a long
+          // note pushed the grams off the screen); a figure keeps its width.
+          child: SizedBox(
+            width: box.maxWidth.isFinite && box.maxWidth > 720
+                ? box.maxWidth
+                : 720,
             child: Table(
-              defaultColumnWidth: const IntrinsicColumnWidth(flex: 1),
+              columnWidths: {
+                for (var i = 0; i < columns.length; i++)
+                  i: i == wide
+                      ? const FlexColumnWidth()
+                      : const IntrinsicColumnWidth(),
+              },
               defaultVerticalAlignment: TableCellVerticalAlignment.middle,
               children: [
                 TableRow(

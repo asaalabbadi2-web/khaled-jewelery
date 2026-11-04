@@ -22,6 +22,7 @@ from flask import g
 from app import app as flask_app
 from models import Account, JournalEntry, JournalEntryLine, db
 from tests.test_dashboard_expenses_are_operating import _account, _child
+from tests.retraction_world import world  # noqa: F401 (fixture)
 
 DAY = dt.datetime(2031, 4, 15)
 
@@ -112,3 +113,23 @@ def test_the_tree_s_weight_income_statement_is_gone(auth_headers):
     resp = flask_app.test_client().get('/api/reports/income-statement/gold?start_date=2031-04-01&end_date=2031-04-30',
                                        headers=auth_headers)
     assert resp.status_code == 404
+
+
+def test_it_keeps_what_the_old_screen_said(auth_headers, world, books):
+    """REPORTS ت2-2ب, the old screen's features kept: the net margin; what was
+    sold and bought in grams and riyals, their averages a gram -- from the
+    engine's own events, so ① and its averages read one source; the gram
+    profit's worth in riyals at the closing price."""
+    from services.weight_position import collect_events
+    from tests.test_report_sales_analysis import _sale
+    _sale(auth_headers, world, DAY.replace(hour=11), 4200.0, 10.0, world['holder'].id)
+    report = _statement()
+    net, revenue = _row(report, 'net_profit')['cash'], _row(report, 'revenue_total')['cash']
+    assert _row(report, 'net_margin')['name'].endswith(f'{net / revenue * 100:.2f}%')
+    events = collect_events(DAY.replace(hour=0), DAY.replace(hour=23, minute=59))
+    sold = [lot for lot in events.openings if lot.invoice_id and lot.price_at_sale]
+    grams, cash = sum(l.grams for l in sold), sum(l.cash for l in sold)
+    said = _row(report, 'sold')
+    assert said['weight'] == pytest.approx(grams, abs=0.001) and said['cash'] == pytest.approx(cash, abs=0.01)
+    assert f'{cash / grams:,.2f}' in said['name'], 'its average a gram'
+    assert _row(report, 'gram_value')['style'] == 'note'

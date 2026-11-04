@@ -10,6 +10,12 @@ String pdfSanitize(String input) {
       // visual order, and Cairo has no glyph for them: a negative's mark
       // (formatAmount) printed as a box (REPORTS ت1-1).
       .replaceAll(RegExp('[\u200e\u200f\u2066-\u2069]'), '')
+      // the gram profit's layers, ① to ⑤: Cairo has no circled digits
+      .replaceAll('\u2460', '(1)')
+      .replaceAll('\u2461', '(2)')
+      .replaceAll('\u2462', '(3)')
+      .replaceAll('\u2463', '(4)')
+      .replaceAll('\u2464', '(5)')
       .replaceAll('\u2192', '->') // →
       .replaceAll('\u2190', '<-') // ←
       .replaceAll('\u2194', '<->') // ↔

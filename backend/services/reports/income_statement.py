@@ -92,18 +92,47 @@ def income_statement(*, start: dt.date, end: dt.date, now: dt.datetime) -> Repor
             row('gross_profit', 'مجمل الربح', cash=totals['revenue'] - totals['cost_of_sales'], style='subtotal')
     net = totals['revenue'] - totals['cost_of_sales'] - totals['operating']
     row('net_profit', 'صافي الربح', cash=net, style='subtotal')
+    if totals['revenue']:
+        row('net_margin', f'هامش صافي الربح {net / totals["revenue"] * 100:.2f}%', style='note')
     if tree['cost_basis_note']:
         row('cost_basis', tree['cost_basis_note'], style='note')
 
-    gram = performance(start, end)
+    from services.weight_position import CUSTOMER, OFFICE, collect_events
+    lo = dt.datetime.combine(start, dt.time.min)
+    events = collect_events(lo, dt.datetime.combine(end, dt.time.max))
+    gram = performance(start, end)        # its own read: what waited before the period is the year's
     layers = gram['layers']
+    # What ① turned: the sales' riyals and grams (less their returns), and the
+    # scrap and offices' purchases -- the engine's own events, the old screen's
+    # averages a gram (REPORTS ت2-2ب)
+    sales = [lot for lot in events.openings if lot.invoice_id and lot.price_at_sale]
+    sold_cash = sum(l.cash for l in sales) - sum(r.cash for r in events.returns)
+    sold_grams = sum(l.grams for l in sales) - sum(r.grams for r in events.returns)
+    bought = [c for c in events.closings if c.kind in (CUSTOMER, OFFICE)]
+    bought_cash, bought_grams = sum(c.cash for c in bought), sum(c.grams for c in bought)
     row('gram_layers', 'ربح الجرام — الطبقات الخمس', style='heading')
     for key, name, grams in (
             ('layer_trading', '① المتاجرة: ريالات المُباع التي عادت ذهبًا', layers['trading']),
+            ('sold', None, None),
+            ('bought', None, None),
             ('layer_revenue', '② الإيرادات', layers['revenue_converted'] + layers['revenue_direct']),
             ('layer_expense_direct', '③ المصاريف الوزنية', layers['expense_direct']),
             ('layer_expense_cash', '④ المصاريف النقدية', layers['expense_cash']),
             ('layer_waiting', '⑤ ما لم يُسكَّر بعد', layers['price_effect'])):
+        if key == 'sold':
+            if sold_grams:
+                row('sold', f'المباع {sold_grams:,.3f} جم بـ {sold_cash:,.2f}: متوسط {sold_cash / sold_grams:,.2f} للجرام',
+                    cash=sold_cash, weight=sold_grams, style='note')
+            continue
+        if key == 'bought':
+            if bought_grams:
+                row('bought', f'المشترى كسرًا ومن المكاتب {bought_grams:,.3f} جم بـ {bought_cash:,.2f}: '
+                              f'متوسط {bought_cash / bought_grams:,.2f} للجرام',
+                    cash=bought_cash, weight=bought_grams, style='note')
+            if sold_grams and bought_grams:
+                row('margin_per_gram', f'فارق الجرام {sold_cash / sold_grams - bought_cash / bought_grams:,.2f}',
+                    style='note')
+            continue
         row(key, name, weight=grams)
     parts = gram.get('price_effect_parts') or {}
     if parts:
@@ -111,7 +140,11 @@ def income_statement(*, start: dt.date, end: dt.date, now: dt.datetime) -> Repor
         row('waiting_price', 'ومنه أثر السعر', weight=parts['price'], style='note')
     row('gram_profit', 'صافي ربح الجرام', weight=gram['weight_profit'], style='subtotal')
     if gram.get('valuation_price'):
-        row('valuation', f'ما ينتظر مقيّم بسعر التسكير {gram["valuation_price"]:,.2f} للجرام', style='note')
+        value = gram['weight_profit'] * gram['valuation_price']
+        row('gram_value', f'قيمته بسعر التسكير {gram["valuation_price"]:,.2f} للجرام ≈ {value:,.2f}', cash=value,
+            style='note')
+    else:                                   # said, not left out: no price, no riyals for it
+        row('gram_value', 'لا سعر تسكير لهذه الفترة: لا يُقيَّم بالريال', style='note')
 
     columns = [Column('number', 'الحساب'), Column('name', 'البند'),
                Column('cash', 'ريال', 'money', signed=True), Column('weight', 'جم', 'grams', signed=True)]

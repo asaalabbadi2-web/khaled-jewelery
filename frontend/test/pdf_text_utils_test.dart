@@ -145,4 +145,8 @@ void main() {
     expect(pdfSanitize('\u200e-95,926.27'), '-95,926.27');
     expect(pdfSanitize('\u2066١٢\u2069 \u200f'), '١٢ ');
   });
+
+  test('the gram profit\'s circled layers are printed in signs Cairo has', () {
+    expect(pdfSanitize('\u2460 \u2464'), '(1) (5)');
+  });
 }
