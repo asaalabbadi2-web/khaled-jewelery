@@ -10,8 +10,16 @@ every line, a reversal and an invoice's correction too. On the 2 Nov copy
 each month of 2026 agrees to the halala (October 1,394,020.10).
 Compared, each group says its previous period: whole months the months
 before, any other span as many days before.
-By item or karat (a document's value shared on its lines) comes with the
-old sales reports' merge (REPORTS ت4).
+By category or karat (REPORTS ت4-1, the old sales reports merged): a
+sale's lines carry no item (2,905 of 2,906 on the 2 Nov copy) but a category,
+a karat and their value before VAT (`net`, October's sum the invoices' to the
+halala), so a document's value is shared on its lines by their net -- the
+value the books agree with stays the document's -- each line's grams in the
+main karat; a line with no category is «بلا تصنيف». By item: the piece a
+line sold -- from 2027, as piece tracking opens category by category (ADR-045,
+the owner 4 Nov 2026); a line sold by weight is «بلا صنف (بالوزن)». By gold type, the
+document's own. A document counts once in each group it touches. By customer
+or category, each row says its last sale.
 """
 from __future__ import annotations
 
@@ -20,11 +28,14 @@ import datetime as dt
 
 from services.reports.contract import Check, Column, Report
 
-BY = ('employee', 'customer', 'day', 'month')
+BY = ('employee', 'customer', 'day', 'month', 'gold_type', 'category', 'item', 'karat')
+LINES = ('category', 'item', 'karat')
+LAST = ('customer', 'category', 'item')
 SALE, SALE_RETURN = 'بيع', 'مرتجع بيع'
 # their net credit: the returns' debits take themselves off
 SALES_ROLES = (('بيع', 'revenue'), ('بيع', 'sales_gold_scrap'), ('مرتجع بيع', 'sales_returns'))
-NO_SELLER, NO_CUSTOMER = 'بلا بائع', 'بلا عميل'
+NO_SELLER, NO_CUSTOMER, NO_CATEGORY, NO_ITEM = 'بلا بائع', 'بلا عميل', 'بلا تصنيف', 'بلا صنف (بالوزن)'
+GOLD_TYPES = {'new': 'ذهب جديد', 'scrap': 'كسر'}
 
 
 def _bounds(start, end):
@@ -92,35 +103,75 @@ def _books(start, end) -> float:
 
 
 def _group(inv, by: str, names: dict) -> tuple:
-    """(id, label, drill) of the group an invoice falls in."""
+    """(id, label, drill) of the group a document falls in -- by a document's own."""
     if by == 'employee':
         return (inv.employee_id, names['employee'].get(inv.employee_id, NO_SELLER),
                 {'kind': 'employee', 'id': inv.employee_id} if inv.employee_id else None)
     if by == 'customer':
         return (inv.customer_id, names['customer'].get(inv.customer_id, NO_CUSTOMER),
                 {'kind': 'customer', 'id': inv.customer_id} if inv.customer_id else None)
+    if by == 'gold_type':
+        return inv.gold_type, GOLD_TYPES.get(inv.gold_type, inv.gold_type or 'غير محدد'), None
     key = inv.date.strftime('%Y-%m-%d' if by == 'day' else '%Y-%m')
     return key, key, None
 
 
+def _line_group(line, by: str, names: dict) -> tuple:
+    if by == 'category':
+        return line.category_id, names['category'].get(line.category_id, NO_CATEGORY), None
+    if by == 'item':
+        return line.item_id, names['item'].get(line.item_id, NO_ITEM), None
+    karat = int(round(float(line.karat))) if line.karat else None
+    return karat, f'عيار {karat}' if karat else 'عيار غير محدد', None
+
+
+def _parts(documents, by: str, names: dict):
+    """(document, sign, group id, label, drill, value, grams): a document whole, or
+    -- by category or karat -- shared on its lines by their net (by their weight
+    when they carry none), each line's grams in the main karat."""
+    from pricing.gold_price_service import get_main_karat
+    main = float(get_main_karat()) if by in LINES else None
+    for inv, sign, value, grams in documents:
+        lines = list(inv.items or []) if by in LINES else []
+        if not lines:
+            group = (_group(inv, by, names) if by not in LINES
+                     else (None, {'category': NO_CATEGORY, 'item': NO_ITEM}.get(by, 'عيار غير محدد'), None))
+            yield (inv, sign, *group, value, grams)
+            continue
+        nets = [float(line.net or 0.0) for line in lines]
+        weights = [float(line.weight or 0.0) * float(line.karat or main) / main for line in lines]
+        basis = nets if abs(sum(nets)) > 0.005 else weights
+        whole = sum(basis)
+        for line, share, line_grams in zip(lines, basis, weights):
+            part = share / whole if whole else 1.0 / len(lines)
+            yield (inv, sign, *_line_group(line, by, names), value * part, sign * line_grams)
+
+
 def _sums(documents, by, names) -> dict:
     sums = collections.OrderedDict()
-    for inv, sign, value, grams in documents:
-        group_id, label, drill = _group(inv, by, names)
-        s = sums.setdefault(group_id, {'group_id': group_id, 'group': label, 'drill': drill,
-                                       'invoices': 0, 'returns': 0, 'value': 0.0, 'weight': 0.0})
-        s['invoices' if sign > 0 else 'returns'] += 1
+    for inv, sign, group_id, label, drill, value, grams in _parts(documents, by, names):
+        s = sums.setdefault(group_id, {'group_id': group_id, 'group': label, 'drill': drill, 'sales': set(),
+                                       'return_docs': set(), 'value': 0.0, 'weight': 0.0, 'last': None})
+        s['sales' if sign > 0 else 'return_docs'].add(inv.id)
         s['value'] += value
         s['weight'] += grams
+        if sign > 0:
+            s['last'] = max(s['last'] or inv.date, inv.date)
+    for s in sums.values():
+        s['invoices'], s['returns'] = len(s.pop('sales')), len(s.pop('return_docs'))
     return sums
 
 
 def _names(documents) -> dict:
-    from models import Customer, Employee
+    from models import Category, Customer, Employee, Item
     employees = {inv.employee_id for inv, *_ in documents if inv.employee_id}
     customers = {inv.customer_id for inv, *_ in documents if inv.customer_id}
+    categories = {line.category_id for inv, *_ in documents for line in (inv.items or []) if line.category_id}
+    items = {line.item_id for inv, *_ in documents for line in (inv.items or []) if line.item_id}
     return {'employee': {e.id: e.name for e in Employee.query.filter(Employee.id.in_(employees or {-1}))},
-            'customer': {c.id: c.name for c in Customer.query.filter(Customer.id.in_(customers or {-1}))}}
+            'customer': {c.id: c.name for c in Customer.query.filter(Customer.id.in_(customers or {-1}))},
+            'category': {c.id: c.name for c in Category.query.filter(Category.id.in_(categories or {-1}))},
+            'item': {i.id: f'{i.name} ({i.item_code})' for i in Item.query.filter(Item.id.in_(items or {-1}))}}
 
 
 def previous_period(start: dt.date, end: dt.date) -> tuple[dt.date, dt.date]:
@@ -159,14 +210,19 @@ def sales_analysis(*, now: dt.datetime, start: dt.date | None = None, end: dt.da
                'average': round(s['value'] / s['invoices'], 2) if s['invoices'] else None,
                'share': round(s['value'] / total_value * 100, 2) if total_value else None,
                'drill': s['drill']}
+        if by in ('gold_type', *LINES):
+            row['per_gram'] = round(s['value'] / s['weight'], 2) if abs(s['weight']) > 0.0005 else None
+        if by in LAST:
+            row['last'] = s['last'].date().isoformat() if s['last'] else None
         if compared:
             prev = previous.get(s['group_id'])
             row['prev_value'] = round(prev, 2) if prev is not None else None
             row['change'] = round((s['value'] - prev) / prev * 100, 2) if prev else None
         rows.append(row)
 
-    invoices = sum(s['invoices'] for s in sums.values())
-    totals = {'invoices': invoices, 'returns': sum(s['returns'] for s in sums.values()),
+    # a document once, however many groups its lines fell in
+    invoices = sum(1 for _, sign, *_ in documents if sign > 0)
+    totals = {'invoices': invoices, 'returns': sum(1 for _, sign, *_ in documents if sign < 0),
               'value': round(total_value, 2), 'weight': round(sum(s['weight'] for s in sums.values()), 3),
               'average': round(total_value / invoices, 2) if invoices else None, 'share': 100.0 if total_value else None}
     if compared:
@@ -174,13 +230,18 @@ def sales_analysis(*, now: dt.datetime, start: dt.date | None = None, end: dt.da
         totals['prev_value'] = round(prev_total, 2)
         totals['change'] = round((total_value - prev_total) / prev_total * 100, 2) if prev_total else None
 
-    label = {'employee': 'الموظف', 'customer': 'العميل', 'day': 'اليوم', 'month': 'الشهر'}[by]
+    label = {'employee': 'الموظف', 'customer': 'العميل', 'day': 'اليوم', 'month': 'الشهر',
+             'gold_type': 'نوع الذهب', 'category': 'التصنيف', 'item': 'الصنف', 'karat': 'العيار'}[by]
     columns = [Column('group', label), Column('invoices', 'الفواتير', 'count'), Column('returns', 'المرتجعات', 'count'),
                Column('value', 'القيمة', 'money'), Column('weight', 'الوزن', 'grams'),
                Column('average', 'متوسط الفاتورة', 'money'), Column('share', 'الحصة', 'percent')]
+    if by in ('gold_type', *LINES):
+        columns.append(Column('per_gram', 'سعر الجرام', 'money'))
     if compared:
         columns += [Column('prev_value', 'الفترة السابقة', 'money'),
                     Column('change', 'التغيّر', 'percent', signed=True)]
+    if by in LAST:
+        columns.append(Column('last', 'آخر بيع', 'date'))
     books = _books(start, end)
     checks = [Check('books_agree', 'مطابق لإيراد المبيعات في الدفاتر', abs(round(total_value - books, 2)) < 0.01)]
     return Report(id='sales_analysis', title='تحليل المبيعات', basis='documents', columns=columns, rows=rows,

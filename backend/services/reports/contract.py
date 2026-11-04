@@ -22,7 +22,7 @@ import datetime as dt
 from dataclasses import dataclass, field
 
 BASES = ('posted_entries', 'documents')
-KINDS = ('text', 'money', 'grams', 'count', 'percent')
+KINDS = ('text', 'money', 'grams', 'count', 'percent', 'date')   # date: YYYY-MM-DD, never the wide column
 
 
 @dataclass(frozen=True)

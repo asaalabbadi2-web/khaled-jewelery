@@ -125,7 +125,7 @@ def test_the_route_answers_the_contract(auth_headers, sold):
     assert body['id'] == 'sales_analysis' and body['basis'] == 'documents'
     assert body['rows'][0]['drill']['kind'] == 'customer'
     g.pop('current_user', None)
-    bad = flask_app.test_client().get('/api/reports/sales-analysis?by=item', headers=auth_headers)
+    bad = flask_app.test_client().get('/api/reports/sales-analysis?by=nothing', headers=auth_headers)
     assert bad.status_code == 400 and bad.get_json()['error'] == 'invalid_by'
 
 

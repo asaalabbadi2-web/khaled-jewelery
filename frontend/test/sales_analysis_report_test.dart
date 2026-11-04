@@ -47,6 +47,8 @@ class _Server extends ApiService {
             'signed': true,
           },
         ],
+        if (by == 'customer')
+          {'key': 'last', 'label': 'آخر بيع', 'kind': 'date'},
       ],
       'rows': [
         {
@@ -57,6 +59,7 @@ class _Server extends ApiService {
           'share': 31.18,
           'prev_value': 290775.0,
           'change': 49.49,
+          'last': '2026-10-31',
           'drill': {'kind': employee ? 'employee' : 'customer', 'id': 19},
         },
       ],
@@ -122,6 +125,26 @@ void main() {
       );
     },
   );
+
+  testWidgets('by category, karat and gold type (REPORTS ت4-1); the last '
+      'sale is a date read left to right, not the wide column', (tester) async {
+    final server = await _open(tester);
+    for (final (label, by) in [
+      ('التصنيف', 'category'),
+      ('الصنف', 'item'),
+      ('العيار', 'karat'),
+      ('نوع الذهب', 'gold_type'),
+    ]) {
+      await tester.tap(find.text(label).first);
+      await _settle(tester);
+      expect(server.asked.last.by, by);
+    }
+    await tester.tap(find.text('العميل').first);
+    await _settle(tester);
+    expect(find.byKey(const ValueKey('report-head-last')), findsOneWidget);
+    final date = tester.widget<Text>(find.text('2026-10-31'));
+    expect(date.textDirection, TextDirection.ltr);
+  });
 
   testWidgets('«حسب» reads again; compared, the previous period comes', (
     tester,

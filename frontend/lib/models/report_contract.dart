@@ -4,7 +4,8 @@
 library;
 
 /// A column's kind: how its figures are written.
-enum ReportColumnKind { text, money, grams, count, percent }
+/// `date`: YYYY-MM-DD, shown as figures are (left to right), never the wide column.
+enum ReportColumnKind { text, money, grams, count, percent, date }
 
 class ReportColumn {
   const ReportColumn({

@@ -293,18 +293,22 @@ class _ReportShellState extends State<ReportShell> {
                     },
                   ),
                 for (final c in widget.choices)
-                  SegmentedButton<String>(
-                    key: ValueKey('report-choice-${c.key}'),
-                    showSelectedIcon: false,
-                    segments: [
-                      for (final (value, label) in c.options)
-                        ButtonSegment(value: value, label: Text(label)),
-                    ],
-                    selected: {_chosen[c.key]!},
-                    onSelectionChanged: (s) {
-                      setState(() => _chosen[c.key] = s.first);
-                      _load();
-                    },
+                  // many options scroll sideways on a narrow screen, never overflow
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: SegmentedButton<String>(
+                      key: ValueKey('report-choice-${c.key}'),
+                      showSelectedIcon: false,
+                      segments: [
+                        for (final (value, label) in c.options)
+                          ButtonSegment(value: value, label: Text(label)),
+                      ],
+                      selected: {_chosen[c.key]!},
+                      onSelectionChanged: (s) {
+                        setState(() => _chosen[c.key] = s.first);
+                        _load();
+                      },
+                    ),
                   ),
                 for (final t in widget.toggles)
                   FilterChip(
