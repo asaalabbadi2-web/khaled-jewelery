@@ -1016,7 +1016,7 @@ def _weight_kwargs_from_map(gold_map, side='debit'):
 #  GET /sales-race/config, PUT /sales-race/config,
 #  GET /home/leaderboard, GET /general_ledger_all,
 #  GET /analytics/summary,
-#  GET /reports/customer_balances_aging, GET /trial_balance)
+#  GET /trial_balance)
 
 # PUT /customers/<int:id> → routes/customers.py (update_customer)
 

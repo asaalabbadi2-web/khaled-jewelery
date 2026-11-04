@@ -130,19 +130,6 @@ class ReportCatalog {
             requiresFilters: true,
           ),
           ReportDescriptor(
-            id: 'customer_balances_aging',
-            icon: Icons.schedule,
-            titleAr: 'تقرير أعمار الذمم للعملاء',
-            titleEn: 'Customer Balances Aging',
-            descriptionAr:
-                'توزيع أرصدة العملاء على فترات الاستحقاق مع أبرز المتأخرين.',
-            descriptionEn:
-                'Distribute customer balances across aging buckets and highlight top overdue accounts.',
-            route: 'customer_balances_aging',
-            type: ReportType.accounting,
-            requiresFilters: true,
-          ),
-          ReportDescriptor(
             id: 'supplier_aging',
             icon: Icons.hourglass_bottom,
             titleAr: 'أعمار ديون الموردين',

@@ -7,7 +7,8 @@ reports, ت0-2 moved what was not a report, ت0-3 moved the trial balance, ت2-2
 ت4-4ب the sales-against-purchases trend (the purchases analysis answers it),
 ت5-2 the gold position (the gold by place answers it),
 ت5-3 the weight trial balance (the safes' gold reconciliation answers it),
-ت5-4 the gold price history (moved to services/reports).
+ت5-4 the gold price history (moved to services/reports),
+ت6-1 the customers' aging from invoices (the ledger finds no customer owing; the owner: delete).
 Each report moved lowers BASELINE to what is left -- this fails above it, and
 fails below it until it is lowered, so the gain is kept.
 
@@ -19,7 +20,7 @@ import re
 
 ROUTES = pathlib.Path(__file__).resolve().parents[1] / 'routes' / 'reports.py'
 QUERY = re.compile(r'db\.session\.query\(|\.query\.|\.query\b\(|\.filter\(')
-BASELINE = 70
+BASELINE = 63
 
 
 def _count() -> int:

@@ -2992,46 +2992,6 @@ class ApiService {
     return const [];
   }
 
-  Future<Map<String, dynamic>> getCustomerBalancesAgingReport({
-    DateTime? cutoffDate,
-    bool includeZeroBalances = false,
-    bool includeUnposted = false,
-    int? customerGroupId,
-    int topLimit = 5,
-  }) async {
-    final queryParams = <String, String>{'top_limit': topLimit.toString()};
-
-    if (cutoffDate != null) {
-      queryParams['cutoff_date'] = cutoffDate
-          .toIso8601String()
-          .split('T')
-          .first;
-    }
-
-    if (includeZeroBalances) {
-      queryParams['include_zero_balances'] = 'true';
-    }
-
-    if (includeUnposted) {
-      queryParams['include_unposted'] = 'true';
-    }
-
-    if (customerGroupId != null) {
-      queryParams['customer_group_id'] = customerGroupId.toString();
-    }
-
-    final uri = Uri.parse(
-      '$_baseUrl/reports/customer_balances_aging',
-    ).replace(queryParameters: queryParams);
-
-    final response = await _authedGet(uri);
-    if (response.statusCode == 200) {
-      return json.decode(utf8.decode(response.bodyBytes));
-    } else {
-      throw _apiError(response);
-    }
-  }
-
   /// The gold price's history in the reports' contract (REPORTS ت5-4): by
   /// day, week or month, in Riyadh's days.
   Future<Map<String, dynamic>> getGoldPriceHistoryReport({
