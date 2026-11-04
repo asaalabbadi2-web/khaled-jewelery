@@ -552,6 +552,8 @@ void main() {
       // كل عيار على حدة.
       expect(find.text('18K'), findsOneWidget);
       expect(find.text('21K'), findsOneWidget);
+      // ADR-083 ت3-2د: عياران مفتوحان — يقول إن الأعيرة تُحوَّل ويُصفّى الصافي.
+      expect(find.textContaining('تُحوَّل الأعيرة الأخرى'), findsOneWidget);
       // الحدود والمستهلك من الخادم.
       expect(find.textContaining('37.50'), findsOneWidget);
       expect(find.text('2026-09'), findsOneWidget);

@@ -76,6 +76,7 @@ GOLD_COST_DRIFT = 'GOLD_COST_DRIFT'
 GOLD_MOVED_UNVALUED = 'GOLD_MOVED_UNVALUED'
 GOLD_WITH_PARTY_ADRIFT = 'GOLD_WITH_PARTY_ADRIFT'
 BONUS_RUN_FAILED = 'BONUS_RUN_FAILED'
+KARAT_CONVERSION_ADRIFT = 'KARAT_CONVERSION_ADRIFT'
 
 KINDS = (
     ORPHAN_POSTED_ENTRY,
@@ -94,6 +95,7 @@ KINDS = (
     GOLD_MOVED_UNVALUED,
     GOLD_WITH_PARTY_ADRIFT,
     BONUS_RUN_FAILED,
+    KARAT_CONVERSION_ADRIFT,
 )
 
 # An invoice in one of these states is retracted: its entries must not count
@@ -615,6 +617,36 @@ def check_gold_with_parties_adrift() -> list:
                  round(p['books_grams'] - p['valued_grams'], 3), p) for p in parties_adrift()]
 
 
+def check_karat_conversion_adrift(tolerance: float = 0.005) -> list:
+    """The suppliers' karat conversion account, in the main karat (REPORTS
+    ت3-2د): a settlement moves a supplier's grams from one karat to the main
+    karat at its purity's equivalent, against this account, so its karats
+    together are nothing -- within each conversion's thousandth. Keyed
+    'account:<id>'; the metric is its grams of the main karat, debit less
+    credit. Silent while the role is not mapped (ROLE_NOT_MAPPED says so)."""
+    from accounting.balances import counted_line_filters
+    from pricing.karat_service import convert_to_main_karat
+    from services.supplier_settlement_adjustment_service import (
+        ACCOUNT_TYPE_KARAT_CONVERSION, SETTLEMENT_OPERATION_TYPE)
+    from accounting.mappings import get_account_id_for_mapping
+    account_id = get_account_id_for_mapping(SETTLEMENT_OPERATION_TYPE, ACCOUNT_TYPE_KARAT_CONVERSION)
+    if not account_id:
+        return []
+    from routes import _resolve_account_id_for_amount_type
+    weight_id = int(_resolve_account_id_for_amount_type(int(account_id), 'gold') or account_id)
+    sums = (db.session.query(*(func.coalesce(func.sum(getattr(JournalEntryLine, f'debit_{k}k')), 0.0)
+                               - func.coalesce(func.sum(getattr(JournalEntryLine, f'credit_{k}k')), 0.0)
+                               for k in (18, 21, 22, 24)))
+            .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+            .filter(*counted_line_filters(), JournalEntryLine.account_id == weight_id).one())
+    grams = sum(convert_to_main_karat(float(v or 0.0), k) for v, k in zip(sums, (18, 21, 22, 24)))
+    if abs(grams) <= tolerance:
+        return []
+    return [Fact(KARAT_CONVERSION_ADRIFT, f'account:{weight_id}', round(grams, 3),
+                 {'account_id': weight_id, 'by_karat': {f'{k}k': round(float(v or 0.0), 3)
+                                                        for v, k in zip(sums, (18, 21, 22, 24))}})]
+
+
 def check_bonus_runs_failed() -> list:
     """A bonus run whose period has not run well since it failed (bonus study
     م0, ث13): 49 runs failed from May to 19 Sep 2026 -- four months with no
@@ -654,6 +686,7 @@ CHECKS = {
     GOLD_MOVED_UNVALUED: check_gold_moved_unvalued,
     GOLD_WITH_PARTY_ADRIFT: check_gold_with_parties_adrift,
     BONUS_RUN_FAILED: check_bonus_runs_failed,
+    KARAT_CONVERSION_ADRIFT: check_karat_conversion_adrift,
 }
 
 

@@ -518,6 +518,15 @@ class _SupplierSettlementsScreenState extends State<SupplierSettlementsScreen> {
                   '${_moneyFmt.format(p.balanceBeforeFinancial)} $_currencySymbol'),
               // كل عيار على حدة — والمكافئ سطر مستقل يأتي من الخادم.
               ..._weightRows(p.openWeights, ar),
+              // ADR-083 ت3-2د: أكثر من عيار مفتوح يُحوَّل إلى العيار الرئيسي
+              // أولًا، والمكافئ هو الصافي الذي يُصفّى وحده.
+              if (p.openWeights.length > 1)
+                Text(
+                  ar
+                      ? 'تُحوَّل الأعيرة الأخرى إلى العيار الرئيسي بمعادل نقائها، بلا قيمة ولا مصروف، ويُصفّى الصافي وحده.'
+                      : 'The other karats convert to the main karat at their purity, with no value or expense; only the net is written off.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
               _kv(
                 ar ? 'المكافئ بالعيار الرئيسي' : 'Main-karat equivalent',
                 _weightFmt.format(p.mainKaratEquivalent),

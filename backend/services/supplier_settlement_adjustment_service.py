@@ -126,6 +126,11 @@ ACCOUNT_TYPE_SETTLEMENT_EXPENSE = 'supplier_settlement_expense'
 ACCOUNT_TYPE_SETTLEMENT_INCOME = 'supplier_settlement_income'
 ACCOUNT_TYPE_WEIGHT_SETTLEMENT_EXPENSE = 'supplier_weight_settlement_expense'
 ACCOUNT_TYPE_WEIGHT_SETTLEMENT_INCOME = 'supplier_weight_settlement_income'
+# The counterpart of a karat conversion (REPORTS ت3-2د, the owner 4 Nov 2026):
+# the engine balances every karat, so moving a supplier's grams from one karat
+# to the main karat needs an account on the other side of each karat; it is
+# zero in the main karat, always (books_invariants.check_karat_conversion_adrift).
+ACCOUNT_TYPE_KARAT_CONVERSION = 'supplier_karat_conversion'
 
 # compute_live_supplier_balances() key -> VoucherAccountLine.karat
 _KARAT_KEYS = {'18k': 18.0, '21k': 21.0, '22k': 22.0, '24k': 24.0}
@@ -442,9 +447,10 @@ class SupplierSettlementAdjustmentService:
         snapshot = self.recalculate(supplier, now=now)
         if policy is None:
             policy = self._resolve_policy(now)
+        limits = policy.limits_for_reason(reason_code) if policy is not None else None
 
         checks: list[EligibilityCheck] = [
-            self._check_no_unpaid_invoices(supplier),
+            self._check_no_unpaid_invoices(supplier, limits),
             self._check_no_unposted_journal_entries(supplier),
             self._check_no_pending_vouchers(supplier),
             self._check_no_other_open_adjustments(supplier, exclude_adjustment_id),
@@ -455,7 +461,6 @@ class SupplierSettlementAdjustmentService:
             # One resolution, three gates. Each of them used to read the policy's
             # global numbers directly, which is how a waiver could clear the
             # tolerance it was given and still be refused twice over.
-            limits = policy.limits_for_reason(reason_code)
             checks.extend([
                 self._check_below_review_threshold(snapshot, limits),
                 self._check_within_operation_tolerance(snapshot, limits),
@@ -926,8 +931,12 @@ class SupplierSettlementAdjustmentService:
             residual > 0  supplier owes us   -> Cr supplier / Dr settlement expense
             residual < 0  we owe supplier    -> Dr supplier / Cr settlement income
 
-        Each karat produces its own independent pair of lines. Karats are never
-        summed together and never converted to SAR.
+        Gold (REPORTS ت3-2د): when more than one karat is open, each karat
+        other than the main one is first converted -- its grams leave the
+        supplier in that karat and their purity's equivalent enters it in the
+        main karat, both against the conversion account -- and the main karat's
+        net is the one pair written off; one karat alone is written off in its
+        own. Never converted to SAR.
         """
         supplier_account_id = int(ensure_supplier_accounts(supplier).financial.id)
 
@@ -935,17 +944,10 @@ class SupplierSettlementAdjustmentService:
         if cash_amount <= 0:
             cash_amount = 0.0
 
-        karat_amounts: list[tuple[float, float, float]] = []  # (karat, signed, amount)
-        for key, raw in (residual_by_karat or {}).items():
-            karat = _KARAT_KEYS.get(key)
-            if karat is None:
-                continue
-            signed = float(raw or 0.0)
-            if abs(signed) <= WEIGHT_EPSILON:
-                continue
-            karat_amounts.append((karat, signed, round(abs(signed), WEIGHT_PRECISION)))
+        moves, write_karat, net = self._conversion(residual_by_karat)
+        written_off = round(abs(net), WEIGHT_PRECISION)
 
-        if cash_amount <= 0 and not karat_amounts:
+        if cash_amount <= 0 and not moves and written_off <= 0:
             raise ValueError('لا يوجد رصيد لتسويته.')
 
         voucher = Voucher(
@@ -958,7 +960,7 @@ class SupplierSettlementAdjustmentService:
             supplier_id=int(supplier.id),
             party_name=supplier.name,
             amount_cash=cash_amount,
-            amount_gold=round(sum(a for _, _, a in karat_amounts), WEIGHT_PRECISION),
+            amount_gold=written_off,
             reference_type=VOUCHER_REFERENCE_TYPE,
             reference_id=sad.id,
             reference_number=sad.adjustment_number,
@@ -1009,16 +1011,27 @@ class SupplierSettlementAdjustmentService:
                 label='تسوية نقدية',
             )
 
-        for karat, signed, amount in karat_amounts:
+        if moves:
+            conversion_id = self._resolve_weight_settlement_account_id(ACCOUNT_TYPE_KARAT_CONVERSION)
+            for karat, signed, equivalent in moves:
+                _add_pair(signed=signed, amount=round(abs(signed), WEIGHT_PRECISION), amount_type='gold',
+                          counter_account_id=conversion_id, karat=karat,
+                          label=f'تحويل عيار {int(karat)} إلى {int(write_karat)}')
+                if round(abs(equivalent), WEIGHT_PRECISION) > 0:
+                    _add_pair(signed=-equivalent, amount=round(abs(equivalent), WEIGHT_PRECISION),
+                              amount_type='gold', counter_account_id=conversion_id, karat=write_karat,
+                              label=f'تحويل عيار {int(karat)} إلى {int(write_karat)}')
+
+        if written_off > 0:
             _add_pair(
-                signed=signed,
-                amount=amount,
+                signed=net,
+                amount=written_off,
                 amount_type='gold',
                 counter_account_id=self._resolve_weight_settlement_account_id(
-                    self._weight_account_type(signed)
+                    self._weight_account_type(net)
                 ),
-                karat=karat,
-                label=f'تسوية وزن عيار {int(karat)}',
+                karat=write_karat,
+                label=f'تسوية وزن عيار {int(write_karat)}',
             )
 
         db.session.flush()
@@ -1173,17 +1186,17 @@ class SupplierSettlementAdjustmentService:
         if round(abs(float(snapshot.financial or 0.0)), CASH_PRECISION) > 0:
             required.append(self._cash_account_type(snapshot.financial))
 
-        weight_types = {
-            self._weight_account_type(signed)
-            for signed in snapshot.open_karats.values()
-        }
-        required.extend(sorted(weight_types))
+        moves, _, net = self._conversion(snapshot.open_karats)
+        if moves:
+            required.append(ACCOUNT_TYPE_KARAT_CONVERSION)
+        if round(abs(net), WEIGHT_PRECISION) > 0:
+            required.append(self._weight_account_type(net))
 
         missing: list[str] = []
         for account_type in required:
             resolver = (
                 self._resolve_weight_settlement_account_id
-                if account_type.startswith('supplier_weight_')
+                if account_type.startswith('supplier_weight_') or account_type == ACCOUNT_TYPE_KARAT_CONVERSION
                 else self._resolve_settlement_account_id
             )
             try:
@@ -1249,20 +1262,47 @@ class SupplierSettlementAdjustmentService:
         using the project's canonical converter, which resolves the main karat
         from Settings itself.
 
-        Magnitudes are summed, not signed values: a write-off consumes its
-        allowance in either direction, so an offsetting pair of residuals must
-        not net down to zero and slip past a limit.
+        The signed values are summed, and the net's magnitude is the measure
+        (REPORTS ت3-2د, the owner 4 Nov 2026). It used to be the magnitudes'
+        sum, so that an offsetting pair could not net down and slip past a
+        limit -- right while each karat was written off as it stood. Now the
+        other karats are converted to the main karat first (against the
+        conversion account, no value, no expense), and the net is all that is
+        written off: the measure is what leaves the books.
         """
         total = 0.0
         for key, value in (by_karat or {}).items():
             karat = _KARAT_KEYS.get(key)
             if karat is None:
                 continue
-            grams = abs(float(value or 0.0))
-            if not grams:
+            total += float(convert_to_main_karat(float(value or 0.0), karat) or 0.0)
+        return round(abs(total), 6)
+
+    @staticmethod
+    def _conversion(by_karat: dict) -> tuple[list, float, float]:
+        """How *by_karat* is settled: ([(karat, signed grams, its main-karat
+        grams)] -- the conversions --, the karat written off, and its net there).
+
+        Only when more than one karat is open: each other than the main karat
+        is converted to it, and the main karat's net is written off. One karat
+        alone has nothing to offset and is written off in its own karat, as
+        before. Each conversion is rounded to the gram's thousandth, as posted.
+        """
+        from pricing.gold_price_service import get_main_karat
+        open_ = [(_KARAT_KEYS[key], float(value or 0.0)) for key, value in (by_karat or {}).items()
+                 if key in _KARAT_KEYS and abs(float(value or 0.0)) > WEIGHT_EPSILON]
+        if len(open_) <= 1:
+            return [], (open_[0][0] if open_ else 0.0), (open_[0][1] if open_ else 0.0)
+        main = float(get_main_karat())
+        moves, net = [], 0.0
+        for karat, signed in open_:
+            if karat == main:
+                net += signed
                 continue
-            total += abs(float(convert_to_main_karat(grams, karat) or 0.0))
-        return round(total, 6)
+            equivalent = round(float(convert_to_main_karat(signed, karat) or 0.0), WEIGHT_PRECISION)
+            moves.append((karat, signed, equivalent))
+            net += equivalent
+        return moves, main, round(net, 6)
 
     @staticmethod
     def _period_key(now: datetime) -> str:
@@ -1425,48 +1465,34 @@ class SupplierSettlementAdjustmentService:
 
     # ── Eligibility checks ───────────────────────────────────────────────────
 
-    def _check_no_unpaid_invoices(self, supplier: Supplier) -> EligibilityCheck:
-        """Refuse while an invoice under invoice-level enforcement is still open.
+    def _check_no_unpaid_invoices(self, supplier: Supplier, limits=None) -> EligibilityCheck:
+        """Refuse while a purchase is open on the supplier's running account
+        beyond the operation's tolerance (REPORTS ت3-2ج/د, the owner 4 Nov 2026).
 
-        The qualifier is not decoration. This gate used to read Invoice.status for
-        EVERY invoice, and for invoices created before invoice-level settlement
-        existed that field is stale by construction: their payments were made
-        through vouchers that were never linked to an invoice (168 approved
-        supplier vouchers carry no reference_type at all), and ADR-028 forbids
-        inferring the link. Production-copy measurement: those invoices claimed
-        1,834,663 SAR and 20,692 g open while the ledger carried 90,439 SAR and
-        1,309 g — and the gate blocked 22 of 27 suppliers on that claim.
+        The running account (services/supplier_running_account.py) reads, from
+        the ledger, which purchases each payment closed -- the evidence first,
+        then the oldest -- and what it leaves open is the ledger's balance. So
+        a purchase open beyond the tolerance is a balance beyond it: this gate
+        names the invoice that the tolerance check refuses by its amount. A
+        purchase the supplier's ledger does not hold carries no debt there and
+        does not block.
 
-        A status nothing can correct cannot be a control. So the gate now asks
-        only about invoices whose status IS maintained, and the obligation of the
-        rest is represented where it actually lives — the ledger, which is the
-        single source of truth per ADR-028. An untracked invoice that is genuinely
-        open still leaves its obligation in the supplier's balance, where the
-        review threshold and the operation tolerance meet it; the protection moves
-        rather than disappears, which
-        tests/test_settlement_gate_tracked_invoices.py::TestTheLedgerStillGuards
-        is there to prove.
-
-        SCOPE, deliberately narrow: gold_settlement_tracked is read here as the
-        forward-only marker for THIS gate — the flag happens to divide invoices at
-        exactly the line where invoice-level status became maintained. It is NOT a
-        general cash qualifier and must not be reused as one. An office invoice is
-        untracked while carrying a real CASH obligation, so a future settlement
-        engine needs cash_settlement_eligible() and gold_settlement_eligible()
-        separately, per dimension. That work is out of scope here.
+        It replaced the stored status (Invoice.status, explicit payments only),
+        which read open the purchases the running account had paid; before that,
+        only invoices under invoice-level tracking were asked
+        (tests/test_settlement_gate_tracked_invoices.py has the history).
         """
-        count = (
-            Invoice.query
-            .filter(Invoice.supplier_id == int(supplier.id))
-            .filter(Invoice.status.in_(['unpaid', 'partially_paid']))
-            .filter(Invoice.gold_settlement_tracked.is_(True))
-            .count()
-        )
+        from services.supplier_running_account import running_account
+        cash_limit = float(limits.tolerance_cash) if limits is not None else CASH_EPSILON
+        weight_limit = float(limits.tolerance_weight) if limits is not None else WEIGHT_EPSILON
+        open_ = [i for i in running_account(supplier)['invoices']
+                 if i['cash_remaining'] > cash_limit or i['gold_remaining'] > weight_limit]
+        count = len(open_)
         return EligibilityCheck(
             name='no_unpaid_invoices',
             passed=count == 0,
             detail='' if count == 0 else (
-                f'يوجد {count} فاتورة متتبَّعة غير مسددة أو مسددة جزئياً.'
+                f'يوجد {count} فاتورة مفتوحة على الحساب الجاري للمورد بما يتجاوز حد العملية.'
             ),
         )
 

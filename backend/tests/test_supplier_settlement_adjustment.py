@@ -27,6 +27,7 @@ from account_pair_service import link_accounts
 from party_account_service import ensure_supplier_accounts
 from services.party_live_balances import compute_live_supplier_balances
 from services.supplier_settlement_adjustment_service import (
+    ACCOUNT_TYPE_KARAT_CONVERSION,
     ACCOUNT_TYPE_SETTLEMENT_EXPENSE,
     ACCOUNT_TYPE_SETTLEMENT_INCOME,
     ACCOUNT_TYPE_WEIGHT_SETTLEMENT_EXPENSE,
@@ -154,6 +155,19 @@ def settlement_accounts():
         'weight_expense_memo': weight_expense_memo,
         'weight_income_memo': weight_income_memo,
     }
+
+
+@pytest.fixture
+def conversion():
+    """«تحويل أعيرة الموردين», a weight account, mapped (REPORTS ت3-2د)."""
+    account = Account(account_number='79903', name='تحويل أعيرة الموردين', type='Liability', tracks_weight=True)
+    db.session.add(account)
+    db.session.flush()
+    db.session.add(AccountingMapping(operation_type=SETTLEMENT_OPERATION_TYPE,
+                                     account_type=ACCOUNT_TYPE_KARAT_CONVERSION, account_id=account.id,
+                                     is_active=True))
+    db.session.flush()
+    return account
 
 
 @pytest.fixture
@@ -350,9 +364,10 @@ def test_invariant_catches_inverted_weight_direction(
 
 
 def test_law0_identity_holds_for_weight_on_every_settled_karat(
-    service, supplier, policy, settlement_accounts
+    service, supplier, policy, settlement_accounts, conversion
 ):
-    """after == before + signed_effect, in grams, per karat."""
+    """after == before + signed_effect, in grams, per karat -- the 18k
+    converted to the main karat, the net written off there (ت3-2د)."""
     _give_residual(supplier, karat_field='debit_21k', karat_amount=0.030)
     _give_residual(supplier, karat_field='credit_18k', karat_amount=0.020)
 
@@ -426,13 +441,14 @@ def test_main_karat_equivalent_follows_configured_setting(service):
     assert service._main_karat_equivalent(raw) == pytest.approx(0.030 * 21 / 24, abs=1e-6)
 
 
-def test_opposite_direction_residuals_do_not_cancel_each_other(service):
-    """Magnitudes accumulate: an offsetting pair must not net down to nothing."""
+def test_opposite_direction_residuals_net_down_to_what_is_written_off(service):
+    """REPORTS ت3-2د (the owner, 4 Nov 2026): an offsetting pair is converted
+    to the main karat -- no value, no expense -- and only the net is written
+    off, so the net is the measure. (Before, each karat was written off as it
+    stood, and the magnitudes were summed so the pair could not slip past.)"""
     equivalent = service._main_karat_equivalent({'18k': 0.030, '24k': -0.030})
 
-    signed_would_be = abs(0.030 * 18 / 21 - 0.030 * 24 / 21)
-    assert equivalent > signed_would_be
-    assert equivalent == pytest.approx(0.030 * 18 / 21 + 0.030 * 24 / 21, abs=1e-6)
+    assert equivalent == pytest.approx(abs(0.030 * 18 / 21 - 0.030 * 24 / 21), abs=1e-6)
 
 
 def test_tolerance_is_compared_against_the_main_karat_equivalent(
@@ -1203,10 +1219,12 @@ def test_main_karat_does_not_change_the_posting_account_or_karat_column(
     assert service._main_karat_equivalent({'18k': 0.050}) != pytest.approx(0.050)
 
 
-def test_multiple_karats_each_settle_to_their_own_column(
-    service, supplier, policy, settlement_accounts
+def test_multiple_karats_convert_to_the_main_karat_and_the_net_is_written_off(
+    service, supplier, policy, settlement_accounts, conversion
 ):
-    """Karats are settled independently and never merged into one amount."""
+    """REPORTS ت3-2د: the karats other than the main one move to it at their
+    purity's equivalent against the conversion account; one pair writes off
+    the net, in the main karat. (Before: each karat in its own column.)"""
     policy.tolerance_weight = 0.100
     db.session.flush()
 
@@ -1219,43 +1237,27 @@ def test_multiple_karats_each_settle_to_their_own_column(
     )
 
     balance = _balance(supplier)
-    assert round(balance['21k'], 3) == 0.000
-    assert round(balance['18k'], 3) == 0.000
-    assert round(balance['24k'], 3) == 0.000
-    assert round(balance['22k'], 3) == 0.000
+    for karat in ('18k', '21k', '22k', '24k'):
+        assert abs(balance[karat]) <= 0.001, (karat, balance[karat])
 
-    accounts = ensure_supplier_accounts(supplier)
     je_lines = JournalEntryLine.query.filter_by(journal_entry_id=sad.journal_entry_id).all()
-    supplier_lines = [l for l in je_lines if l.account_id == accounts.memo.id]
-    assert len(supplier_lines) == 3
+    held = [l for l in je_lines if l.account_id == conversion.id]
+    # 18k -0.020 is -0.017 of 21k; 24k +0.010 is +0.011 of 21k
+    assert round(sum(l.credit_18k - l.debit_18k for l in held), 3) == 0.020
+    assert round(sum(l.debit_24k - l.credit_24k for l in held), 3) == 0.010
+    assert round(sum(l.debit_21k - l.credit_21k for l in held), 3) == round(0.017 - 0.011, 3)
 
-    # Opposite signs are preserved per karat — 18k was the other direction.
-    assert round(sum(l.credit_21k for l in supplier_lines), 3) == 0.030
-    assert round(sum(l.debit_18k for l in supplier_lines), 3) == 0.020
-    assert round(sum(l.credit_24k for l in supplier_lines), 3) == 0.010
-
-    # 18k used the income side while 21k/24k used the expense side.
-    assert any(
-        l.account_id == settlement_accounts['weight_income_memo'].id for l in je_lines
-    )
-    assert any(
-        l.account_id == settlement_accounts['weight_expense_memo'].id for l in je_lines
-    )
-
-    # No line carries a main-karat total: the equivalent exists only as a measure.
-    # 0.020*18/21 + 0.030 + 0.010*24/21 — not the 0.060 a raw sum would give.
-    equivalent = service._main_karat_equivalent(sad.posted_amount_weight_by_karat)
-    assert equivalent == pytest.approx(0.0585714, abs=1e-6)
-    assert equivalent != pytest.approx(0.060)
-    assert not [
-        l for l in supplier_lines
-        if round(l.debit_21k, 6) == round(equivalent, 6)
-        or round(l.credit_21k, 6) == round(equivalent, 6)
-    ]
+    # the net, 0.030 - 0.017 + 0.011, written off once, on the expense side, in 21k
+    written = [l for l in je_lines if l.account_id in (settlement_accounts['weight_expense_memo'].id,
+                                                       settlement_accounts['weight_income_memo'].id)]
+    assert [(l.account_id, round(l.debit_21k, 3)) for l in written] == [
+        (settlement_accounts['weight_expense_memo'].id, 0.024)]
+    assert service._main_karat_equivalent(sad.posted_amount_weight_by_karat) == pytest.approx(
+        0.030 - 0.020 * 18 / 21 + 0.010 * 24 / 21, abs=1e-6)
 
 
 def test_multi_karat_reversal_reopens_each_original_karat(
-    service, supplier, policy, settlement_accounts
+    service, supplier, policy, settlement_accounts, conversion
 ):
     """Reversal mirrors the original karats, not their main-karat equivalent."""
     policy.tolerance_weight = 0.100

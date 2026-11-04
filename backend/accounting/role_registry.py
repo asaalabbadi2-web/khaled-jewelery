@@ -147,6 +147,9 @@ ROLES: dict[str, Role] = dict((
        operations=('تسوية_مورد',)),
     _r('supplier_weight_settlement_income', 'ربح تسوية مورد (وزن)', G_SUPP, 'فرق التسوية الوزني للمحل.',
        operations=('تسوية_مورد',)),
+    _r('supplier_karat_conversion', 'تحويل أعيرة الموردين', G_SUPP,
+       'تنقل التسوية فيه جرامات المورد من عيار إلى العيار الرئيسي بمعادل نقائها، بلا قيمة ولا مصروف؛ '
+       'صفرٌ دائمًا بمعادل العيار الرئيسي (ADR-083 ت3-2د).', kind=WEIGHT, operations=('تسوية_مورد',)),
     # ── الأطراف ──
     _r('customer_accounts_parent', 'أبو حسابات العملاء', G_PARTY,
        'يُنشأ تحته حساب العميل الجديد بلا فئة؛ تحت توأمه توأمُ العميل.', needs_twin=True),

@@ -14,10 +14,12 @@ linked to an invoice (168 approved supplier vouchers carry no reference_type at
 all), and ADR-028 forbids inferring that link. So the status can never be
 corrected automatically, and a gate reading it can never be satisfied.
 
-THE CONTRACT THIS FILE PINS:
+THE CONTRACT THIS FILE PINS (REPORTS ت3-2د, the owner 4 Nov 2026):
 
-    unpaid/partial AND invoice-level tracked   -> block
-    unpaid/partial AND NOT tracked             -> ignore (status is unknowable)
+    open on the supplier's running account beyond the tolerance  -> block
+    anything else (paid there, or not on the ledger at all)      -> ignore
+
+    Before that: unpaid/partial AND invoice-level tracked -> block.
 
 THE RED WITNESSES are the four `no_longer_blocks` tests.
 
@@ -210,59 +212,64 @@ class TestUntrackedInvoicesNoLongerBlock:
 # What the gate still refuses — the half that must not move
 # ======================================================================
 
-class TestTrackedInvoicesStillBlock:
+class TestTheRunningAccountDecides:
+    """REPORTS ت3-2د (the owner, 4 Nov 2026): the gate reads the supplier's
+    running account -- which purchases its payments closed, read from the
+    ledger -- not Invoice.status, which counts explicit payments only. A
+    purchase open there beyond the operation's tolerance blocks; one the
+    running account has paid, or the ledger does not hold, does not.
+
+    (Before: a TRACKED invoice blocked by its stored status -- the class this
+    replaced, TestTrackedInvoicesStillBlock.)"""
 
     @pytest.fixture(autouse=True)
     def _bind(self, supplier, policy):
         self.supplier, self.policy = supplier, policy
 
-    def test_a_tracked_unpaid_invoice_still_blocks(self):
-        """Above the boundary the status IS maintained, so it means what it says:
-        a real open obligation, and the residual is that invoice — not a
-        difference to write off."""
+    def _owe(self, invoice, cash):
+        """The purchase's own entry: *cash* owed to the supplier."""
+        accounts = ensure_supplier_accounts(self.supplier)
+        je = JournalEntry(entry_number=f'JE-GATE-{_uid()}', date=NOW - timedelta(days=10),
+                          description='شراء', entry_type='عادي', is_posted=True, is_draft=False,
+                          created_by='test', reference_type='invoice', reference_id=invoice.id)
+        db.session.add(je)
+        db.session.flush()
+        db.session.add(JournalEntryLine(journal_entry_id=je.id, account_id=accounts.financial.id,
+                                        supplier_id=self.supplier.id, cash_credit=cash, description='شراء'))
+        db.session.flush()
+
+    def test_a_purchase_open_on_the_running_account_blocks(self):
         s, p = self.supplier, self.policy
-        _give_residual(s, cash=3.00)
-        _invoice(s, status='unpaid', tracked=True)
+        self._owe(_invoice(s, status='unpaid', tracked=True), 1000.0)
 
         gate = _checks(s, p)[GATE]
         assert not gate.passed
         assert '1' in gate.detail, 'the refusal says how many invoices caused it'
 
-    def test_a_tracked_partially_paid_invoice_still_blocks(self):
+    def test_stored_unpaid_but_paid_on_the_running_account_does_not_block(self):
+        """The 94 of the 2 Nov copy: a voucher paid the account, not the invoice."""
         s, p = self.supplier, self.policy
-        _give_residual(s, cash=3.00)
-        _invoice(s, status='partially_paid', tracked=True)
-
-        assert not _gate_passed(s, p)
-
-    def test_a_tracked_paid_invoice_does_not_block(self):
-        s, p = self.supplier, self.policy
-        _give_residual(s, cash=3.00)
-        _invoice(s, status='paid', tracked=True)
+        self._owe(_invoice(s, status='unpaid', tracked=True), 100.0)
+        _give_residual(s, cash=97.00)                      # paid to the account: 3.00 left
 
         assert _gate_passed(s, p)
 
-    def test_one_tracked_invoice_blocks_even_among_many_untracked(self):
-        """The relaxation is per-invoice, not per-supplier. A single enforced
-        invoice still decides."""
+    def test_a_purchase_the_ledger_does_not_hold_does_not_block(self):
         s, p = self.supplier, self.policy
         _give_residual(s, cash=3.00)
-        for _ in range(4):
-            _invoice(s, status='unpaid', tracked=False)
         _invoice(s, status='unpaid', tracked=True)
 
-        assert not _gate_passed(s, p)
+        assert _gate_passed(s, p)
 
-    def test_only_tracked_invoices_are_counted_in_the_refusal(self):
+    def test_only_the_open_ones_are_counted_in_the_refusal(self):
         s, p = self.supplier, self.policy
-        _give_residual(s, cash=3.00)
         for _ in range(6):
             _invoice(s, status='unpaid', tracked=False)
         for _ in range(2):
-            _invoice(s, status='unpaid', tracked=True)
+            self._owe(_invoice(s, status='paid', tracked=True), 500.0)
 
         detail = _checks(s, p)[GATE].detail
-        assert '2' in detail, f'must count the 2 tracked, not the 8 total: {detail!r}'
+        assert '2' in detail, f'must count the 2 open, not the 8 stored unpaid: {detail!r}'
         assert '8' not in detail
 
 
