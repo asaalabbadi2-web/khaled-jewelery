@@ -1652,11 +1652,13 @@ def _post_payroll_accrual_internal(payroll_entry, created_by='system'):
         return False, str(missing), None
 
     # ── إنشاء القيد ───────────────────────────────────────────────────
+    # dated its month's last day, as a run's (REPORTS ت6-2أ; the owner, 4 Nov 2026)
+    from services.payroll_run import accrual_date
     now = datetime.now()
     description = f"إثبات استحقاق راتب {employee.name} - {payroll_entry.month}/{payroll_entry.year}"
 
     journal_entry = JournalEntry(
-        date=now,
+        date=accrual_date(payroll_entry),
         description=description,
         entry_type='استحقاق رواتب',
         reference_type='payroll_accrual',

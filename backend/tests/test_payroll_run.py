@@ -357,3 +357,44 @@ def test_the_salary_vouchers_saved_without_their_amount_get_it_from_their_lines(
     assert (written.amount_cash, written.employee_id) == (8100.0, staff['full'])
     assert AuditLog.query.filter_by(action=ACTION).count() >= 1
     assert write_amounts(by='t')['written'] == [], 'once'
+
+
+# ── the accrual's date: its month's last day (REPORTS ت6-2أ; the owner, 4 Nov 2026) ──
+
+def test_a_run_s_accrual_is_dated_its_month_s_last_day(auth_headers, staff):
+    """October's run was approved on 2 November and its accrual dated so: the
+    month's salaries fell in the next month's income statement. «آخر يوم في
+    شهره»: whatever the day it is approved."""
+    run = _run(auth_headers)[1]
+    _call('post', f"/api/payroll/runs/{run['id']}/approve", auth_headers)
+    [accrual] = _accruals(run['id'])
+    assert accrual.date.date() == datetime(YEAR, MONTH, 30).date(), accrual.date
+
+
+def test_a_cancelled_run_s_reversal_is_dated_with_its_accrual(auth_headers, staff):
+    """A cancelled run leaves its month as it found it."""
+    run = _run(auth_headers)[1]
+    _call('post', f"/api/payroll/runs/{run['id']}/approve", auth_headers)
+    _call('post', f"/api/payroll/runs/{run['id']}/cancel", auth_headers)
+    [accrual] = _accruals(run['id'])
+    [reversal] = _accruals(run['id'], 'payroll_run_accrual_reversal')
+    assert reversal.date == accrual.date
+
+
+def test_an_accrual_dated_its_approval_is_put_on_its_month_s_last_day(auth_headers, staff):
+    """services/repair/payroll_accrual_dates: the runs approved before the law
+    (October's on the 2 Nov copy, dated 2 November) -- dry by default, an audit row."""
+    from models import AuditLog
+    from services.repair.payroll_accrual_dates import redate_accruals
+    run = _run(auth_headers)[1]
+    _call('post', f"/api/payroll/runs/{run['id']}/approve", auth_headers)
+    [accrual] = _accruals(run['id'])
+    accrual.date = datetime(YEAR, MONTH + 1, 2, 5, 16)                 # as before the law
+    db.session.flush()
+    plan = redate_accruals(by='t')
+    assert [r['run_id'] for r in plan['redated']] == [run['id']]
+    assert accrual.date.month == MONTH + 1, 'a dry run writes nothing'
+    redate_accruals(by='t', dry_run=False)
+    assert accrual.date.date() == datetime(YEAR, MONTH, 30).date()
+    assert AuditLog.query.filter_by(action='repair_payroll_accrual_dates').count() >= 1
+    assert redate_accruals(by='t')['redated'] == [], 'once'

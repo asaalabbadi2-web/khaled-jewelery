@@ -564,7 +564,7 @@ def _write_accrual(run, lines, *, by: str, now) -> JournalEntry:
     if round(sum(a for _, a, _ in debits) - sum(a for _, a, _ in credits), 2) != 0:
         raise PayrollRefused('لم يتوازن قيد استحقاق المسير')
     description = f'استحقاق رواتب {run.month}/{run.year} (المسير #{run.id})'
-    accrual = JournalEntry(date=now, description=description, entry_type='استحقاق رواتب',
+    accrual = JournalEntry(date=accrual_date(run), description=description, entry_type='استحقاق رواتب',
                            reference_type=RUN_ACCRUAL, reference_id=int(run.id),
                            reference_number=f'{run.year}-{run.month:02d}', created_by=by,
                            is_posted=True, posted_at=now, posted_by=by)
@@ -581,6 +581,15 @@ def _write_accrual(run, lines, *, by: str, now) -> JournalEntry:
         raise PayrollRefused('لم يتوازن قيد استحقاق المسير')
     _recalculate_account_balances_for_accounts({account_id for account_id, _, _ in debits + credits})
     return accrual
+
+
+def accrual_date(run):
+    """An accrual's date: its run's -- or a salary entry's -- month's last day, whatever the day it is
+    approved (REPORTS ت6-2أ; the owner, 4 Nov 2026: «آخر يوم في شهره») -- so a
+    month's salaries are its income statement's, not the next month's."""
+    import calendar
+    from datetime import datetime
+    return datetime(int(run.year), int(run.month), calendar.monthrange(int(run.year), int(run.month))[1], 23, 59)
 
 
 def accrual_of(run):
@@ -612,9 +621,10 @@ def cancel(run, *, by: str, now) -> None:
         accrual = accrual_of(run)
         if accrual is not None:
             from services.payroll_laws import reverse_entry
+            # dated with the accrual: a cancelled run leaves its month as it found it
             reverse_entry(accrual, reference_type=RUN_REVERSAL, reference_id=int(run.id),
                           description=f'عكس استحقاق رواتب {run.month}/{run.year} (إلغاء المسير #{run.id})',
-                          by=by, now=now)
+                          by=by, now=now, date=accrual.date)
         for line in lines:
             line.status = 'cancelled'
     run.status = 'cancelled'

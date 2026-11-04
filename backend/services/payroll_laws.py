@@ -134,7 +134,7 @@ def cancel(entry, *, by: str, now) -> None:
     if accrual is not None:
         reverse_entry(accrual, reference_type=REVERSAL, reference_id=int(entry.id),
                       description=f'عكس استحقاق راتب {entry.month}/{entry.year} (إلغاء السجل #{entry.id})',
-                      by=by, now=now)
+                      by=by, now=now, date=accrual.date)
     entry.status = 'cancelled'
 
 
@@ -146,11 +146,12 @@ def refuse_delete(entry) -> None:
 
 
 def reverse_entry(accrual, *, reference_type: str, reference_id: int, description: str, by: str,
-                  now) -> JournalEntry:
-    """An accrual's lines, debit for credit, posted -- an entry's or a run's."""
+                  now, date=None) -> JournalEntry:
+    """An accrual's lines, debit for credit, posted -- an entry's or a run's;
+    dated *date* (now if none), posted now."""
     from dual_system_helpers import create_dual_journal_entry, verify_dual_balance
     from accounting.balances import _recalculate_account_balances_for_accounts
-    reversal = JournalEntry(date=now, description=description, entry_type='استحقاق رواتب',
+    reversal = JournalEntry(date=date or now, description=description, entry_type='استحقاق رواتب',
                             reference_type=reference_type, reference_id=reference_id,
                             reference_number=accrual.reference_number, created_by=by,
                             is_posted=True, posted_at=now, posted_by=by)

@@ -183,3 +183,30 @@ def test_a_saved_stray_month_is_removed_by_its_tool_and_nothing_else(auth_header
     remove_stray_periods(by='المالك', dry_run=False)
     assert db.session.get(Payroll, stray.id) is None
     assert db.session.get(Payroll, good.id) is not None
+
+
+def test_an_entry_s_accrual_and_its_reversal_are_dated_its_month_s_last_day(auth_headers):
+    """REPORTS ت6-2أ (the owner, 4 Nov 2026: «آخر يوم في شهره»): on the 2 Nov
+    copy June's salaries were accrued on 5 July, July's on 5 August, August's
+    on 2 September, September's on 4 October -- each month's income statement
+    carried the month before's."""
+    from datetime import date
+    entry = _payroll(auth_headers, _employee(auth_headers), month=6, status='approved')[1]['id']
+    accrual = JournalEntry.query.filter_by(reference_type='payroll_accrual', reference_id=entry).one()
+    assert accrual.date.date() == date(2041, 6, 30), accrual.date
+    _call('put', f'/api/payroll/{entry}', auth_headers, {'status': 'cancelled'})
+    reversal = JournalEntry.query.filter_by(reference_type='payroll_accrual_reversal', reference_id=entry).one()
+    assert reversal.date == accrual.date
+
+
+def test_an_entry_s_accrual_dated_its_approval_is_put_on_its_month_s_last_day(auth_headers):
+    """services/repair/payroll_accrual_dates reaches the salaries accrued one by one too."""
+    from datetime import date, datetime
+    from services.repair.payroll_accrual_dates import redate_accruals
+    entry = _payroll(auth_headers, _employee(auth_headers), month=7, status='approved')[1]['id']
+    accrual = JournalEntry.query.filter_by(reference_type='payroll_accrual', reference_id=entry).one()
+    accrual.date = datetime(2041, 8, 5, 9, 0)                           # as before the law
+    db.session.flush()
+    assert any(r.get('payroll_id') == entry for r in redate_accruals(by='t')['redated'])
+    redate_accruals(by='t', dry_run=False)
+    assert accrual.date.date() == date(2041, 7, 31)
