@@ -349,56 +349,6 @@ def get_next_customer_code():
         'remaining_capacity': stats['remaining_capacity']
     })
 
-@customers_bp.route('/customers/gold-balances', methods=['GET'])
-@require_permission('reports.customers')
-def get_customers_gold_balances():
-    """Official customer gold balances (memo ledger).
-
-    Returns balances from the customer's linked memo account (Account.memo_account_id).
-    Query params:
-      - ensure_accounts=1: best-effort auto-create missing accounts.
-    """
-
-    ensure_flag = (request.args.get('ensure_accounts') or '').strip().lower()
-    ensure_accounts = ensure_flag in ('1', 'true', 'yes', 'y', 'on')
-
-    customers = Customer.query.order_by(Customer.name.asc()).all()
-    results = []
-
-    for c in customers:
-        financial = Account.query.get(c.account_id) if c.account_id else None
-
-        if ensure_accounts and (not financial or not getattr(financial, 'memo_account_id', None)):
-            try:
-                party = ensure_customer_accounts(c)
-                financial = party.financial
-            except Exception:
-                pass
-
-        memo = None
-        if financial and getattr(financial, 'memo_account_id', None):
-            memo = Account.query.get(financial.memo_account_id)
-
-        balances = {
-            '18k': round(float(getattr(memo, 'balance_18k', 0.0) or 0.0), 3) if memo else 0.0,
-            '21k': round(float(getattr(memo, 'balance_21k', 0.0) or 0.0), 3) if memo else 0.0,
-            '22k': round(float(getattr(memo, 'balance_22k', 0.0) or 0.0), 3) if memo else 0.0,
-            '24k': round(float(getattr(memo, 'balance_24k', 0.0) or 0.0), 3) if memo else 0.0,
-        }
-
-        results.append({
-            'customer_id': c.id,
-            'customer_code': c.customer_code,
-            'customer_name': c.name,
-            'financial_account_id': financial.id if financial else None,
-            'financial_account_number': financial.account_number if financial else None,
-            'memo_account_id': memo.id if memo else None,
-            'memo_account_number': memo.account_number if memo else None,
-            'balances': balances,
-        })
-
-    return jsonify(results)
-
 @customers_bp.route('/customers', methods=['GET'])
 @require_permission('customers.view')
 def get_customers():

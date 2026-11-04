@@ -34,7 +34,6 @@
   "lib/screens/reports/bonus_payables_report_screen.dart": 1,
   "lib/screens/reports/category_weight_audit_report_screen.dart": 3,
   "lib/screens/reports/customer_balances_aging_report_screen.dart": 1,
-  "lib/screens/reports/customer_gold_balances_report_screen.dart": 1,
   "lib/screens/reports/dual_system_reconciliation_screen.dart": 1,
   "lib/screens/reports/employee_scrap_ledger_report_screen.dart": 1,
   "lib/screens/reports/gold_position_report_screen.dart": 1,

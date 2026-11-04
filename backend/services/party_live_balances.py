@@ -355,8 +355,9 @@ def all_customer_own_account_ids() -> List[int]:
     return [int(a) for (a,) in db.session.query(Customer.account_id).filter(Customer.account_id.isnot(None))]
 
 
-def compute_live_customer_balances(customers: Iterable) -> Dict[int, Dict[str, float]]:
-    """customer_id -> {'cash','18k','21k','22k','24k'} from the posted ledger.
+def compute_live_customer_balances(customers: Iterable, before=None) -> Dict[int, Dict[str, float]]:
+    """customer_id -> {'cash','18k','21k','22k','24k'} from the posted ledger;
+    *before* (a datetime), the lines dated earlier only.
 
     Cash and the gold columns of the same lines -- the financial accounts. The
     weight memo twin (712…) is not read: it accumulates the dual system's
@@ -378,7 +379,8 @@ def compute_live_customer_balances(customers: Iterable) -> Dict[int, Dict[str, f
             .join(Account, Account.id == JournalEntryLine.account_id)
             .filter(JournalEntry.is_posted == True, JournalEntry.is_deleted == False,
                     JournalEntryLine.is_deleted == False,
-                    customer_line_clause(int(c.id), getattr(c, 'account_id', None), own_all))
+                    customer_line_clause(int(c.id), getattr(c, 'account_id', None), own_all),
+                    *((JournalEntry.date < before,) if before is not None else ()))
             .one()
         )
         out[int(c.id)] = {k: round(float(v or 0.0), 6) for k, v in zip(('cash', '18k', '21k', '22k', '24k'), row)}

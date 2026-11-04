@@ -1687,6 +1687,19 @@ def get_balance_sheet():
     return jsonify(balance_sheet(as_of=as_of, now=datetime.now()).to_dict())
 
 
+@reports_bp.route('/reports/customer-balances', methods=['GET'])
+@require_permission('reports.customers')
+def get_customer_balances():
+    """Customers' balances on a day (as_of, YYYY-MM-DD, today if none), in riyals and
+    grams, from the ledger (services/reports/customer_balances.py, REPORTS ت5-1)."""
+    from services.reports.customer_balances import customer_balances
+    try:
+        as_of = _report_date('as_of', datetime.now().date())
+    except ValueError:
+        return jsonify({'error': 'invalid_date', 'message': 'as_of بصيغة YYYY-MM-DD'}), 400
+    return jsonify(customer_balances(as_of=as_of, now=datetime.now()).to_dict())
+
+
 @reports_bp.route('/reports/supplier-aging', methods=['GET'])
 @require_permission('reports.purchases')
 def get_supplier_aging():

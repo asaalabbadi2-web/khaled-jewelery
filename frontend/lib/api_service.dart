@@ -565,25 +565,19 @@ class ApiService {
     }
   }
 
-  Future<List<Map<String, dynamic>>> getCustomersGoldBalances({
-    bool ensureAccounts = false,
+  /// Customers' balances on a day in the reports' contract (REPORTS ت5-1):
+  /// riyals and grams from the ledger, never the weight memo.
+  Future<Map<String, dynamic>> getCustomerBalances({
+    required String asOf,
   }) async {
-    final uri = Uri.parse('$_baseUrl/customers/gold-balances').replace(
-      queryParameters: ensureAccounts ? {'ensure_accounts': '1'} : null,
-    );
+    final uri = Uri.parse(
+      '$_baseUrl/reports/customer-balances',
+    ).replace(queryParameters: {'as_of': asOf});
     final response = await _authedGet(uri);
     if (response.statusCode == 200) {
-      final decoded = json.decode(utf8.decode(response.bodyBytes));
-      if (decoded is List) {
-        return decoded
-            .whereType<Map>()
-            .map((e) => Map<String, dynamic>.from(e))
-            .toList();
-      }
-      return const [];
-    } else {
-      throw _apiError(response);
+      return json.decode(utf8.decode(response.bodyBytes));
     }
+    throw _apiError(response);
   }
 
   Future<Map<String, dynamic>> addCustomer(

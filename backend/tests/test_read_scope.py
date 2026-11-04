@@ -107,7 +107,7 @@ def test_the_bell_counts_for_those_who_approve(app):
 
 
 @pytest.mark.parametrize('path', ['/api/accounts/balances', '/api/accounts', '/api/suppliers/1/ledger',
-                                  '/api/customers/gold-balances', '/api/bonuses', '/api/vouchers/stats'])
+                                  '/api/reports/customer-balances', '/api/bonuses', '/api/vouchers/stats'])
 def test_the_financial_reads_are_not_the_sellers(app, path):
     resp = _get(path, _headers('employee', _employee('أنا')))
     assert resp.status_code == 403, f'{path}: {resp.status_code}'

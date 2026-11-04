@@ -718,7 +718,7 @@ def _generate_employee_code():
 
 # Customers domain → routes/customers.py
 # (DELETE /customers/<id>, GET /customers/<id>/statement,
-#  GET /customers/next-code, GET /customers/gold-balances,
+#  GET /customers/next-code,
 #  GET /customers, POST /customers, PUT /customers/<id>)
 
 # Suppliers domain → routes/suppliers.py
