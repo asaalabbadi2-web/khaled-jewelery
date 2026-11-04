@@ -2611,6 +2611,22 @@ class ApiService {
     throw _apiError(response);
   }
 
+  /// The suppliers' aging on a day in the reports' contract (REPORTS ت3-2ب):
+  /// [dimension] `cash` or `gold`.
+  Future<Map<String, dynamic>> getSupplierAging({
+    required String asOf,
+    required String dimension,
+  }) async {
+    final uri = Uri.parse(
+      '$_baseUrl/reports/supplier-aging',
+    ).replace(queryParameters: {'as_of': asOf, 'dimension': dimension});
+    final response = await _authedGet(uri);
+    if (response.statusCode == 200) {
+      return json.decode(utf8.decode(response.bodyBytes));
+    }
+    throw _apiError(response);
+  }
+
   /// Sales analysis in the reports' contract (REPORTS ت1-2): by employee,
   /// customer, day or month; compared with the period before.
   Future<Map<String, dynamic>> getSalesAnalysis({

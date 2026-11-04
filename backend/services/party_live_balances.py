@@ -296,15 +296,18 @@ def compute_live_supplier_balances(
     return balances_by_supplier
 
 
-def supplier_ledger_lines(supplier) -> List[dict]:
+def supplier_ledger_lines(supplier, before=None) -> List[dict]:
     """A supplier's ledger lines one by one, by the same rule as its balance
     (_supplier_scope): {'entry_id', 'date', 'reference_type', 'reference_id',
     'cash', '18k', '21k', '22k', '24k'} -- each debit less credit, as the
-    balance reads them -- by date, then entry. Their sum is
-    compute_live_supplier_balances' (tests/test_supplier_running_account.py)."""
+    balance reads them -- by date, then entry; *before* (a datetime), those
+    dated earlier only. Their sum is compute_live_supplier_balances'
+    (tests/test_supplier_running_account.py)."""
     supplier_ids, allowed_account_to_supplier, _, account_filter, jl_filters = _supplier_scope([supplier])
     if not supplier_ids:
         return []
+    if before is not None:
+        jl_filters = [*jl_filters, JournalEntry.date < before]
     sid = supplier_ids[0]
     own = [a for a, owner in allowed_account_to_supplier.items() if owner == sid]
     columns = (JournalEntryLine.journal_entry_id, JournalEntry.date, JournalEntry.reference_type,

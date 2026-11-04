@@ -162,11 +162,15 @@ def _entries(lines):
     return list(entries.values())
 
 
-def running_account(supplier) -> dict:
-    """{'gold': {...}, 'cash': {...}, 'invoices': [...]} -- see the module."""
+def running_account(supplier, as_of=None) -> dict:
+    """{'gold': {...}, 'cash': {...}, 'invoices': [...]} -- see the module;
+    *as_of* (a date), to its end -- a day counts whole."""
+    import datetime as dt
+
     from models import Invoice, OfficeReservation, Voucher, VoucherInvoiceGoldAttribution, db
     from services.party_live_balances import supplier_ledger_lines
-    entries = _entries(supplier_ledger_lines(supplier))
+    before = dt.datetime.combine(as_of + dt.timedelta(days=1), dt.time.min) if as_of else None
+    entries = _entries(supplier_ledger_lines(supplier, before))
     # a reservation's execution is its purchase's posting: the reservation names the invoice
     reserved = {e['reference_id'] for e in entries if e['reference_type'] == 'office_reservation'}
     purchase_of = dict(db.session.query(OfficeReservation.id, OfficeReservation.purchase_invoice_id)

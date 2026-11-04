@@ -2799,6 +2799,23 @@ def get_balance_sheet():
     return jsonify(balance_sheet(as_of=as_of, now=datetime.now()).to_dict())
 
 
+@reports_bp.route('/reports/supplier-aging', methods=['GET'])
+@require_permission('reports.purchases')
+def get_supplier_aging():
+    """The suppliers' aging on a day (as_of, YYYY-MM-DD, today if none), in riyals
+    or grams (dimension: cash | gold), in the reports' contract
+    (services/reports/supplier_aging.py, REPORTS ت3-2ب)."""
+    from services.reports.supplier_aging import DIMENSIONS, supplier_aging
+    try:
+        as_of = _report_date('as_of', datetime.now().date())
+    except ValueError:
+        return jsonify({'error': 'invalid_date', 'message': 'as_of بصيغة YYYY-MM-DD'}), 400
+    dimension = request.args.get('dimension', 'cash')
+    if dimension not in DIMENSIONS:
+        return jsonify({'error': 'invalid_dimension', 'message': f'dimension: {" | ".join(DIMENSIONS)}'}), 400
+    return jsonify(supplier_aging(as_of=as_of, dimension=dimension, now=datetime.now()).to_dict())
+
+
 @reports_bp.route('/reports/sales-analysis', methods=['GET'])
 @require_permission('reports.financial')
 def get_sales_analysis():

@@ -22,6 +22,7 @@ import 'sales_by_karat_report_screen.dart';
 import 'sales_vs_purchases_trend_report_screen.dart';
 import 'sales_overview_report_screen.dart';
 import 'customer_balances_aging_report_screen.dart';
+import 'supplier_aging_report_screen.dart';
 import 'gold_price_history_report_screen.dart';
 import 'gold_position_report_screen.dart';
 import 'gold_weight_trial_balance_report_screen.dart';
@@ -63,6 +64,8 @@ Widget? reportDestination(String route, ApiService api, bool isArabic) {
       return CashFlowReportScreen(api: api);
     case 'balance_sheet':
       return BalanceSheetReportScreen(api: api);
+    case 'supplier_aging':
+      return SupplierAgingReportScreen(api: api);
     case 'sales_analysis':
       return SalesAnalysisReportScreen(api: api);
     case 'sales_overview':

@@ -142,6 +142,19 @@ class ReportCatalog {
             type: ReportType.accounting,
             requiresFilters: true,
           ),
+          ReportDescriptor(
+            id: 'supplier_aging',
+            icon: Icons.hourglass_bottom,
+            titleAr: 'أعمار ديون الموردين',
+            titleEn: 'Supplier Aging',
+            descriptionAr:
+                'ما على المحل لكل مورد بعمر كل بند، بالريال أو بالجرام، من حسابه الجاري ومطابقًا لدفتره.',
+            descriptionEn:
+                'What the shop owes each supplier by age, in riyals or grams, from its running account.',
+            route: 'supplier_aging',
+            type: ReportType.accounting,
+            keywords: ['مورد', 'أعمار', 'ذمم', 'دائنون'],
+          ),
         ],
       ),
       ReportCategory(
