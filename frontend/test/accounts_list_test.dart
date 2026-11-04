@@ -414,6 +414,7 @@ void main() {
     expect(add.hitTestable(), findsOneWidget);
     await tester.tap(find.byKey(const Key('account-menu-11')));
     await tester.pumpAndSettle();
-    expect(find.text('دفتر الأستاذ'), findsOneWidget, reason: 'the menu works under the pointer');
+    // the ledger went (REPORTS ت3-1): one statement; a menu-only item says the menu opened
+    expect(find.text('نسخ رقم الحساب'), findsOneWidget, reason: 'the menu works under the pointer');
   });
 }

@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 import '../providers/settings_provider.dart';
 
 import '../api_service.dart';
-import 'account_ledger_screen.dart';
 import 'account_statement_screen.dart';
 import '../utils/currency_utils.dart' as cu;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -451,7 +450,6 @@ class _AccountsScreenState extends State<AccountsScreen> {
     Map<String, dynamic> account,
   ) => [
     const PopupMenuItem(value: 'statement', child: Text('كشف الحساب')),
-    const PopupMenuItem(value: 'ledger', child: Text('دفتر الأستاذ')),
     const PopupMenuItem(value: 'copy', child: Text('نسخ رقم الحساب')),
     if (_mode != _AccountsViewMode.tree ||
         _searchController.text.trim().isNotEmpty)
@@ -470,8 +468,6 @@ class _AccountsScreenState extends State<AccountsScreen> {
   void _onAccountMenu(String value, Map<String, dynamic> account) {
     if (value == 'statement') {
       _openStatement(account);
-    } else if (value == 'ledger') {
-      _openLedger(account);
     } else if (value == 'copy') {
       _copyAccountNumber(account);
     } else if (value == 'locate') {
@@ -564,18 +560,6 @@ class _AccountsScreenState extends State<AccountsScreen> {
       context,
       MaterialPageRoute(
         builder: (context) => AccountStatementScreen(
-          accountId: _asInt(account['id']) ?? 0,
-          accountName: (account['name'] ?? 'N/A').toString(),
-        ),
-      ),
-    );
-  }
-
-  void _openLedger(Map<String, dynamic> account) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => AccountLedgerScreen(
           accountId: _asInt(account['id']) ?? 0,
           accountName: (account['name'] ?? 'N/A').toString(),
         ),
@@ -1093,24 +1077,14 @@ class _AccountsScreenState extends State<AccountsScreen> {
                 ],
               ),
               const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: () => _openStatement(account),
-                      icon: const Icon(Icons.assessment_outlined, size: 18),
-                      label: const Text('كشف الحساب'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => _openLedger(account),
-                      icon: const Icon(Icons.menu_book_outlined, size: 18),
-                      label: const Text('دفتر الأستاذ'),
-                    ),
-                  ),
-                ],
+              // one statement for every account (REPORTS ت3-1, ADR-083)
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () => _openStatement(account),
+                  icon: const Icon(Icons.assessment_outlined, size: 18),
+                  label: const Text('كشف الحساب'),
+                ),
               ),
             ],
           ),

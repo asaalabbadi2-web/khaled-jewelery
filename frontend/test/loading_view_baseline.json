@@ -1,6 +1,5 @@
 {
   "lib/main.dart": 1,
-  "lib/screens/account_ledger_screen.dart": 1,
   "lib/screens/account_statement_screen.dart": 1,
   "lib/screens/accounting_mapping_screen_enhanced.dart": 1,
   "lib/screens/accounts_screen.dart": 1,
@@ -57,7 +56,6 @@
   "lib/screens/security_sessions_screen.dart": 1,
   "lib/screens/settings_screen_enhanced.dart": 1,
   "lib/screens/shift_closing_screen.dart": 2,
-  "lib/screens/supplier_ledger_screen.dart": 1,
   "lib/screens/supplier_settlement_policy_screen.dart": 1,
   "lib/screens/supplier_settlements_screen.dart": 1,
   "lib/screens/system_reset_screen.dart": 1,

@@ -9,7 +9,6 @@ import 'account_statement_screen.dart';
 import 'add_supplier_screen.dart';
 import 'add_voucher_screen.dart';
 import 'purchase_invoice_screen.dart';
-import 'supplier_ledger_screen.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/confirm_financial_action.dart';
 import '../utils/bidi.dart';
@@ -621,22 +620,6 @@ class SuppliersScreenState extends State<SuppliersScreen> {
     if (mounted) await _fetchSuppliers();
   }
 
-  Future<void> _openSupplierLedger(Map<String, dynamic> supplier) async {
-    final supplierId = supplier['id'] as int?;
-    if (supplierId == null) return;
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => SupplierLedgerScreen(
-          api: widget.api,
-          supplierId: supplierId,
-          supplierName: _supplierName(supplier),
-          isArabic: widget.isArabic,
-        ),
-      ),
-    );
-  }
-
   Future<void> _openSupplierSettlements(Map<String, dynamic> supplier) async {
     final supplierId = supplier['id'] as int?;
     if (supplierId == null) return;
@@ -1096,8 +1079,6 @@ class SuppliersScreenState extends State<SuppliersScreen> {
       await _openPaymentVoucher(supplier);
     } else if (value == 'statement') {
       await _openSupplierStatement(supplier);
-    } else if (value == 'ledger') {
-      await _openSupplierLedger(supplier);
     } else if (value == 'settlements') {
       await _openSupplierSettlements(supplier);
     } else if (value == 'edit') {
@@ -1123,10 +1104,6 @@ class SuppliersScreenState extends State<SuppliersScreen> {
         PopupMenuItem(
           value: 'statement',
           child: Text(widget.isArabic ? 'كشف الحساب' : 'Statement'),
-        ),
-        PopupMenuItem(
-          value: 'ledger',
-          child: Text(widget.isArabic ? 'حركات المورد' : 'Supplier ledger'),
         ),
         PopupMenuItem(
           value: 'settlements',
@@ -1176,7 +1153,7 @@ class SuppliersScreenState extends State<SuppliersScreen> {
       margin: const EdgeInsets.only(bottom: 12),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        onTap: () => _openSupplierLedger(supplier),
+        onTap: () => _openSupplierStatement(supplier),
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: LayoutBuilder(
@@ -1385,7 +1362,7 @@ class SuppliersScreenState extends State<SuppliersScreen> {
     return Material(
       color: theme.colorScheme.surface,
       child: InkWell(
-        onTap: () => _openSupplierLedger(supplier),
+        onTap: () => _openSupplierStatement(supplier),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(

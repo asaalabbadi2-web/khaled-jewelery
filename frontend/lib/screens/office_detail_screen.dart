@@ -12,7 +12,7 @@ import '../widgets/app_state_views.dart';
 import 'add_office_screen.dart';
 import 'add_voucher_screen.dart';
 import 'gold_reservation_screen.dart';
-import 'supplier_ledger_screen.dart';
+import 'account_statement_screen.dart';
 
 /// One office's page (ADR-052; the owner 19 Oct 2026: «the journey from an
 /// office to its reservation to its execution, easy to reach and use»).
@@ -277,11 +277,12 @@ class _OfficeDetailScreenState extends State<OfficeDetailScreen> {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => SupplierLedgerScreen(
-          api: widget.api,
-          supplierId: id,
-          supplierName: (_office['name'] ?? '').toString(),
-          isArabic: _isAr,
+        // one statement for every party (REPORTS ت3-1, ADR-083)
+        builder: (_) => AccountStatementScreen(
+          accountId: id,
+          accountName: (_office['name'] ?? '').toString(),
+          entityType: 'supplier',
+          apiService: widget.api,
         ),
       ),
     );

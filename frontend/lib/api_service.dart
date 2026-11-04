@@ -2157,37 +2157,6 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> getSupplierLedger(
-    int supplierId, {
-    int page = 1,
-    int perPage = 50,
-    DateTime? dateFrom,
-    DateTime? dateTo,
-  }) async {
-    final queryParameters = <String, String>{
-      'page': page.toString(),
-      'per_page': perPage.toString(),
-    };
-
-    if (dateFrom != null) {
-      queryParameters['date_from'] = dateFrom.toIso8601String();
-    }
-    if (dateTo != null) {
-      final endOfDay = DateTime(dateTo.year, dateTo.month, dateTo.day, 23, 59, 59, 999);
-      queryParameters['date_to'] = endOfDay.toIso8601String();
-    }
-
-    final uri = Uri.parse(
-      '$_baseUrl/suppliers/$supplierId/ledger',
-    ).replace(queryParameters: queryParameters);
-    final response = await _authedGet(uri);
-    if (response.statusCode == 200) {
-      return json.decode(utf8.decode(response.bodyBytes));
-    } else {
-      throw _apiError(response);
-    }
-  }
-
   // Account Methods
   Future<List<dynamic>> getAccounts({bool skipBalances = false}) async {
     try {
@@ -2578,31 +2547,6 @@ class ApiService {
 
     final uri = Uri.parse(
       '$_baseUrl/general_ledger_all',
-    ).replace(queryParameters: queryParams);
-    final response = await _authedGet(uri);
-
-    if (response.statusCode == 200) {
-      return json.decode(utf8.decode(response.bodyBytes));
-    } else {
-      throw _apiError(response);
-    }
-  }
-
-  // Account Ledger - New endpoint
-  Future<Map<String, dynamic>> getAccountLedger(
-    int accountId, {
-    String? startDate,
-    String? endDate,
-    bool karatDetail = true,
-  }) async {
-    final queryParams = <String, String>{};
-
-    if (startDate != null) queryParams['start_date'] = startDate;
-    if (endDate != null) queryParams['end_date'] = endDate;
-    queryParams['karat_detail'] = karatDetail.toString();
-
-    final uri = Uri.parse(
-      '$_baseUrl/account_ledger/$accountId',
     ).replace(queryParameters: queryParams);
     final response = await _authedGet(uri);
 
