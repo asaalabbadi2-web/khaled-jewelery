@@ -92,27 +92,14 @@ def _err(msg: str, code: int = 400):
 
 # ── Balance ───────────────���─────────────────────────────��─────────────────────
 
-@inventory_bp.route('/balance', methods=['GET'])
+@inventory_bp.route('/locations', methods=['GET'])
 @require_permission('inventory.view')
-def get_balance():
-    """The stock per (location, category, karat) -- the one reader (ADR-045 C2).
-
-    Query params: safe_box_id, category_id, karat. The old inventory ledger's
-    buckets by branch are retired (C3).
-    """
-    from services.stock_ledger import balance_rows
-    return jsonify(balance_rows(safe_box_id=request.args.get('safe_box_id', type=int),
-                                category_id=request.args.get('category_id', type=int),
-                                karat=request.args.get('karat', type=float))), 200
-
-
-@inventory_bp.route('/balance/summary', methods=['GET'])
-@require_permission('inventory.view')
-def get_balance_summary():
-    """Totals by location (main karat), by karat (grams), the grand total and
-    the unclassified share (ADR-045 C2)."""
-    from services.stock_ledger import balance_summary
-    return jsonify(balance_summary(now=datetime.now())), 200
+def get_locations():
+    """The stock screen (INV-1, ADR-086): each stock location by karat from the
+    books, its last approved count and open session, by section. One reader in
+    place of the balance, its summary, the reconciliation and the health."""
+    from services.stock_ledger import stock_locations
+    return jsonify(stock_locations(now=datetime.now())), 200
 
 
 # ── Count Sessions ────────────────────────���──────────────────────────���────────
@@ -375,26 +362,6 @@ def approve_count_session(session_id: int):
 
 
 # ── Reports ───────────────────────────────────────────────────────────────────
-
-@inventory_bp.route('/reconciliation', methods=['GET'])
-@require_permission('inventory.approve')
-def get_reconciliation():
-    """Per (location, karat): the books, how much is classified, the last
-    approved count (ADR-045 C2). The stock IS the books (A1): the old four-way
-    matching (ledger / balance / count / GL) is retired."""
-    from services.stock_ledger import stock_audit
-    return jsonify(stock_audit(now=datetime.now())), 200
-
-
-@inventory_bp.route('/health', methods=['GET'])
-@require_permission('inventory.approve')
-def get_health():
-    """What can still be wrong with the stock: allocations against their lines,
-    open count sessions, the last approved count, the unclassified share."""
-    from services.stock_ledger import stock_audit
-    audit = stock_audit(now=datetime.now())
-    return jsonify({k: audit[k] for k in ('has_issues', 'metrics', 'generated_at')}), 200
-
 
 # ── Serialisers ──────────────────────��────────────────────────────────────────
 

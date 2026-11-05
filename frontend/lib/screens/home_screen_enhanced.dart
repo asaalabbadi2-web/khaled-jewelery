@@ -79,7 +79,6 @@ import '../widgets/goal_achievement_celebration.dart';
 import '../widgets/goal_progress_ring.dart';
 import '../widgets/my_goal_card.dart';
 import 'inventory_balance_screen.dart';
-import 'inventory_audit_screen.dart';
 import 'gold_reservations_list_screen.dart';
 import 'safe_transfer_screen.dart';
 import 'accounting_mapping_screen_enhanced.dart';
@@ -1988,7 +1987,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       addSection(isAr ? 'الجرد الفعلي' : 'Inventory', _tone.sectionTeal.fg);
       addDestination(
         icon: Icons.scale_outlined,
-        title: isAr ? 'أرصدة الجرد' : 'Inventory Balance',
+        title: isAr ? 'المخزون' : 'Stock',
         color: _tone.sectionTeal.fg,
         onSelected: () async {
           await Navigator.push(
@@ -1997,20 +1996,6 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           );
         },
       );
-      if (auth.hasPermission('inventory.approve')) {
-        addDestination(
-          icon: Icons.fact_check_outlined,
-          title: isAr ? 'مركز التدقيق' : 'Audit Center',
-          color: _tone.sectionTeal.fg,
-          onSelected: () async {
-            await Navigator.push(
-              context,
-              MaterialPageRoute(
-                  builder: (_) => const InventoryAuditScreen()),
-            );
-          },
-        );
-      }
     }
 
     // ════════════════════════════════════════════════════════════════════════

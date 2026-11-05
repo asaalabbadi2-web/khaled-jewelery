@@ -10,31 +10,15 @@ class InventoryService {
   InventoryService(this._api);
   final ApiService _api;
 
-  // ── Balance ───────────────────────────────────────────────────────────────
+  // ── Stock ─────────────────────────────────────────────────────────────────
 
-  Future<List<InventoryBucket>> getBalance({
-    int? safeBoxId,
-    int? categoryId,
-    double? karat,
-  }) async {
-    final params = <String, String>{};
-    if (safeBoxId != null) params['safe_box_id'] = '$safeBoxId';
-    if (categoryId != null) params['category_id'] = '$categoryId';
-    if (karat != null) params['karat'] = '$karat';
-
-    final resp = await _api.authedGet('/inventory/balance', queryParams: params);
-    _check(resp, 'تعذّر تحميل الأرصدة');
-    final list = jsonDecode(resp.body) as List;
-    return list
-        .map((e) => InventoryBucket.fromJson(e as Map<String, dynamic>))
-        .toList();
-  }
-
-  Future<InventoryBalanceSummary> getBalanceSummary() async {
-    final resp = await _api.authedGet('/inventory/balance/summary');
-    _check(resp, 'تعذّر تحميل ملخص الأرصدة');
-    return InventoryBalanceSummary.fromJson(
-        jsonDecode(resp.body) as Map<String, dynamic>);
+  /// The stock screen's one reader (INV-1, ADR-086).
+  Future<StockLocations> getLocations() async {
+    final resp = await _api.authedGet('/inventory/locations');
+    _check(resp, 'تعذّر تحميل المخزون');
+    return StockLocations.fromJson(
+      jsonDecode(resp.body) as Map<String, dynamic>,
+    );
   }
 
   // ── Count Sessions ────────────────────────────────────────────────────────
@@ -73,15 +57,13 @@ class InventoryService {
       }),
     );
     _check(resp, 'تعذّر فتح جلسة الجرد');
-    return CountSession.fromJson(
-        jsonDecode(resp.body) as Map<String, dynamic>);
+    return CountSession.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
   }
 
   Future<CountSession> getSession(int sessionId) async {
     final resp = await _api.authedGet('/inventory/count/$sessionId');
     _check(resp, 'تعذّر تحميل جلسة الجرد');
-    return CountSession.fromJson(
-        jsonDecode(resp.body) as Map<String, dynamic>);
+    return CountSession.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
   }
 
   /// [categoryId] null is the «بلا تصنيف» line; [safeBoxId] is the line's
@@ -103,8 +85,7 @@ class InventoryService {
       }),
     );
     _check(resp, 'تعذّر حفظ القراءة');
-    return CountLine.fromJson(
-        jsonDecode(resp.body) as Map<String, dynamic>);
+    return CountLine.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
   }
 
   Future<({CountSession session, int uncountedLines})> closeSession(
@@ -127,23 +108,18 @@ class InventoryService {
         : 0;
     // The route answers a summary without the lines: the screen reviews the
     // full session (it showed «لا توجد أصناف مسجّلة» before approval).
-    return (
-      session: await getSession(sessionId),
-      uncountedLines: uncounted,
-    );
+    return (session: await getSession(sessionId), uncountedLines: uncounted);
   }
 
   Future<CountSession> cancelSession(int sessionId) async {
     final resp = await _api.authedPost('/inventory/count/$sessionId/cancel');
     _check(resp, 'تعذّر إلغاء الجلسة');
-    return CountSession.fromJson(
-        jsonDecode(resp.body) as Map<String, dynamic>);
+    return CountSession.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
   }
 
   /// Approves the session; its differences are a posted entry in the books
   /// ([entryNumber] null: nothing differed).
-  Future<({CountSession session, String? entryNumber})>
-      approveSession(
+  Future<({CountSession session, String? entryNumber})> approveSession(
     int sessionId, {
     String reasonCode = 'OTHER',
     String note = '',
@@ -162,22 +138,6 @@ class InventoryService {
       session: await getSession(sessionId),
       entryNumber: entry?['entry_number'] as String?,
     );
-  }
-
-  // ── Reports ───────────────────────────────────────────────────────────────
-
-  Future<ReconciliationReport> getReconciliation() async {
-    final resp = await _api.authedGet('/inventory/reconciliation');
-    _check(resp, 'تعذّر تحميل تقرير المطابقة');
-    return ReconciliationReport.fromJson(
-        jsonDecode(resp.body) as Map<String, dynamic>);
-  }
-
-  Future<HealthReport> getHealth() async {
-    final resp = await _api.authedGet('/inventory/health');
-    _check(resp, 'تعذّر تحميل تقرير الصحة');
-    return HealthReport.fromJson(
-        jsonDecode(resp.body) as Map<String, dynamic>);
   }
 
   Future<List<AdjustmentReason>> getAdjustmentReasons() async {

@@ -295,111 +295,81 @@ def stock_movements(*, safe_box_id=None, category_id=None, invoice_id=None, kara
     return out
 
 
-def _safe_names() -> dict:
-    return {int(s.id): (s.name, s.stock_location) for s in SafeBox.query.filter(SafeBox.stock_location.isnot(None)).all()}
+# The stock screen's sections (INV-1, ADR-086): the stock the shop counts, the
+# employees' custody, and the gold deposited with offices -- a stock location,
+# not counted (ADR-052).
+SECTIONS = (('stock', 'المخزون', True), ('custody', 'عُهد الموظفين', True),
+            ('deposit', 'ودائع لدى المكاتب — لا تُجرد', False))
+SESSION_OPEN = ('open', 'counting', 'closed')     # not yet approved or cancelled
 
 
-def balance_rows(*, safe_box_id=None, category_id=None, karat=None) -> list:
-    """«الجرد الفعلي»'s rows: the stock per (location, category, karat), named."""
-    from models import Category
-
-    rows = [r for r in stock_balances()
-            if (not safe_box_id or r['safe_box_id'] == int(safe_box_id))
-            and (not category_id or r['category_id'] == int(category_id))
-            and (karat is None or abs(r['karat'] - float(karat)) < 0.001)]
-    safes = _safe_names()
-    categories = _names(Category, {r['category_id'] for r in rows})
-    out = []
-    for r in sorted(rows, key=lambda r: (r['safe_box_id'], r['category_id'] or 0, r['karat'])):
-        name, location = safes.get(r['safe_box_id'], (None, None))
-        out.append({'safe_box_id': r['safe_box_id'], 'safe_box_name': name, 'stock_location': location,
-                    'branch_id': None, 'category_id': r['category_id'],
-                    'category_name': categories.get(r['category_id']) if r['category_id'] else UNCLASSIFIED,
-                    'karat': float(r['karat']), 'balance': round(r['grams'], 4)})
-    return out
+def _section_of(stock_location) -> str:
+    return stock_location if stock_location in ('custody', 'deposit') else 'stock'
 
 
-def balance_summary(*, now) -> dict:
-    """Totals by location (at the main karat), by karat (grams), the grand
-    total and how much is still unclassified (main karat)."""
-    from pricing.karat_service import convert_to_main_karat
-
-    rows = stock_balances()
-    safes = _safe_names()
-    by_location, by_karat, unclassified = {}, {}, 0.0
-    for r in rows:
-        main = convert_to_main_karat(r['grams'], r['karat'])
-        by_location[r['safe_box_id']] = by_location.get(r['safe_box_id'], 0.0) + main
-        by_karat[r['karat']] = by_karat.get(r['karat'], 0.0) + r['grams']
-        if r['category_id'] is None:
-            unclassified += main
-    return {
-        'by_location': [{'safe_box_id': sid, 'safe_box_name': safes.get(sid, (None, None))[0],
-                         'stock_location': safes.get(sid, (None, None))[1], 'total_weight': round(w, 4)}
-                        for sid, w in sorted(by_location.items())],
-        'by_karat': [{'karat': float(k), 'total_weight': round(w, 4)} for k, w in sorted(by_karat.items())],
-        'grand_total_weight': round(sum(by_location.values()), 4),
-        'unclassified_weight': round(unclassified, 4),
-        'generated_at': now.isoformat(),
-    }
-
-
-def stock_audit(*, now) -> dict:
-    """«مركز التدقيق»: what can still be wrong with the stock, and per (location,
-    karat) the books, how much is classified and the last approved count."""
+def _last_counts() -> dict:
+    """{safe box id: the last approved count on it -- session, when, who, its entry}."""
     from models import InventoryCountLine, InventoryCountSession
+    last = {}
+    for s in (InventoryCountSession.query.filter_by(status='approved')
+              .order_by(InventoryCountSession.approved_at.desc()).all()):
+        boxes = ({s.safe_box_id} if s.safe_box_id is not None else
+                 {b for (b,) in db.session.query(InventoryCountLine.safe_box_id)
+                  .filter(InventoryCountLine.session_id == s.id).distinct() if b is not None})
+        entry = db.session.get(JournalEntry, s.entry_id) if s.entry_id else None
+        for box in boxes - set(last):
+            last[box] = {'session_id': s.id, 'approved_at': s.approved_at.isoformat() if s.approved_at else None,
+                         'approved_by': s.approved_by, 'entry_number': entry.entry_number if entry else None}
+    return last
+
+
+def stock_locations(*, now) -> dict:
+    """The stock screen (INV-1, ADR-086): each stock safe -- its karats from the
+    books, its total at the main karat, its last approved count and the session
+    open on it -- by section. Its categories are balances once an approved count
+    classified it, else their movement since the allocations began (A1)."""
+    from models import Category, InventoryCountSession
     from pricing.karat_service import convert_to_main_karat
     from services.books_invariants import check_stock_allocations
 
-    violations = check_stock_allocations()
-    open_sessions = InventoryCountSession.query.filter(
-        InventoryCountSession.status.in_(['open', 'counting'])).count()
     rows = stock_balances()
-    total_main = sum(convert_to_main_karat(r['grams'], r['karat']) for r in rows)
-    unclassified_main = sum(convert_to_main_karat(r['grams'], r['karat']) for r in rows if r['category_id'] is None)
-
-    last = {}
-    approved = (InventoryCountSession.query.filter_by(status='approved')
-                .order_by(InventoryCountSession.approved_at.desc()).all())
-    for s in approved:
-        for l in InventoryCountLine.query.filter_by(session_id=s.id).all():
-            key = (l.safe_box_id, int(round(l.karat)))
-            if key not in last and l.safe_box_id is not None:
-                last[key] = {'session_id': s.id, 'at': s.approved_at, 'variance': 0.0}
-            if key in last and last[key]['session_id'] == s.id:
-                last[key]['variance'] += float(l.variance or 0.0)
-    last_any = approved[0].approved_at if approved else None
-
-    metrics = [
-        {'key': 'allocation_violations', 'label': 'توزيع مخزون يخالف سطره', 'value': len(violations),
-         'ok': not violations, 'detail': 'من الفحص الليلي: قيد عُدّل بعد توزيعه أو خزينة غُيّر نوعها'},
-        {'key': 'open_count_sessions', 'label': 'جلسات جرد مفتوحة', 'value': open_sessions,
-         'ok': True, 'detail': f'{open_sessions} جلسة مفتوحة'},
-        {'key': 'last_approved_count', 'label': 'آخر جرد معتمد', 'value': last_any.isoformat() if last_any else None,
-         'ok': True, 'detail': 'لم يُعتمد جرد بعد' if last_any is None
-         else f'{last_any:%Y-%m-%d %H:%M} — اعتمده {approved[0].approved_by or "—"}'},
-        {'key': 'unclassified_share', 'label': 'نصيب «بلا تصنيف» (بالعيار الرئيسي)',
-         'value': round(unclassified_main, 3), 'ok': True,
-         'detail': f'{round(unclassified_main, 3)} من {round(total_main, 3)} جرام — يُصنَّف بالجرد'},
-    ]
-    safes = _safe_names()
-    grouped = {}
+    last = _last_counts()
+    open_on = {}
+    for session in (InventoryCountSession.query.filter(InventoryCountSession.status.in_(SESSION_OPEN))
+                    .order_by(InventoryCountSession.id).all()):
+        open_on.setdefault(session.safe_box_id, {'id': session.id, 'status': session.status})
+    boxes = {int(b.id): b for b in SafeBox.query.filter(SafeBox.stock_location.isnot(None)).all()}
+    held = {}
     for r in rows:
-        g = grouped.setdefault((r['safe_box_id'], r['karat']), {'books': 0.0, 'classified': 0.0})
-        g['books'] += r['grams']
-        if r['category_id'] is not None:
-            g['classified'] += r['grams']
-    out_rows = []
-    for (sid, k), g in sorted(grouped.items()):
-        lc = last.get((sid, k))
-        out_rows.append({
-            'safe_box_id': sid, 'safe_box_name': safes.get(sid, (None, None))[0],
-            'stock_location': safes.get(sid, (None, None))[1], 'karat': float(k),
-            'books_grams': round(g['books'], 4), 'classified_grams': round(g['classified'], 4),
-            'unclassified_grams': round(g['books'] - g['classified'], 4),
-            'last_count_session_id': lc['session_id'] if lc else None,
-            'last_count_at': lc['at'].isoformat() if lc and lc['at'] else None,
-            'last_count_variance': round(lc['variance'], 4) if lc else None,
+        held.setdefault(r['safe_box_id'], []).append(r)
+    category_names = _names(Category, {r['category_id'] for r in rows if r['category_id']})
+
+    sections = {key: {'key': key, 'label': label, 'counted': counted, 'total_main': 0.0, 'locations': []}
+                for key, label, counted in SECTIONS}
+    for box_id, box in sorted(boxes.items(), key=lambda kv: kv[1].name or ''):
+        mine = held.get(box_id, [])
+        if not mine and not box.is_active:
+            continue
+        karats = {}
+        for r in mine:
+            karats[r['karat']] = karats.get(r['karat'], 0.0) + r['grams']
+        total = sum(convert_to_main_karat(g, k) for k, g in karats.items())
+        counted = box_id in last
+        categories = [{'category_id': r['category_id'], 'karat': r['karat'], 'grams': round(r['grams'], 3),
+                       'name': category_names.get(r['category_id']) if r['category_id'] else UNCLASSIFIED}
+                      for r in mine if r['category_id'] is not None or counted]
+        section = sections[_section_of(box.stock_location)]
+        section['total_main'] += total
+        section['locations'].append({
+            'safe_box_id': box_id, 'name': box.name, 'stock_location': box.stock_location,
+            'karats': [{'karat': k, 'grams': round(g, 3)} for k, g in sorted(karats.items()) if abs(g) > TOLERANCE],
+            'total_main': round(total, 3),
+            'negative': any(g < -TOLERANCE for g in karats.values()),
+            'last_count': last.get(box_id), 'open_session': open_on.get(box_id),
+            'categories_are_balances': counted,
+            'categories': sorted(categories, key=lambda c: (c['category_id'] is None, c['name'] or '', c['karat'])),
         })
-    return {'has_issues': bool(violations), 'metrics': metrics, 'rows': out_rows,
-            'is_clean': not violations, 'violations': len(violations), 'generated_at': now.isoformat()}
+    out = [dict(sec, total_main=round(sec['total_main'], 3)) for sec in sections.values() if sec['locations']]
+    return {'sections': out, 'grand_total_main': round(sum(sec['total_main'] for sec in out), 3),
+            'violations': len(check_stock_allocations()),
+            'all_locations_session': open_on.get(None), 'generated_at': now.isoformat()}

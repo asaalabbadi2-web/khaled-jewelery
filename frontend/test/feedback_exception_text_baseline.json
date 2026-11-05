@@ -30,7 +30,6 @@
   "lib/screens/recurring_templates_screen.dart": 7,
   "lib/screens/reports/customer_gold_balances_report_screen.dart": 2,
   "lib/screens/reports/dual_system_reconciliation_screen.dart": 1,
-  "lib/screens/reports/inventory_cost_analysis_screen.dart": 1,
   "lib/screens/reports/invoice_approval_screen.dart": 2,
   "lib/screens/reports/weight_position_screen.dart": 1,
   "lib/screens/security_sessions_screen.dart": 3,

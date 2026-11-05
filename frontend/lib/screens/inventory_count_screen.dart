@@ -5,7 +5,7 @@ import '../models/inventory_models.dart';
 import '../models/safe_box_model.dart';
 import '../services/inventory_service.dart';
 import '../theme/app_theme.dart';
-import '../widgets/bucket_balance_card.dart' show formatWeight;
+import '../utils/currency_utils.dart' show formatGrams;
 import '../theme/app_semantic_colors.dart';
 
 /// The theme's colours (ADR-038): the scheme and the semantic tones.
@@ -444,7 +444,7 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _WillDo('تسجيل $counted بند كرصيد افتتاحي'),
-                  _WillDo('إجمالي ${formatWeight(totalWeight)} جم في الدفاتر'),
+                  _WillDo('إجمالي ${formatGrams(totalWeight)} جم في الدفاتر'),
                   const SizedBox(height: 12),
                   Container(
                     padding: const EdgeInsets.all(10),
@@ -618,7 +618,7 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
                 _SuccessStat(
                   label: 'فروقات',
                   value: varCount.toString(),
-                  sub: '${netDelta >= 0 ? '+' : ''}${formatWeight(netDelta)} جم',
+                  sub: '${netDelta >= 0 ? '+' : ''}${formatGrams(netDelta)} جم',
                   subColor: netDelta >= 0 ? _tn(context).ready.fg : _cs(context).error,
                 ),
               if (elapsed != null)
@@ -1852,7 +1852,7 @@ class _CountLineRowState extends State<_CountLineRow> {
                 )
               : Text(
                   line.countedWeight != null
-                      ? '${formatWeight(line.countedWeight!)} جم'
+                      ? '${formatGrams(line.countedWeight!)} جم'
                       : '—',
                   style: const TextStyle(
                       fontSize: 18, fontWeight: FontWeight.w600),
@@ -1962,7 +1962,7 @@ class _CountLineRowState extends State<_CountLineRow> {
             _ReviewCell(
               label: 'الوزن المعدود',
               value: line.countedWeight != null
-                  ? '${formatWeight(line.countedWeight!)} جم'
+                  ? '${formatGrams(line.countedWeight!)} جم'
                   : '—',
             )
           else
@@ -1972,21 +1972,21 @@ class _CountLineRowState extends State<_CountLineRow> {
               _ReviewCell(
                 label: 'المتوقع',
                 value: line.expectedWeight != null
-                    ? '${formatWeight(line.expectedWeight!)} جم'
+                    ? '${formatGrams(line.expectedWeight!)} جم'
                     : '—',
               ),
               const SizedBox(width: 12),
               _ReviewCell(
                 label: 'المعدود',
                 value: line.countedWeight != null
-                    ? '${formatWeight(line.countedWeight!)} جم'
+                    ? '${formatGrams(line.countedWeight!)} جم'
                     : '—',
               ),
               if (variance != null) ...[
                 const SizedBox(width: 12),
                 _ReviewCell(
                   label: 'الفرق',
-                  value: '${variance >= 0 ? '+' : ''}${formatWeight(variance)} جم',
+                  value: '${variance >= 0 ? '+' : ''}${formatGrams(variance)} جم',
                   valueColor: variance > 0
                       ? _tn(context).ready.fg
                       : variance < 0
@@ -2155,7 +2155,7 @@ class _ApproveDialogState extends State<_ApproveDialog> {
                               : _tn(context).ready.fg),
                       _BigStat(
                           value:
-                              '${delta >= 0 ? '+' : ''}${formatWeight(delta)} جم',
+                              '${delta >= 0 ? '+' : ''}${formatGrams(delta)} جم',
                           label: 'صافي الفرق',
                           color: delta > 0.001
                               ? _tn(context).ready.fg
@@ -2202,7 +2202,7 @@ class _ApproveDialogState extends State<_ApproveDialog> {
                                     style:
                                         const TextStyle(fontSize: 13))),
                             Text(
-                              '${v >= 0 ? '+' : ''}${formatWeight(v)} جم',
+                              '${v >= 0 ? '+' : ''}${formatGrams(v)} جم',
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 13,

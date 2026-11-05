@@ -1,16 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart' hide TextDirection;
+
 import '../api_service.dart';
 import '../models/inventory_models.dart';
 import '../services/inventory_service.dart';
-import '../theme/app_theme.dart';
-import '../widgets/bucket_balance_card.dart';
-import 'inventory_count_screen.dart';
 import '../theme/app_semantic_colors.dart';
+import '../theme/app_tokens.dart';
+import '../utils/currency_utils.dart' show formatGrams;
+import '../widgets/app_state_views.dart';
+import 'inventory_count_screen.dart';
 
-/// The theme's colours (ADR-038): the scheme and the semantic tones.
-ColorScheme _cs(BuildContext context) => Theme.of(context).colorScheme;
-AppSemanticColors _tn(BuildContext context) => AppSemanticColors.of(context);
-
+/// «المخزون» (INV-1, ADR-086; the owner, 6 Nov 2026: «الموقع والعيار», the
+/// audit «داخل شاشة الأرصدة»): each stock location a card -- its karats and
+/// its total from the books, its last approved count, the session open on it;
+/// its categories by a tap -- their movement before the location is counted,
+/// their balances after. The deposits with offices are a section not counted
+/// (ADR-052); the employees' custody one of its own.
 class InventoryBalanceScreen extends StatefulWidget {
   const InventoryBalanceScreen({super.key});
 
@@ -20,16 +25,12 @@ class InventoryBalanceScreen extends StatefulWidget {
 
 class _InventoryBalanceScreenState extends State<InventoryBalanceScreen> {
   final _svc = InventoryService(ApiService());
-
-  InventoryBalanceSummary? _summary;
-  List<InventoryBucket> _buckets = [];
-  CountSession? _activeSession; // freeze banner
+  StockLocations? _stock;
+  Object? _error;
   bool _loading = true;
-  String? _error;
 
-  // Filters
-  int? _filterSafeBoxId;
-  double? _filterKarat;
+  /// The widest the page grows.
+  static const double _maxWidth = 1100;
 
   @override
   void initState() {
@@ -38,42 +39,34 @@ class _InventoryBalanceScreenState extends State<InventoryBalanceScreen> {
   }
 
   Future<void> _load() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
-      final results = await Future.wait([
-        _svc.getBalanceSummary(),
-        _svc.getBalance(safeBoxId: _filterSafeBoxId, karat: _filterKarat),
-        _loadActiveSession(),
-      ]);
+      final stock = await _svc.getLocations();
+      if (!mounted) return;
       setState(() {
-        _summary = results[0] as InventoryBalanceSummary;
-        _buckets = results[1] as List<InventoryBucket>;
+        _stock = stock;
         _loading = false;
       });
-    } on InventoryApiException catch (e) {
-      setState(() { _error = e.message; _loading = false; });
     } catch (e) {
-      setState(() { _error = e.toString(); _loading = false; });
+      if (!mounted) return;
+      setState(() {
+        _error = e;
+        _loading = false;
+      });
     }
   }
 
-  Future<void> _loadActiveSession() async {
-    try {
-      // Open, then counting, then awaiting approval -- a closed count was
-      // reachable from no screen (ADR-045 C2).
-      List<CountSession> sessions = await _svc.listSessions(status: 'open');
-      if (sessions.isEmpty) {
-        sessions = await _svc.listSessions(status: 'counting');
-      }
-      if (sessions.isEmpty) {
-        sessions = await _svc.listSessions(status: 'closed');
-      }
-      if (mounted) {
-        setState(() => _activeSession = sessions.isNotEmpty ? sessions.first : null);
-      }
-    } catch (_) {
-      // Non-fatal — banner simply won't show
-    }
+  Future<void> _openCount([int? sessionId]) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => InventoryCountScreen(sessionId: sessionId),
+      ),
+    );
+    if (mounted) await _load();
   }
 
   @override
@@ -81,478 +74,388 @@ class _InventoryBalanceScreenState extends State<InventoryBalanceScreen> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         appBar: AppBar(
-          title: const Text('الجرد الفعلي'),
+          title: const Text('المخزون'),
           actions: [
             IconButton(
               icon: const Icon(Icons.refresh),
-              onPressed: _load,
               tooltip: 'تحديث',
+              onPressed: _load,
             ),
           ],
         ),
+        floatingActionButton: FloatingActionButton.extended(
+          onPressed: () => _openCount(),
+          icon: const Icon(Icons.fact_check_outlined),
+          label: const Text('جرد جديد'),
+        ),
         body: _loading
-            ? Center(child: CircularProgressIndicator(color: _cs(context).primary))
+            ? const AppLoadingView()
             : _error != null
-                ? _ErrorView(message: _error!, onRetry: _load)
-                : RefreshIndicator(
-                    onRefresh: _load,
-                    color: _cs(context).primary,
-                    child: CustomScrollView(
-                      slivers: [
-                        // ── Freeze Banner ─────────────────────────────────
-                        if (_activeSession != null)
-                          SliverToBoxAdapter(
-                            child: _FreezeBanner(
-                              session: _activeSession!,
-                              onResume: _resumeSession,
-                            ),
-                          ),
-                        SliverToBoxAdapter(child: _SummaryHeader(summary: _summary!)),
-                        SliverToBoxAdapter(child: _KaratFilterBar(
-                          karats: _summary!.byKarat.map((k) => k.karat).toList(),
-                          selected: _filterKarat,
-                          onSelected: (k) {
-                            setState(() => _filterKarat = k);
-                            _load();
-                          },
-                        )),
-                        SliverToBoxAdapter(child: _LocationFilterBar(
-                          locations: _summary!.byLocation,
-                          selected: _filterSafeBoxId,
-                          onSelected: (id) {
-                            setState(() => _filterSafeBoxId = id);
-                            _load();
-                          },
-                        )),
-                        if (_buckets.isEmpty)
-                          const SliverFillRemaining(
-                            child: Center(child: Text('لا توجد أرصدة مسجّلة')),
-                          )
-                        else
-                          SliverPadding(
-                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-                            sliver: SliverList(
-                              delegate: SliverChildBuilderDelegate(
-                                (_, i) => Padding(
-                                  padding: const EdgeInsets.only(bottom: 10),
-                                  child: BucketBalanceCard.fromBucket(_buckets[i]),
-                                ),
-                                childCount: _buckets.length,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-        // Hide "بدء جرد" FAB when a session is already active — banner handles it
-        floatingActionButton: _activeSession == null
-            ? FloatingActionButton.extended(
-                onPressed: _openCountSession,
-                backgroundColor: _cs(context).primary,
-                foregroundColor: _cs(context).onPrimary,
-                icon: const Icon(Icons.fact_check_outlined),
-                label: const Text('بدء جرد'),
+            ? AppErrorView(
+                title: 'تعذّر تحميل المخزون',
+                error: _error,
+                onRetry: _load,
               )
-            : null,
+            : RefreshIndicator(onRefresh: _load, child: _body(context)),
       ),
     );
   }
 
-  void _openCountSession() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const InventoryCountScreen()),
-    ).then((_) => _load());
-  }
-
-  void _resumeSession() {
-    final s = _activeSession;
-    if (s == null) return;
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => InventoryCountScreen(sessionId: s.id),
-      ),
-    ).then((_) => _load());
-  }
-}
-
-// ── Freeze Banner ─────────────────────────────────────────────────────────────
-
-class _FreezeBanner extends StatelessWidget {
-  const _FreezeBanner({required this.session, required this.onResume});
-  final CountSession session;
-  final VoidCallback onResume;
-
-  @override
-  Widget build(BuildContext context) {
-    final counted = session.linesCounted ?? session.lines.where((l) => l.isCounted).length;
-    final total = session.linesTotal ?? session.lines.length;
-    final awaitingApproval = session.status == 'closed';
-    final progress = total == 0 ? 0.0 : counted / total;
-    final elapsed = _elapsed(session.openedAt);
-
-    // Branch name from lines if available, else ID
-    final branchLabel = session.safeBoxName ?? 'كل المواقع';
-
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-      decoration: BoxDecoration(
-        color: _tn(context).warning.container,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: _tn(context).warning.fg, width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: _tn(context).warning.fg.withValues(alpha: 0.15),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
+  Widget _body(BuildContext context) {
+    final stock = _stock!;
+    final theme = Theme.of(context);
+    final tones = AppSemanticColors.of(context);
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: _maxWidth),
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpace.lg,
+            AppSpace.lg,
+            AppSpace.lg,
+            AppSpace.xxl * 3,
           ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header strip
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(
-              color: _tn(context).warning.fg,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(13)),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.timer_outlined, size: 16, color: _cs(context).surface),
-                const SizedBox(width: 6),
-                Text(
-                  awaitingApproval ? 'جرد بانتظار الاعتماد' : 'جلسة جرد قيد التنفيذ',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                    color: _cs(context).surface,
+          children: [
+            if (stock.allLocationsSession != null)
+              _Banner(
+                tone: tones.warning,
+                icon: Icons.history_toggle_off,
+                text:
+                    'جلسة جرد قديمة لكل المواقع (#${stock.allLocationsSession!.id}) ما زالت مفتوحة',
+                action: 'فتح الجلسة',
+                onAction: () => _openCount(stock.allLocationsSession!.id),
+              ),
+            if (stock.violations > 0)
+              _Banner(
+                tone: tones.blocked,
+                icon: Icons.report_outlined,
+                text:
+                    '${stock.violations} توزيع مخزون يخالف سطره — من الفحص الليلي',
+              ),
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpace.lg),
+              child: Row(
+                children: [
+                  Text(
+                    'إجمالي الذهب بالعيار الرئيسي',
+                    style: theme.textTheme.titleSmall,
                   ),
-                ),
-                const Spacer(),
-                Text(
-                  session.isOpening ? 'افتتاحي' : 'دوري',
-                  style: TextStyle(fontSize: 11, color: _cs(context).surface),
-                ),
-              ],
-            ),
-          ),
-          // Body
-          Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.store_outlined, size: 16, color: _tn(context).warning.onContainer),
-                    const SizedBox(width: 6),
-                    Text(branchLabel,
-                        style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: _tn(context).warning.onContainer)),
-                    const Spacer(),
-                    if (elapsed.isNotEmpty)
-                      Text(
-                        'بدأت $elapsed',
-                        style: TextStyle(fontSize: 12, color: _tn(context).warning.onContainer),
-                      ),
-                  ],
-                ),
-                if (total > 0) ...[
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(4),
-                          child: LinearProgressIndicator(
-                            value: progress,
-                            backgroundColor:
-                                _tn(context).warning.fg.withValues(alpha: 0.25),
-                            color: _tn(context).warning.fg,
-                            minHeight: 6,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Text(
-                        '$counted / $total',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                            color: _tn(context).warning.onContainer),
-                      ),
-                    ],
+                  const Spacer(),
+                  Text(
+                    '${formatGrams(stock.grandTotalMain)} جم',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ],
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: onResume,
-                    icon: const Icon(Icons.play_arrow_rounded),
-                    label: Text(awaitingApproval ? 'مراجعة واعتماد' : 'متابعة الجرد'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _tn(context).warning.fg,
-                      foregroundColor: _cs(context).surface,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10)),
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
-        ],
+            for (final section in stock.sections)
+              _Section(
+                section: section,
+                // the stock open; the custody and the deposits folded
+                initiallyOpen: section.key == 'stock',
+                onResume: _openCount,
+              ),
+          ],
+        ),
       ),
     );
   }
-
-  static String _elapsed(DateTime? openedAt) {
-    if (openedAt == null) return '';
-    final diff = DateTime.now().difference(openedAt);
-    if (diff.inMinutes < 1) return 'للتو';
-    if (diff.inMinutes < 60) return 'منذ ${diff.inMinutes} دقيقة';
-    if (diff.inHours < 24) return 'منذ ${diff.inHours} ساعة';
-    return 'منذ ${diff.inDays} يوم';
-  }
 }
 
-// ── Summary Header ────────────────────────────────────────────────────────────
+class _Banner extends StatelessWidget {
+  const _Banner({
+    required this.tone,
+    required this.icon,
+    required this.text,
+    this.action,
+    this.onAction,
+  });
 
-class _SummaryHeader extends StatelessWidget {
-  const _SummaryHeader({required this.summary});
-  final InventoryBalanceSummary summary;
+  final SemanticTone tone;
+  final IconData icon;
+  final String text;
+  final String? action;
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: AppSpace.md),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpace.md,
+        vertical: AppSpace.sm,
+      ),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [_cs(context).primary, _cs(context).primary],
-          begin: Alignment.topRight,
-          end: Alignment.bottomLeft,
-        ),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: _cs(context).primary.withValues(alpha: 0.3),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+        color: tone.container,
+        borderRadius: BorderRadius.circular(AppRadius.control),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: tone.onContainer),
+          const SizedBox(width: AppSpace.sm),
+          Expanded(
+            child: Text(text, style: TextStyle(color: tone.onContainer)),
           ),
+          if (action != null)
+            TextButton(onPressed: onAction, child: Text(action!)),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    );
+  }
+}
+
+class _Section extends StatelessWidget {
+  const _Section({
+    required this.section,
+    required this.initiallyOpen,
+    required this.onResume,
+  });
+
+  final StockSection section;
+  final bool initiallyOpen;
+  final void Function(int sessionId) onResume;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpace.md),
+      child: ExpansionTile(
+        initiallyExpanded: initiallyOpen,
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: EdgeInsets.zero,
+        shape: const Border(),
+        collapsedShape: const Border(),
+        title: Text(
+          section.label,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        trailing: Text(
+          '${formatGrams(section.totalMain)} جم',
+          style: theme.textTheme.titleSmall,
+        ),
         children: [
-          Text(
-            'إجمالي الذهب (بالعيار الرئيسي)',
-            style: TextStyle(color: _cs(context).onPrimary, fontSize: 13),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '${formatWeight(summary.grandTotalWeight)} جم',
-            style: TextStyle(
-              color: _cs(context).onPrimary,
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          if (summary.unclassifiedWeight.abs() > 0.0005)
-            Text(
-              'منه بلا تصنيف: ${formatWeight(summary.unclassifiedWeight)} جم — يُصنَّف بالجرد',
-              style: TextStyle(color: Theme.of(context).colorScheme.onPrimary, fontSize: 12),
-            ),
-          const SizedBox(height: 12),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            reverse: true,
-            child: Row(
-              children: summary.byKarat.map((k) => _KaratChip(k)).toList(),
-            ),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final columns = constraints.maxWidth >= 760 ? 2 : 1;
+              final width =
+                  (constraints.maxWidth - AppSpace.md * (columns - 1)) /
+                  columns;
+              return Wrap(
+                spacing: AppSpace.md,
+                runSpacing: AppSpace.md,
+                children: [
+                  for (final location in section.locations)
+                    SizedBox(
+                      width: width,
+                      child: _LocationCard(
+                        location: location,
+                        counted: section.counted,
+                        onResume: onResume,
+                      ),
+                    ),
+                ],
+              );
+            },
           ),
         ],
       ),
     );
+  }
+}
+
+class _LocationCard extends StatelessWidget {
+  const _LocationCard({
+    required this.location,
+    required this.counted,
+    required this.onResume,
+  });
+
+  final StockLocation location;
+
+  /// Whether its section is counted at all -- the deposits are not.
+  final bool counted;
+  final void Function(int sessionId) onResume;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final tones = AppSemanticColors.of(context);
+    final muted = theme.textTheme.bodySmall?.copyWith(
+      color: scheme.onSurfaceVariant,
+    );
+    final last = location.lastCount;
+    final open = location.openSession;
+
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpace.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    location.name,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${formatGrams(location.totalMain)} جم',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            if (location.karats.isNotEmpty) ...[
+              const SizedBox(height: AppSpace.sm),
+              Wrap(
+                spacing: AppSpace.sm,
+                runSpacing: AppSpace.xs,
+                children: [
+                  for (final k in location.karats) _KaratChip(karat: k),
+                ],
+              ),
+            ],
+            if (location.negative) ...[
+              const SizedBox(height: AppSpace.sm),
+              Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded, color: tones.blocked.fg),
+                  const SizedBox(width: AppSpace.xs),
+                  Text(
+                    'رصيد سالب في الدفاتر',
+                    style: TextStyle(color: tones.blocked.fg),
+                  ),
+                ],
+              ),
+            ],
+            const SizedBox(height: AppSpace.sm),
+            if (!counted)
+              Text('لا تُجرد', style: muted)
+            else
+              Row(
+                children: [
+                  Expanded(child: Text(_lastCountText(last), style: muted)),
+                  if (open != null)
+                    TextButton.icon(
+                      onPressed: () => onResume(open.id),
+                      icon: const Icon(Icons.play_arrow_rounded),
+                      label: Text(
+                        open.status == 'closed'
+                            ? 'مراجعة واعتماد'
+                            : 'متابعة الجرد',
+                      ),
+                    ),
+                ],
+              ),
+            if (location.categories.isNotEmpty) _Categories(location: location),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static String _lastCountText(LastCount? last) {
+    if (last == null) return 'لم يُجرد بعد';
+    final parts = [
+      if (last.approvedAt != null)
+        DateFormat('yyyy-MM-dd HH:mm').format(last.approvedAt!),
+      if ((last.approvedBy ?? '').isNotEmpty) last.approvedBy!,
+      if ((last.entryNumber ?? '').isNotEmpty) 'القيد ${last.entryNumber}',
+    ];
+    return 'آخر جرد: ${parts.join(' — ')}';
   }
 }
 
 class _KaratChip extends StatelessWidget {
-  const _KaratChip(this.k);
-  final KaratTotal k;
+  const _KaratChip({required this.karat});
+  final StockKarat karat;
 
   @override
   Widget build(BuildContext context) {
+    final tones = AppSemanticColors.of(context);
+    final tone = switch (karat.karat) {
+      18 => tones.karat18,
+      22 => tones.karat22,
+      24 => tones.karat24,
+      _ => tones.karat21,
+    };
     return Container(
-      margin: const EdgeInsets.only(left: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpace.sm,
+        vertical: AppSpace.xs,
+      ),
       decoration: BoxDecoration(
-        color: _cs(context).shadow.withValues(alpha: 0.22),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: _cs(context).onPrimary.withValues(alpha: 0.3)),
+        color: tone.container,
+        borderRadius: BorderRadius.circular(AppRadius.chip),
       ),
       child: Text(
-        'عيار ${k.karat.toStringAsFixed(0)}  ${formatWeight(k.totalWeight)} جم',
-        style: TextStyle(
-            color: _cs(context).onPrimary, fontSize: 12, fontWeight: FontWeight.w600),
+        'ع${karat.karat}  ${formatGrams(karat.grams)}',
+        style: Theme.of(
+          context,
+        ).textTheme.labelMedium?.copyWith(color: tone.onContainer),
       ),
     );
   }
 }
 
-// ── Filter Bars ───────────────────────────────────────────────────────────────
-
-class _KaratFilterBar extends StatelessWidget {
-  const _KaratFilterBar({
-    required this.karats,
-    required this.selected,
-    required this.onSelected,
-  });
-  final List<double> karats;
-  final double? selected;
-  final ValueChanged<double?> onSelected;
+/// A location's categories: their balances once it was counted, else their
+/// movement since the allocations began -- «خرج» or «دخل», never a negative
+/// balance (ADR-086 law 1).
+class _Categories extends StatelessWidget {
+  const _Categories({required this.location});
+  final StockLocation location;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 40,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        reverse: true,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        children: [
-          _FilterChip(
-            label: 'كل العيارات',
-            selected: selected == null,
-            onTap: () => onSelected(null),
-          ),
-          ...karats.map((k) => _FilterChip(
-                label: 'عيار ${k.toStringAsFixed(0)}',
-                selected: selected == k,
-                color: _tn(context).karat(((k) as num).round()).fg,
-                onTap: () => onSelected(selected == k ? null : k),
-              )),
-        ],
-      ),
+    final theme = Theme.of(context);
+    final muted = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
     );
-  }
-}
-
-class _LocationFilterBar extends StatelessWidget {
-  const _LocationFilterBar({
-    required this.locations,
-    required this.selected,
-    required this.onSelected,
-  });
-  final List<LocationTotal> locations;
-  final int? selected;
-  final ValueChanged<int?> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    if (locations.length <= 1) return const SizedBox.shrink();
-    return SizedBox(
-      height: 40,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        reverse: true,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        children: [
-          _FilterChip(
-            label: 'كل المواقع',
-            selected: selected == null,
-            onTap: () => onSelected(null),
-          ),
-          ...locations.map((l) => _FilterChip(
-                label: l.safeBoxName,
-                selected: selected == l.safeBoxId,
-                onTap: () => onSelected(
-                    selected == l.safeBoxId ? null : l.safeBoxId),
-              )),
-        ],
+    final balances = location.categoriesAreBalances;
+    return ExpansionTile(
+      tilePadding: EdgeInsets.zero,
+      childrenPadding: EdgeInsets.zero,
+      shape: const Border(),
+      collapsedShape: const Border(),
+      title: Text('التصنيفات (${location.categories.length})'),
+      subtitle: Text(
+        balances
+            ? 'أرصدتها بعد آخر جرد'
+            : 'حركتها منذ بدء التوزيع — يُصنَّف الموقع بالجرد',
+        style: muted,
       ),
-    );
-  }
-}
-
-class _FilterChip extends StatelessWidget {
-  const _FilterChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-    this.color,
-  });
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  final Color? color;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = color ?? _cs(context).primary;
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        margin: const EdgeInsets.only(left: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: selected ? c : Colors.transparent,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: selected ? c : _cs(context).outlineVariant),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected ? _cs(context).onPrimary : _cs(context).onSurfaceVariant,
-            fontSize: 12,
-            fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ── Error View ────────────────────────────────────────────────────────────────
-
-class _ErrorView extends StatelessWidget {
-  const _ErrorView({required this.message, required this.onRetry});
-  final String message;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.cloud_off, size: 48, color: _tn(context).warning.fg),
-            const SizedBox(height: 12),
-            Text(message, textAlign: TextAlign.center),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
-              label: const Text('إعادة المحاولة'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _cs(context).primary,
-                foregroundColor: _cs(context).onPrimary,
-              ),
+      children: [
+        for (final c in location.categories)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: AppSpace.xs),
+            child: Row(
+              children: [
+                Expanded(child: Text(c.name)),
+                Text('ع${c.karat}', style: muted),
+                const SizedBox(width: AppSpace.md),
+                Text(
+                  balances
+                      ? '${formatGrams(c.grams)} جم'
+                      : '${c.grams < 0 ? 'خرج' : 'دخل'} ${formatGrams(c.grams.abs())} جم',
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+      ],
     );
   }
 }
