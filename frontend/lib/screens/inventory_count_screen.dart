@@ -24,12 +24,22 @@ AppSemanticColors _tn(BuildContext context) => AppSemanticColors.of(context);
 ///   • Pull-to-refresh for multi-device awareness without websockets.
 /// A count line's name: its category -- «بلا تصنيف» without one, a line counted
 /// like any other (ADR-045) -- and its location when it has one.
-String countLineLabel(CountLine line) {
+///
+/// [withLocation] false in a location's own session: its title says the
+/// location, the lines do not repeat it (INV-2, ADR-086).
+String countLineLabel(CountLine line, {bool withLocation = true}) {
   final category = (line.categoryName != null && line.categoryName!.isNotEmpty)
       ? line.categoryName!
       : 'بلا تصنيف';
-  return line.safeBoxName != null ? '$category — ${line.safeBoxName}' : category;
+  return withLocation && line.safeBoxName != null ? '$category — ${line.safeBoxName}' : category;
 }
+
+/// A weight typed at two places at most -- the scale's and the invoices'
+/// (ADR-085; ADR-086 law 4); the server refuses a third.
+final twoPlaceGrams = TextInputFormatter.withFunction(
+  (oldValue, newValue) =>
+      RegExp(r'^\d*\.?\d{0,2}$').hasMatch(newValue.text) ? newValue : oldValue,
+);
 
 class InventoryCountScreen extends StatefulWidget {
   final int? sessionId;
@@ -203,7 +213,7 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
   }
 
   String _itemLabel(CountLine line) =>
-      '${countLineLabel(line)} ${line.karat.toStringAsFixed(0)}K';
+      '${countLineLabel(line, withLocation: _session?.safeBoxId == null)} ${line.karat.toStringAsFixed(0)}K';
 
   // ── Add item (opening sessions) ───────────────────────────────────────────
 
@@ -420,9 +430,6 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
   Future<bool> _showOpeningApproveConfirm() async {
     final total = _lineStates.length;
     final counted = _lineStates.where((l) => l.line.isCounted).length;
-    final totalWeight = _lineStates
-        .where((l) => l.line.countedWeight != null)
-        .fold(0.0, (s, l) => s + l.line.countedWeight!);
 
     return await showDialog<bool>(
           context: context,
@@ -436,15 +443,18 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
                 children: [
                   Icon(Icons.lock_outlined, color: _cs(context).primary),
                   SizedBox(width: 8),
-                  Text('اعتماد الرصيد الافتتاحي'),
+                  Text('اعتماد الجرد الكامل'),
                 ],
               ),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _WillDo('تسجيل $counted بند كرصيد افتتاحي'),
-                  _WillDo('إجمالي ${formatGrams(totalWeight)} جم في الدفاتر'),
+                  _WillDo('اعتماد $counted بندًا، وقيد الفرق لكل عيار في الدفاتر'),
+                  const SizedBox(height: 8),
+                  // each karat's books against the counted -- the entry is
+                  // per (location, karat), never one sum of two karats
+                  _KaratReview(rows: _session!.byKarat),
                   const SizedBox(height: 12),
                   Container(
                     padding: const EdgeInsets.all(10),
@@ -461,7 +471,7 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
                         SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'هذا الإجراء لا يمكن التراجع عنه.\nالجرد الافتتاحي يُنفَّذ مرة واحدة فقط.',
+                            'هذا الإجراء لا يمكن التراجع عنه.',
                             style: TextStyle(
                                 fontSize: 12, color: _tn(context).warning.fg),
                           ),
@@ -490,7 +500,7 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
                     backgroundColor: _tn(context).ready.fg,
                     foregroundColor: _cs(context).surface,
                   ),
-                  child: const Text('اعتماد الرصيد'),
+                  child: const Text('اعتماد الجرد'),
                 ),
               ],
             ),
@@ -524,9 +534,6 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
 
     // Periodic sessions: full dialog with reason codes
     final totalLines = _lineStates.length;
-    final netDelta = _lineStates
-        .where((l) => l.line.variance != null)
-        .fold(0.0, (sum, l) => sum + l.line.variance!);
     final varLines = _lineStates
         .where((l) => l.line.variance != null && l.line.variance != 0)
         .toList()
@@ -540,7 +547,6 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
         session: _session!,
         svc: _svc,
         totalLines: totalLines,
-        netDelta: netDelta,
       ),
     );
     if (approved == null || !mounted) return;
@@ -581,13 +587,6 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
   /// null when nothing differed.
   Future<void> _showSuccessDialog(CountSession approved, {String? entryNumber}) async {
     final totalLines = _lineStates.length;
-    final varCount = _lineStates
-        .where((l) => l.line.variance != null && l.line.variance != 0)
-        .length;
-    final netDelta = _lineStates
-        .where((l) => l.line.variance != null)
-        .fold(0.0, (sum, l) => sum + l.line.variance!);
-
     Duration? elapsed;
     if (approved.openedAt != null && approved.approvedAt != null) {
       elapsed = approved.approvedAt!.difference(approved.openedAt!);
@@ -614,13 +613,8 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
               ),
               const SizedBox(height: 20),
               _SuccessStat(label: 'بنداً', value: '$totalLines'),
-              if (varCount > 0)
-                _SuccessStat(
-                  label: 'فروقات',
-                  value: varCount.toString(),
-                  sub: '${netDelta >= 0 ? '+' : ''}${formatGrams(netDelta)} جم',
-                  subColor: netDelta >= 0 ? _tn(context).ready.fg : _cs(context).error,
-                ),
+              _KaratReview(rows: approved.byKarat),
+              const SizedBox(height: 8),
               if (elapsed != null)
                 _SuccessStat(
                     label: 'استغرق', value: _formatDuration(elapsed)),
@@ -663,7 +657,10 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
         appBar: AppBar(
           title: s == null
               ? const Text('جلسة جرد جديدة')
-              : Text(isOpening ? 'الجرد الافتتاحي' : 'جرد دوري'),
+              : Text(
+                  '${isOpening ? 'جرد كامل' : 'جرد دوري'}'
+                  '${s.safeBoxName != null ? ' — ${s.safeBoxName}' : ''}',
+                ),
           actions: [
             if (s != null && isActive) ...[
               IconButton(
@@ -727,6 +724,11 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
     return Column(
       children: [
         _ProgressBanner(counted: counted, total: total, session: s),
+        if (s.byKarat.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: _KaratReview(rows: s.byKarat),
+          ),
         Expanded(
           child: RefreshIndicator(
             onRefresh: _refresh,
@@ -856,6 +858,7 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
             lineStates: _lineStates,
             currentIndex: idx,
             onTap: (i) => setState(() => _currentIndex = i),
+            withLocation: s.safeBoxId == null,
           ),
         ),
         const VerticalDivider(width: 1),
@@ -1114,12 +1117,18 @@ class _ProgressBanner extends StatelessWidget {
               children: [
                 Icon(Icons.my_location, size: 11, color: labelColor.withValues(alpha: 0.7)),
                 const SizedBox(width: 4),
-                Text(
-                  currentLabel!,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: labelColor,
+                // the names shrink to the width: two long ones overflowed a
+                // phone by 121 points (INV-2)
+                Flexible(
+                  child: Text(
+                    currentLabel!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: labelColor,
+                    ),
                   ),
                 ),
                 if (nextLabel != null) ...[
@@ -1127,9 +1136,13 @@ class _ProgressBanner extends StatelessWidget {
                       style: TextStyle(fontSize: 11, color: _cs(context).outline)),
                   Icon(Icons.navigate_next, size: 13, color: _cs(context).outline),
                   const SizedBox(width: 2),
-                  Text(
-                    nextLabel!,
-                    style: TextStyle(fontSize: 11, color: _cs(context).onSurfaceVariant),
+                  Flexible(
+                    child: Text(
+                      nextLabel!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 11, color: _cs(context).onSurfaceVariant),
+                    ),
                   ),
                 ],
               ],
@@ -1163,12 +1176,11 @@ class _EmptyCountState extends StatelessWidget {
       message = 'لا توجد أصناف بعد\nاضغط + لإضافة أول صنف';
     } else if (isActive) {
       icon = Icons.inventory_2_outlined;
-      message = 'لا يوجد رصيد مسجّل لهذا الفرع\n'
-          'إذا كانت هذه أول جلسة، أغلقها\n'
-          'وافتح جرداً افتتاحياً بدلاً منها';
+      message = 'لا رصيد مسجّل في هذا الموقع\n'
+          'ألغِ هذه الجلسة وافتح جردًا كاملًا بدلًا منها';
     } else {
       icon = Icons.inventory_2_outlined;
-      message = 'لا توجد أصناف مسجّلة في هذا الفرع';
+      message = 'لا توجد أصناف مسجّلة في هذا الموقع';
     }
 
     return Center(
@@ -1266,7 +1278,7 @@ class _FocusedCardState extends State<_FocusedCard> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final badgeTextColor =
         isDark ? karatColor : _tn(context).karat(((karat) as num).round()).onContainer;
-    final categoryLabel = countLineLabel(line);
+    final categoryLabel = countLineLabel(line, withLocation: widget.session.safeBoxId == null);
     final saved = ls.status == CountLineStatus.saved || line.isCounted;
     final saving = ls.status == CountLineStatus.saving;
     final failed = ls.status == CountLineStatus.failed;
@@ -1329,7 +1341,7 @@ class _FocusedCardState extends State<_FocusedCard> {
                 controller: _ctrl,
                 focusNode: _focus,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))],
+                inputFormatters: [twoPlaceGrams],
                 textInputAction: TextInputAction.done,
                 onSubmitted: (_) => _submit(),
                 textAlign: TextAlign.center,
@@ -1337,7 +1349,7 @@ class _FocusedCardState extends State<_FocusedCard> {
                 decoration: InputDecoration(
                   suffixText: 'جم',
                   suffixStyle: TextStyle(fontSize: 18, color: _cs(context).onSurfaceVariant),
-                  hintText: '0.000',
+                  hintText: '0.00',
                   hintStyle: TextStyle(
                     fontSize: 36,
                     color: _cs(context).outlineVariant,
@@ -1563,7 +1575,9 @@ class _NavList extends StatelessWidget {
     required this.lineStates,
     required this.currentIndex,
     required this.onTap,
+    this.withLocation = true,
   });
+  final bool withLocation;
   final List<_LineState> lineStates;
   final int currentIndex;
   final ValueChanged<int> onTap;
@@ -1580,7 +1594,7 @@ class _NavList extends StatelessWidget {
           final isCurrent = i == currentIndex;
           final isDone = ls.line.isCounted;
           final karatColor = _tn(context).karat(((ls.line.karat) as num).round()).fg;
-          final label = countLineLabel(ls.line);
+          final label = countLineLabel(ls.line, withLocation: withLocation);
 
           return InkWell(
             onTap: () => onTap(i),
@@ -1721,7 +1735,7 @@ class _CountLineRowState extends State<_CountLineRow> {
     final line = ls.line;
     final karat = line.karat;
     final karatColor = _tn(context).karat(((karat) as num).round()).fg;
-    final categoryLabel = countLineLabel(line);
+    final categoryLabel = countLineLabel(line, withLocation: widget.session.safeBoxId == null);
 
     // ── Counting mode (employee view) ─────────────────────────────────────
     if (_editable || (_isBlind && !_editable)) {
@@ -1818,7 +1832,7 @@ class _CountLineRowState extends State<_CountLineRow> {
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
                   inputFormatters: [
-                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                    twoPlaceGrams,
                   ],
                   textInputAction: TextInputAction.done,
                   onSubmitted: (_) => _commit(),
@@ -1828,7 +1842,7 @@ class _CountLineRowState extends State<_CountLineRow> {
                     suffixText: 'جم',
                     suffixStyle: TextStyle(
                         fontSize: 14, color: _cs(context).onSurfaceVariant),
-                    hintText: '0.000',
+                    hintText: '0.00',
                     isDense: true,
                     contentPadding: const EdgeInsets.symmetric(
                         horizontal: 12, vertical: 10),
@@ -1958,12 +1972,18 @@ class _CountLineRowState extends State<_CountLineRow> {
           ),
           const SizedBox(height: 10),
           // Opening session: only show counted weight — no expected/variance
+          // a cell is Expanded: in a Row, as the periodic one -- alone in the
+          // Column the full count's review did not lay out (INV-2)
           if (widget.session.isOpening)
-            _ReviewCell(
-              label: 'الوزن المعدود',
-              value: line.countedWeight != null
-                  ? '${formatGrams(line.countedWeight!)} جم'
-                  : '—',
+            Row(
+              children: [
+                _ReviewCell(
+                  label: 'الوزن المعدود',
+                  value: line.countedWeight != null
+                      ? '${formatGrams(line.countedWeight!)} جم'
+                      : '—',
+                ),
+              ],
             )
           else
           // Periodic: comparison row: expected | counted | variance
@@ -2046,13 +2066,11 @@ class _ApproveDialog extends StatefulWidget {
     required this.session,
     required this.svc,
     required this.totalLines,
-    required this.netDelta,
   });
   final List<_LineState> varLines;
   final CountSession session;
   final InventoryService svc;
   final int totalLines;
-  final double netDelta;
 
   @override
   State<_ApproveDialog> createState() => _ApproveDialogState();
@@ -2112,7 +2130,6 @@ class _ApproveDialogState extends State<_ApproveDialog> {
     final hasVariance = widget.varLines.isNotEmpty;
     final canProceed =
         !_loadingReasons && (!hasVariance || _selectedReason != null) && _noteOk;
-    final delta = widget.netDelta;
 
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -2153,18 +2170,11 @@ class _ApproveDialogState extends State<_ApproveDialog> {
                           color: hasVariance
                               ? _tn(context).warning.fg
                               : _tn(context).ready.fg),
-                      _BigStat(
-                          value:
-                              '${delta >= 0 ? '+' : ''}${formatGrams(delta)} جم',
-                          label: 'صافي الفرق',
-                          color: delta > 0.001
-                              ? _tn(context).ready.fg
-                              : delta < -0.001
-                                  ? _cs(context).error
-                                  : _cs(context).onSurfaceVariant),
                     ],
                   ),
                 ),
+                const SizedBox(height: 12),
+                _KaratReview(rows: widget.session.byKarat),
                 // Variance list (sorted descending by absolute value)
                 if (hasVariance) ...[
                   const SizedBox(height: 14),
@@ -2350,6 +2360,55 @@ class _ApproveDialogState extends State<_ApproveDialog> {
   }
 }
 
+/// Each karat's books, counted and difference (ADR-086) -- the server's
+/// review of the counted lines; the approval writes one difference per
+/// (location, karat).
+class _KaratReview extends StatelessWidget {
+  const _KaratReview({required this.rows});
+  final List<KaratReview> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    if (rows.isEmpty) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    final muted = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    final tones = AppSemanticColors.of(context);
+    Widget cell(String text, {TextStyle? style}) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
+      child: Text(text, style: style, textAlign: TextAlign.end),
+    );
+    return Table(
+      columnWidths: const {0: IntrinsicColumnWidth()},
+      children: [
+        TableRow(children: [
+          cell('', style: muted),
+          cell('الدفاتر', style: muted),
+          cell('المعدود', style: muted),
+          cell('الفرق', style: muted),
+        ]),
+        for (final r in rows)
+          TableRow(children: [
+            cell('عيار ${r.karat.round()}'),
+            cell(formatGrams(r.books)),
+            cell(formatGrams(r.counted)),
+            cell(
+              formatGrams(r.difference),
+              style: TextStyle(
+                color: r.difference.abs() < 0.005
+                    ? null
+                    : r.difference < 0
+                    ? tones.blocked.fg
+                    : tones.ready.fg,
+              ),
+            ),
+          ]),
+      ],
+    );
+  }
+}
+
 class _BigStat extends StatelessWidget {
   const _BigStat(
       {required this.value, required this.label, this.color});
@@ -2391,15 +2450,9 @@ class _WillDo extends StatelessWidget {
 }
 
 class _SuccessStat extends StatelessWidget {
-  const _SuccessStat(
-      {required this.label,
-      required this.value,
-      this.sub,
-      this.subColor});
+  const _SuccessStat({required this.label, required this.value});
   final String label;
   final String value;
-  final String? sub;
-  final Color? subColor;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -2410,18 +2463,9 @@ class _SuccessStat extends StatelessWidget {
             Text(label,
                 style: TextStyle(
                     fontSize: 13, color: _cs(context).onSurfaceVariant)),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(value,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 14)),
-                if (sub != null)
-                  Text(sub!,
-                      style: TextStyle(
-                          fontSize: 12, color: subColor)),
-              ],
-            ),
+            Text(value,
+                style: const TextStyle(
+                    fontWeight: FontWeight.bold, fontSize: 14)),
           ],
         ),
       );
@@ -2473,8 +2517,9 @@ class _OpenSessionSheet extends StatefulWidget {
 class _OpenSessionSheetState extends State<_OpenSessionSheet> {
   /// The stock locations (gold safes with a stock_location, ADR-045).
   List<SafeBoxModel> _locations = [];
-  /// The location to count: 0 -- every one.
-  int _selectedLocation = 0;
+  /// The location to count -- one, chosen (ADR-086 law 2: no session of
+  /// every location at once).
+  int? _selectedLocation;
   bool _blindCount = true;
   bool _isOpening = false;
   bool _loadingBranches = true;
@@ -2497,7 +2542,10 @@ class _OpenSessionSheetState extends State<_OpenSessionSheet> {
     try {
       final safes = await ApiService().getSafeBoxes(safeType: 'gold', isActive: true);
       setState(() {
-        _locations = safes.where((s) => s.stockLocation != null && s.id != null).toList();
+        // A deposit with an office is not counted (ADR-052).
+        _locations = safes
+            .where((s) => s.stockLocation != null && s.stockLocation != 'deposit' && s.id != null)
+            .toList();
         _loadingBranches = false;
       });
     } catch (_) {
@@ -2512,8 +2560,9 @@ class _OpenSessionSheetState extends State<_OpenSessionSheet> {
     setState(() { _submitting = true; _error = null; });
     try {
       final s = await widget.svc.openSession(
-        safeBoxId: _selectedLocation == 0 ? null : _selectedLocation,
-        blindCount: _isOpening ? false : _blindCount,
+        safeBoxId: _selectedLocation,
+        // The full count is blind (the owner, 6 Nov 2026: «عدّ أعمى»).
+        blindCount: _isOpening ? true : _blindCount,
         sessionType: _isOpening ? 'opening' : 'periodic',
       );
       widget.onOpened(s);
@@ -2592,15 +2641,15 @@ class _OpenSessionSheetState extends State<_OpenSessionSheet> {
                   border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10)),
                 ),
+                hint: const Text('اختر الموقع'),
                 items: [
-                  const DropdownMenuItem(value: 0, child: Text('كل المواقع')),
                   ..._locations.map((s) => DropdownMenuItem(
                         value: s.id!,
                         child: Text(s.name),
                       )),
                 ],
                 onChanged: (v) => setState(() {
-                  _selectedLocation = v ?? 0;
+                  _selectedLocation = v;
                   _error = null;
                   _existingSessionId = null;
                 }),
@@ -2611,14 +2660,13 @@ class _OpenSessionSheetState extends State<_OpenSessionSheet> {
               value: _isOpening,
               onChanged: (v) => setState(() {
                 _isOpening = v;
-                if (v) _blindCount = false;
                 _error = null;
                 _existingSessionId = null;
               }),
-              title: const Text('جرد افتتاحي (أول مرة)',
+              title: const Text('جرد كامل',
                   style: TextStyle(fontWeight: FontWeight.w600)),
               subtitle: const Text(
-                'لتسجيل أرصدة البداية — بقيد فروق في الدفاتر',
+                'كل تصنيفات الموقع، ويُقفل بعدّها كلها — جرد 31 ديسمبر',
                 style: TextStyle(fontSize: 12),
               ),
               activeColor: _tn(context).sectionTeal.fg,
@@ -2670,7 +2718,8 @@ class _OpenSessionSheetState extends State<_OpenSessionSheet> {
                 child: ElevatedButton(
                   onPressed: (_submitting ||
                           _loadingBranches ||
-                          _locations.isEmpty)
+                          _locations.isEmpty ||
+                          _selectedLocation == null)
                       ? null
                       : _open,
                   style: ElevatedButton.styleFrom(
@@ -3041,12 +3090,12 @@ class _AddItemSheetState extends State<_AddItemSheet> {
               focusNode: _weightFocus,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                twoPlaceGrams,
               ],
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
               decoration: InputDecoration(
                 labelText: 'الوزن',
-                hintText: '0.000',
+                hintText: '0.00',
                 suffixText: 'جم',
                 border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10)),

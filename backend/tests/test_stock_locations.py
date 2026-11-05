@@ -96,7 +96,8 @@ def test_a_session_open_on_a_location_is_said_on_it():
     _stock(box, 5.0)
     session = S.open_session(branch_id=None, safe_box_id=box.id, opened_by='t', now=NOW)
     _, by_id = _locations()
-    assert by_id[box.id][1]['open_session'] == {'id': session.id, 'status': 'open'}
+    open_ = by_id[box.id][1]['open_session']
+    assert (open_['id'], open_['status']) == (session.id, 'open')
 
 
 def test_the_deposits_and_the_custody_are_sections_of_their_own_and_deposits_are_not_counted():

@@ -167,9 +167,20 @@ class LastCount {
 class OpenCount {
   final int id;
   final String status;
-  const OpenCount({required this.id, required this.status});
-  factory OpenCount.fromJson(Map<String, dynamic> j) =>
-      OpenCount(id: j['id'] as int, status: j['status'] as String? ?? 'open');
+  final int? linesCounted;
+  final int? linesTotal;
+  const OpenCount({
+    required this.id,
+    required this.status,
+    this.linesCounted,
+    this.linesTotal,
+  });
+  factory OpenCount.fromJson(Map<String, dynamic> j) => OpenCount(
+    id: j['id'] as int,
+    status: j['status'] as String? ?? 'open',
+    linesCounted: (j['lines_counted'] as num?)?.toInt(),
+    linesTotal: (j['lines_total'] as num?)?.toInt(),
+  );
 }
 
 class CountSession {
@@ -200,6 +211,10 @@ class CountSession {
   final String? notes;
   final List<CountLine> lines;
 
+  /// Each karat's books, counted and difference -- once the count may be
+  /// compared (closed, or not blind); empty before (ADR-086).
+  final List<KaratReview> byKarat;
+
   const CountSession({
     required this.id,
     required this.branchId,
@@ -219,6 +234,7 @@ class CountSession {
     this.approvedAt,
     this.notes,
     this.lines = const [],
+    this.byKarat = const [],
   });
 
   bool get isActive => status == 'open' || status == 'counting';
@@ -253,6 +269,30 @@ class CountSession {
     lines: (j['lines'] as List? ?? [])
         .map((e) => CountLine.fromJson(e as Map<String, dynamic>))
         .toList(),
+    byKarat: (j['by_karat'] as List? ?? [])
+        .map((e) => KaratReview.fromJson(e as Map<String, dynamic>))
+        .toList(),
+  );
+}
+
+/// One karat of a count: the books (the counted lines' expected weights),
+/// the counted, the difference the approval writes.
+class KaratReview {
+  final double karat;
+  final double books;
+  final double counted;
+  final double difference;
+  const KaratReview({
+    required this.karat,
+    required this.books,
+    required this.counted,
+    required this.difference,
+  });
+  factory KaratReview.fromJson(Map<String, dynamic> j) => KaratReview(
+    karat: (j['karat'] as num).toDouble(),
+    books: (j['books'] as num).toDouble(),
+    counted: (j['counted'] as num).toDouble(),
+    difference: (j['difference'] as num).toDouble(),
   );
 }
 

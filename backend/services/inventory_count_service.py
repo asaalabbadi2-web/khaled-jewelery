@@ -52,16 +52,24 @@ class InventoryCountService:
 
         if session_type not in ('periodic', 'opening'):
             raise ValueError(f'session_type غير صالح: {session_type}')
-        if session_type == 'opening':
-            blind_count = False
-        if safe_box_id is not None:
-            box = db.session.get(SafeBox, int(safe_box_id))
-            if box is None or not box.stock_location:
-                raise ValueError('الخزينة المختارة ليست موقع مخزون')
+        # A count is of one location (ADR-086 law 2): every location at once
+        # was one session nobody could finish -- #5, 397 lines, open from 14 Oct.
+        if safe_box_id is None:
+            raise ValueError('جلسة الجرد لموقع واحد: اختر الموقع')
+        # The full count is blind as a periodic one (the owner, 6 Nov 2026: «عدّ
+        # أعمى») -- its lines' expected weights are never shown; its review says
+        # each karat's books against the counted.
+        box = db.session.get(SafeBox, int(safe_box_id))
+        if box is None or not box.stock_location:
+            raise ValueError('الخزينة المختارة ليست موقع مخزون')
+        statuses = ['open', 'counting', 'closed']
+        older = InventoryCountSession.query.filter(InventoryCountSession.safe_box_id.is_(None),
+                                                   InventoryCountSession.status.in_(statuses)).first()
+        if older is not None:
+            raise ValueError(f'جلسة جرد قديمة لكل المواقع (#{older.id}) ما زالت قائمة — تُلغى أولاً')
         active = InventoryCountSession.query.filter(
-            InventoryCountSession.safe_box_id.is_(None) if safe_box_id is None
-            else InventoryCountSession.safe_box_id == int(safe_box_id),
-            InventoryCountSession.status.in_(['open', 'counting', 'closed'])).first()
+            InventoryCountSession.safe_box_id == int(safe_box_id),
+            InventoryCountSession.status.in_(statuses)).first()
         if active is not None and active.status == 'closed':
             raise ValueError(f'جلسة جرد بانتظار الاعتماد (#{active.id}) لهذا الموقع — اعتمدها أولاً قبل فتح جلسة جديدة.')
         if active:
@@ -125,14 +133,21 @@ class InventoryCountService:
 
     @classmethod
     def populate_opening_lines(cls, session) -> List['InventoryCountLine']:
-        """The stock's lines, and a zero line for every catalogue category (at its
-        karat, or every standard karat) in every location of the scope -- the
-        counter fills what is there. Idempotent."""
-        from models import Category, InventoryCountLine, db
+        """The full count's lines (the owner, 6 Nov 2026: «حسب نوع الموقع»): what
+        the location holds, and at zero the active categories of its kind -- the
+        worked ones for the showroom (and a workshop, a transit), the scrap ones
+        for a scrap store, none more for a custody. A stopped category is never
+        listed; a category missing is added as it is counted. Idempotent."""
+        from models import Category, InventoryCountLine, SafeBox, db
 
         created = cls.populate_lines(session)
         for safe_box_id in sorted(cls._scope(session)):
-            for cat in Category.query.order_by(Category.name).all():
+            kind = db.session.get(SafeBox, safe_box_id).stock_location
+            if kind in ('custody', 'deposit'):
+                continue
+            categories = Category.query.filter(Category.is_active.is_(True),
+                                               Category.is_scrap.is_(kind == 'scrap')).order_by(Category.name)
+            for cat in categories:
                 try:
                     karats = [float(cat.karat)] if cat.karat else list(STANDARD_KARATS)
                 except (TypeError, ValueError):
@@ -166,6 +181,12 @@ class InventoryCountService:
             raise ValueError('حدّد موقع العدّ (الخزينة) — الجلسة تشمل كل المواقع')
         if int(safe_box_id) not in cls._scope(session):
             raise ValueError('الخزينة ليست ضمن مواقع هذه الجلسة')
+        weight = float(counted_weight)
+        if weight < 0:
+            raise ValueError('الوزن المعدود لا يكون سالبًا')
+        # Two places: the scale's and the invoices' (ADR-085, ADR-086 law 4).
+        if abs(round(weight, 2) - weight) > 1e-9:
+            raise ValueError('الوزن بخانتين عشريتين (0.01 جم)، كما يقرأ الميزان')
         line = cls._line(session, int(safe_box_id), category_id, karat)
         if line is None:
             line = InventoryCountLine(session_id=session.id, branch_id=session.branch_id,
@@ -180,6 +201,24 @@ class InventoryCountService:
             session.status = 'counting'
         db.session.flush()
         return line
+
+    # ── Review ────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def karat_review(session) -> list:
+        """Per karat of the counted lines: the books (their expected weights,
+        frozen at opening), the counted and the difference -- what the approval
+        writes per (location, karat). A category's expected means nothing
+        before the stock is classified; the karat's total does (ADR-086)."""
+        by = {}
+        for line in session.lines:
+            if line.counted_weight is None:
+                continue
+            r = by.setdefault(float(line.karat), {'books': 0.0, 'counted': 0.0})
+            r['books'] += float(line.expected_weight or 0.0)
+            r['counted'] += float(line.counted_weight)
+        return [{'karat': k, 'books': round(r['books'], 3), 'counted': round(r['counted'], 3),
+                 'difference': round(r['counted'] - r['books'], 3)} for k, r in sorted(by.items())]
 
     # ── Close ─────────────────────────────────────────────────────────────────
 

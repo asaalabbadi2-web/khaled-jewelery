@@ -393,6 +393,9 @@ def _session_detail(s) -> dict:
     reveal = _should_reveal_expected(s)
     is_opening = getattr(s, 'session_type', 'periodic') == 'opening'
     summary['lines'] = [_count_line(ln, reveal_expected=reveal, is_opening=is_opening) for ln in s.lines]
+    # each karat's books against the counted, once the count may be compared (ADR-086)
+    from services.inventory_count_service import InventoryCountService
+    summary['by_karat'] = InventoryCountService.karat_review(s) if reveal else None
     return summary
 
 

@@ -328,7 +328,7 @@ def stock_locations(*, now) -> dict:
     books, its total at the main karat, its last approved count and the session
     open on it -- by section. Its categories are balances once an approved count
     classified it, else their movement since the allocations began (A1)."""
-    from models import Category, InventoryCountSession
+    from models import Category, InventoryCountLine, InventoryCountSession
     from pricing.karat_service import convert_to_main_karat
     from services.books_invariants import check_stock_allocations
 
@@ -337,7 +337,12 @@ def stock_locations(*, now) -> dict:
     open_on = {}
     for session in (InventoryCountSession.query.filter(InventoryCountSession.status.in_(SESSION_OPEN))
                     .order_by(InventoryCountSession.id).all()):
-        open_on.setdefault(session.safe_box_id, {'id': session.id, 'status': session.status})
+        lines = InventoryCountLine.query.filter_by(session_id=session.id)
+        open_on.setdefault(session.safe_box_id, {'id': session.id, 'status': session.status,
+                                                 'lines_counted': lines.filter(
+                                                     InventoryCountLine.counted_weight.isnot(None)).count(),
+                                                 'lines_total': lines.count(),
+                                                 'session_type': session.session_type or 'periodic'})
     boxes = {int(b.id): b for b in SafeBox.query.filter(SafeBox.stock_location.isnot(None)).all()}
     held = {}
     for r in rows:

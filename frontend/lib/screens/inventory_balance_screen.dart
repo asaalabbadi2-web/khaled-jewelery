@@ -349,6 +349,12 @@ class _LocationCard extends StatelessWidget {
               Row(
                 children: [
                   Expanded(child: Text(_lastCountText(last), style: muted)),
+                  // the closing count's board: each location's progress
+                  if (open != null && open.linesTotal != null)
+                    Text(
+                      '${open.linesCounted ?? 0} / ${open.linesTotal}',
+                      style: muted,
+                    ),
                   if (open != null)
                     TextButton.icon(
                       onPressed: () => onResume(open.id),
