@@ -22,6 +22,12 @@ grams -- 2026 closes on the figures, and 2027 opens on that closing
 (ADR-044's law). A customer opening as gold is refused until its entry is
 built (7 Nov: «يُؤجَّل»).
 
+TR-4b: then the stock at the count day's market price (decision 2, no
+office terms), with 2100's own balance -- owed twice -- and the riyals on a
+pool's weight account cleared, the rest to «فروقات تقييم الذهب» (33): ADR-042's
+entry, its pools at that price (the owner, 7 Nov: «إلى 33 مع التقييم»). 2100
+itself is no row: that entry clears it.
+
 The rows are the books': each asset or liability account holding a balance,
 its weight twin in its row -- so nothing is forgotten. What the count gives is
 not a row: the counted stock safes and the gold stock's value (the count at
@@ -72,6 +78,9 @@ def _accounts():
     for role in ('gold_inventory_new', 'gold_inventory_scrap'):      # the count at the market price
         value = role_account_id(role)
         excluded |= {value, twin_id(value)} - {None}
+    # the suppliers' control account's own balance: the close clears it to 33 (TR-4b)
+    control = get_account_id_for_mapping(DEFAULT_MAPPING_OPERATION_TYPE, 'supplier_accounts_parent')
+    excluded |= {control} - {None}
     excluded |= twin_subtree_ids(CUSTOMER_RECEIVABLES_ROOT)
     candidates -= excluded
 
@@ -116,9 +125,25 @@ def _section(account, by_id) -> str:
     return chain[-3].name if len(chain) >= 3 else chain[-1].name
 
 
+def _number(entry_id):
+    from models import JournalEntry, db
+    return db.session.get(JournalEntry, entry_id).entry_number if entry_id else None
+
+
+def market_price(day: dt.date) -> float:
+    """The market's price per gram of the main karat at *day*'s end -- the
+    ounce, no office fees or discount (decision 2); 0 before any price."""
+    from models import GoldPrice
+    from pricing.gold_price_service import get_main_karat
+    from pricing.office_price import gram_price
+    row = (GoldPrice.query.filter(GoldPrice.date <= dt.datetime.combine(day, dt.time.max))
+           .order_by(GoldPrice.date.desc(), GoldPrice.id.desc()).first())
+    return gram_price(row.price, int(get_main_karat()), None) if row is not None else 0.0
+
+
 def opening(year: int) -> dict:
     """The year's rows, its figures, what they differ by, and whether it is approved."""
-    from models import JournalEntry, OpeningApproval, OpeningFigure, db
+    from models import OpeningApproval, OpeningFigure, db
     from pricing.karat_service import convert_to_main_karat
     from services.weight_position import carried_cash
 
@@ -162,8 +187,9 @@ def opening(year: int) -> dict:
                 'to_gold_cash': approval.to_gold_cash,
                 'carried_cash': (carried_cash(approval.waiting_cash, approval.to_gold_cash)
                                  if approval.closing_price else None),
-                'reconciliation_entry': (db.session.get(JournalEntry, approval.reconciliation_entry_id).entry_number
-                                         if approval.reconciliation_entry_id else None)}}
+                'reconciliation_entry': _number(approval.reconciliation_entry_id),
+                'market_price': approval.market_price,
+                'revaluation_entry': _number(approval.revaluation_entry_id)}}
 
 
 def enter(year: int, account_id: int, *, cash, karats: dict, source: str, treatment, note, by: str, now):
@@ -233,13 +259,42 @@ def approve(year: int, *, by: str, now):
     # with nothing waiting (weight_position.opening_lot).
     for f in gold:
         f.gold_grams = round(f.actual_cash / price, 3)
+    market = round(market_price(day), 4)
+    if not market:
+        raise OpeningRefused(f'لا سعر سوق يوم الجرد {day}: لا يُقيَّم المخزون بلا سعره')
     entry = _write_differences(year, state['rows'], day=day, by=by, now=now)
+    revaluation = _write_revaluation(year, day=day, market=market, by=by, now=now)
     approval = OpeningApproval(year=year, approved_by=by, approved_at=now, count_day=day,
                                closing_price=price, waiting_cash=waiting, to_gold_cash=to_gold,
-                               reconciliation_entry_id=entry.id if entry is not None else None)
+                               reconciliation_entry_id=entry.id if entry is not None else None,
+                               market_price=market,
+                               revaluation_entry_id=revaluation.id if revaluation is not None else None)
     db.session.add(approval)
     db.session.flush()
     return approval
+
+
+def _write_revaluation(year: int, *, day, market: float, by: str, now):
+    """ADR-042's entry at the close, its pools at *market*: 1300 and 1310 to
+    each pool's weight x the price, 2100's own balance and a pool weight
+    account's riyals cleared, the rest to 33 -- after the differences, on the
+    count day's last minute. None when nothing moves."""
+    from models import Account
+    from services.gold_cost_books import plan_transition
+    from services.repair.entries import write_entry
+    plan = plan_transition(opening_price=market, at=day + dt.timedelta(days=1), valued_at=market)
+    if not plan['lines']:
+        return None
+    ids = dict(Account.query.with_entities(Account.account_number, Account.id)
+               .filter(Account.account_number.in_(list(plan['lines']))).all())
+    description = f'تقييم مخزون الذهب بسعر سوق يوم الجرد {day} ({market:,.4f}) — إقفال {year - 1} (ADR-044، ADR-042)'
+    return write_entry(
+        date=dt.datetime.combine(day, dt.time(23, 59)), description=description,
+        reference_type='opening_revaluation', reference_id=year, reference_number=f'{day}@{market:.4f}',
+        lines=[{'account_id': ids[number], 'description': description,
+                **({'cash_debit': amount} if amount > 0 else {'cash_credit': -amount})}
+               for number, amount in sorted(plan['lines'].items())],
+        by=by, now=now, prefix='COR', safe_rows=False)
 
 
 def _write_differences(year: int, rows: list, *, day, by: str, now):

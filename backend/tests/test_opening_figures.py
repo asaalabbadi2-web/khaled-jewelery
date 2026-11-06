@@ -85,12 +85,14 @@ def books():
     db.session.flush()
     own = db.session.get(Account, supplier.account_id)
     _seat(own, role_account_id('liabilities_root'))
+    control = db.session.get(Account, own.parent_id)     # 2100: the suppliers' control account
     twin = db.session.get(Account, own.memo_account_id)
     other = Account(account_number=f'3{uuid.uuid4().int % 10**6:06d}', name='مقابل OP', type='Equity')
     db.session.add(other)
     db.session.flush()
     _post([(cash, {'cash_debit': 4137.0}), (own, {'cash_credit': 1500.0}), (other, {'cash_debit': -2637.0})])
     _post([(twin, {'credit_24k': 290.3}), (other, {'debit_24k': 290.3})])
+    _post([(control, {'cash_credit': 600.0}), (other, {'cash_debit': 600.0})])   # owed twice, as 2100 on production
     customer = Customer(customer_code=f'C-{uuid.uuid4().hex[:6]}', name=f'عميل افتتاح {uuid.uuid4().hex[:4]}')
     db.session.add(customer)
     db.session.flush()
@@ -105,7 +107,8 @@ def books():
     _stock(showroom, 10.0)
     db.session.add(GoldPrice(price=4000.0, date=COUNT_DAY_CLOSE))
     db.session.flush()
-    return {'cash': cash, 'supplier': own, 'twin': twin, 'group': group, 'customer': owing, 'showroom': showroom}
+    return {'cash': cash, 'supplier': own, 'twin': twin, 'group': group, 'customer': owing, 'showroom': showroom,
+            'control': control}
 
 
 def _rows():
@@ -125,6 +128,7 @@ def test_a_row_for_each_account_holding_a_balance_its_twin_in_its_row(books):
     assert rows[books['customer'].id]['party'] is True
     assert books['showroom'].account_id not in rows, 'the count gives it'
     assert rows[books['group'].id]['party'] is False, 'a group holding lines is a row, not a party (2100 on the copy)'
+    assert books['control'].id not in rows, "the suppliers' control account: the close clears it to 33 (TR-4b)"
     assert state['entered'] < state['total']
 
 
@@ -303,3 +307,36 @@ def test_the_transition_refuses_an_opening_not_approved(app, db_fence):
     from services.transition_2027 import TransitionRefused, carry_waiting
     with pytest.raises(TransitionRefused, match='لم يُعتمد'):
         carry_waiting(db.engine, year=2042)
+
+
+def test_the_close_values_the_stock_at_the_count_day_s_market_price_and_clears_2100_to_33(books, roles):
+    """The owner, 6 Nov 2026 (decision 2): the gold at the market price of 31
+    Dec, without the office's fees or discount; 7 Nov: the difference to
+    «فروقات تقييم الذهب» (33), and with it 2100's own balance (owed twice) and
+    the riyals on a pool's weight account («إلى 33 مع التقييم») -- ADR-042's
+    entry, its pools at that price. Written after the differences, on the
+    count day's last minute."""
+    from datetime import time
+    from accounting.mappings import get_account_id_for_mapping
+    from models import JournalEntry
+    from pricing.gold_price_service import get_main_karat
+    from pricing.office_price import gram_price
+    from services.gold_cost import pool_state
+    from services.live_balances import live_balances_by_account_ids
+    from services.opening_figures import approve, count_day
+    _enter_all('waiting')
+    approve(YEAR, by='owner', now=NOW)
+    approval = db.session.get(OpeningApproval, YEAR)
+    market = gram_price(4000.0, int(get_main_karat()), None)
+    assert approval.market_price == pytest.approx(round(market, 4))
+    entry = db.session.get(JournalEntry, approval.revaluation_entry_id)
+    assert entry.date == datetime.combine(count_day(YEAR), time(23, 59)) and entry.is_posted
+    for pool in ('worked', 'scrap'):
+        state = pool_state(pool)
+        assert state.value == pytest.approx(round(state.weight * approval.market_price, 2), abs=0.02), pool
+    assert live_balances_by_account_ids({books['control'].id})[books['control'].id]['cash'] == pytest.approx(0.0)
+    assert sum(float(l.cash_debit or 0) - float(l.cash_credit or 0) for l in entry.lines) == pytest.approx(0.0)
+    valuation = get_account_id_for_mapping('افتراضي', 'valuation_equity')
+    assert any(l.account_id == valuation for l in entry.lines), 'the rest to 33'
+    state, _ = _rows()
+    assert state['approved']['revaluation_entry'] == entry.entry_number

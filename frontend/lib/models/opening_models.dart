@@ -100,6 +100,11 @@ class Opening {
   /// the figures, onto the count's accounts (TR-4). None when nothing differed.
   final String? reconciliationEntry;
 
+  /// The close's revaluation (TR-4b): the stock at the count day's market
+  /// price per gram of the main karat, to 33, and the entry that did it.
+  final double? marketPrice;
+  final String? revaluationEntry;
+
   const Opening({
     required this.year,
     required this.rows,
@@ -117,6 +122,8 @@ class Opening {
     this.toGoldCash,
     this.carriedCash,
     this.reconciliationEntry,
+    this.marketPrice,
+    this.revaluationEntry,
   });
 
   bool get approved => approvedBy != null;
@@ -145,6 +152,8 @@ class Opening {
       toGoldCash: (approval?['to_gold_cash'] as num?)?.toDouble(),
       carriedCash: (approval?['carried_cash'] as num?)?.toDouble(),
       reconciliationEntry: approval?['reconciliation_entry'] as String?,
+      marketPrice: (approval?['market_price'] as num?)?.toDouble(),
+      revaluationEntry: approval?['revaluation_entry'] as String?,
     );
   }
 }

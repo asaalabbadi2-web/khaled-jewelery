@@ -6067,6 +6067,10 @@ class OpeningApproval(db.Model):
     to_gold_cash = db.Column(db.Float, nullable=True)      # of them, what customers opened as gold
     # TR-4: 2026's differences from the figures, written at the close (5220 / 450)
     reconciliation_entry_id = db.Column(db.Integer, db.ForeignKey('journal_entry.id'), nullable=True)
+    # TR-4b: the stock at the count day's market price, 2100's own balance and
+    # a pool weight account's riyals cleared -- to 33 (ADR-042's entry)
+    market_price = db.Column(db.Float, nullable=True)      # per gram of the main karat, no office terms
+    revaluation_entry_id = db.Column(db.Integer, db.ForeignKey('journal_entry.id'), nullable=True)
 
 
 class InventoryCountSession(db.Model):

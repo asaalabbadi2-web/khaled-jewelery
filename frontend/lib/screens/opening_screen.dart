@@ -219,6 +219,12 @@ class _Header extends StatelessWidget {
                             : 'فروق المطابقة قُيّدت في ${opening.year - 1} بالقيد ${opening.reconciliationEntry}',
                         style: TextStyle(color: tones.ready.onContainer),
                       ),
+                      if (opening.marketPrice != null)
+                        Text(
+                          'قُيّم المخزون بسعر السوق يوم الجرد ${formatAmount(opening.marketPrice!)} ريال للجرام'
+                          '${opening.revaluationEntry == null ? '' : ' بالقيد ${opening.revaluationEntry}'}',
+                          style: TextStyle(color: tones.ready.onContainer),
+                        ),
                       if ((opening.toGoldCash ?? 0).abs() >= 0.005)
                         Text(
                           'منها ذهبًا على العملاء: ${formatAmount(opening.toGoldCash!)} ريال',

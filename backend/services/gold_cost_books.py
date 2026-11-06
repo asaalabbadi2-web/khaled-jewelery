@@ -80,9 +80,16 @@ def _balanced(lines: dict, against: str) -> dict[str, float]:
     return out
 
 
-def plan_transition(*, opening_price: float, at: date, since: date | None = None) -> dict:
-    """The transition entry at *at* -- {account number: debit +, credit -} -- measured, not written."""
+def plan_transition(*, opening_price: float, at: date, since: date | None = None,
+                    valued_at: float | None = None) -> dict:
+    """The transition entry at *at* -- {account number: debit +, credit -} -- measured, not written.
+    *valued_at*: each pool at its weight x this price instead of its moving
+    average -- a year's close at the count day's market price (ADR-044, TR-4b:
+    the next year's averages start from it)."""
     r = replay(opening_price=opening_price, since=since, until=at)
+    if valued_at is not None:
+        for p in r.pools.values():
+            p.value = p.weight * float(valued_at)
     number = dict(Account.query.with_entities(Account.id, Account.account_number).all())
     worked_stock, scrap_stock = _role_account(WORKED_STOCK), _role_account(SCRAP_STOCK)
     worked, scrap, suppliers = {worked_stock.id}, {scrap_stock.id}, {_role_account(SUPPLIERS_GOLD_VALUE).id}
