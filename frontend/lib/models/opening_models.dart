@@ -96,6 +96,10 @@ class Opening {
   /// What the year starts with waiting -- the server's (carried_cash).
   final double? carriedCash;
 
+  /// The entry the approval wrote in the year before: its differences from
+  /// the figures, onto the count's accounts (TR-4). None when nothing differed.
+  final String? reconciliationEntry;
+
   const Opening({
     required this.year,
     required this.rows,
@@ -112,6 +116,7 @@ class Opening {
     this.waitingCash,
     this.toGoldCash,
     this.carriedCash,
+    this.reconciliationEntry,
   });
 
   bool get approved => approvedBy != null;
@@ -139,6 +144,7 @@ class Opening {
       waitingCash: (approval?['waiting_cash'] as num?)?.toDouble(),
       toGoldCash: (approval?['to_gold_cash'] as num?)?.toDouble(),
       carriedCash: (approval?['carried_cash'] as num?)?.toDouble(),
+      reconciliationEntry: approval?['reconciliation_entry'] as String?,
     );
   }
 }

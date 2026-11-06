@@ -6065,6 +6065,8 @@ class OpeningApproval(db.Model):
     closing_price = db.Column(db.Float, nullable=True)     # per gram of the main karat
     waiting_cash = db.Column(db.Float, nullable=True)      # the sales' riyals waiting at the count day's end
     to_gold_cash = db.Column(db.Float, nullable=True)      # of them, what customers opened as gold
+    # TR-4: 2026's differences from the figures, written at the close (5220 / 450)
+    reconciliation_entry_id = db.Column(db.Integer, db.ForeignKey('journal_entry.id'), nullable=True)
 
 
 class InventoryCountSession(db.Model):

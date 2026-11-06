@@ -58,7 +58,8 @@ Map<String, dynamic> _opening({bool approved = false, bool all = false}) => {
       'difference': {'cash': -37.0, 'grams': 0.0},
       'approved': approved
           ? {'by': 'saleh', 'at': '2027-01-01T08:00:00', 'count_day': '2026-12-31', 'closing_price': 418.25,
-             'waiting_cash': 291788.46, 'to_gold_cash': 800.0, 'carried_cash': 290988.46}
+             'waiting_cash': 291788.46, 'to_gold_cash': 800.0, 'carried_cash': 290988.46,
+             'reconciliation_entry': 'JE-2026-01234'}
           : null,
     };
 
@@ -143,6 +144,7 @@ void main() {
     expect(find.textContaining('418.25'), findsOneWidget);
     expect(find.textContaining('290,988.46'), findsOneWidget, reason: "the riyals carried waiting: the server's");
     expect(find.textContaining('1.913 جم'), findsOneWidget, reason: 'the customer opening as gold');
+    expect(find.textContaining('JE-2026-01234'), findsOneWidget, reason: "2026's differences entry");
     await tester.tap(find.text('عميل آجل'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));

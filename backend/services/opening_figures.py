@@ -15,6 +15,13 @@ on 31 Dec (ADR-063), decision 9 -- and the sales' riyals waiting then
 they no longer wait. The next year's queue starts from them
 (services/weight_position.opening_lot, decision 1: «تنتقل منتظرة بسعر الجرد»).
 
+TR-4: the approval writes 2026's differences from the figures in 2026 at the
+close (the owner, 7 Nov 2026: «في 2026 عند الإقفال»), onto the count's
+accounts («حسابا الجرد»): short to 5220, over to 450, in riyals and in
+grams -- 2026 closes on the figures, and 2027 opens on that closing
+(ADR-044's law). A customer opening as gold is refused until its entry is
+built (7 Nov: «يُؤجَّل»).
+
 The rows are the books': each asset or liability account holding a balance,
 its weight twin in its row -- so nothing is forgotten. What the count gives is
 not a row: the counted stock safes and the gold stock's value (the count at
@@ -111,7 +118,7 @@ def _section(account, by_id) -> str:
 
 def opening(year: int) -> dict:
     """The year's rows, its figures, what they differ by, and whether it is approved."""
-    from models import OpeningApproval, OpeningFigure, db
+    from models import JournalEntry, OpeningApproval, OpeningFigure, db
     from pricing.karat_service import convert_to_main_karat
     from services.weight_position import carried_cash
 
@@ -154,7 +161,9 @@ def opening(year: int) -> dict:
                 'closing_price': approval.closing_price, 'waiting_cash': approval.waiting_cash,
                 'to_gold_cash': approval.to_gold_cash,
                 'carried_cash': (carried_cash(approval.waiting_cash, approval.to_gold_cash)
-                                 if approval.closing_price else None)}}
+                                 if approval.closing_price else None),
+                'reconciliation_entry': (db.session.get(JournalEntry, approval.reconciliation_entry_id).entry_number
+                                         if approval.reconciliation_entry_id else None)}}
 
 
 def enter(year: int, account_id: int, *, cash, karats: dict, source: str, treatment, note, by: str, now):
@@ -206,6 +215,10 @@ def approve(year: int, *, by: str, now):
     missing = state['total'] - state['entered']
     if missing:
         raise OpeningRefused(f'{missing} حسابًا بلا رقم فعلي: لا يُعتمد الافتتاح قبل أن يُؤكَّد كل رقم')
+    as_gold = [r['name'] for r in state['rows'] if r.get('treatment') == 'gold']
+    if as_gold:
+        raise OpeningRefused('قيد تحويل نقد العميل إلى ذهب لم يُبنَ بعد (قرار المالك 7 نوفمبر: يُؤجَّل): '
+                             + '، '.join(as_gold) + ' — اجعله «نقد ينتظر التسكير» أو اطلب بناءه')
     day = count_day(year)
     price, _ = office_prices(day)(day)
     if not price:
@@ -220,8 +233,81 @@ def approve(year: int, *, by: str, now):
     # with nothing waiting (weight_position.opening_lot).
     for f in gold:
         f.gold_grams = round(f.actual_cash / price, 3)
+    entry = _write_differences(year, state['rows'], day=day, by=by, now=now)
     approval = OpeningApproval(year=year, approved_by=by, approved_at=now, count_day=day,
-                               closing_price=price, waiting_cash=waiting, to_gold_cash=to_gold)
+                               closing_price=price, waiting_cash=waiting, to_gold_cash=to_gold,
+                               reconciliation_entry_id=entry.id if entry is not None else None)
     db.session.add(approval)
     db.session.flush()
     return approval
+
+
+def _write_differences(year: int, rows: list, *, day, by: str, now):
+    """One entry on the count day's last minute: each row's figure less its
+    books onto its accounts -- the riyals on its own, the grams on its weight
+    twin -- and the other side on the count's: short to 5220, over to 450
+    (InventoryAccountingService, the count's roles). None when nothing differs."""
+    from accounting.mappings import get_account_id_for_mapping
+    from accounting.reference_number_service import generate_journal_entry_number
+    from dimensions_service import compute_line_analytics
+    from models import JournalEntry, JournalEntryLine, db
+    from pricing.karat_service import convert_to_main_karat
+    from services.inventory_accounting_service import ROLE_SHORTAGE, ROLE_SURPLUS, InventoryAccountingService
+    from services.repair.entries import write_safe_rows
+
+    rows_of, _, _ = _accounts()
+    specs = []
+    description = f'فروق مطابقة إقفال {year - 1} — أرقام افتتاح {year} المعتمدة'
+    roles = {}
+
+    def role(name, weight):
+        if (name, weight) not in roles:
+            if weight:
+                roles[(name, weight)] = InventoryAccountingService._weight_account(name)
+            else:
+                account_id = get_account_id_for_mapping('افتراضي', name)
+                if not account_id:
+                    raise OpeningRefused(f'حساب «{name}» غير مربوط في الربط المحاسبي: يُضبط قبل الاعتماد')
+                roles[(name, weight)] = account_id
+        return roles[(name, weight)]
+
+    def cash(account_id, amount):
+        return dict(account_id=account_id, description=description, **(
+            {'cash_debit': amount} if amount > 0 else {'cash_credit': -amount}))
+
+    def grams(account_id, karat, amount):
+        main = round(convert_to_main_karat(abs(amount), karat), 6)
+        return dict(account_id=account_id, description=description, **(
+            {f'debit_{karat}k': amount, 'debit_weight': main} if amount > 0
+            else {f'credit_{karat}k': -amount, 'credit_weight': main}))
+
+    for row in rows:
+        diff = row['difference'] or {}
+        own = row['account_id']
+        weight = next((i for i in rows_of.get(own, ()) if i != own), own)    # its twin, or itself
+        moved = round(diff.get('cash', 0.0), 2)
+        if abs(moved) >= 0.005:
+            specs.append(cash(own, moved))
+            specs.append(cash(role(ROLE_SURPLUS if moved > 0 else ROLE_SHORTAGE, False), -moved))
+        for k in KARATS:
+            moved = round(diff.get(str(k), 0.0), 3)
+            if abs(moved) >= 0.0005:
+                specs.append(grams(weight, k, moved))
+                specs.append(grams(role(ROLE_SURPLUS if moved > 0 else ROLE_SHORTAGE, True), k, -moved))
+    if not specs:
+        return None
+    when = dt.datetime.combine(day, dt.time(23, 59))
+    entry = JournalEntry(entry_number=generate_journal_entry_number('JE', entry_date=when), date=when,
+                         description=description, entry_type='عادي', reference_type='opening_reconciliation',
+                         reference_id=year, is_posted=True, is_draft=False, posted_at=now, posted_by=by,
+                         created_by=by)
+    db.session.add(entry)
+    db.session.flush()
+    for spec in specs:
+        line = JournalEntryLine(journal_entry_id=entry.id, **spec)
+        line.analytic_amount_cash, line.analytic_weight_24k, line.analytic_weight_main = \
+            compute_line_analytics(db.session, line)
+        db.session.add(line)
+    db.session.flush()
+    write_safe_rows(entry, specs, by, ref_type='opening_reconciliation')
+    return entry

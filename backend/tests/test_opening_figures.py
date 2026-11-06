@@ -29,6 +29,7 @@ from app import app as flask_app
 from auth_decorators import generate_token
 from models import Account, AppUser, Customer, GoldPrice, JournalEntry, JournalEntryLine, OpeningApproval, \
     OpeningFigure, Supplier, db
+from tests.test_stock_count import roles  # noqa: F401 -- the count's two roles, fenced
 from tests.test_stock_screens import _safe, _stock
 
 NOW = datetime(2026, 12, 31, 20, 0)
@@ -187,13 +188,12 @@ def _enter_all(customer_treatment='gold'):
               treatment=customer_treatment if row['party'] else None, note=None, by='m', now=NOW)
 
 
-def test_the_approval_freezes_the_count_day_price_the_waiting_riyals_and_a_customer_s_grams(books):
+def test_the_approval_freezes_the_count_day_price_and_the_waiting_riyals(books):
     """Decision 9: the closing price of the count day -- the office's last on
-    31 Dec -- frozen once, with the riyals waiting then; a customer opening as
-    gold owes his riyals at that price, and they no longer wait."""
+    31 Dec -- frozen once, with the riyals waiting then."""
     from services.opening_figures import approve
     from services.weight_position import _replayed, office_prices
-    _enter_all('gold')
+    _enter_all('waiting')
     approve(YEAR, by='owner', now=NOW)
     count_day = COUNT_DAY_CLOSE.date()
     price = office_prices(count_day)(count_day)[0]
@@ -202,14 +202,68 @@ def test_the_approval_freezes_the_count_day_price_the_waiting_riyals_and_a_custo
     assert price > 0 and approval.closing_price == pytest.approx(round(price, 4))
     assert approval.count_day == count_day
     assert approval.waiting_cash == pytest.approx(round(waiting, 2))
-    assert approval.to_gold_cash == pytest.approx(800.0), "the customer's riyals, turned to gold"
-    figure = OpeningFigure.query.filter_by(year=YEAR, account_id=books['customer'].id).one()
-    assert figure.gold_grams == pytest.approx(round(800.0 / approval.closing_price, 3))
-    supplier = OpeningFigure.query.filter_by(year=YEAR, account_id=books['supplier'].id).one()
-    assert supplier.gold_grams is None
+    assert approval.to_gold_cash == 0.0
+    state, _ = _rows()
+    assert state['approved']['carried_cash'] == max(round(approval.waiting_cash, 2), 0.0)
+
+
+def test_a_customer_opening_as_gold_is_refused_until_its_entry_is_built(books):
+    """The owner, 7 Nov 2026: «يُؤجَّل» -- turning a customer's riyals into
+    gold at the close needs an entry the system has none like; no customer
+    held cash on 5 Nov. Built if one does at the count; until then refused,
+    said, not written."""
+    from services.opening_figures import OpeningRefused, approve
+    _enter_all('gold')
+    with pytest.raises(OpeningRefused, match='لم يُبنَ'):
+        approve(YEAR, by='owner', now=NOW)
+    assert db.session.get(OpeningApproval, YEAR) is None
+
+
+def test_the_approval_writes_2026_s_differences_onto_the_count_s_accounts(books, roles):
+    """The owner, 7 Nov 2026: the differences in 2026 at the close («في 2026
+    عند الإقفال»), onto the count's accounts («حسابا الجرد»): what is found
+    short to 5220, over to 450, in riyals and in grams -- so 2026 closes on
+    the figures, and 2027 opens on its closing (ADR-044's law)."""
+    from datetime import time
+    from models import JournalEntry, JournalEntryLine
+    from services.inventory_accounting_service import InventoryAccountingService as IAS
+    from services.opening_figures import approve, count_day, enter
+    from accounting.mappings import get_account_id_for_mapping
+    _enter_all('waiting')
+    enter(YEAR, books['cash'].id, cash=4100, karats={}, source='statement', treatment=None, note='كشف البنك',
+          by='m', now=NOW)
+    enter(YEAR, books['supplier'].id, cash=-1500, karats={'24': -290.0}, source='reconciliation', treatment=None,
+          note='كشف المورد', by='m', now=NOW)
+    approve(YEAR, by='owner', now=NOW)
+    approval = db.session.get(OpeningApproval, YEAR)
+    entry = db.session.get(JournalEntry, approval.reconciliation_entry_id)
+    assert entry.date == datetime.combine(count_day(YEAR), time(23, 59)) and entry.is_posted
+    lines = JournalEntryLine.query.filter_by(journal_entry_id=entry.id).all()
+    shortage = get_account_id_for_mapping('افتراضي', 'inventory_count_shortage')
+    surplus_w = IAS._weight_account('inventory_count_surplus')
+
+    def net(account_id, col):
+        debit, credit = ('cash_debit', 'cash_credit') if col == 'cash' else (f'debit_{col}', f'credit_{col}')
+        return round(sum(float(getattr(l, debit) or 0) - float(getattr(l, credit) or 0)
+                         for l in lines if l.account_id == account_id), 3)
+    assert net(books['cash'].id, 'cash') == -37.0, 'the bank short 37'
+    assert net(shortage, 'cash') == 37.0, 'onto the loss'
+    assert net(books['twin'].id, '24k') == 0.3, 'the supplier owes 0.3 g less'
+    assert net(surplus_w, '24k') == -0.3, 'onto the surplus'
+    for debit, credit in (('cash_debit', 'cash_credit'), *((f'debit_{k}k', f'credit_{k}k') for k in (18, 21, 22, 24))):
+        assert round(sum(float(getattr(l, debit) or 0) - float(getattr(l, credit) or 0) for l in lines), 6) == 0, \
+            f'balanced in {debit}'
     state, rows = _rows()
-    assert rows[books['customer'].id]['gold_grams'] == figure.gold_grams
-    assert state['approved']['carried_cash'] == max(round(approval.waiting_cash - 800.0, 2), 0.0)
+    assert state['approved']['reconciliation_entry'] == entry.entry_number
+    assert rows[books['cash'].id]['books']['cash'] == 4100.0, '2026 closes on the figure'
+    assert state['difference'] == {'cash': 0.0, 'grams': 0.0}
+
+
+def test_nothing_differs_nothing_is_written(books):
+    from services.opening_figures import approve
+    _enter_all('waiting')
+    approve(YEAR, by='owner', now=NOW)
+    assert db.session.get(OpeningApproval, YEAR).reconciliation_entry_id is None
 
 
 def test_2027_s_queue_starts_with_2026_s_waiting_riyals_at_the_count_price(app, db_fence):

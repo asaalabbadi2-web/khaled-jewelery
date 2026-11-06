@@ -213,6 +213,12 @@ class _Header extends StatelessWidget {
                         '${formatAmount(opening.carriedCash ?? 0)} ريال',
                         style: TextStyle(color: tones.ready.onContainer),
                       ),
+                      Text(
+                        opening.reconciliationEntry == null
+                            ? 'لا فروق: أُقفلت ${opening.year - 1} على الأرقام كما هي'
+                            : 'فروق المطابقة قُيّدت في ${opening.year - 1} بالقيد ${opening.reconciliationEntry}',
+                        style: TextStyle(color: tones.ready.onContainer),
+                      ),
                       if ((opening.toGoldCash ?? 0).abs() >= 0.005)
                         Text(
                           'منها ذهبًا على العملاء: ${formatAmount(opening.toGoldCash!)} ريال',
