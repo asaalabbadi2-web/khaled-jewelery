@@ -261,7 +261,7 @@ def _skip(table, row, ex) -> bool:
     return False
 
 
-def carry_master_data(source_engine, *, opens_on) -> dict:
+def carry_master_data(source_engine, *, opens_on, accounts: '_Accounts | None' = None) -> dict:
     """The master data into the 2027 database, after its chart and roles:
     each row with its id, its accounts in 2027's, what does not move left
     out. *opens_on*: 2027's first day -- the gold's cost from it (ADR-042)."""
@@ -271,7 +271,7 @@ def carry_master_data(source_engine, *, opens_on) -> dict:
     new = numbering()
     carried, skipped = {}, {}
     with source_engine.connect() as conn:
-        accounts = _Accounts(conn)
+        accounts = accounts if accounts is not None else _Accounts(conn)     # shared with the opening (TR-4c)
         ex = _excluded(conn)
         # parents first, by the model's own dependencies (a supplier names its
         # safe, an employee his bonus rule)
@@ -333,3 +333,239 @@ def carry_waiting(source_engine, *, year: int) -> dict:
     db.session.flush()
     return {'count_day': row['count_day'], 'closing_price': row['closing_price'],
             'waiting_cash': row['waiting_cash'], 'to_gold_cash': row['to_gold_cash']}
+
+
+# ── TR-4c: 2027's opening entries from 2026's closing (ADR-044 decision 2) ──
+
+CARRY, FOLD, MIRROR, REFUSE = 'carry', 'fold', 'mirror', 'refuse'
+COLUMNS = ('cash', '18', '21', '22', '24')
+OPENING = 'opening'
+POOLS_SECTION = 'مخزنا الذهب: المشغول والكسر'
+
+
+def place(row, *, template: set, carried: set, mirrors: set) -> str:
+    """Where a 2026 account's closing balance goes in 2027: its own account
+    (CARRY), retained earnings (FOLD -- an income or expense; an equity
+    account 2027 left out, the owner, 6 Nov: 370 «يُترك»), or nowhere -- a
+    customer's gold mirror (MIRROR, CUSTGOLD-001: moved to the cost of sales
+    before 1 January) or an asset or liability with no place (REFUSE)."""
+    if row.id in mirrors:
+        return MIRROR
+    if row.type in ('Revenue', 'Expense'):
+        return FOLD
+    if row.account_number in template or row.id in carried:
+        return CARRY
+    if row.type == 'Equity':
+        return FOLD
+    return REFUSE
+
+
+def plan_opening(balances: dict, src: dict, *, template: set, carried: set, mirrors: set, target, retained: tuple,
+                 section_of) -> dict:
+    """The opening entries -- pure. *balances*: {2026 id: {'cash', '18'..'24'}}
+    at the close; *target*: 2026 id -> 2027 id; *retained*: 2027's (32, 732);
+    *section_of*: 2027 id -> its group. One entry a group, each balanced on
+    32 (riyals) and 732 (each karat). Refuses, by name, what has no place;
+    says, by figure, a karat the books do not balance in."""
+    from collections import defaultdict
+    cash_32, weight_732 = retained
+    refused, folded = [], defaultdict(float)
+    groups = defaultdict(lambda: defaultdict(lambda: defaultdict(float)))
+    books = defaultdict(float)
+    for old, held in balances.items():
+        held = {k: float(held.get(k, 0.0) or 0.0) for k in COLUMNS}
+        if all(abs(v) < (0.005 if k == 'cash' else 0.0005) for k, v in held.items()):
+            continue
+        for k, v in held.items():
+            books[k] += v
+        row = src[old]
+        where = place(row, template=template, carried=carried, mirrors=mirrors)
+        if where in (MIRROR, REFUSE):
+            refused.append(f'{row.account_number} «{row.name}»'
+                           + (' — ذهب عميل: يُنقل إلى تكلفة المبيعات قبل 1 يناير (CUSTGOLD-001)' if where == MIRROR
+                              else ' — أصل أو التزام بلا مكان في 2027'))
+            continue
+        new = target(old) if where == CARRY else None
+        if where == FOLD or new in retained:
+            for k, v in held.items():
+                folded[k] += v
+            continue
+        for k, v in held.items():
+            groups[section_of(new)][new][k] += v
+    if refused:
+        raise TransitionRefused('أرصدة لا مكان لها في افتتاح 2027: ' + '؛ '.join(sorted(refused)))
+    if abs(books['cash']) >= 0.005:
+        raise TransitionRefused(f'دفاتر الإقفال غير متوازنة نقدًا: {books["cash"]:,.2f}')
+
+    entries, opened = [], defaultdict(lambda: defaultdict(float))
+    for section in sorted(groups):
+        lines = []
+        rest = defaultdict(float)
+        for account_id, held in sorted(groups[section].items()):
+            line = {'account_id': account_id, **{k: round(v, 2 if k == 'cash' else 3)
+                                                 for k, v in held.items() if abs(v) >= 1e-9}}
+            lines.append(line)
+            for k in COLUMNS:          # the rest of the lines as they open, rounded -- not of the books
+                rest[k] -= line.get(k, 0.0)
+        if abs(rest['cash']) >= 0.005:
+            lines.append({'account_id': cash_32, 'cash': round(rest['cash'], 2)})
+        grams = {k: round(rest[k], 3) for k in COLUMNS[1:] if abs(rest[k]) >= 0.0005}
+        if grams:
+            lines.append({'account_id': weight_732, **grams})
+        for line in lines:
+            for k in COLUMNS:
+                if k in line:
+                    opened[line['account_id']][k] += line[k]
+        entries.append({'section': section, 'lines': lines})
+    return {
+        'entries': entries,
+        'opened': {i: {k: round(v, 2 if k == 'cash' else 3) for k, v in held.items() if abs(v) >= 1e-9}
+                   for i, held in opened.items()},
+        'retained': {k: round(v, 2 if k == 'cash' else 3) for k, v in folded.items() if abs(v) >= 1e-9},
+        # the books' karats -- 2026 balanced in the main karat, not karat by karat (22 Oct 2026); 732 took them
+        'karat_imbalance': {k: round(books[k], 3) for k in COLUMNS[1:] if abs(books[k]) >= 0.0005},
+    }
+
+
+_CLOSING_BALANCES = """
+    SELECT l.account_id, COALESCE(SUM(l.cash_debit - l.cash_credit), 0),
+           COALESCE(SUM(l.debit_18k - l.credit_18k), 0), COALESCE(SUM(l.debit_21k - l.credit_21k), 0),
+           COALESCE(SUM(l.debit_22k - l.credit_22k), 0), COALESCE(SUM(l.debit_24k - l.credit_24k), 0)
+    FROM journal_entry_line l JOIN journal_entry e ON e.id = l.journal_entry_id
+    WHERE NOT e.is_deleted AND NOT l.is_deleted AND e.is_posted AND NOT e.is_draft AND e.date < :until
+    GROUP BY l.account_id"""
+
+_CLOSING_ALLOCATIONS = """
+    SELECT l.account_id, a.karat, a.category_id, a.item_id, SUM(a.grams)
+    FROM stock_line_allocation a JOIN journal_entry_line l ON l.id = a.journal_entry_line_id
+         JOIN journal_entry e ON e.id = l.journal_entry_id
+    WHERE NOT e.is_deleted AND NOT l.is_deleted AND e.is_posted AND NOT e.is_draft AND e.date < :until
+    GROUP BY l.account_id, a.karat, a.category_id, a.item_id"""
+
+
+def _section_of(account_id) -> str:
+    """A 2027 account's group: the level-2 ancestor of its financial account
+    (a weight account by its pair) -- by the tree, not by its number."""
+    from models import Account, db
+    account = db.session.get(Account, account_id)
+    if account.tracks_weight and account.memo_account_id:
+        account = db.session.get(Account, account.memo_account_id) or account
+    chain = [account]
+    while chain[-1].parent_id:
+        chain.append(db.session.get(Account, chain[-1].parent_id))
+    return chain[-2].name if len(chain) >= 2 else chain[-1].name
+
+
+def write_opening(source_engine, *, year: int, accounts: _Accounts, by: str, now) -> dict:
+    """TR-4c: 2027's opening entries -- 2026's closing after its count, its
+    differences and its valuation (TR-4a, TR-4b), as it is: one entry a
+    group on the year's first moment, balanced on 32 / 732; the stock safes'
+    categories and pieces with them (ADR-045). Then each account is read
+    back against its closing; a difference refuses."""
+    from collections import defaultdict
+    from datetime import datetime
+    from sqlalchemy import text
+
+    from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, require_account
+    from models import Account, JournalEntryLine, db
+    from pricing.karat_service import convert_to_main_karat
+    from services.repair.entries import write_entry
+    from services.stock_ledger import _stock_safe_ids_by_account, allocate
+
+    until = datetime(year, 1, 1)
+    with source_engine.connect() as conn:
+        balances = {r[0]: dict(zip(COLUMNS, map(float, r[1:])))
+                    for r in conn.execute(text(_CLOSING_BALANCES), {'until': until})}
+        allocated = list(conn.execute(text(_CLOSING_ALLOCATIONS), {'until': until}))
+        root = conn.execute(text(
+            "SELECT a.memo_account_id FROM accounting_mapping m JOIN account a ON a.id = m.account_id "
+            "WHERE m.account_type = 'customer_receivables_root' AND m.is_active ORDER BY m.id LIMIT 1")).scalar()
+    children = defaultdict(set)
+    for row in accounts.src.values():
+        children[row.parent_id].add(row.id)
+    mirrors, todo = set(), [root] if root else []
+    while todo:                                     # the customers' weight twins: CUSTGOLD-001's mirror
+        i = todo.pop()
+        mirrors.add(i)
+        todo.extend(children.get(i, ()))
+
+    cash_32 = require_account(DEFAULT_MAPPING_OPERATION_TYPE, 'opening_balance_equity')
+    weight_732 = db.session.get(Account, cash_32).memo_account_id
+    if not weight_732:
+        raise TransitionRefused('الأرباح المحتجزة (32) بلا توأم وزني في شجرة 2027')
+    # both pools' gold and their value in one entry -- ADR-044: «الذهب في كل خزينة بالعيار بقيمة
+    # متوسط الافتتاح»; a pool's grams without its value is GOLD_MOVED_UNVALUED (the 5 Nov rehearsal)
+    from services.gold_cost import pool_accounts
+    pools = pool_accounts()
+    pooled = pools['worked'] | pools['scrap'] | pools['worked_value'] | pools['scrap_value']
+    plan = plan_opening(balances, accounts.src, template=set(accounts.new), carried=set(accounts.map),
+                        mirrors=mirrors, target=accounts.id, retained=(cash_32, weight_732),
+                        section_of=lambda i: POOLS_SECTION if i in pooled else _section_of(i))
+
+    # each stock safe's (karat) -> [(category, item, grams)] at the close, in 2027's accounts
+    stock = _stock_safe_ids_by_account()
+    parts = defaultdict(list)
+    for old, karat, category_id, item_id, grams in allocated:
+        new = accounts.map.get(old)
+        if new in stock and abs(float(grams or 0)) > 1e-6:
+            parts[(new, int(karat))].append((category_id, item_id, float(grams)))
+
+    def spec(account_id, column, amount, description):
+        if column == 'cash':
+            return {'account_id': account_id, 'description': description,
+                    **({'cash_debit': amount} if amount > 0 else {'cash_credit': -amount})}
+        main = round(convert_to_main_karat(abs(amount), int(column)), 6)
+        return {'account_id': account_id, 'description': description,
+                **({f'debit_{column}k': amount, 'debit_weight': main} if amount > 0
+                   else {f'credit_{column}k': -amount, 'credit_weight': main})}
+
+    written = []
+    for entry in plan['entries']:
+        description = f'افتتاح {year} — {entry["section"]} (ADR-044)'
+        specs, to_allocate = [], []
+        for line in entry['lines']:
+            for column in COLUMNS:
+                amount = line.get(column, 0.0)
+                if column == 'cash' or (line['account_id'], int(column)) not in parts:
+                    if abs(amount) >= (0.005 if column == 'cash' else 0.0005):
+                        specs.append(spec(line['account_id'], column, amount, description))
+                    continue
+                # a stock safe: what its categories hold over, and short, each its own line (the allocation law)
+                held = parts[(line['account_id'], int(column))]
+                over = sum(g for *_, g in held if g > 0)
+                short = sum(g for *_, g in held if g < 0)
+                rest = amount - over - short                      # unclassified
+                for total, sign in ((over + max(rest, 0.0), 1), (short + min(rest, 0.0), -1)):
+                    if abs(total) >= 0.0005:
+                        specs.append(spec(line['account_id'], column, round(total, 3), description))
+                        to_allocate.append((line['account_id'], int(column), sign,
+                                            [(c, i, g) for c, i, g in held if g * sign > 0]))
+        made = write_entry(date=until, description=description, reference_type=OPENING, reference_id=year,
+                           lines=specs, by=by, now=now, prefix='JE', safe_rows=True)
+        lines = JournalEntryLine.query.filter_by(journal_entry_id=made.id).all()
+        for account_id, karat, sign, held in to_allocate:
+            column = f'debit_{karat}k' if sign > 0 else f'credit_{karat}k'
+            line = next(l for l in lines if l.account_id == account_id and float(getattr(l, column) or 0) > 0)
+            for category_id, item_id, grams in held:
+                allocate(line, karat, category_id, round(grams, 3), now=now, item_id=item_id, by=by)
+        written.append(made.entry_number)
+
+    # read back: each account opened on its closing (ADR-044's law)
+    q = (db.session.query(JournalEntryLine.account_id,
+                          db.func.sum(JournalEntryLine.cash_debit - JournalEntryLine.cash_credit),
+                          *[db.func.sum(getattr(JournalEntryLine, f'debit_{k}k') - getattr(JournalEntryLine, f'credit_{k}k'))
+                            for k in COLUMNS[1:]])
+         .filter(JournalEntryLine.account_id.in_(list(plan['opened']) or [-1]))
+         .group_by(JournalEntryLine.account_id))
+    apart = []
+    for account_id, *sums in q:
+        got = dict(zip(COLUMNS, (float(v or 0) for v in sums)))
+        want = plan['opened'].get(account_id, {})
+        for k in COLUMNS:
+            if abs(got[k] - want.get(k, 0.0)) > (0.005 if k == 'cash' else 0.0005):
+                apart.append((account_id, k, want.get(k, 0.0), got[k]))
+    if apart:
+        raise TransitionRefused(f'الافتتاح لا يساوي الإقفال في {len(apart)} موضعًا: {apart[:5]}')
+    return {'entries': written, 'accounts': len(plan['opened']), 'retained': plan['retained'],
+            'karat_imbalance': plan['karat_imbalance'],
+            'categories': sum(len(v) for v in parts.values())}
