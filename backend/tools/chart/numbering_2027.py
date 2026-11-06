@@ -32,7 +32,11 @@ def is_weight(account: dict) -> bool:
     return account.get('transaction_type') == 'gold'
 
 
-def numbering(template: dict) -> dict:
+def numbering(template: dict, approved: dict | None = None) -> dict:
+    """*approved*: the table as the owner approved it -- its numbers never
+    move; an account added since takes the next number under its parent («الجديد
+    يأخذ الرقم التالي»). Without it, siblings keep the template's 2026 order."""
+    approved = approved or {}
     accounts = template['accounts']
     by = {a['account_number']: a for a in accounts}
     financial = [a for a in accounts if not is_weight(a)]
@@ -41,7 +45,10 @@ def numbering(template: dict) -> dict:
     for a in financial:
         kids.setdefault(a.get('parent_account_number') or None, []).append(a)
     for k in kids:
-        kids[k].sort(key=lambda a: (len(a['account_number']), a['account_number']))
+        # the approved first, in their approved order; the added after them
+        kids[k].sort(key=lambda a: (a['account_number'] not in approved,
+                                    approved.get(a['account_number'], ''),
+                                    len(a['account_number']), a['account_number']))
 
     def level(number):
         d, a = 1, by[number]
@@ -82,8 +89,10 @@ def numbering(template: dict) -> dict:
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
+    with open(TABLE, encoding='utf-8') as fh:
+        approved = json.load(fh)['old_to_new']
     with open(TEMPLATE, encoding='utf-8') as fh:
-        table = numbering(json.load(fh))
+        table = numbering(json.load(fh), approved=approved)
     if '--write' in argv:
         with open(TABLE, encoding='utf-8') as fh:
             doc = json.load(fh)

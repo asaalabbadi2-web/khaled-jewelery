@@ -110,7 +110,17 @@ def seed_chart_of_accounts_if_empty(db, file_path: str) -> int:
     if not path.exists():
         raise FileNotFoundError(f'COA seed file not found: {path}')
 
-    rows_raw = _load_accounts_rows(path)
+    created = seed_rows(db, _load_accounts_rows(path), created_by='coa_seed')
+    db.session.commit()
+    return created
+
+
+def seed_rows(db, rows_raw, *, created_by: str) -> int:
+    """The chart from its rows (number, parent number, twin number) into an
+    empty account table -- the caller commits. The 2027 transition imports its
+    renumbered template by it (ADR-044)."""
+    if Account.query.count() > 0:
+        raise ValueError('جدول الحسابات ليس فارغًا')
     rows = _normalize_rows(rows_raw)
 
     by_number: Dict[str, Account] = {}
@@ -149,7 +159,6 @@ def seed_chart_of_accounts_if_empty(db, file_path: str) -> int:
         memo_acc = by_number.get(memo_num)
         if not memo_acc:
             continue
-        link_accounts(by_number[r['account_number']], memo_acc, created_by='coa_seed')
-
-    db.session.commit()
+        link_accounts(by_number[r['account_number']], memo_acc, created_by=created_by)
+    db.session.flush()
     return len(rows)

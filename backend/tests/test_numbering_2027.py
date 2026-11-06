@@ -27,7 +27,25 @@ def _load():
 
 def test_the_approved_table_is_its_generators():
     template, table = _load()
-    assert table == numbering(template)
+    assert table == numbering(template, approved=table)
+
+
+def test_an_account_added_takes_the_next_number_and_no_approved_one_moves():
+    """«الجديد يأخذ الرقم التالي» (the owner's rule, 22 Oct 2026): the ten
+    accounts added on 6 Nov moved 21 approved ones (5410 52304 -> 52306) when
+    siblings were sorted by their 2026 number. The table as approved on 22 Oct
+    is the commit before them."""
+    import os
+    import subprocess
+    root = os.path.dirname(os.path.dirname(os.path.dirname(TABLE)))
+    approved = json.loads(subprocess.run(['git', 'show', 'b2bcd2639:docs/chart/numbering-2027.json'], cwd=root,
+                                         capture_output=True, text=True, check=True).stdout)['old_to_new']
+    _, table = _load()
+    assert {old: table[old] for old in approved} == approved, 'an approved number never moves'
+    for old in set(table) - set(approved):
+        siblings = [n for o, n in approved.items() if len(n) == len(table[old]) and n[:-1] and
+                    table[old].startswith(n[:len(n) - (3 if len(n) == 8 else 2 if len(n) == 5 else 1)])]
+        assert all(table[old] > n for n in siblings), (old, table[old])
 
 
 def test_every_account_once_and_no_number_twice():
