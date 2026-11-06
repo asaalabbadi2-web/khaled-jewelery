@@ -12,7 +12,8 @@ Run:
 """
 import pytest
 
-from services.transition_2027 import TransitionRefused, build_chart_and_roles, chart_rows, numbering, role_rows
+from services.transition_2027 import (TransitionRefused, build_chart_and_roles, chart_rows, child_number, numbering,
+                                     role_rows)
 
 LENGTH = {1: 1, 2: 2, 3: 3, 4: 5, 5: 8}
 KEPT = ('1330', '290', '450', '460', '5260', '5403', '270', '280', '5404', '5440001')
@@ -54,3 +55,21 @@ def test_a_role_goes_to_its_account_s_2027_number_or_is_said():
 def test_a_database_with_a_chart_is_not_built_into(app, db_fence):
     with pytest.raises(TransitionRefused, match='ليست فارغة'):
         build_chart_and_roles(source_engine=None)
+
+
+def test_a_party_takes_the_next_number_at_level_5_under_its_level_4_parent():
+    """TR-1b: a party's account, a custody's, a deposit's -- 8 digits under a 5."""
+    assert child_number('11201', ['11201001', '11201002'], weight=False) == '11201003'
+    assert child_number('11201', [], weight=False) == '11201001'
+    assert child_number('711305', ['711305001'], weight=True) == '711305002', "a weight one by its financial level"
+    with pytest.raises(TransitionRefused, match='المستوى الخامس'):
+        child_number('11302002', [], weight=False)
+
+
+def test_the_employees_custody_and_bonus_groups_are_level_4():
+    """The owner, 6 Nov 2026: «المجموعتان إلى المستوى 4», and the bonus
+    payables «إلى المستوى 4 مع ذمم الموظفين» -- each employee's account under
+    them at level 5."""
+    new = numbering()
+    assert (new['1310001'], new['1100001'], new['2310']) == ('11305', '11103', '23104')
+

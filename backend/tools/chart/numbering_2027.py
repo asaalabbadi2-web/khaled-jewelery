@@ -59,12 +59,23 @@ def numbering(template: dict, approved: dict | None = None) -> dict:
     new: dict = {}
 
     def walk(old, depth):
-        for i, a in enumerate(kids.get(old, []), start=1):
-            width = WIDTH[depth + 1]
-            if i >= 10 ** width:
-                raise ValueError(f'{old}: more children than level {depth + 1} holds')
-            new[a['account_number']] = new[old] + str(i).zfill(width)
-            walk(a['account_number'], depth + 1)
+        if not kids.get(old):
+            return
+        width = WIDTH[depth + 1]
+        taken = set()
+        for a in kids.get(old, []):
+            number = a['account_number']
+            fixed = approved.get(number)
+            if fixed and fixed[:-width] == new[old] and len(fixed) == len(new[old]) + width:
+                new[number] = fixed               # an approved number never moves
+            else:
+                # the next number after its siblings' («الجديد يأخذ الرقم التالي»)
+                i = max([int(n[-width:]) for n in taken] + [0]) + 1
+                if i >= 10 ** width:
+                    raise ValueError(f'{old}: more children than level {depth + 1} holds')
+                new[number] = new[old] + str(i).zfill(width)
+            taken.add(new[number])
+            walk(number, depth + 1)
 
     for root in kids[None]:
         new[root['account_number']] = root['account_number']

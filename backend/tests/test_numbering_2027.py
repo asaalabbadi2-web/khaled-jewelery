@@ -41,7 +41,12 @@ def test_an_account_added_takes_the_next_number_and_no_approved_one_moves():
     approved = json.loads(subprocess.run(['git', 'show', 'b2bcd2639:docs/chart/numbering-2027.json'], cwd=root,
                                          capture_output=True, text=True, check=True).stdout)['old_to_new']
     _, table = _load()
-    assert {old: table[old] for old in approved} == approved, 'an approved number never moves'
+    # the owner, 6 Nov 2026: the employees' custody groups to level 4, so each
+    # employee's custody is level 5 under them («المجموعتان إلى المستوى 4»)
+    # and the bonus payables beside the other employee payables («إلى المستوى 4
+    # مع ذمم الموظفين»)
+    moved = {'1310001': '11305', '71310001': '711305', '1100001': '11103', '2310': '23104'}
+    assert {old: table[old] for old in approved} == {**approved, **moved}, 'an approved number never moves'
     for old in set(table) - set(approved):
         siblings = [n for o, n in approved.items() if len(n) == len(table[old]) and n[:-1] and
                     table[old].startswith(n[:len(n) - (3 if len(n) == 8 else 2 if len(n) == 5 else 1)])]

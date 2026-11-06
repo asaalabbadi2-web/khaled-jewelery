@@ -1,4 +1,4 @@
-"""The 2027 database from 2026's closed one (ADR-044 phase 4) -- TR-1a: the chart and its roles.
+"""The 2027 database from 2026's closed one (ADR-044 phase 4) -- TR-1: the chart, its roles, the master data.
 
 services/transition_2027.py. The application runs on the 2027 database
 (DATABASE_URL): a new, empty database -- its tables are made as the
@@ -30,14 +30,18 @@ def main(argv=None):
 
     from app import app               # makes the 2027 database's tables on an empty one
     from models import db
-    from services.books_invariants import check_roles_not_mapped
-    from services.transition_2027 import build_chart_and_roles
+    from datetime import date
+
+    from services.books_invariants import CHECKS, check_roles_not_mapped
+    from services.transition_2027 import build_chart_and_roles, carry_master_data
 
     source = create_engine(args.source, execution_options={'postgresql_readonly': True})
     with app.app_context():
         try:
             report = build_chart_and_roles(source)
+            report.update(carry_master_data(source, opens_on=date(2027, 1, 1)))
             report['roles_not_mapped'] = [f.subject_key for f in check_roles_not_mapped()]
+            report['nightly_checks'] = {k: len(fn()) for k, fn in CHECKS.items()}
             if args.apply:
                 db.session.commit()
                 # alembic makes its table 32 wide; the head's name is longer --

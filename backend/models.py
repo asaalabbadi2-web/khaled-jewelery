@@ -2649,7 +2649,7 @@ class Settings(db.Model):
     
     # إعدادات أساسية
     main_karat = db.Column(db.Integer)   # none until chosen: nothing is weighed on a guess (20 Oct 2026)
-    currency_symbol = db.Column(db.String(10), default='ر.س')
+    currency_symbol = db.Column(db.String(20), default='ر.س')  # widened by expand_currency_symbol_length; «__SAR_NEW__» is 11
     manufacturing_wage_mode = db.Column(db.String(20), default='expense')  # expense | inventory
 
     # أرقام حسابات المكافآت القابلة للتخصيص (NULL = بحث تلقائي بالاسم)
