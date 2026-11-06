@@ -5,7 +5,15 @@ fact, from the count and the reconciliations, whatever 2026's books say; 6 Nov:
 the figures by «شاشة افتتاح في النظام», empty until confirmed («فارغة حتى
 تُؤكَّد»), entered by the manager and approved by the owner; a party's cash
 either opens as gold on the party at the closing price of the count day, or
-stays cash waiting to be closed («الاثنين معا»).
+stays cash waiting to be closed («الاثنين معا»). A supplier's does not: its
+wages closed when recorded (ADR-048), and it stays cash (7 Nov: «اذا ضل له
+اجور فتبقى نقديه ولا تسكر ذهب»).
+
+TR-3: the approval freezes the count day's closing price -- the office's last
+on 31 Dec (ADR-063), decision 9 -- and the sales' riyals waiting then
+(ADR-048); a customer opening as gold owes his riyals at that price, and
+they no longer wait. The next year's queue starts from them
+(services/weight_position.opening_lot, decision 1: «تنتقل منتظرة بسعر الجرد»).
 
 The rows are the books': each asset or liability account holding a balance,
 its weight twin in its row -- so nothing is forgotten. What the count gives is
@@ -16,11 +24,16 @@ Read by tools/transition_2027.py on the year's first day.
 """
 from __future__ import annotations
 
+import datetime as dt
+
 KARATS = (18, 21, 22, 24)
 SOURCES = {'count': 'عدّ', 'statement': 'كشف', 'reconciliation': 'مطابقة', 'acknowledgment': 'إقرار',
            'other': 'أخرى'}
 TREATMENTS = {'gold': 'ذهب على الطرف بسعر التسكير يوم الجرد', 'waiting': 'نقد ينتظر التسكير'}
-PARTY_ROLES = ('customer_accounts_parent', 'supplier_accounts_parent', 'office_accounts_parent')
+# Whose cash asks gold or waiting: a customer's only. A supplier's stays cash
+# (7 Nov 2026), and an office is a supplier, its account under the suppliers'
+# (office.supplier_id; 2100020 مكتب الديوان) -- its purchase closed the riyals.
+PARTY_ROLES = ('customer_accounts_parent',)
 
 
 class OpeningRefused(ValueError):
@@ -100,6 +113,7 @@ def opening(year: int) -> dict:
     """The year's rows, its figures, what they differ by, and whether it is approved."""
     from models import OpeningApproval, OpeningFigure, db
     from pricing.karat_service import convert_to_main_karat
+    from services.weight_position import carried_cash
 
     rows_of, accounts, parties = _accounts()
     books = _books(list(accounts))
@@ -118,12 +132,12 @@ def opening(year: int) -> dict:
         row = {'account_id': row_id, 'number': account.account_number, 'name': account.name,
                'section': _section(account, accounts), 'party': row_id in parties,
                'books': {'cash': round(held['cash'], 2), **{str(k): round(held[k], 3) for k in KARATS}},
-               'actual': None, 'difference': None}
+               'actual': None, 'difference': None, 'gold_grams': None}
         if figure is not None:
             actual = {'cash': figure.actual_cash, **{str(k): getattr(figure, f'actual_{k}k') for k in KARATS}}
             diff = {key: round(actual[key] - row['books'][key], 3) for key in actual}
             row.update(actual=actual, difference=diff, source=figure.source, treatment=figure.treatment,
-                       note=figure.note, entered_by=figure.entered_by,
+                       note=figure.note, entered_by=figure.entered_by, gold_grams=figure.gold_grams,
                        entered_at=figure.entered_at.isoformat() if figure.entered_at else None)
             totals['cash'] += diff['cash']
             totals['grams'] += sum(convert_to_main_karat(diff[str(k)], k) for k in KARATS)
@@ -134,8 +148,13 @@ def opening(year: int) -> dict:
             'entered': sum(1 for r in out if r['actual'] is not None), 'total': len(out),
             # what equity takes: the figures less the books (ADR-044: equity is the difference)
             'difference': {'cash': round(totals['cash'], 2), 'grams': round(totals['grams'], 3)},
-            'approved': None if approval is None else {'by': approval.approved_by,
-                                                      'at': approval.approved_at.isoformat()}}
+            'approved': None if approval is None else {
+                'by': approval.approved_by, 'at': approval.approved_at.isoformat(),
+                'count_day': approval.count_day.isoformat() if approval.count_day else None,
+                'closing_price': approval.closing_price, 'waiting_cash': approval.waiting_cash,
+                'to_gold_cash': approval.to_gold_cash,
+                'carried_cash': (carried_cash(approval.waiting_cash, approval.to_gold_cash)
+                                 if approval.closing_price else None)}}
 
 
 def enter(year: int, account_id: int, *, cash, karats: dict, source: str, treatment, note, by: str, now):
@@ -169,9 +188,17 @@ def enter(year: int, account_id: int, *, cash, karats: dict, source: str, treatm
     return figure
 
 
+def count_day(year: int) -> dt.date:
+    """The count: the last day of the year before (ADR-044, «جرد 31 ديسمبر»)."""
+    return dt.date(year - 1, 12, 31)
+
+
 def approve(year: int, *, by: str, now):
-    """The owner's approval: every row has its figure, then the year's figures lock."""
-    from models import OpeningApproval, db
+    """The owner's approval: every row has its figure, then the year's
+    figures lock -- and with them the count day's closing price, the riyals
+    waiting then, and each party opening as gold, in grams at that price."""
+    from models import OpeningApproval, OpeningFigure, db
+    from services.weight_position import _replayed, office_prices
 
     if db.session.get(OpeningApproval, year) is not None:
         raise OpeningRefused('الافتتاح معتمد من قبل')
@@ -179,7 +206,22 @@ def approve(year: int, *, by: str, now):
     missing = state['total'] - state['entered']
     if missing:
         raise OpeningRefused(f'{missing} حسابًا بلا رقم فعلي: لا يُعتمد الافتتاح قبل أن يُؤكَّد كل رقم')
-    approval = OpeningApproval(year=year, approved_by=by, approved_at=now)
+    day = count_day(year)
+    price, _ = office_prices(day)(day)
+    if not price:
+        raise OpeningRefused(f'لا سعر تسكير يوم الجرد {day}: لا يُعتمد الافتتاح بلا سعره')
+    price = round(price, 4)
+    waiting = round(sum(lot.cash_open for lot in _replayed(day).open_lots), 2)
+    gold = [f for f in OpeningFigure.query.filter_by(year=year, treatment='gold')]
+    to_gold = round(sum(f.actual_cash for f in gold), 2)
+    # More turned to gold than waits is no fault: a credit sale's riyals may
+    # have closed already from the cash in hand while the customer still owes
+    # them -- a closing past the queue, unmatched (ADR-048); the year starts
+    # with nothing waiting (weight_position.opening_lot).
+    for f in gold:
+        f.gold_grams = round(f.actual_cash / price, 3)
+    approval = OpeningApproval(year=year, approved_by=by, approved_at=now, count_day=day,
+                               closing_price=price, waiting_cash=waiting, to_gold_cash=to_gold)
     db.session.add(approval)
     db.session.flush()
     return approval

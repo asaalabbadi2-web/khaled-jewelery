@@ -339,6 +339,7 @@ def collect_events(start: dt.datetime, end: dt.datetime) -> Events:
             events.skipped[kind or '?'] += 1
 
     events.openings.extend(_gold_taken_from_salaries(start, end))
+    events.openings.extend(opening_lot(start, end))
 
     # The revenues and expenses gram profit counts (the owner's marks), when entered.
     revenue_ids, expense_ids = gram_profit_accounts()
@@ -371,6 +372,35 @@ def collect_events(start: dt.datetime, end: dt.datetime) -> Events:
         if amounts['expense'] > 0.005:
             events.closings.append(Closing(when, EXPENSE, amounts['expense']))
     return events
+
+
+def carried_cash(waiting_cash, to_gold_cash) -> float:
+    """The riyals a year starts with waiting: what waited at the count less
+    what customers opened as gold -- nothing below zero (a closing past the
+    queue is unmatched, ADR-048)."""
+    return max(round(float(waiting_cash or 0) - float(to_gold_cash or 0), 2), 0.0)
+
+
+def opening_lot(start: dt.datetime, end: dt.datetime) -> list:
+    """The year before's riyals still waiting, carried in at the count price
+    (ADR-044 decision 1: «تنتقل منتظرة بسعر الجرد»): one lot on the year's
+    first moment -- what waited at the count, less what customers opened as
+    gold -- priced at the count day's closing price, so nothing is
+    expected of it there; what comes after is this year's. Frozen on the
+    opening's approval (services/opening_figures.approve); read only when the
+    queue starts with the year."""
+    from models import OpeningApproval, db
+    first = year_start(start.date())
+    if not (start <= first <= end):
+        return []
+    approval = db.session.get(OpeningApproval, first.year)
+    if approval is None or not approval.closing_price:
+        return []
+    cash = carried_cash(approval.waiting_cash, approval.to_gold_cash)
+    if cash <= 0.005:
+        return []
+    price = float(approval.closing_price)
+    return [Lot(f'ريالات {first.year - 1} المنتظرة', first, cash, round(cash / price, 3), price)]
 
 
 def _gold_taken_from_salaries(start: dt.datetime, end: dt.datetime) -> list:

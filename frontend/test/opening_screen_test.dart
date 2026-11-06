@@ -1,10 +1,12 @@
 // TR-2 (ADR-044; the owner, 6 Nov 2026): the opening screen -- the books' rows
 // by their group, each figure empty until entered («فارغة حتى تُؤكَّد») with
 // its source; «مطابق للدفاتر» copies the books into it, still to be saved; a
-// party's cash asks gold at the closing price or cash waiting («الاثنين
-// معا»); what equity takes said on top. The manager enters, the owner
-// approves («المدير يُدخل، والمالك يعتمد»): the approval only once every row
-// has its figure; approved, nothing opens to edit.
+// customer's cash asks gold at the closing price or cash waiting («الاثنين
+// معا»), a supplier's stays cash (7 Nov); what equity takes said on top. The
+// manager enters, the owner approves («المدير يُدخل، والمالك يعتمد»): the
+// approval only once every row has its figure; approved, nothing opens to
+// edit, and it says the count day's closing price and the riyals carried
+// waiting, and a customer opening as gold in grams (TR-3).
 
 import 'dart:convert';
 
@@ -29,13 +31,13 @@ class _Auth extends AuthProvider {
 }
 
 Map<String, dynamic> _row(int id, String name, String section, Map<String, num> books,
-        {bool party = false, Map<String, num>? actual, String? source, String? treatment}) =>
+        {bool party = false, Map<String, num>? actual, String? source, String? treatment, num? goldGrams}) =>
     {
       'account_id': id, 'number': '$id', 'name': name, 'section': section, 'party': party,
       'books': {'cash': 0, '18': 0, '21': 0, '22': 0, '24': 0, ...books},
       'actual': actual == null ? null : {'cash': 0, '18': 0, '21': 0, '22': 0, '24': 0, ...actual},
       'difference': null, 'source': source, 'treatment': treatment, 'note': null,
-      'entered_by': actual == null ? null : 'masad', 'entered_at': null,
+      'entered_by': actual == null ? null : 'masad', 'entered_at': null, 'gold_grams': goldGrams,
     };
 
 Map<String, dynamic> _opening({bool approved = false, bool all = false}) => {
@@ -43,18 +45,21 @@ Map<String, dynamic> _opening({bool approved = false, bool all = false}) => {
       'rows': [
         _row(1, 'حساب بنكي مؤقت', 'النقدية والبنوك', {'cash': 4137},
             actual: {'cash': 4137}, source: 'statement'),
-        _row(2, 'مكتب ديوان الذهب', 'موردو الذهب المشغول', {'cash': -126648.25}, party: true,
-            actual: all ? {'cash': -126648.25} : null, source: all ? 'reconciliation' : null,
-            treatment: all ? 'waiting' : null),
-        _row(3, 'فنون الالماس', 'موردو الذهب المشغول', {'24': 290.3}, party: true,
-            actual: all ? {'24': 290.3} : null, source: all ? 'reconciliation' : null),
+        _row(2, 'عميل آجل', 'العملاء', {'cash': 800}, party: true,
+            actual: all ? {'cash': 800} : null, source: all ? 'acknowledgment' : null,
+            treatment: all ? 'gold' : null, goldGrams: approved ? 1.913 : null),
+        _row(3, 'فنون الالماس', 'موردو الذهب المشغول', {'cash': -1500, '24': 290.3},
+            actual: all ? {'cash': -1500, '24': 290.3} : null, source: all ? 'reconciliation' : null),
       ],
       'sources': {'count': 'عدّ', 'statement': 'كشف', 'reconciliation': 'مطابقة', 'acknowledgment': 'إقرار',
                   'other': 'أخرى'},
       'treatments': {'gold': 'ذهب على الطرف بسعر التسكير يوم الجرد', 'waiting': 'نقد ينتظر التسكير'},
       'entered': all ? 3 : 1, 'total': 3,
       'difference': {'cash': -37.0, 'grams': 0.0},
-      'approved': approved ? {'by': 'saleh', 'at': '2027-01-01T08:00:00'} : null,
+      'approved': approved
+          ? {'by': 'saleh', 'at': '2027-01-01T08:00:00', 'count_day': '2026-12-31', 'closing_price': 418.25,
+             'waiting_cash': 291788.46, 'to_gold_cash': 800.0, 'carried_cash': 290988.46}
+          : null,
     };
 
 final sent = <String>[];
@@ -92,22 +97,32 @@ void main() {
   testWidgets('the rows by their group, each figure empty until entered', (tester) async {
     await _open(tester, _opening());
     expect(find.text('النقدية والبنوك'), findsOneWidget);
+    expect(find.text('العملاء'), findsOneWidget);
     expect(find.text('موردو الذهب المشغول'), findsOneWidget);
     expect(find.text('لم يُدخل'), findsNWidgets(2));
     expect(find.textContaining('مُدخَل 1 من 3'), findsOneWidget);
     expect(find.textContaining('37.00'), findsWidgets, reason: 'what equity takes');
   });
 
-  testWidgets("a party's cash asks gold or waiting; «مطابق للدفاتر» fills it", (tester) async {
+  testWidgets("a supplier's cash is not asked: it stays cash", (tester) async {
     await _open(tester, _opening());
-    await tester.tap(find.text('مكتب ديوان الذهب'));
+    await tester.tap(find.text('فنون الالماس'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('مطابق للدفاتر'), findsOneWidget);
+    expect(find.text('نقد ينتظر التسكير'), findsNothing);
+  });
+
+  testWidgets("a customer's cash asks gold or waiting; «مطابق للدفاتر» fills it", (tester) async {
+    await _open(tester, _opening());
+    await tester.tap(find.text('عميل آجل'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.text('نقد ينتظر التسكير'), findsOneWidget);
     expect(find.text('ذهب على الطرف بسعر التسكير يوم الجرد'), findsOneWidget);
     await tester.tap(find.text('مطابق للدفاتر'));
     await tester.pump();
-    expect(find.byWidgetPredicate((w) => w is TextField && w.controller?.text == '-126648.25'), findsOneWidget);
+    expect(find.byWidgetPredicate((w) => w is TextField && w.controller?.text == '800.00'), findsOneWidget);
   });
 
   testWidgets('the manager enters; the owner approves once every row has its figure', (tester) async {
@@ -124,7 +139,11 @@ void main() {
   testWidgets('approved, it says who and nothing opens to edit', (tester) async {
     await _open(tester, _opening(approved: true, all: true));
     expect(find.textContaining('saleh'), findsOneWidget);
-    await tester.tap(find.text('مكتب ديوان الذهب'));
+    expect(find.textContaining('سعر التسكير يوم الجرد'), findsOneWidget);
+    expect(find.textContaining('418.25'), findsOneWidget);
+    expect(find.textContaining('290,988.46'), findsOneWidget, reason: "the riyals carried waiting: the server's");
+    expect(find.textContaining('1.913 جم'), findsOneWidget, reason: 'the customer opening as gold');
+    await tester.tap(find.text('عميل آجل'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.text('مطابق للدفاتر'), findsNothing);

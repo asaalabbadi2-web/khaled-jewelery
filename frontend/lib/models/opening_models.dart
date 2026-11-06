@@ -25,6 +25,10 @@ class OpeningRow {
   final String? note;
   final String? enteredBy;
 
+  /// A customer opening as gold: his riyals at the count day's closing
+  /// price, frozen on the approval (TR-3).
+  final double? goldGrams;
+
   const OpeningRow({
     required this.accountId,
     required this.number,
@@ -38,6 +42,7 @@ class OpeningRow {
     this.treatment,
     this.note,
     this.enteredBy,
+    this.goldGrams,
   });
 
   bool get entered => actual != null;
@@ -60,6 +65,7 @@ class OpeningRow {
     treatment: j['treatment'] as String?,
     note: j['note'] as String?,
     enteredBy: j['entered_by'] as String?,
+    goldGrams: (j['gold_grams'] as num?)?.toDouble(),
   );
 }
 
@@ -79,6 +85,17 @@ class Opening {
   final String? approvedBy;
   final DateTime? approvedAt;
 
+  /// Frozen on the approval (TR-3): the count day's closing price per gram of
+  /// the main karat, the sales' riyals waiting then, and of them what
+  /// customers opened as gold -- the next year's queue starts from them.
+  final String? countDay;
+  final double? closingPrice;
+  final double? waitingCash;
+  final double? toGoldCash;
+
+  /// What the year starts with waiting -- the server's (carried_cash).
+  final double? carriedCash;
+
   const Opening({
     required this.year,
     required this.rows,
@@ -90,6 +107,11 @@ class Opening {
     required this.differenceGrams,
     this.approvedBy,
     this.approvedAt,
+    this.countDay,
+    this.closingPrice,
+    this.waitingCash,
+    this.toGoldCash,
+    this.carriedCash,
   });
 
   bool get approved => approvedBy != null;
@@ -112,6 +134,11 @@ class Opening {
       approvedAt: approval == null
           ? null
           : DateTime.tryParse(approval['at'] as String),
+      countDay: approval?['count_day'] as String?,
+      closingPrice: (approval?['closing_price'] as num?)?.toDouble(),
+      waitingCash: (approval?['waiting_cash'] as num?)?.toDouble(),
+      toGoldCash: (approval?['to_gold_cash'] as num?)?.toDouble(),
+      carriedCash: (approval?['carried_cash'] as num?)?.toDouble(),
     );
   }
 }

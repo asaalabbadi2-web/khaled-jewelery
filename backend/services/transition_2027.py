@@ -312,3 +312,24 @@ def carry_master_data(source_engine, *, opens_on) -> dict:
                 db.session.execute(text(
                     f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), (SELECT MAX(id) FROM {table}))"))
     return {'carried': carried, 'skipped': skipped, 'accounts_made': accounts.created}
+
+
+def carry_waiting(source_engine, *, year: int) -> dict:
+    """TR-3: the year's approved opening into its database -- the count day's
+    closing price and the riyals waiting then, from which the year's queue
+    starts (services/weight_position.opening_lot). An opening not approved
+    does not open a year."""
+    from sqlalchemy import text
+    from models import OpeningApproval, db
+
+    with source_engine.connect() as conn:
+        row = conn.execute(text('SELECT * FROM opening_approval WHERE year = :y'), {'y': year}).mappings().first()
+    if row is None or not row['closing_price']:
+        raise TransitionRefused(f'افتتاح {year} لم يُعتمد في قاعدة {year - 1}: لا يُنقل ما لم يعتمده المالك')
+    if db.session.get(OpeningApproval, year) is not None:
+        raise TransitionRefused(f'افتتاح {year} في القاعدة الجديدة من قبل')
+    db.session.add(OpeningApproval(**{k: row[k] for k in ('year', 'approved_by', 'approved_at', 'count_day',
+                                                          'closing_price', 'waiting_cash', 'to_gold_cash')}))
+    db.session.flush()
+    return {'count_day': row['count_day'], 'closing_price': row['closing_price'],
+            'waiting_cash': row['waiting_cash'], 'to_gold_cash': row['to_gold_cash']}

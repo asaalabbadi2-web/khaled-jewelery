@@ -19,7 +19,12 @@ import '../widgets/confirm_financial_action.dart';
 /// source; a party's cash opens as gold at the closing price of the count day
 /// or stays cash waiting to be closed («الاثنين معا»). The manager enters, the
 /// owner approves («المدير يُدخل، والمالك يعتمد»), once every row has its
-/// figure; then nothing changes. What equity takes is the server's.
+/// figure; then nothing changes. What equity takes is the server's. A
+/// supplier's cash stays cash (7 Nov): the server says whose cash asks.
+///
+/// TR-3: approved, it says what the approval froze -- the count day's closing
+/// price, the riyals carried waiting into the year at it, and each customer
+/// opening as gold in grams.
 class OpeningScreen extends StatefulWidget {
   const OpeningScreen({super.key, required this.year});
   final int year;
@@ -187,11 +192,34 @@ class _Header extends StatelessWidget {
                   color: tones.ready.container,
                   borderRadius: BorderRadius.circular(AppRadius.control),
                 ),
-                child: Text(
-                  'معتمد: ${opening.approvedBy}'
-                  '${opening.approvedAt == null ? '' : ' · ${_day(opening.approvedAt!)}'}'
-                  ' — لا يُغيَّر رقم فيه',
-                  style: TextStyle(color: tones.ready.onContainer),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'معتمد: ${opening.approvedBy}'
+                      '${opening.approvedAt == null ? '' : ' · ${_day(opening.approvedAt!)}'}'
+                      ' — لا يُغيَّر رقم فيه',
+                      style: TextStyle(color: tones.ready.onContainer),
+                    ),
+                    if (opening.closingPrice != null) ...[
+                      const SizedBox(height: AppSpace.xs),
+                      Text(
+                        'سعر التسكير يوم الجرد ${opening.countDay ?? ''}: '
+                        '${formatAmount(opening.closingPrice!)} ريال للجرام',
+                        style: TextStyle(color: tones.ready.onContainer),
+                      ),
+                      Text(
+                        'تنتقل إلى ${opening.year} منتظرةً بسعره: '
+                        '${formatAmount(opening.carriedCash ?? 0)} ريال',
+                        style: TextStyle(color: tones.ready.onContainer),
+                      ),
+                      if ((opening.toGoldCash ?? 0).abs() >= 0.005)
+                        Text(
+                          'منها ذهبًا على العملاء: ${formatAmount(opening.toGoldCash!)} ريال',
+                          style: TextStyle(color: tones.ready.onContainer),
+                        ),
+                    ],
+                  ],
                 ),
               )
             else if (canApprove)
@@ -295,6 +323,8 @@ class _RowTile extends StatelessWidget {
                       '${row.enteredBy == null ? '' : ' · ${row.enteredBy}'}',
                       style: muted,
                     ),
+                  if (row.goldGrams != null)
+                    Text('ذهبًا عليه: ${formatGrams(row.goldGrams!)} جم بسعر الجرد', style: muted),
                 ],
               ),
             ),

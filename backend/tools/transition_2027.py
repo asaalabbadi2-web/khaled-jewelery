@@ -1,4 +1,4 @@
-"""The 2027 database from 2026's closed one (ADR-044 phase 4) -- TR-1: the chart, its roles, the master data.
+"""The 2027 database from 2026's closed one (ADR-044 phase 4) -- TR-1: the chart, its roles, the master data; TR-3: the approved opening's waiting riyals.
 
 services/transition_2027.py. The application runs on the 2027 database
 (DATABASE_URL): a new, empty database -- its tables are made as the
@@ -10,6 +10,8 @@ database (--source) is read through its own connection, never written.
     ... --apply --by <name>
 
 Dry run by default: everything is written, reported, then rolled back.
+An opening the owner has not approved in 2026's database does not open 2027
+(TR-3); a rehearsal before the approval says --without-opening.
 """
 import argparse
 import json
@@ -24,6 +26,8 @@ def main(argv=None):
     ap.add_argument('--source', required=True, help="2026's closed database URL (read only)")
     ap.add_argument('--apply', action='store_true', help='commit (default: dry run)')
     ap.add_argument('--by', default='transition_2027', help='who applies it (recorded)')
+    ap.add_argument('--without-opening', action='store_true',
+                    help='a rehearsal before the owner approves the opening: its waiting riyals not carried')
     args = ap.parse_args(argv)
 
     from sqlalchemy import create_engine
@@ -33,13 +37,15 @@ def main(argv=None):
     from datetime import date
 
     from services.books_invariants import CHECKS, check_roles_not_mapped
-    from services.transition_2027 import build_chart_and_roles, carry_master_data
+    from services.transition_2027 import build_chart_and_roles, carry_master_data, carry_waiting
 
     source = create_engine(args.source, execution_options={'postgresql_readonly': True})
     with app.app_context():
         try:
             report = build_chart_and_roles(source)
             report.update(carry_master_data(source, opens_on=date(2027, 1, 1)))
+            report['opening'] = ('not carried: a rehearsal before the approval' if args.without_opening
+                                 else carry_waiting(source, year=2027))
             report['roles_not_mapped'] = [f.subject_key for f in check_roles_not_mapped()]
             report['nightly_checks'] = {k: len(fn()) for k, fn in CHECKS.items()}
             if args.apply:

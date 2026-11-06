@@ -9,6 +9,14 @@ closed («الاثنين معا»). The figures less the books are what equity t
 manager enters, the owner approves («المدير يُدخل، والمالك يعتمد»): approved
 only once every row has its figure, then nothing changes.
 
+TR-3: a supplier's cash stays cash -- its wages closed when recorded (the
+owner, 7 Nov 2026: «اذا ضل له اجور فتبقى نقديه ولا تسكر ذهب»); a customer's
+or an office's asks gold or waiting. The approval freezes the count day's
+closing price (the office's last on 31 Dec, ADR-063) and the riyals waiting
+then (ADR-048); a party opening as gold takes its riyals at that price. 2027's
+queue starts with 2026's waiting riyals at the count price (decision 1:
+«تنتقل منتظرة بسعر الجرد»).
+
 Run:
     python -m pytest tests/test_opening_figures.py -v
 """
@@ -19,10 +27,12 @@ import pytest
 
 from app import app as flask_app
 from auth_decorators import generate_token
-from models import Account, AppUser, JournalEntry, JournalEntryLine, Supplier, db
+from models import Account, AppUser, Customer, GoldPrice, JournalEntry, JournalEntryLine, OpeningApproval, \
+    OpeningFigure, Supplier, db
 from tests.test_stock_screens import _safe, _stock
 
 NOW = datetime(2026, 12, 31, 20, 0)
+COUNT_DAY_CLOSE = datetime(2026, 12, 31, 23, 50)     # the day's last price
 YEAR = 2027
 
 
@@ -41,23 +51,29 @@ def _post(lines):
     db.session.flush()
 
 
-@pytest.fixture
-def books():
-    """A cash account with 4,137.00; a supplier owed 1,500.00 and 290.30 g of
-    24k on his twin; 250.00 on the suppliers' group itself; a counted
-    showroom safe with 10 g."""
-    from accounting.chart_tree import role_account_id
-    from party_account_service import ensure_supplier_accounts
-    # the suppliers' group under the liabilities, as on production (the test
-    # chart seeds 210 without a parent); fenced, undone after the test
-    suppliers = db.session.get(Account, role_account_id('supplier_payables_root'))
-    root = db.session.get(Account, role_account_id('liabilities_root'))
-    if suppliers.parent_id is None and suppliers.id != root.id:
-        suppliers.parent_id = root.id
-        twin, root_twin = db.session.get(Account, suppliers.memo_account_id), db.session.get(Account, root.memo_account_id)
+def _seat(account, root_id):
+    """The party's group under its root, as on production (the test chart
+    seeds the party groups without a parent); fenced, undone after the test."""
+    top = account
+    while top.parent_id:
+        top = db.session.get(Account, top.parent_id)
+    if top.id != root_id:
+        root = db.session.get(Account, root_id)
+        top.parent_id = root.id
+        twin, root_twin = db.session.get(Account, top.memo_account_id or -1), db.session.get(Account, root.memo_account_id or -1)
         if twin is not None and root_twin is not None and twin.parent_id is None:
             twin.parent_id = root_twin.id
     db.session.flush()
+
+
+@pytest.fixture
+def books():
+    """A cash account with 4,137.00; a supplier owed 1,500.00 and 290.30 g of
+    24k on his twin; a customer owing 800.00, and 250.00 on the customers'
+    group itself; a counted showroom safe with 10 g; the office's price on the
+    count day."""
+    from accounting.chart_tree import role_account_id
+    from party_account_service import ensure_customer_accounts, ensure_supplier_accounts
     cash = Account(account_number=f'1100{uuid.uuid4().int % 10**4:04d}', name='حساب بنكي مؤقت OP', type='Asset',
                    transaction_type='cash', parent_id=role_account_id('cash_root'))
     db.session.add(cash)
@@ -67,17 +83,28 @@ def books():
     ensure_supplier_accounts(supplier)
     db.session.flush()
     own = db.session.get(Account, supplier.account_id)
+    _seat(own, role_account_id('liabilities_root'))
     twin = db.session.get(Account, own.memo_account_id)
     other = Account(account_number=f'3{uuid.uuid4().int % 10**6:06d}', name='مقابل OP', type='Equity')
     db.session.add(other)
     db.session.flush()
     _post([(cash, {'cash_debit': 4137.0}), (own, {'cash_credit': 1500.0}), (other, {'cash_debit': -2637.0})])
     _post([(twin, {'credit_24k': 290.3}), (other, {'debit_24k': 290.3})])
-    group = db.session.get(Account, own.parent_id)
-    _post([(group, {'cash_credit': 250.0}), (other, {'cash_debit': 250.0})])
+    customer = Customer(customer_code=f'C-{uuid.uuid4().hex[:6]}', name=f'عميل افتتاح {uuid.uuid4().hex[:4]}')
+    db.session.add(customer)
+    db.session.flush()
+    ensure_customer_accounts(customer)
+    db.session.flush()
+    owing = db.session.get(Account, customer.account_id)
+    _seat(owing, role_account_id('assets_root'))
+    _post([(owing, {'cash_debit': 800.0}), (other, {'cash_credit': 800.0})])
+    group = db.session.get(Account, owing.parent_id)
+    _post([(group, {'cash_debit': 250.0}), (other, {'cash_credit': 250.0})])
     showroom = _safe('showroom')
     _stock(showroom, 10.0)
-    return {'cash': cash, 'supplier': own, 'twin': twin, 'group': group, 'showroom': showroom}
+    db.session.add(GoldPrice(price=4000.0, date=COUNT_DAY_CLOSE))
+    db.session.flush()
+    return {'cash': cash, 'supplier': own, 'twin': twin, 'group': group, 'customer': owing, 'showroom': showroom}
 
 
 def _rows():
@@ -92,7 +119,9 @@ def test_a_row_for_each_account_holding_a_balance_its_twin_in_its_row(books):
     assert cash['books']['cash'] == 4137.0 and cash['actual'] is None, 'empty until entered'
     supplier = rows[books['supplier'].id]
     assert (supplier['books']['cash'], supplier['books']['24']) == (-1500.0, -290.3)
-    assert supplier['party'] is True and books['twin'].id not in rows, 'the twin is in its row'
+    assert books['twin'].id not in rows, 'the twin is in its row'
+    assert supplier['party'] is False, "a supplier's cash stays cash: not asked gold or waiting"
+    assert rows[books['customer'].id]['party'] is True
     assert books['showroom'].account_id not in rows, 'the count gives it'
     assert rows[books['group'].id]['party'] is False, 'a group holding lines is a row, not a party (2100 on the copy)'
     assert state['entered'] < state['total']
@@ -106,15 +135,18 @@ def test_a_figure_has_its_source_two_places_and_a_party_s_cash_its_treatment(boo
         enter(YEAR, books['cash'].id, cash=4137.005, karats={}, source='statement', treatment=None, note=None,
               by='m', now=NOW)
     with pytest.raises(OpeningRefused, match='التسكير'):
-        enter(YEAR, books['supplier'].id, cash=-1500, karats={'24': -290.3}, source='reconciliation',
+        enter(YEAR, books['customer'].id, cash=800, karats={}, source='acknowledgment',
               treatment=None, note=None, by='m', now=NOW)
     enter(YEAR, books['cash'].id, cash=4100, karats={}, source='statement', treatment=None, note='كشف البنك',
           by='m', now=NOW)
     enter(YEAR, books['supplier'].id, cash=-1500, karats={'24': -290.3}, source='reconciliation',
           treatment='gold', note=None, by='m', now=NOW)
+    enter(YEAR, books['customer'].id, cash=800, karats={}, source='acknowledgment', treatment='gold', note=None,
+          by='m', now=NOW)
     state, rows = _rows()
     assert rows[books['cash'].id]['difference']['cash'] == -37.0
-    assert rows[books['supplier'].id]['treatment'] == 'gold'
+    assert rows[books['supplier'].id]['treatment'] is None, "a supplier's wages stay cash"
+    assert rows[books['customer'].id]['treatment'] == 'gold'
     assert state['difference']['cash'] == pytest.approx(-37.0), 'what equity takes'
 
 
@@ -143,3 +175,77 @@ def test_the_manager_enters_the_owner_approves(books):
                       json={'cash': 4137, 'source': 'statement'})
     assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
     assert client.post(f'/api/opening/{YEAR}/approve', headers=headers).status_code == 403
+
+
+def _enter_all(customer_treatment='gold'):
+    from services.opening_figures import enter
+    _, rows = _rows()
+    for row in rows.values():
+        b = row['books']
+        enter(YEAR, row['account_id'], cash=round(b['cash'], 2),
+              karats={k: round(b[k], 2) for k in ('18', '21', '22', '24')}, source='reconciliation',
+              treatment=customer_treatment if row['party'] else None, note=None, by='m', now=NOW)
+
+
+def test_the_approval_freezes_the_count_day_price_the_waiting_riyals_and_a_customer_s_grams(books):
+    """Decision 9: the closing price of the count day -- the office's last on
+    31 Dec -- frozen once, with the riyals waiting then; a customer opening as
+    gold owes his riyals at that price, and they no longer wait."""
+    from services.opening_figures import approve
+    from services.weight_position import _replayed, office_prices
+    _enter_all('gold')
+    approve(YEAR, by='owner', now=NOW)
+    count_day = COUNT_DAY_CLOSE.date()
+    price = office_prices(count_day)(count_day)[0]
+    waiting = sum(lot.cash_open for lot in _replayed(count_day).open_lots)
+    approval = db.session.get(OpeningApproval, YEAR)
+    assert price > 0 and approval.closing_price == pytest.approx(round(price, 4))
+    assert approval.count_day == count_day
+    assert approval.waiting_cash == pytest.approx(round(waiting, 2))
+    assert approval.to_gold_cash == pytest.approx(800.0), "the customer's riyals, turned to gold"
+    figure = OpeningFigure.query.filter_by(year=YEAR, account_id=books['customer'].id).one()
+    assert figure.gold_grams == pytest.approx(round(800.0 / approval.closing_price, 3))
+    supplier = OpeningFigure.query.filter_by(year=YEAR, account_id=books['supplier'].id).one()
+    assert supplier.gold_grams is None
+    state, rows = _rows()
+    assert rows[books['customer'].id]['gold_grams'] == figure.gold_grams
+    assert state['approved']['carried_cash'] == max(round(approval.waiting_cash - 800.0, 2), 0.0)
+
+
+def test_2027_s_queue_starts_with_2026_s_waiting_riyals_at_the_count_price(app, db_fence):
+    """Decision 1: «تنتقل منتظرة بسعر الجرد» -- one lot on the year's first
+    moment, its riyals what waited less what opened as gold, at the count
+    price: nothing expected of it at that price; only the year's start reads it."""
+    from datetime import date
+    from services.weight_position import collect_events, unrealized_parts
+    db.session.add(OpeningApproval(year=2041, approved_by='owner', approved_at=datetime(2041, 1, 1),
+                                   count_day=date(2040, 12, 31), closing_price=400.0, waiting_cash=10000.0,
+                                   to_gold_cash=2000.0))
+    db.session.flush()
+    events = collect_events(datetime(2041, 1, 1), datetime(2041, 12, 31, 23, 59))
+    lot = events.openings[0]
+    assert (lot.when, lot.cash, lot.grams, lot.price_at_sale) == (datetime(2041, 1, 1), 8000.0, 20.0, 400.0)
+    assert 'المنتظرة' in lot.ref
+    assert unrealized_parts([lot], 400.0) == (pytest.approx(0.0), pytest.approx(0.0))
+    later = collect_events(datetime(2041, 3, 1), datetime(2041, 12, 31, 23, 59))
+    assert not any('المنتظرة' in o.ref for o in later.openings)
+
+
+def test_more_turned_to_gold_than_waits_starts_the_year_with_nothing_waiting(app, db_fence):
+    """A credit sale's riyals may have closed from the cash in hand while
+    the customer still owes them: turning his debt to gold closes past the
+    queue -- unmatched (ADR-048), not a refusal."""
+    from datetime import date
+    from services.weight_position import collect_events
+    db.session.add(OpeningApproval(year=2043, approved_by='owner', approved_at=datetime(2043, 1, 1),
+                                   count_day=date(2042, 12, 31), closing_price=400.0, waiting_cash=500.0,
+                                   to_gold_cash=800.0))
+    db.session.flush()
+    events = collect_events(datetime(2043, 1, 1), datetime(2043, 12, 31, 23, 59))
+    assert not any('المنتظرة' in o.ref for o in events.openings)
+
+
+def test_the_transition_refuses_an_opening_not_approved(app, db_fence):
+    from services.transition_2027 import TransitionRefused, carry_waiting
+    with pytest.raises(TransitionRefused, match='لم يُعتمد'):
+        carry_waiting(db.engine, year=2042)

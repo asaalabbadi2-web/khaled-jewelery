@@ -6047,15 +6047,24 @@ class OpeningFigure(db.Model):
     note = db.Column(db.String(300), nullable=True)
     entered_by = db.Column(db.String(100), nullable=False)
     entered_at = db.Column(db.DateTime, nullable=False)
+    # TR-3: a party opening as gold -- its riyals at the count day's closing
+    # price, frozen on the approval
+    gold_grams = db.Column(db.Float, nullable=True)
 
 
 class OpeningApproval(db.Model):
-    """A year's opening, approved by the owner: its figures are locked."""
+    """A year's opening, approved by the owner: its figures are locked, and
+    with them (TR-3) the count day's closing price and the riyals waiting
+    then -- frozen (§13), the next year's queue starts from them."""
     __tablename__ = 'opening_approval'
 
     year = db.Column(db.Integer, primary_key=True)
     approved_by = db.Column(db.String(100), nullable=False)
     approved_at = db.Column(db.DateTime, nullable=False)
+    count_day = db.Column(db.Date, nullable=True)
+    closing_price = db.Column(db.Float, nullable=True)     # per gram of the main karat
+    waiting_cash = db.Column(db.Float, nullable=True)      # the sales' riyals waiting at the count day's end
+    to_gold_cash = db.Column(db.Float, nullable=True)      # of them, what customers opened as gold
 
 
 class InventoryCountSession(db.Model):
