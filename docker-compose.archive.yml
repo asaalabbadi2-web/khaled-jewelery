@@ -1,0 +1,57 @@
+# A closed year's archive, read only (ADR-044 phase 2).
+#
+# The owner, 12 Oct 2026: «نسخة ثانية من النظام للقراءة فقط برابط منفصل، على قاعدة
+# 2026 المقفلة»; 7 Nov: every user with his permissions, on port 8080 -- the
+# working year stays where it is, on port 80.
+#
+# The same images as production, its own project beside it: a backend on the
+# closed year's database, signed in as archive_reader (ops/archive/readonly_role.sql:
+# it reads everything and writes only the sign-in's own rows), with ARCHIVE_YEAR
+# set (every other write refused, the year said on every screen); the web image
+# on 8080. No scheduler: nothing fetched, checked or settled in a closed year.
+#
+# Run from production's folder (C:\Projects\khaledjewels), after the switch:
+#   docker compose -p khaledjewels-archive -f docker-compose.archive.yml --env-file .env.production up -d
+# .env.production then holds, besides IMAGE_TAG:
+#   ARCHIVE_YEAR=2026
+#   ARCHIVE_DATABASE_URL=postgresql://archive_reader:<password>@db:5432/<the closed year's database>
+#   ARCHIVE_JWT_SECRET_KEY=<its own secret: a working year's token opens nothing here>
+# MAIN_NETWORK: production's network, to reach its database (khaledjewels_default).
+
+name: khaledjewels-archive
+
+services:
+  archive-backend:
+    image: registry.gitlab.com/sasalabbadi/khaledjewels/backend:${IMAGE_TAG:-latest}
+    container_name: yasargold-archive-backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${ARCHIVE_DATABASE_URL:?the closed year's database, as archive_reader}
+      ARCHIVE_YEAR: ${ARCHIVE_YEAR:?the closed year}
+      JWT_SECRET_KEY: ${ARCHIVE_JWT_SECRET_KEY:?its own secret}
+      BYPASS_AUTH_FOR_DEVELOPMENT: "0"
+      YASAR_ENV: production
+      ALLOW_DANGEROUS_RESETS: "false"
+    networks:
+      # the web below finds it as «backend», as production's web finds its own --
+      # only here: on production's network it is archive-backend, never backend
+      archive:
+        aliases: [backend]
+      main: {}
+
+  archive-nginx:
+    image: registry.gitlab.com/sasalabbadi/khaledjewels/web:${IMAGE_TAG:-latest}
+    container_name: yasargold-archive-nginx
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - archive-backend
+    networks:
+      - archive
+
+networks:
+  archive: {}
+  main:
+    external: true
+    name: ${MAIN_NETWORK:-khaledjewels_default}

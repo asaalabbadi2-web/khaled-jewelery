@@ -56,9 +56,22 @@ class GoldCostingService:
         return config
 
     @staticmethod
+    def _read_config(costing_type: str = 'normal') -> InventoryCostingConfig:
+        """The row to read -- or, none yet, an unsaved one at zero: a reading
+        makes nothing (a closed year's archive writes nothing, ADR-044; the
+        averages a new row starts with are these zeros)."""
+        config = GoldCostingService._get_config(costing_type=costing_type, create_if_missing=False)
+        if config is not None:
+            return config
+        return InventoryCostingConfig(
+            costing_type=costing_type, costing_method='moving_average', current_avg_cost_per_gram=0.0,
+            avg_gold_price_per_gram=0.0, avg_manufacturing_per_gram=0.0, avg_total_cost_per_gram=0.0,
+            total_inventory_weight=0.0, total_gold_value=0.0, total_manufacturing_value=0.0)
+
+    @staticmethod
     def snapshot() -> AverageSnapshot:
         """Return the current average components for use on invoices."""
-        config = GoldCostingService._get_config()
+        config = GoldCostingService._read_config()
         return AverageSnapshot(
             avg_total=config.avg_total_cost_per_gram or 0.0,
             avg_gold=config.avg_gold_price_per_gram or 0.0,
@@ -67,8 +80,7 @@ class GoldCostingService:
 
     @staticmethod
     def config_dict() -> Dict[str, float]:
-        config = GoldCostingService._get_config()
-        return config.to_dict()
+        return GoldCostingService._read_config().to_dict()
 
     @staticmethod
     def update_config(costing_method: Optional[str] = None) -> Dict[str, float]:
@@ -200,7 +212,7 @@ class ScrapCostingService:
 
     @staticmethod
     def snapshot() -> AverageSnapshot:
-        config = ScrapCostingService._get_config()
+        config = GoldCostingService._read_config(ScrapCostingService.COSTING_TYPE)
         return AverageSnapshot(
             avg_total=config.avg_total_cost_per_gram or 0.0,
             avg_gold=config.avg_gold_price_per_gram or 0.0,
@@ -209,7 +221,7 @@ class ScrapCostingService:
 
     @staticmethod
     def config_dict() -> dict:
-        return ScrapCostingService._get_config().to_dict()
+        return GoldCostingService._read_config(ScrapCostingService.COSTING_TYPE).to_dict()
 
     @staticmethod
     def update_average_on_purchase(

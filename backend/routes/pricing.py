@@ -74,7 +74,9 @@ def get_gold_price():
     state = _market_state()
     closed = state is not None and state.is_open is False
     stale = not latest or (now - latest.date) > timedelta(minutes=5)
-    if (stale and not closed) or (closed and refresh_due(now)):
+    # a closed year's archive shows its own last price: nothing is fetched into it (ADR-044)
+    from services.fiscal_year import archive_year
+    if archive_year() is None and ((stale and not closed) or (closed and refresh_due(now))):
         try:
             outcome = refresh_gold_price(current_app._get_current_object(), fetch=lambda: fetch_gold_quote())
         except Exception as e:
@@ -346,7 +348,7 @@ def reset_gold_costing():
 # ---------------------------------------------------------------------------
 
 def _scrap_costing_snapshot_payload() -> dict:
-    config = ScrapCostingService._get_config()  # pylint: disable=protected-access
+    config = GoldCostingService._read_config(ScrapCostingService.COSTING_TYPE)  # pylint: disable=protected-access
     snapshot = ScrapCostingService.snapshot()
     return {
         'costing_type': 'scrap',

@@ -21,6 +21,7 @@ import 'api_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/change_password_screen.dart';
 import 'screens/initial_setup_screen.dart';
+import 'widgets/archive_banner.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -162,7 +163,8 @@ class _MyAppState extends State<MyApp> {
             );
           };
 
-          if (widget != null) return widget;
+          // a closed year's archive says so above every screen (ADR-044)
+          if (widget != null) return ArchiveBanner(child: widget);
           throw StateError('widget is null');
         },
 

@@ -350,6 +350,16 @@ def _ensure_cors_headers(response):
 		pass
 	return response
 
+# A closed year's archive writes nothing (ADR-044 phase 2): services/fiscal_year.
+@app.before_request
+def refuse_writes_in_the_archive():
+	from flask import request
+	from services.fiscal_year import archive_refusal
+	said = archive_refusal(request.method, request.path)
+	if said:
+		return jsonify({'error': 'archive_read_only', 'message': said}), 403
+
+
 # 🔓 تعطيل Authentication مؤقتاً لتطوير Flutter (اختياري)
 @app.before_request
 def bypass_auth_for_development():

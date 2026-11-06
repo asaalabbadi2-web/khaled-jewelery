@@ -1119,11 +1119,9 @@ def get_invoice_type_options():
 def get_payment_types():
     """جلب أنواع وسائل الدفع المتاحة (ديناميكي)"""
     try:
+        # a reading makes nothing (ADR-044: a closed year's archive writes nothing):
+        # the defaults are the start-up's (ensure_default_payment_types), not this
         payment_types = PaymentType.query.filter_by(is_active=True).order_by(PaymentType.sort_order).all()
-
-        if not payment_types:
-            ensure_default_payment_types()
-            payment_types = PaymentType.query.filter_by(is_active=True).order_by(PaymentType.sort_order).all()
         return jsonify([pt.to_dict() for pt in payment_types]), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500

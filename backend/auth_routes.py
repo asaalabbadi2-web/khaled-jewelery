@@ -1364,6 +1364,7 @@ def security_summary():
 @auth_bp.route('/auth/check-setup', methods=['GET'])
 def check_setup_status():
     """فحص ما إذا كان النظام بحاجة لإعداد مستخدم أولي"""
+    from services.fiscal_year import archive_year
     try:
         locked = bool(is_setup_locked())
 
@@ -1401,6 +1402,7 @@ def check_setup_status():
                     'min_length': 6,
                     'require_numbers': False,
                 },
+                'archive_year': archive_year(),
             }), 200
 
         return jsonify({
@@ -1408,6 +1410,8 @@ def check_setup_status():
             'needs_setup': False,
             'setup_locked': locked,
             'message': ('واجهة التهيئة مقفلة. احذف ملف .env.production لإعادة التهيئة.' if locked else None),
+            # a closed year's archive, read only (ADR-044): said before anyone signs in
+            'archive_year': archive_year(),
         }), 200
 
     except Exception as e:
