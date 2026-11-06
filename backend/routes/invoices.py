@@ -3702,6 +3702,9 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             }), 400
 
     # 🆕 Validation للمرتجعات
+    # the document's date, read once: the return's year rule and the invoice itself
+    requested_date = datetime.fromisoformat(data['date']) if data.get('date') else datetime.now()
+
     return_types = ['مرتجع بيع', 'مرتجع شراء', 'مرتجع شراء (مورد)']
     if invoice_type in return_types:
         original_invoice = None
@@ -3722,6 +3725,13 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             original_invoice = Invoice.query.get(data['original_invoice_id'])
             if not original_invoice:
                 return jsonify({'error': f'Original invoice with ID {data["original_invoice_id"]} not found'}), 404
+
+            # المرتجع لا يكون إلا لفاتورة من سنته (ADR-044، المالك 12 أكتوبر 2026)
+            from services.fiscal_year import ReturnOfAnotherYear, refuse_return_of_another_year
+            try:
+                refuse_return_of_another_year(original_invoice.date, requested_date)
+            except ReturnOfAnotherYear as refusal:
+                return jsonify({'error': 'return_of_another_year', 'message': str(refusal)}), 400
 
             # التحقق من تطابق العميل/المورد
             if invoice_type == 'مرتجع بيع' and original_invoice.invoice_type == 'بيع':
@@ -4591,7 +4601,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             employee_id=employee_id_for_invoice,
             branch_id=branch_id,
             office_id=office_id,
-            date=datetime.fromisoformat(data['date']) if data.get('date') else datetime.now(),
+            date=requested_date,
             total=_extract_float('total', 0.0),
             invoice_type=invoice_type,
             total_weight=_extract_float('total_weight', 0.0),
