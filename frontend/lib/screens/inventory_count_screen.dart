@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../api_service.dart';
 import '../models/inventory_models.dart';
 import '../models/safe_box_model.dart';
 import '../services/inventory_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/currency_utils.dart' show formatGrams;
+import '../utils/two_places.dart';
 import '../theme/app_semantic_colors.dart';
 
 /// The theme's colours (ADR-038): the scheme and the semantic tones.
@@ -34,12 +34,7 @@ String countLineLabel(CountLine line, {bool withLocation = true}) {
   return withLocation && line.safeBoxName != null ? '$category — ${line.safeBoxName}' : category;
 }
 
-/// A weight typed at two places at most -- the scale's and the invoices'
-/// (ADR-085; ADR-086 law 4); the server refuses a third.
-final twoPlaceGrams = TextInputFormatter.withFunction(
-  (oldValue, newValue) =>
-      RegExp(r'^\d*\.?\d{0,2}$').hasMatch(newValue.text) ? newValue : oldValue,
-);
+
 
 class InventoryCountScreen extends StatefulWidget {
   final int? sessionId;

@@ -79,6 +79,7 @@ import '../widgets/goal_achievement_celebration.dart';
 import '../widgets/goal_progress_ring.dart';
 import '../widgets/my_goal_card.dart';
 import 'inventory_balance_screen.dart';
+import 'opening_screen.dart';
 import 'gold_reservations_list_screen.dart';
 import 'safe_transfer_screen.dart';
 import 'accounting_mapping_screen_enhanced.dart';
@@ -1796,7 +1797,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     // ════════════════════════════════════════════════════════════════════════
     if (auth.hasPermission('accounts.view') ||
         auth.hasPermission('vouchers.view') ||
-        auth.hasPermission('journal.view')) {
+        auth.hasPermission('journal.view') ||
+        auth.hasPermission('opening.enter')) {
       addDivider();
       addSection(isAr ? 'المحاسبة' : 'Accounting', gold);
     }
@@ -1924,6 +1926,20 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           await Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const AccountsScreen(openOnTree: true)),
+          );
+        },
+      );
+    }
+    // TR-2 (ADR-044): 2027 opens in its own database from these figures
+    if (auth.hasPermission('opening.enter')) {
+      addDestination(
+        icon: Icons.fact_check_outlined,
+        title: isAr ? 'افتتاح 2027' : 'Opening 2027',
+        keywords: const ['افتتاح', 'أرصدة افتتاحية', 'السنة الجديدة'],
+        onSelected: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const OpeningScreen(year: 2027)),
           );
         },
       );

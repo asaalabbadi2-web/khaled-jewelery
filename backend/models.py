@@ -6025,6 +6025,39 @@ class InventoryBalance(db.Model):
         }
 
 
+class OpeningFigure(db.Model):
+    """A year's opening figure for one account (ADR-044, TR-2): what is there
+    in fact -- counted, from a statement, a reconciliation, an acknowledgment
+    -- beside the closing books. Empty until entered (the owner, 6 Nov 2026:
+    «فارغة حتى تُؤكَّد»); a party's cash says whether it opens as gold at the
+    closing price or stays cash waiting to be closed («الاثنين معا»)."""
+    __tablename__ = 'opening_figure'
+    __table_args__ = (db.UniqueConstraint('year', 'account_id', name='uq_opening_figure_year_account'),)
+
+    id = db.Column(db.Integer, primary_key=True)
+    year = db.Column(db.Integer, nullable=False, index=True)
+    account_id = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=False)
+    actual_cash = db.Column(db.Float, nullable=False, default=0.0)
+    actual_18k = db.Column(db.Float, nullable=False, default=0.0)
+    actual_21k = db.Column(db.Float, nullable=False, default=0.0)
+    actual_22k = db.Column(db.Float, nullable=False, default=0.0)
+    actual_24k = db.Column(db.Float, nullable=False, default=0.0)
+    source = db.Column(db.String(20), nullable=False)
+    treatment = db.Column(db.String(10), nullable=True)      # gold | waiting -- a party's cash
+    note = db.Column(db.String(300), nullable=True)
+    entered_by = db.Column(db.String(100), nullable=False)
+    entered_at = db.Column(db.DateTime, nullable=False)
+
+
+class OpeningApproval(db.Model):
+    """A year's opening, approved by the owner: its figures are locked."""
+    __tablename__ = 'opening_approval'
+
+    year = db.Column(db.Integer, primary_key=True)
+    approved_by = db.Column(db.String(100), nullable=False)
+    approved_at = db.Column(db.DateTime, nullable=False)
+
+
 class InventoryCountSession(db.Model):
     """A physical inventory count session scoped to a branch.
 

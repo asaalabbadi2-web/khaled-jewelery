@@ -119,6 +119,7 @@ from setup_routes import setup_bp  # 🆕 Setup wizard routes
 if _log_startup_imports:
 	print("DEBUG: Imported setup_bp blueprint")
 from inventory_routes import inventory_bp  # Inventory Engine API
+from opening_routes import opening_bp  # a new year's opening figures (ADR-044, TR-2)
 from internal_routes import internal_bp   # ERP Sync internal API (machine-to-machine only)
 if _log_startup_imports:
 	print("DEBUG: Imported inventory_bp blueprint")
@@ -462,6 +463,7 @@ app.register_blueprint(offices_bp)  # 🆕 تسجيل offices routes (has its ow
 app.register_blueprint(branches_bp)  # 🆕 تسجيل branches routes (has its own prefix /api/branches)
 app.register_blueprint(public_api, url_prefix='/api')  # 🆕 Public (unauthenticated) API
 app.register_blueprint(inventory_bp)               # Inventory Engine (/api/inventory/*)
+app.register_blueprint(opening_bp)                 # Opening figures (/api/opening/*)
 app.register_blueprint(pricing_bp, url_prefix='/api')    # Pricing domain (gold price + costing)
 app.register_blueprint(customers_bp, url_prefix='/api')  # Customers domain
 app.register_blueprint(suppliers_bp, url_prefix='/api')  # Suppliers domain
