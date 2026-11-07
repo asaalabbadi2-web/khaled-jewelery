@@ -58,6 +58,9 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
   int _corrFromKarat = 21;
   int _corrToKarat = 18;
   final _corrWeightController = TextEditingController();
+  // Casting and assay: the weight it came out at (8 Nov 2026); empty, the
+  // weight in.
+  final _corrWeightOutController = TextEditingController();
 
   final _amountCashController = TextEditingController();
 
@@ -107,6 +110,7 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
     _stones21kController.addListener(_onInputChanged);
     _stones18kController.addListener(_onInputChanged);
     _corrWeightController.addListener(_onInputChanged);
+    _corrWeightOutController.addListener(_onInputChanged);
     for (final k in _karats) {
       _weightOf(k).addListener(_fillStones);
       _stonesOf(k).addListener(() {
@@ -157,6 +161,7 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
     _stones21kController.dispose();
     _stones18kController.dispose();
     _corrWeightController.dispose();
+    _corrWeightOutController.dispose();
     _notesController.dispose();
     super.dispose();
   }
@@ -355,6 +360,12 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
     };
   }
 
+  /// The weight the casting came out at; null -- the weight in.
+  double? get _corrWeightOut {
+    final w = _parseDouble(_corrWeightOutController.text);
+    return w > 0 ? w : null;
+  }
+
   String? _corrOverdraftError() {
     if (_mode != 'karat_correction') return null;
     final weight = _parseDouble(_corrWeightController.text);
@@ -495,6 +506,11 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
             ltrIsolate('${_corrFromKarat}k → ${_corrToKarat}k'),
           ),
           (widget.isArabic ? 'الوزن' : 'Weight', _gramsText(weight)),
+          if (_corrWeightOut != null)
+            (
+              widget.isArabic ? 'الوزن الناتج' : 'Weight out',
+              _gramsText(_corrWeightOut!),
+            ),
         ],
       )) {
         return;
@@ -507,6 +523,7 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
           fromKarat: _corrFromKarat,
           toKarat: _corrToKarat,
           weight: weight,
+          weightOut: _corrWeightOut,
           notes: _notesController.text.trim().isNotEmpty
               ? _notesController.text.trim()
               : null,
@@ -516,6 +533,7 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
         setState(() {
           _fromSafeId = null;
           _corrWeightController.clear();
+          _corrWeightOutController.clear();
           _notesController.clear();
         });
         _announcePosted(
@@ -787,6 +805,7 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
         _amountCashController,
         for (final k in _karats) ...[_weightOf(k), _stonesOf(k)],
         _corrWeightController,
+        _corrWeightOutController,
         _notesController,
       ],
       child: AppDocumentShortcuts(
@@ -904,6 +923,7 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
         _stonesOf(k).clear();
       }
       _corrWeightController.clear();
+      _corrWeightOutController.clear();
       _extraKarats.clear();
       _stonesTyped.clear();
     });
@@ -1544,8 +1564,8 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
             Expanded(
               child: Text(
                 isAr
-                    ? 'لتصحيح عيار سُجِّل خطأً في الخزينة نفسها: الوزن لا يتغير، العيار وحده يتصحح.'
-                    : 'Fixes a karat recorded wrongly, in the same safe: the weight stays, only the karat changes.',
+                    ? 'لتصحيح عيار سُجِّل خطأً في الخزينة نفسها، أو لصبّ وتحليل: يخرج الوزن بعياره ويدخل الناتج بعياره، والفرق فرق نقاوة.'
+                    : 'Fixes a karat recorded wrongly, or records a casting and assay, in the same safe: the weight leaves at its karat, the result enters at its own, the difference is the purity\'s.',
                 style: _text.bodyMedium?.copyWith(color: info.onContainer),
               ),
             ),
@@ -1638,6 +1658,15 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
                   ),
                 ],
               ),
+              const SizedBox(height: AppSpace.md),
+              _gramsField(
+                key: const Key('correction-weight-out'),
+                controller: _corrWeightOutController,
+                label: isAr ? 'الوزن الناتج (اختياري)' : 'Weight out (optional)',
+                helper: isAr
+                    ? 'للصبّ والتحليل، إن تغيّر الوزن. فارغ: الوزن نفسه.'
+                    : 'For a casting and assay, if the weight changed. Empty: the same weight.',
+              ),
             ],
           ),
         ),
@@ -1727,8 +1756,10 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
         return amount > 0 ? '${_fmtCash(amount)} $_currency' : null;
       case 'karat_correction':
         final w = _parseDouble(_corrWeightController.text);
+        final out = _corrWeightOut;
         return w > 0
             ? '${ltrIsolate('${_corrFromKarat}k → ${_corrToKarat}k')} ${_fmtWeight(w)}'
+                  '${out != null ? ' → ${_fmtWeight(out)}' : ''}'
             : null;
       default:
         final parts = [

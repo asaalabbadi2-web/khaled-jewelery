@@ -244,6 +244,21 @@ void main() {
     expect(sent, isEmpty);
   });
 
+  testWidgets('a casting and assay sends the weight it came out at', (
+    tester,
+  ) async {
+    // 15 Sep 2026: 29.5 g of 18k cast and assayed 26.7 g of 21k, written by
+    // hand (8 Nov 2026: «تصحيح العيار» with its weight out).
+    final sent = await run(tester, 'karat_correction', () async {
+      await type(tester, 'correction-weight', '2');
+      await type(tester, 'correction-weight-out', '1.8');
+      await submitAndConfirm(tester);
+    });
+    final body = sent.single['body'] as Map<String, dynamic>;
+    expect(body['weight'], 2);
+    expect(body['weight_out'], 1.8);
+  });
+
   testWidgets('the karat correction asks first', (tester) async {
     final sent = await run(tester, 'karat_correction', () async {
       await type(tester, 'correction-weight', '2');

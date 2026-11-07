@@ -5310,12 +5310,15 @@ class ApiService {
     required int fromKarat,
     required int toKarat,
     required double weight,
+    // a casting and assay's weight out; null -- the weight in
+    double? weightOut,
     String? notes,
   }) async {
     final payload = <String, dynamic>{
       'from_karat': fromKarat,
       'to_karat': toKarat,
       'weight': weight,
+      if (weightOut != null) 'weight_out': weightOut,
       if (notes != null && notes.isNotEmpty) 'notes': notes,
     };
 

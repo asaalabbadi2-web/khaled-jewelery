@@ -15,6 +15,7 @@ from models import (
     Employee,
     Invoice,
     JournalEntry,
+    JournalEntryLine,
     PaymentMethod,
     SafeBox,
     SafeBoxTransaction,
@@ -1466,15 +1467,19 @@ def create_safe_box_transfer_voucher():
 @safe_boxes_bp.route('/safe-boxes/<int:safe_box_id>/correct-karat', methods=['POST'])
 @require_permission('safe_boxes.transfer')
 def correct_safe_box_karat(safe_box_id):
-    """تصحيح عيار خاطئ داخل نفس الخزينة الذهبية.
+    """تصحيح عيار داخل نفس الخزينة الذهبية، أو صبّ وتحليل.
 
-    يُنقَل وزن X غرام من عيار قديم (مسجَّل خطأً) إلى عيار صحيح
-    داخل نفس الخزينة، دون أي تحويل حسابي للوزن.
+    يخرج وزن X غرام من عيار، ويدخل الناتج بعيار آخر في الخزينة نفسها.
+    والناتج هو الوزن نفسه ما لم يُذكر غيره: الصبّ والتحليل يغيّران الوزن
+    والعيار معًا (8 نوفمبر 2026). والفرق فرق النقاوة: خالص الناتج ناقص
+    خالص الداخل، بالعيار الرئيسي، على «فرق نقاوة تصحيح العيار».
+    وفي خزينة الكسر يخرج «كسر» العيار القديم ويدخل «كسر» العيار الجديد.
 
     Body JSON:
-        - from_karat: int  (18 | 21 | 22 | 24)  — العيار الخاطئ المسجَّل
-        - to_karat:   int  (18 | 21 | 22 | 24)  — العيار الصحيح
-        - weight:     float  (غرام، موجب)
+        - from_karat: int  (18 | 21 | 22 | 24)  — العيار المسجَّل
+        - to_karat:   int  (18 | 21 | 22 | 24)  — العيار الصحيح أو الناتج
+        - weight:     float  (غرام، موجب)        — الوزن الداخل
+        - weight_out: float  (اختياري، موجب)     — الوزن الناتج؛ الافتراضي = weight
         - notes:      str  (اختياري)  — سبب التصحيح
     """
     data = request.get_json(silent=True) or {}
@@ -1499,6 +1504,16 @@ def correct_safe_box_karat(safe_box_id):
         weight = 0.0
     if weight <= 0:
         return jsonify({'error': 'invalid_weight'}), 400
+
+    weight_out = weight
+    if data.get('weight_out') not in (None, ''):
+        try:
+            weight_out = float(data.get('weight_out'))
+        except (TypeError, ValueError):
+            weight_out = 0.0
+        if weight_out <= 0:
+            return jsonify({'error': 'invalid_weight_out',
+                            'message': 'الوزن الناتج يجب أن يكون أكبر من صفر'}), 400
 
     notes = (data.get('notes') or '').strip() or None
 
@@ -1539,7 +1554,9 @@ def correct_safe_box_karat(safe_box_id):
             voucher_type='adjustment',
             date=voucher_dt,
             party_type=None,
-            description=f"تصحيح عيار: {from_karat}k → {to_karat}k ({weight:.3f} جم) — {safe.name}",
+            description=(f"تصحيح عيار: {from_karat}k → {to_karat}k ({weight:.3f} جم) — {safe.name}"
+                         if abs(weight_out - weight) < 1e-9 else
+                         f"صبّ وتحليل: {weight:.3f} جم {from_karat}k → {weight_out:.3f} جم {to_karat}k — {safe.name}"),
             amount_cash=0.0,
             amount_gold=round(weight, 4),
             reference_type='manual',
@@ -1552,13 +1569,13 @@ def correct_safe_box_karat(safe_box_id):
         db.session.flush()
 
         # قيد محاسبي: مدين بالعيار الجديد — دائن بالعيار القديم (نفس الحساب)
-        for lt, karat_val in (('debit', float(to_karat)), ('credit', float(from_karat))):
+        for lt, karat_val, grams in (('debit', float(to_karat), weight_out), ('credit', float(from_karat), weight)):
             db.session.add(VoucherAccountLine(
                 voucher_id=voucher.id,
                 account_id=safe.account_id,
                 line_type=lt,
                 amount_type='gold',
-                amount=weight,
+                amount=grams,
                 karat=karat_val,
             ))
         # The purity's difference (the owner, 22 Oct 2026: «فرق النقاوة إما فقد
@@ -1566,7 +1583,7 @@ def correct_safe_box_karat(safe_box_id):
         # found higher -- bought as a lower karat, assayed higher -- a weight
         # gained. Its role is mapped in «الربط المحاسبي» (SAFE-KARAT-001).
         main = float(get_main_karat())
-        purity = round(weight * (to_karat - from_karat) / main, 6)
+        purity = round((weight_out * to_karat - weight * from_karat) / main, 6)
         if abs(purity) > 1e-6:
             role = 'karat_correction_gain' if purity > 0 else 'karat_correction_loss'
             db.session.add(VoucherAccountLine(
@@ -1587,9 +1604,31 @@ def correct_safe_box_karat(safe_box_id):
         voucher.approved_by = created_by
         voucher.journal_entry_id = journal_entry.id
 
+        # In a scrap safe the scrap follows its karat: the karat in's scrap
+        # category leaves -- as much as it holds, the rest from «بلا تصنيف»,
+        # never below zero -- and the karat out's joins (8 Nov 2026). They fell
+        # «بلا تصنيف», the one left negative. Elsewhere unclassified, as before.
+        if safe.stock_location == 'scrap':
+            from services.categories import scrap_category
+            from services.stock_ledger import spread, stock_balances
+            on_safe = (JournalEntryLine.query.filter_by(journal_entry_id=journal_entry.id, account_id=safe.account_id)
+                       .order_by(JournalEntryLine.id).all())
+            leaving, joining = scrap_category(from_karat), scrap_category(to_karat)
+            if leaving is not None:
+                held = sum(r['grams'] for r in stock_balances() if r['safe_box_id'] == safe.id
+                           and r['karat'] == from_karat and r['category_id'] == leaving.id)
+                # held counts this entry's own line, unallocated: before it
+                take = min(weight, max(round(held, 6), 0.0))
+                if take > 0:
+                    spread(on_safe, from_karat, [(leaving.id, None, take)], now=voucher_dt, by=created_by,
+                           what=f'تصحيح العيار {voucher_number}')
+            if joining is not None:
+                spread(on_safe, to_karat, [(joining.id, None, weight_out)], now=voucher_dt, by=created_by,
+                       what=f'تصحيح العيار {voucher_number}')
+
         # حركتان في ledger الخزينة: خروج من العيار القديم، دخول للعيار الجديد
         kw_out = {'amount_cash': 0.0, from_col: round(weight, 6)}
-        kw_in  = {'amount_cash': 0.0, f'weight_{to_karat}k': round(weight, 6)}
+        kw_in  = {'amount_cash': 0.0, f'weight_{to_karat}k': round(weight_out, 6)}
 
         db.session.add(SafeBoxTransaction(
             safe_box_id=safe_box_id,
@@ -1621,6 +1660,7 @@ def correct_safe_box_karat(safe_box_id):
                 'from_karat': from_karat,
                 'to_karat': to_karat,
                 'weight': round(weight, 3),
+                'weight_out': round(weight_out, 3),
             },
         }), 201
 
