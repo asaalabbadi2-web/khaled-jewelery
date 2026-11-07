@@ -34,12 +34,11 @@ def test_an_account_added_takes_the_next_number_and_no_approved_one_moves():
     """«الجديد يأخذ الرقم التالي» (the owner's rule, 22 Oct 2026): the ten
     accounts added on 6 Nov moved 21 approved ones (5410 52304 -> 52306) when
     siblings were sorted by their 2026 number. The table as approved on 22 Oct
-    is the commit before them."""
+    is the commit before them (b2bcd2639), frozen beside this test: CI's image
+    has no git to read it from history."""
     import os
-    import subprocess
-    root = os.path.dirname(os.path.dirname(os.path.dirname(TABLE)))
-    approved = json.loads(subprocess.run(['git', 'show', 'b2bcd2639:docs/chart/numbering-2027.json'], cwd=root,
-                                         capture_output=True, text=True, check=True).stdout)['old_to_new']
+    with open(os.path.join(os.path.dirname(__file__), 'numbering_2027_approved.json'), encoding='utf-8') as fh:
+        approved = json.load(fh)['old_to_new']
     _, table = _load()
     # the owner, 6 Nov 2026: the employees' custody groups to level 4, so each
     # employee's custody is level 5 under them («المجموعتان إلى المستوى 4»)
