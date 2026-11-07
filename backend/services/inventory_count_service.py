@@ -26,6 +26,8 @@ Close policy:
         catalogue's categories are listed at zero where nothing is held.
     session_type='periodic': partial close with force=True (a piece at the
         jeweller is still ours, «عند الصائغ»).
+    Either: a line whose books are negative (a transfer's trace, not gold) is
+        counted zero at close, never left as the books (8 Nov 2026).
 """
 from __future__ import annotations
 
@@ -231,6 +233,14 @@ class InventoryCountService:
         if session.status not in ('open', 'counting'):
             raise ValueError(f'لا يمكن إغلاق جلسة بحالة: {session.status}')
         session_type = session.session_type or 'periodic'
+        # A category's negative balance is a transfer's trace, not gold (8 Nov
+        # 2026): left «as the books» it wrote a phantom shortage. Counted zero.
+        for ln in InventoryCountLine.query.filter_by(session_id=session.id).filter(
+                InventoryCountLine.counted_weight.is_(None), InventoryCountLine.expected_weight < 0).all():
+            ln.counted_weight = 0.0
+            ln.variance = round(0.0 - float(ln.expected_weight), 4)
+            ln.counted_at = now
+        db.session.flush()
         uncounted_q = InventoryCountLine.query.filter_by(session_id=session.id).filter(
             InventoryCountLine.counted_weight.is_(None))
         uncounted = uncounted_q.count()
