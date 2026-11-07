@@ -8,6 +8,7 @@ Endpoints:
     GET  /count/<id>               تفاصيل جلسة + سطورها
     PUT  /count/<id>/entry         تسجيل عدّ فعلي لسطر
     POST /count/<id>/close         إغلاق الجلسة (تحضير للاعتماد)
+    POST /count/<id>/return        رفض العدّ: إعادة جلسة مغلقة إلى العدّ بسبب
     POST /count/<id>/approve       اعتماد الجلسة + قيد فروق الجرد في الدفاتر
     POST /count/<id>/cancel        إلغاء جلسة مفتوحة
     GET  /adjustment-reasons       أسباب فروق الجرد المقننة
@@ -20,7 +21,7 @@ retired with it (ADR-045 C3): a difference is a count, and a count is an entry.
 Permissions:
     inventory.view    → GET  balance, balance/summary, count, count/<id>, adjustment-reasons
     inventory.count   → POST count, PUT entry, POST close, POST cancel
-    inventory.approve → POST approve, GET reconciliation, GET health
+    inventory.approve → POST approve, POST return, GET reconciliation, GET health
 """
 from __future__ import annotations
 
@@ -28,7 +29,7 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify, g
 
 from auth_decorators import require_permission
-from models import db, Category, InventoryCountLine, InventoryCountSession, SafeBox
+from models import db, Category, InventoryCountLine, InventoryCountReturn, InventoryCountSession, SafeBox
 
 # ── Adjustment reason codes ───────────────────────────────────────────────────
 # Source of truth for the coded reason list.  Flutter reads this via
@@ -302,6 +303,29 @@ def get_adjustment_reasons():
     return jsonify(ADJUSTMENT_REASONS), 200
 
 
+@inventory_bp.route('/count/<int:session_id>/return', methods=['POST'])
+@require_permission('inventory.approve')
+def return_count_session(session_id: int):
+    """رفض العدّ: جلسة مغلقة ترجع «قيد العدّ» بأسطرها (المالك، 8 نوفمبر 2026، الخيار أ).
+
+    Body (JSON): reason (str, required). لا يُكتب قيد.
+    """
+    from services.inventory_count_service import InventoryCountService
+
+    s = InventoryCountSession.query.with_for_update().get(session_id)
+    if s is None:
+        return _err('جلسة الجرد غير موجودة', 404)
+    data = request.get_json(silent=True) or {}
+    try:
+        InventoryCountService.return_session(s, returned_by=_current_user(), reason=data.get('reason') or '',
+                                             now=datetime.now())
+        db.session.commit()
+        return jsonify(_session_detail(s)), 200
+    except ValueError as e:
+        db.session.rollback()
+        return _err(str(e))
+
+
 @inventory_bp.route('/count/<int:session_id>/approve', methods=['POST'])
 @require_permission('inventory.approve')
 def approve_count_session(session_id: int):
@@ -392,7 +416,13 @@ def _session_detail(s) -> dict:
     summary = _session_summary(s)
     reveal = _should_reveal_expected(s)
     is_opening = getattr(s, 'session_type', 'periodic') == 'opening'
-    summary['lines'] = [_count_line(ln, reveal_expected=reveal, is_opening=is_opening) for ln in s.lines]
+    returns = (InventoryCountReturn.query.filter_by(session_id=s.id)
+               .order_by(InventoryCountReturn.returned_at.desc(), InventoryCountReturn.id.desc()).all())
+    last = returns[0].counts if returns else None
+    summary['lines'] = [_count_line(ln, reveal_expected=reveal, is_opening=is_opening, returned=last)
+                        for ln in s.lines]
+    summary['returns'] = [{'by': r.returned_by, 'at': r.returned_at.isoformat(), 'reason': r.reason}
+                          for r in returns]
     # each karat's books against the counted, once the count may be compared (ADR-086)
     from services.inventory_count_service import InventoryCountService
     summary['by_karat'] = InventoryCountService.karat_review(s) if reveal else None
@@ -406,7 +436,7 @@ def _safe_box_name(safe_box_id):
     return box.name if box else None
 
 
-def _count_line(ln, reveal_expected: bool = False, is_opening: bool = False) -> dict:
+def _count_line(ln, reveal_expected: bool = False, is_opening: bool = False, returned: dict | None = None) -> dict:
     """Serialise a count line.
 
     Defaults to reveal_expected=False (fail-secure).
@@ -431,6 +461,9 @@ def _count_line(ln, reveal_expected: bool = False, is_opening: bool = False) -> 
         'counted_by':       ln.counted_by,
         'counted_at':       ln.counted_at.isoformat() if ln.counted_at else None,
         'notes':            ln.notes,
+        # its count when the approver last sent the session back (رفض العدّ), or
+        # absent -- never returned
+        **({'count_before_return': returned.get(str(ln.id))} if returned is not None else {}),
     }
 
 

@@ -198,6 +198,66 @@ void main() {
     );
   });
 
+  testWidgets('«رفض العدّ»: a closed count goes back to counting, and why', (
+    tester,
+  ) async {
+    final sent = <String>[];
+    Object answer(http.Request r) {
+      if (r.method != 'POST') return _session(status: 'closed');
+      sent.add('${r.url.path} ${r.body}');
+      final back = _session();
+      back['returns'] = [
+        {'by': 'saleh', 'at': '2026-12-31T19:00:00', 'reason': 'أعد عدّ الأطقم'},
+      ];
+      final lines = back['lines'] as List;
+      (lines[0] as Map)['count_before_return'] = 97.0; // 98.5 now
+      (lines[1] as Map)['counted_weight'] = 0; // all counted: the first line in focus
+      return back;
+    }
+
+    Future<void> settle() async {
+      for (var i = 0; i < 8; i++) {
+        await tester.runAsync(
+          () => Future.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+    }
+
+    await _pump(tester, const InventoryCountScreen(sessionId: 7), answer);
+    // the dialog's answer is awaited in the tap's zone: the whole walk in the mock's
+    await http.runWithClient(() async {
+      await tester.tap(find.text('رفض العدّ'));
+      await tester.pump(const Duration(milliseconds: 300));
+      final reject = find.widgetWithText(ElevatedButton, 'رفض العدّ');
+      expect(
+        tester.widget<ElevatedButton>(reject).onPressed,
+        isNull,
+        reason: 'never without a reason',
+      );
+      await tester.enterText(find.byType(TextField).last, 'أعد عدّ الأطقم');
+      await tester.pump();
+      await tester.tap(reject);
+      await settle();
+    }, () => MockClient((r) async => http.Response(
+      jsonEncode(answer(r)),
+      200,
+      headers: {'content-type': 'application/json; charset=utf-8'},
+    )));
+    expect(sent.single, contains('/inventory/count/7/return'));
+    expect(sent.single, contains('أعد عدّ الأطقم'));
+    expect(
+      find.textContaining('رُفض العدّ (saleh): أعد عدّ الأطقم'),
+      findsOneWidget,
+    );
+    expect(find.text('اعتماد الجرد'), findsNothing, reason: 'counting again');
+    expect(
+      find.textContaining('قبل الرفض: 97.00'),
+      findsOneWidget,
+      reason: 'the line whose count changed since',
+    );
+  });
+
   testWidgets('the count lays out on a phone', (tester) async {
     await _pump(
       tester,
@@ -206,6 +266,18 @@ void main() {
       width: 390,
     );
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('closed, its two buttons lay out on a phone', (tester) async {
+    await _pump(
+      tester,
+      const InventoryCountScreen(sessionId: 7),
+      (r) => _session(status: 'closed'),
+      width: 390,
+    );
+    expect(tester.takeException(), isNull);
+    expect(find.text('رفض العدّ'), findsOneWidget);
+    expect(find.text('اعتماد الجرد'), findsOneWidget);
   });
 
   testWidgets("the stock screen says an open count's progress", (tester) async {

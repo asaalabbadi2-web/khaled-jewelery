@@ -7,6 +7,7 @@ import '../theme/app_theme.dart';
 import '../utils/currency_utils.dart' show formatGrams;
 import '../utils/two_places.dart';
 import '../theme/app_semantic_colors.dart';
+import '../widgets/app_feedback.dart';
 
 /// The theme's colours (ADR-038): the scheme and the semantic tones.
 ColorScheme _cs(BuildContext context) => Theme.of(context).colorScheme;
@@ -417,6 +418,73 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
           SnackBar(content: Text(e.message), backgroundColor: _cs(context).error),
         );
       }
+    }
+  }
+
+  // ── Return to counting («رفض العدّ») ───────────────────────────────────────
+
+  /// The approver sends a closed count back to counting, with a reason (the
+  /// owner, 8 Nov 2026): its lines keep their counts; no entry is written.
+  Future<void> _returnSession() async {
+    if (_session == null) return;
+    final reason = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          title: const Text('رفض العدّ'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('يرجع الجرد «قيد العدّ» بأسطره، فيُصحَّح الخطأ ويُغلق من جديد.'),
+              const SizedBox(height: 10),
+              _InfoChip(
+                icon: Icons.shield_outlined,
+                label: 'لا يُكتب أي قيد.',
+                color: _tn(context).info.fg,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: reason,
+                autofocus: true,
+                maxLines: 2,
+                onChanged: (_) => setLocal(() {}),
+                decoration: const InputDecoration(
+                  labelText: 'سبب الرفض',
+                  hintText: 'ما الذي يُعاد عدّه؟',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('تراجع'),
+            ),
+            ElevatedButton(
+              onPressed: reason.text.trim().isEmpty ? null : () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _cs(context).error,
+                foregroundColor: _cs(context).onError,
+              ),
+              child: const Text('رفض العدّ'),
+            ),
+          ],
+        ),
+      ),
+    );
+    final text = reason.text.trim();
+    reason.dispose();
+    if (ok != true || !mounted) return;
+
+    setState(() => _loading = true);
+    try {
+      _applySession(await _svc.returnSession(_session!.id, text));
+    } on InventoryApiException catch (e) {
+      setState(() => _loading = false);
+      if (mounted) AppFeedback.error(context, e.message);
     }
   }
 
@@ -932,7 +1000,20 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
                 ),
               ),
             ],
-            if (s.status == 'closed')
+            if (s.status == 'closed') ...[
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _returnSession,
+                  icon: const Icon(Icons.undo),
+                  label: const Text('رفض العدّ'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _cs(context).error,
+                    side: BorderSide(color: _cs(context).error),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
               Expanded(
                 child: ElevatedButton.icon(
                   onPressed: _approveSession,
@@ -945,6 +1026,7 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
                   ),
                 ),
               ),
+            ],
             if (s.status == 'approved')
               Expanded(
                 child: Container(
@@ -974,6 +1056,26 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
       ),
     );
   }
+}
+
+// ── A line's count before the return ─────────────────────────────────────────
+
+class _BeforeReturn extends StatelessWidget {
+  const _BeforeReturn({required this.grams});
+  final double grams;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(Icons.undo, size: 12, color: _tn(context).warning.fg),
+      const SizedBox(width: 3),
+      Text(
+        'قبل الرفض: ${formatGrams(grams)} جم',
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(color: _tn(context).warning.fg),
+      ),
+    ],
+  );
 }
 
 // ── Progress Banner ───────────────────────────────────────────────────────────
@@ -1064,6 +1166,23 @@ class _ProgressBanner extends StatelessWidget {
                 ),
             ],
           ),
+          if (session.returns.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.undo, size: 14, color: _tn(context).warning.fg),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'رُفض العدّ (${session.returns.first.by}): ${session.returns.first.reason}'
+                    '${session.returns.length > 1 ? ' — ${session.returns.length} مرات' : ''}',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(color: _tn(context).warning.fg),
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 8),
           // ── Progress bar + counter ────────────────────────────────────
           Row(
@@ -1370,6 +1489,10 @@ class _FocusedCardState extends State<_FocusedCard> {
                 ),
               ),
               const SizedBox(height: 16),
+              if (ls.line.changedSinceReturn) ...[
+                _BeforeReturn(grams: ls.line.countBeforeReturn!),
+                const SizedBox(height: 4),
+              ],
               // Status row
               SizedBox(
                 height: 24,
@@ -1866,6 +1989,10 @@ class _CountLineRowState extends State<_CountLineRow> {
                   style: const TextStyle(
                       fontSize: 18, fontWeight: FontWeight.w600),
                 ),
+          if (line.changedSinceReturn) ...[
+            const SizedBox(height: 5),
+            _BeforeReturn(grams: line.countBeforeReturn!),
+          ],
           if (ls.savedAt != null && !failed) ...[
             const SizedBox(height: 5),
             Row(
@@ -1978,6 +2105,13 @@ class _CountLineRowState extends State<_CountLineRow> {
                       ? '${formatGrams(line.countedWeight!)} جم'
                       : '—',
                 ),
+                if (line.changedSinceReturn) ...[
+                  const SizedBox(width: 12),
+                  _ReviewCell(
+                    label: 'قبل الرفض',
+                    value: '${formatGrams(line.countBeforeReturn!)} جم',
+                  ),
+                ],
               ],
             )
           else
@@ -1997,6 +2131,13 @@ class _CountLineRowState extends State<_CountLineRow> {
                     ? '${formatGrams(line.countedWeight!)} جم'
                     : '—',
               ),
+              if (line.changedSinceReturn) ...[
+                const SizedBox(width: 12),
+                _ReviewCell(
+                  label: 'قبل الرفض',
+                  value: '${formatGrams(line.countBeforeReturn!)} جم',
+                ),
+              ],
               if (variance != null) ...[
                 const SizedBox(width: 12),
                 _ReviewCell(

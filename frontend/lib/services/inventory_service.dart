@@ -117,6 +117,17 @@ class InventoryService {
     return CountSession.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
   }
 
+  /// Sends a closed session back to counting, with its reason (رفض العدّ);
+  /// the full session returns, its lines included.
+  Future<CountSession> returnSession(int sessionId, String reason) async {
+    final resp = await _api.authedPost(
+      '/inventory/count/$sessionId/return',
+      body: jsonEncode({'reason': reason}),
+    );
+    _check(resp, 'تعذّر رفض العدّ');
+    return CountSession.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
+  }
+
   /// Approves the session; its differences are a posted entry in the books
   /// ([entryNumber] null: nothing differed).
   Future<({CountSession session, String? entryNumber})> approveSession(

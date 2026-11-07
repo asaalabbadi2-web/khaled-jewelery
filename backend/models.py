@@ -6203,6 +6203,23 @@ class InventoryCountLine(db.Model):
         }
 
 
+class InventoryCountReturn(db.Model):
+    """A closed count sent back to counting by its approver («رفض العدّ»; the
+    owner, 8 Nov 2026, option أ): who, when, why, and every line's count as it
+    stood -- once closed a blind count's books were shown, so what changed after
+    it is kept for the approver to see. No entry is written."""
+    __tablename__ = 'inventory_count_return'
+
+    id          = db.Column(db.Integer, primary_key=True)
+    session_id  = db.Column(db.Integer, db.ForeignKey('inventory_count_session.id', ondelete='CASCADE'),
+                            nullable=False, index=True)
+    returned_by = db.Column(db.String(100), nullable=False)
+    returned_at = db.Column(db.DateTime, nullable=False)
+    reason      = db.Column(db.Text, nullable=False)
+    # {line id: counted weight or null} at the return
+    counts      = db.Column(db.JSON, nullable=False)
+
+
 class InventoryAdjustment(db.Model):
     """Difference Document — records the variance between expected and counted weight.
 

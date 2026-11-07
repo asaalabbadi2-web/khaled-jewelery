@@ -6,6 +6,7 @@ Lifecycle:
                          its expected weight frozen at opening
     record_count()    -> counted weight and variance, status='counting'
     close_session()   -> status='closed'    (close policy below)
+    return_session()  -> status='counting'  the approver sends it back, with a reason
     approve_session() -> status='approved'  writes the difference entry
 
 The expected weights are the stock itself (services/stock_ledger): the posted
@@ -250,6 +251,33 @@ class InventoryCountService:
         session.status = 'closed'
         session.closed_at = now
         return uncounted
+
+    # ── Return to counting («رفض العدّ») ───────────────────────────────────────
+
+    @staticmethod
+    def return_session(session, returned_by: str, reason: str, *, now):
+        """Send a closed session back to counting (the owner, 8 Nov 2026: option أ).
+
+        Its lines keep their counts; the counter corrects what is wrong and
+        closes again. The reason is required; who, when and every line's count
+        as it stood are kept (InventoryCountReturn). No entry is written.
+        """
+        from models import InventoryCountLine, InventoryCountReturn, db
+
+        if session.status != 'closed':
+            raise ValueError(f'لا يُرفض إلا عدٌّ مغلق بانتظار الاعتماد — الحالة الحالية: {session.status}')
+        reason = (reason or '').strip()
+        if not reason:
+            raise ValueError('سبب الرفض مطلوب')
+        counts = {str(ln.id): ln.counted_weight
+                  for ln in InventoryCountLine.query.filter_by(session_id=session.id)}
+        returned = InventoryCountReturn(session_id=session.id, returned_by=returned_by, returned_at=now,
+                                        reason=reason, counts=counts)
+        db.session.add(returned)
+        session.status = 'counting'
+        session.closed_at = None
+        db.session.flush()
+        return returned
 
     # ── Approve ───────────────────────────────────────────────────────────────
 

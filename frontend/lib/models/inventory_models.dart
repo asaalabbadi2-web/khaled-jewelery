@@ -215,6 +215,9 @@ class CountSession {
   /// compared (closed, or not blind); empty before (ADR-086).
   final List<KaratReview> byKarat;
 
+  /// Each time its approver sent it back to counting («رفض العدّ»), newest first.
+  final List<CountReturn> returns;
+
   const CountSession({
     required this.id,
     required this.branchId,
@@ -235,6 +238,7 @@ class CountSession {
     this.notes,
     this.lines = const [],
     this.byKarat = const [],
+    this.returns = const [],
   });
 
   bool get isActive => status == 'open' || status == 'counting';
@@ -272,6 +276,22 @@ class CountSession {
     byKarat: (j['by_karat'] as List? ?? [])
         .map((e) => KaratReview.fromJson(e as Map<String, dynamic>))
         .toList(),
+    returns: (j['returns'] as List? ?? [])
+        .map((e) => CountReturn.fromJson(e as Map<String, dynamic>))
+        .toList(),
+  );
+}
+
+/// A closed count its approver sent back to counting, and why.
+class CountReturn {
+  final String by;
+  final DateTime? at;
+  final String reason;
+  const CountReturn({required this.by, this.at, required this.reason});
+  factory CountReturn.fromJson(Map<String, dynamic> j) => CountReturn(
+    by: j['by'] as String,
+    at: DateTime.tryParse(j['at'] as String? ?? ''),
+    reason: j['reason'] as String,
   );
 }
 
@@ -317,6 +337,10 @@ class CountLine {
   final DateTime? countedAt;
   final String? notes;
 
+  /// Its count when the session was last sent back (رفض العدّ); null: never
+  /// sent back, or not counted then.
+  final double? countBeforeReturn;
+
   // UI-only state — not from API
   final CountLineStatus uiStatus;
 
@@ -335,10 +359,15 @@ class CountLine {
     this.countedBy,
     this.countedAt,
     this.notes,
+    this.countBeforeReturn,
     this.uiStatus = CountLineStatus.idle,
   });
 
   bool get isCounted => countedWeight != null;
+
+  /// Sent back, and its count changed since -- what the approver looks at.
+  bool get changedSinceReturn =>
+      countBeforeReturn != null && countBeforeReturn != countedWeight;
 
   CountLine copyWith({
     double? countedWeight,
@@ -362,6 +391,7 @@ class CountLine {
     countedBy: countedBy ?? this.countedBy,
     countedAt: countedAt ?? this.countedAt,
     notes: notes,
+    countBeforeReturn: countBeforeReturn,
     uiStatus: uiStatus ?? this.uiStatus,
   );
 
@@ -386,6 +416,7 @@ class CountLine {
         ? DateTime.tryParse(j['counted_at'] as String)
         : null,
     notes: j['notes'] as String?,
+    countBeforeReturn: (j['count_before_return'] as num?)?.toDouble(),
   );
 }
 
