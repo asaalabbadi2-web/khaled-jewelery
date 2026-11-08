@@ -493,6 +493,8 @@ app.register_blueprint(clearing_bp, url_prefix='/api')  # Clearing & weight-clos
 app.register_blueprint(gold_advances_bp, url_prefix='/api')  # Gold Advance & Allocation domain (Phase 15C)
 app.register_blueprint(office_reservations_bp, url_prefix='/api')  # Office reservations domain
 app.register_blueprint(invoice_corrections_bp, url_prefix='/api')  # «تصحيح فاتورة» (ت-1)
+from routes.purchase_receipts import purchase_receipts_bp
+app.register_blueprint(purchase_receipts_bp, url_prefix='/api')  # الاستلام قبل الفاتورة (ADR-087 R2)
 app.register_blueprint(admin_bp, url_prefix='/api')     # Admin & temp-pdf domain
 app.register_blueprint(system_bp, url_prefix='/api')    # System domain (debug, settings, reset, backup)
 app.register_blueprint(vat_returns_bp, url_prefix='/api')  # VAT returns (ADR-043 rule 5)
