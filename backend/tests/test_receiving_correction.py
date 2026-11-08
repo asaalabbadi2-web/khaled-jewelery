@@ -7,7 +7,7 @@ was and is) now takes a supplier's purchase received: a weight received
 wrong, a supplier's paper read wrong -- the stock moves by what was received,
 the supplier's gold by his paper, the rest on the count's roles within the
 tolerance, above it the owner's or the manager's approval. Invoiced, its cash
-is step C; a purchase posted whole before receiving is not corrected here.
+too (step C); a purchase posted whole before receiving is not corrected here.
 
 Run:
     python -m pytest tests/test_receiving_correction.py -v
@@ -88,7 +88,9 @@ def test_invoiced_its_cash_is_step_c_and_a_whole_purchase_is_not_corrected_here(
     _call(auth_headers, build(world), posting_part='cash', complete_invoice_id=invoice.id)
     with pytest.raises(CorrectionRefused) as refused:
         _correct(invoice, item, showroom, weight=19.5)
-    assert refused.value.code == 'correction_invoiced_receipt_not_built'
+    # invoiced is step C (tests/test_receiving_correction_invoiced.py); this
+    # shape's wage is on the invoice alone, none on its line
+    assert refused.value.code == 'correction_wage_lines_unknown'
     status, body = _call(auth_headers, build(world))
     whole = db.session.get(__import__('models').Invoice, _id(body))
     with pytest.raises(CorrectionRefused) as refused:

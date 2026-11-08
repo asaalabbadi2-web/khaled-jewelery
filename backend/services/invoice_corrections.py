@@ -168,9 +168,6 @@ def correct_line(invoice: Invoice, *, line_id, lines, safe_box_id, reason: str, 
     if not invoice.is_posted:
         raise CorrectionRefused('invoice_not_posted', 'الفاتورة غير مرحّلة: تُعدَّل بدل أن تُصحَّح')
     received = (invoice.invoice_type or '').strip() == SUPPLIER and getattr(invoice, 'receiving_stage', None)
-    if received == 'invoiced':
-        raise CorrectionRefused('correction_invoiced_receipt_not_built',
-                                'تصحيح مستند شراء مستكمَل (أجرته ونقده) لم يُبنَ بعد')
     if (invoice.invoice_type or '').strip() not in CORRECTABLE and not received:
         raise CorrectionRefused('correction_not_built_for_type',
                                 f'تصحيح «{invoice.invoice_type}» لم يُبنَ بعد — يُصحَّح بمرتجع وإعادة إدخال')
@@ -396,7 +393,10 @@ def _received_lines(raw, old: InvoiceItem, *, approval, user) -> list[dict]:
         weight = round(_f(line.get('weight')), 3)
         if weight <= GRAM:
             raise CorrectionRefused('correction_weight_invalid', f'السطر {n}: الوزن أكبر من صفر')
-        item = {'name': line.get('name') or old.name, 'karat': karat, 'weight': weight,
+        wage = round(_f(line.get('wage_per_gram'), _f(old.wage)), 4)
+        if wage < 0:
+            raise CorrectionRefused('correction_wage_invalid', f'السطر {n}: أجرة الجرام صفر أو أكثر')
+        item = {'name': line.get('name') or old.name, 'karat': karat, 'weight': weight, 'wage_per_gram': wage,
                 'category_id': line.get('category_id', old.category_id)}
         if line.get('supplier_weight') not in (None, ''):
             item['supplier_weight'] = line.get('supplier_weight')
@@ -427,7 +427,24 @@ def _correct_received_line(invoice: Invoice, old: InvoiceItem, raw, safe, *, rea
     from services.stock_ledger import allocate
 
     new = _received_lines(raw, old, approval=approval, user=user)
-    before = {**_line_of(old), 'supplier_weight': round(_f(old.supplier_weight, _f(old.weight)), 3)}
+    before = {**_line_of(old), 'supplier_weight': round(_f(old.supplier_weight, _f(old.weight)), 3),
+              'wage_per_gram': round(_f(old.wage), 4)}
+    # Invoiced, its cash too (ADR-087 R1.5 step C): the wage a gram on the line,
+    # the gram's wage following its weight; its VAT at the invoice's own rate.
+    invoiced = getattr(invoice, 'receiving_stage', None) == 'invoiced'
+    wage_delta = vat_delta = 0.0
+    if invoiced:
+        lines_wage = sum(_f(i.wage) * _f(i.weight) for i in InvoiceItem.query.filter_by(invoice_id=invoice.id))
+        if abs(lines_wage - _f(invoice.wage_subtotal)) > CENT:
+            raise CorrectionRefused('correction_wage_lines_unknown',
+                                    'أسطر الفاتورة لا تحمل أجرتها (أجرتها على الفاتورة وحدها): تصحيحها لم يُبنَ')
+        if _f(invoice.gold_tax_total) > CENT:
+            raise CorrectionRefused('correction_gold_vat_not_built', 'تصحيح شراء على ذهبه ضريبة لم يُبنَ بعد')
+        wage_delta = round(sum(l['wage_per_gram'] * l['weight'] for l in new)
+                           - before['wage_per_gram'] * before['weight'], 2)
+        rate = (_f(invoice.wage_tax_total) / _f(invoice.wage_subtotal)
+                if _f(invoice.wage_subtotal) > CENT and _f(invoice.wage_tax_total) > CENT else 0.0)
+        vat_delta = round(wage_delta * rate, 2)
     stock = {k: 0.0 for k in KARATS}
     paper = {k: 0.0 for k in KARATS}
     stock[before['karat']] -= before['weight']
@@ -478,6 +495,22 @@ def _correct_received_line(invoice: Invoice, old: InvoiceItem, raw, safe, *, rea
         if abs(gained) > GRAM:
             line(InventoryAccountingService._weight_account(ROLE_SURPLUS if gained > 0 else ROLE_SHORTAGE),
                  'فرق وزن الاستلام', **{f'{"credit" if gained > 0 else "debit"}_{karat}k': abs(gained)})
+    if invoiced and abs(wage_delta) + abs(vat_delta) > CENT:
+        from accounting.wages import (manufacturing_wage_expense_account_id,
+                                      manufacturing_wage_inventory_account_id, wage_mode_of, wages_are_capitalized)
+        from services.vat_policy import input_vat_account
+        wage_account = (manufacturing_wage_inventory_account_id() if wages_are_capitalized(wage_mode_of(invoice))
+                        else manufacturing_wage_expense_account_id())
+
+        def cash(account_id, amount, what, **kw):
+            if abs(amount) > CENT:
+                line(account_id, what, **({'cash_debit': round(amount, 2)} if amount > 0
+                                          else {'cash_credit': round(-amount, 2)}), **kw)
+        cash(wage_account, wage_delta, 'فرق الأجور', exclude_from_ledger=True)
+        if abs(vat_delta) > CENT:
+            cash(input_vat_account(invoice.date.date(), operation_type=SUPPLIER, cost_account_id=wage_account),
+                 vat_delta, 'فرق ضريبة الأجور', exclude_from_ledger=True)
+        cash(supplier.account_id, -(wage_delta + vat_delta), 'فرق الأجور وضريبتها')
     verify_dual_balance(entry.id)
 
     from services.gold_cost_postings import applies as gold_cost_applies
@@ -499,12 +532,23 @@ def _correct_received_line(invoice: Invoice, old: InvoiceItem, raw, safe, *, rea
         item.name, item.karat, item.weight = l['name'], float(l['karat']), l['weight']
         item.standing_weight, item.supplier_weight = l['weight'], l['supplier_weight']
         item.category_id = int(l['category_id']) if l['category_id'] else None
+        item.wage = l['wage_per_gram']
     db.session.flush()
     invoice.total_weight = round(sum(_f(i.weight) for i in InvoiceItem.query.filter_by(invoice_id=invoice.id)), 3)
+    if invoiced:
+        invoice.wage_subtotal = round(_f(invoice.wage_subtotal) + wage_delta, 2)
+        invoice.wage_tax_total = round(_f(invoice.wage_tax_total) + vat_delta, 2)
+        invoice.total_tax = round(_f(invoice.total_tax) + vat_delta, 2)
+        invoice.total = round(_f(invoice.total) + wage_delta + vat_delta, 2)
+        invoice.net_amount = round(_f(invoice.net_amount) + wage_delta + vat_delta, 2)
+        correction.cash_delta = round(wage_delta + vat_delta, 2)
     correction.journal_entry_id = entry.id
     correction.after = {'snapshot_schema_version': 1,
-                        'lines': [{**_line_of(i), 'supplier_weight': round(_f(i.supplier_weight), 3)}
-                                  for i in written],
+                        'lines': [{**_line_of(i), 'supplier_weight': round(_f(i.supplier_weight), 3),
+                                   'wage_per_gram': round(_f(i.wage), 4)} for i in written],
                         'invoice': _invoice_of(invoice)}
     db.session.flush()
+    if invoiced:
+        from services.invoice_payment_state_service import InvoicePaymentStateService
+        InvoicePaymentStateService().recompute(invoice)
     return correction
