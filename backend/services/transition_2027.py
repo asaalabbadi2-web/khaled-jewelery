@@ -237,7 +237,22 @@ def _excluded(conn) -> dict:
     for name, *amounts in held:
         if any(abs(float(a or 0)) > 0.0005 for a in amounts):
             raise TransitionRefused(f'عهدة «{name}» لموظف موقوف فيها رصيد: يُحسم قبل الإقفال')
-    return {'employees': employees, 'safes': safes, 'customers': duplicates}
+    return {'employees': employees, 'safes': safes, 'customers': duplicates, 'items': _items_held(conn)}
+
+
+def _items_held(conn) -> set:
+    """The items the stock holds at the close: their allocations on posted
+    lines add to more than nothing (the owner, 8 Nov 2026). The rest -- a piece
+    sold, a purchase lot given back to its category (services/repair/lot_items),
+    a catalogue product «سبايك ذهب عيار 24» stands for -- stay in 2026's archive."""
+    from sqlalchemy import text
+    return {r[0] for r in conn.execute(text(
+        'SELECT a.item_id FROM stock_line_allocation a '
+        'JOIN journal_entry_line l ON l.id = a.journal_entry_line_id '
+        'JOIN journal_entry j ON j.id = l.journal_entry_id '
+        'WHERE a.item_id IS NOT NULL AND NOT COALESCE(l.is_deleted, false) '
+        'AND NOT COALESCE(j.is_deleted, false) AND j.is_posted '
+        'GROUP BY a.item_id HAVING ABS(SUM(a.grams)) > 0.0005'))}
 
 
 def _as_column(column, value):
@@ -258,6 +273,8 @@ def _skip(table, row, ex) -> bool:
         return row.get('employee_id') in ex['employees']
     if table == 'safe_box':
         return row['id'] in ex['safes']
+    if table == 'item':
+        return row['id'] not in ex['items']
     return False
 
 
