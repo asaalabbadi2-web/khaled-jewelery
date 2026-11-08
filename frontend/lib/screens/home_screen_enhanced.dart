@@ -31,6 +31,7 @@ import 'add_customer_screen.dart';
 import 'add_item_screen_enhanced.dart';
 import 'sales_invoice_screen_v2.dart';
 import 'pending_receipts_screen.dart';
+import 'piece_station_screen.dart';
 import 'purchase_invoice_screen.dart';
 import 'receiving_screen.dart';
 import 'invoices_list_screen.dart';
@@ -1522,6 +1523,19 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                 },
               ),
             ),
+          );
+        },
+      );
+      // The pieces of a received line, one by one (ADR-087 R3.4).
+      addDestination(
+        icon: Icons.qr_code_2,
+        title: isAr ? 'محطة ترميز القطع' : 'Piece Coding Station',
+        keywords: const ['ترميز', 'قطعة', 'رقم', 'بطاقة', 'KJ'],
+        color: _tone.invoice(InvoiceKind.purchase).fg,
+        onSelected: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const PieceStationScreen()),
           );
         },
       );

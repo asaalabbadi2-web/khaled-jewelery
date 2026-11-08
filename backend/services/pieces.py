@@ -50,7 +50,7 @@ def _receipt_stock_allocations(line: InvoiceItem, karat: int):
             .order_by(StockLineAllocation.id).all())
 
 
-def register_piece(line: InvoiceItem, *, weight, stones_weight=0.0, by: str, now) -> Item:
+def register_piece(line: InvoiceItem, *, weight, stones_weight=0.0, by: str, now, request_key=None) -> Item:
     """One piece under a posted receipt's line -- or PieceRefused."""
     from services.stock_ledger import allocate
 
@@ -79,7 +79,7 @@ def register_piece(line: InvoiceItem, *, weight, stones_weight=0.0, by: str, now
     code = f'KJ-{int(number):06d}'
     piece = Item(item_code=code, barcode=code, name=category.name, category_id=category.id, karat=str(karat),
                  weight=weight, has_stones=stones > GRAM, stones_weight=stones, price=0.0, stock=1, count=1,
-                 receipt_item_id=line.id, created_at=now, created_by=by)
+                 receipt_item_id=line.id, created_at=now, created_by=by, request_key=request_key or None)
     db.session.add(piece)
     db.session.flush()
 
@@ -138,9 +138,7 @@ def refuse_piece_sales(invoice_type, items) -> None:
             continue                                    # not a piece: the catalogue's own rules
         if piece_held(piece.id) <= GRAM:
             raise PieceRefused('piece_sold', f'السطر {n}: القطعة {piece.item_code} ليست في المخزون: لا تُباع مرتين')
-        receipt_line = db.session.get(InvoiceItem, piece.receipt_item_id)
-        receipt = db.session.get(Invoice, receipt_line.invoice_id) if receipt_line else None
-        if receipt is None or getattr(receipt, 'receiving_stage', None) != 'invoiced':
+        if piece_wage(piece) is None:
             raise PieceRefused('piece_wage_unknown',
                                f'السطر {n}: القطعة {piece.item_code} لم تُستكمل فاتورة استلامها: أجرتها غير معروفة')
         try:
@@ -206,3 +204,112 @@ def refuse_piece_delete(item: Item) -> None:
     """A piece is not deleted: its allocations in the books name it."""
     if item.receipt_item_id is not None:
         raise PieceRefused('piece_not_deleted', f'القطعة {item.item_code} لا تُحذف: الدفاتر تذكرها')
+
+
+# ── a category's tracking (ADR-087 §5, §6; R3.4) ─────────────────────────────
+
+TRACKINGS = ('weight', 'piece')
+
+
+def category_pieces_held(category_id: int) -> int:
+    """How many pieces of the category are in the stock."""
+    return sum(1 for (item_id,) in db.session.query(Item.id).filter(Item.category_id == int(category_id),
+                                                                   Item.receipt_item_id.isnot(None))
+               if piece_held(item_id) > GRAM)
+
+
+def set_tracking(category: Category, *, tracking=None) -> None:
+    """How a category is tracked -- or PieceRefused. Back to weight while a
+    piece of it is held is refused: its pieces would be sold by weight; a
+    scrap category is never by the piece."""
+    if tracking is None:
+        return
+    tracking = str(tracking).strip()
+    if tracking not in TRACKINGS or (tracking == 'piece' and category.is_scrap):
+        raise PieceRefused('category_tracking_invalid', 'طريقة التتبّع بالوزن أو بالقطعة، وتصنيف الكسر بالوزن')
+    if tracking == 'weight' and (category.tracking or 'weight') == 'piece':
+        held = category_pieces_held(category.id)
+        if held:
+            raise PieceRefused('category_has_pieces',
+                               f'«{category.name}» فيه {held} قطعة في المخزون: يبقى بالقطعة حتى تخرج')
+    category.tracking = tracking
+
+
+# ── the wage: read, never kept (§6) ──────────────────────────────────────────
+
+def line_pieces(line: InvoiceItem):
+    return Item.query.filter(Item.receipt_item_id == line.id).order_by(Item.id).all()
+
+
+def line_wages(line: InvoiceItem):
+    """The line's wage and its shares, to the halala (law 5) -- or None while
+    its invoice is not completed. The wage is per gram, always (the owner,
+    9 Nov 2026): bullion's too -- its line's wage given whole is divided by
+    its weight, one line per bar size. Each piece its line's wage per gram
+    times its weight; the rest -- the weight not coded -- what is left; no
+    rest, the last piece takes the rounding."""
+    invoice = db.session.get(Invoice, line.invoice_id)
+    if invoice is None or getattr(invoice, 'receiving_stage', None) != 'invoiced':
+        return None
+    per_gram = float(line.wage or 0.0)
+    total = round(per_gram * float(line.weight or 0.0), 2)
+    pieces = line_pieces(line)
+    shares = {p.id: round(per_gram * float(p.weight or 0.0), 2) for p in pieces}
+    rest_weight = round(float(line.weight or 0.0) - sum(float(p.weight or 0.0) for p in pieces), 3)
+    rest = round(total - sum(shares.values()), 2)
+    if rest_weight <= GRAM and pieces:
+        shares[pieces[-1].id] = round(shares[pieces[-1].id] + rest, 2)
+        rest = 0.0
+    return {'line': total, 'pieces': shares, 'rest': rest, 'per_gram': per_gram}
+
+
+def piece_wage(piece: Item):
+    """A piece's wage, from its line -- None while unknown (law 8)."""
+    if piece.receipt_item_id is None:
+        return None
+    line = db.session.get(InvoiceItem, piece.receipt_item_id)
+    wages = line_wages(line) if line is not None else None
+    return None if wages is None else wages['pieces'].get(piece.id)
+
+
+# ── the station (R3.4) ───────────────────────────────────────────────────────
+
+def line_view(line: InvoiceItem) -> dict:
+    """A receipt line as the station shows it: its document, its category,
+    its weight, its pieces and its rest."""
+    from models import Supplier
+    invoice = db.session.get(Invoice, line.invoice_id)
+    category = db.session.get(Category, line.category_id) if line.category_id else None
+    supplier = db.session.get(Supplier, invoice.supplier_id) if invoice and invoice.supplier_id else None
+    pieces = line_pieces(line)
+    coded = round(sum(float(p.weight or 0.0) for p in pieces), 3)
+    return {'line_id': line.id, 'invoice_id': line.invoice_id,
+            'invoice_number': getattr(invoice, 'invoice_number', None),
+            'date': invoice.date.isoformat() if invoice and invoice.date else None,
+            'stage': getattr(invoice, 'receiving_stage', None),
+            'supplier_name': getattr(supplier, 'name', None),
+            'category_id': line.category_id, 'category_name': getattr(category, 'name', None),
+            'karat': int(round(float(line.karat or 0))), 'weight': round(float(line.weight or 0.0), 3),
+            'pieces': len(pieces), 'pieces_weight': coded, 'rest': round(float(line.weight or 0.0) - coded, 3)}
+
+
+def piece_view(piece: Item) -> dict:
+    wage = piece_wage(piece)
+    return {'id': piece.id, 'item_code': piece.item_code, 'barcode': piece.barcode, 'name': piece.name,
+            'karat': piece.karat, 'weight': round(float(piece.weight or 0.0), 3),
+            'stones_weight': round(float(piece.stones_weight or 0.0), 3), 'line_id': piece.receipt_item_id,
+            'wage': wage, 'wage_known': wage is not None, 'in_stock': piece_held(piece.id) > GRAM,
+            'created_at': piece.created_at.isoformat() if piece.created_at else None,
+            'created_by': piece.created_by}
+
+
+def pending_lines() -> list[dict]:
+    """The station's list: posted receipt lines of categories tracked by the
+    piece with weight left to code, oldest first."""
+    rows = (InvoiceItem.query.join(Invoice, Invoice.id == InvoiceItem.invoice_id)
+            .join(Category, Category.id == InvoiceItem.category_id)
+            .filter(Invoice.is_posted.is_(True), Invoice.receiving_stage.in_(RECEIVED_STAGES),
+                    Category.tracking == 'piece')
+            .order_by(Invoice.date, InvoiceItem.id).all())
+    views = (line_view(line) for line in rows)
+    return [v for v in views if v['rest'] > GRAM]

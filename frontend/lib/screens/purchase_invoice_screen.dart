@@ -4674,8 +4674,22 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
                 _setInlineItem(index, item.copyWith(wagePerGram: v)),
           ),
         ),
+        // The line's wage, written whole when so given -- bullion's -- is
+        // divided by its weight: the wage is per gram, always (the owner,
+        // 9 Nov 2026; ADR-087 §6).
         DataCell(
-          Text(formatAmount((item.weightGrams * item.wagePerGram))),
+          item.weightGrams > 0
+              ? InlineNumberCell(
+                  key: ValueKey('wage-total-$index'),
+                  value: item.weightGrams * item.wagePerGram,
+                  fractionDigits: 2,
+                  label: 'أجرة السطر',
+                  onChanged: (v) => _setInlineItem(
+                    index,
+                    item.copyWith(wagePerGram: v / item.weightGrams),
+                  ),
+                )
+              : Text(formatAmount((item.weightGrams * item.wagePerGram))),
         ),
         DataCell(Text(item.hasStones ? 'نعم' : '-')),
         DataCell(

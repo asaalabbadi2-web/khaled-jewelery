@@ -840,9 +840,6 @@ class Category(db.Model):
     # How it is tracked (ADR-045, ADR-087 §5): 'weight' (every category today)
     # or 'piece' -- its gold registered piece by piece on receiving.
     tracking = db.Column(db.String(10), nullable=False, default='weight', server_default='weight')
-    # Its wage's basis (the owner, 8 Nov 2026: «الاجرة للجرام دائما ما عدا السبائك
-    # اجرتها بالقطعة»): 'per_gram', or 'per_piece' for bullion.
-    wage_basis = db.Column(db.String(10), nullable=False, default='per_gram', server_default='per_gram')
 
     # العلاقة مع الأصناف
     items = db.relationship('Item', backref='category', lazy=True)
@@ -859,7 +856,6 @@ class Category(db.Model):
             'is_active': self.is_active is not False,
             'is_scrap': bool(self.is_scrap),
             'tracking': self.tracking or 'weight',
-            'wage_basis': self.wage_basis or 'per_gram',
             'group_name': _category_group_name(self.name, self.karat),
         }
 
@@ -869,6 +865,7 @@ PIECE_NUMBER = db.Sequence('piece_number_seq', metadata=db.metadata)
 
 
 class Item(db.Model):
+    __table_args__ = (db.UniqueConstraint('request_key', name='uq_item_request_key'),)
     id = db.Column(db.Integer, primary_key=True)
     
     # كود الصنف الفريد (I-000001, I-000002, ...)
@@ -927,6 +924,8 @@ class Item(db.Model):
                                 nullable=True, index=True)   # added after both tables: they name each other
     created_at = db.Column(db.DateTime, nullable=True)
     created_by = db.Column(db.String(100), nullable=True)
+    # The station's save attempt (ADR-087 R3.4; §1أ ٤): pressed twice, one piece.
+    request_key = db.Column(db.String(64), nullable=True)
     invoice_items = db.relationship('InvoiceItem', backref='item', lazy=True,
                                     foreign_keys='InvoiceItem.item_id')
 

@@ -1307,8 +1307,8 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      final error = json.decode(utf8.decode(response.bodyBytes));
-      throw ApiException.text(error['error'] ?? 'Failed to update category');
+      // its code and its words: a piece's law refuses by both (ADR-087 R3.4)
+      throw _apiError(response, fallback: 'تعذّر تعديل التصنيف');
     }
   }
 
@@ -5298,6 +5298,31 @@ class ApiService {
     payload,
     fallback: 'تعذّر استكمال الفاتورة',
   );
+
+  // ── محطة ترميز القطع (ADR-087 R3.4) ─────────────────────────────────
+
+  Future<Map<String, dynamic>> _getMap(String path, {required String fallback}) async {
+    final response = await _authedGet(Uri.parse('$_baseUrl$path'));
+    if (response.statusCode != 200) throw _apiError(response, fallback: fallback);
+    return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+  }
+
+  /// The station's list: receipt lines of categories tracked by the piece
+  /// with weight left to code -- their pieces counted, the rest.
+  Future<List<Map<String, dynamic>>> piecesPending() async {
+    final body = await _getMap('/pieces/pending', fallback: 'تعذّر تحميل أسطر الترميز');
+    return (body['lines'] as List? ?? []).cast<Map<String, dynamic>>();
+  }
+
+  /// A line and its pieces, each with its wage or none while unknown.
+  /// `{line: {...}, pieces: [...]}`.
+  Future<Map<String, dynamic>> pieceLine(int lineId) =>
+      _getMap('/pieces/lines/$lineId', fallback: 'تعذّر تحميل السطر');
+
+  /// A piece under a line: line_id, weight, stones_weight, request_key -- the
+  /// same key, the same piece. `{piece: {...}, line: {...}}`.
+  Future<Map<String, dynamic>> registerPiece(Map<String, dynamic> body) =>
+      _postJson('/pieces', body, fallback: 'تعذّر تسجيل القطعة');
 
   // ── «تصحيح فاتورة» (ADR-056) ──────────────────────────────────────────
 

@@ -413,7 +413,8 @@ def create_category():
 @require_permission('items.edit')
 def update_category(category_id):
     """Rename, re-karat (only while unused -- its karat is fixed once used),
-    describe, set its default wage, stop or restart it."""
+    describe, set its default wage, stop or restart it; how it is tracked
+    (services/pieces.set_tracking)."""
     from services.categories import canonical, is_used
     category = Category.query.get_or_404(category_id)
     data = request.get_json() or {}
@@ -434,6 +435,13 @@ def update_category(category_id):
         category.default_wage = _wage(data['default_wage'])
     if 'is_active' in data:
         category.is_active = bool(data['is_active'])
+    # how it is tracked (ADR-087 §5) -- its law the pieces'
+    from services.pieces import PieceRefused, set_tracking
+    try:
+        set_tracking(category, tracking=data.get('tracking'))
+    except PieceRefused as refused:
+        db.session.rollback()
+        return jsonify({'error': refused.code, 'message': refused.message}), 400
     db.session.commit()
     return jsonify(category.to_dict())
 

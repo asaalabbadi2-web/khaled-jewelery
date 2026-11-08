@@ -495,6 +495,8 @@ app.register_blueprint(office_reservations_bp, url_prefix='/api')  # Office rese
 app.register_blueprint(invoice_corrections_bp, url_prefix='/api')  # «تصحيح فاتورة» (ت-1)
 from routes.purchase_receipts import purchase_receipts_bp
 app.register_blueprint(purchase_receipts_bp, url_prefix='/api')  # الاستلام قبل الفاتورة (ADR-087 R2)
+from routes.pieces import pieces_bp
+app.register_blueprint(pieces_bp, url_prefix='/api')  # محطة ترميز القطع (ADR-087 R3.4)
 app.register_blueprint(admin_bp, url_prefix='/api')     # Admin & temp-pdf domain
 app.register_blueprint(system_bp, url_prefix='/api')    # System domain (debug, settings, reset, backup)
 app.register_blueprint(vat_returns_bp, url_prefix='/api')  # VAT returns (ADR-043 rule 5)

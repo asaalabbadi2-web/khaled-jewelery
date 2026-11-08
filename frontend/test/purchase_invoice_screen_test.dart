@@ -741,6 +741,25 @@ void main() {
       final line = (payload['items'] as List).single as Map;
       expect((line['weight'], line['category_id'], line['wage_per_gram']), (12.5, 40, 18.0));
     });
+
+    testWidgets('bullion: the line\'s wage written whole is divided by its weight', (tester) async {
+      // The wage is per gram, always (the owner, 9 Nov 2026): 12.5 g of bars,
+      // 250 riyals for the line -- 20 a gram.
+      final api = FakePurchaseApi();
+      await open(tester, api: api, completing: receipt());
+      await tester.enterText(
+        find.descendant(of: find.byKey(const ValueKey('wage-total-0')), matching: find.byType(TextField)),
+        '250',
+      );
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+      await awaitPreview(tester);
+      await pressCtrlS(tester);
+      await tester.tap(find.text('حفظ الفاتورة').last);
+      await settle(tester);
+      final line = (api.completed.single.$2['items'] as List).single as Map;
+      expect(line['wage_per_gram'], 20.0);
+    });
   });
 
   testWidgets('what a purchase on credit sends is what it sent (ADR-049)', (

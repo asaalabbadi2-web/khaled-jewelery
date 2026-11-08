@@ -271,7 +271,8 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final auth = context.watch<AuthProvider>();
-    final canCreateItems = auth.hasPermission('items.create') &&
+    final canCreateItems =
+        auth.hasPermission('items.create') &&
         context.read<SettingsProvider>().catalogueAddsItems;
 
     return Scaffold(
@@ -544,7 +545,8 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
     final textTheme = theme.textTheme;
     final karatBadgeColor = _cs(context).primary;
     final auth = context.read<AuthProvider>();
-    final canCreateItems = auth.hasPermission('items.create') &&
+    final canCreateItems =
+        auth.hasPermission('items.create') &&
         context.read<SettingsProvider>().catalogueAddsItems;
     final canEditItems = auth.hasPermission('items.edit');
     final canDeleteItems = auth.hasPermission('items.delete');
@@ -1330,64 +1332,89 @@ class _CategoriesManagementDialogState
           : '',
     );
 
+    var tracking = category.tracking;
+
     final result = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('تعديل التصنيف'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameController,
-              decoration: const InputDecoration(
-                labelText: 'اسم التصنيف *',
-                border: OutlineInputBorder(),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialog) => AlertDialog(
+          title: const Text('تعديل التصنيف'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(
+                  labelText: 'اسم التصنيف *',
+                  border: OutlineInputBorder(),
+                ),
               ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: karatController,
+                decoration: const InputDecoration(
+                  labelText: 'العيار (مطلوب: 18 أو 21 أو 22 أو 24)',
+                  border: OutlineInputBorder(),
+                  hintText: '18 أو 21 أو 22 أو 24',
+                ),
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: wageController,
+                decoration: const InputDecoration(
+                  labelText: 'متوسط الأجور المصنعية/جم (اختياري)',
+                  border: OutlineInputBorder(),
+                  hintText: 'مثال: 15.5',
+                  prefixIcon: Icon(Icons.build_circle_outlined),
+                ),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: descController,
+                decoration: const InputDecoration(
+                  labelText: 'الوصف',
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 2,
+              ),
+              // How it is tracked (ADR-087 §5): a
+              // category by the piece is coded at «محطة ترميز القطع».
+              if (!category.isScrap) ...[
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  key: const Key('category-tracking'),
+                  initialValue: tracking,
+                  decoration: const InputDecoration(
+                    labelText: 'طريقة التتبّع',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'weight', child: Text('بالوزن')),
+                    DropdownMenuItem(
+                      value: 'piece',
+                      child: Text('بالقطعة (تُرمَّز كل قطعة)'),
+                    ),
+                  ],
+                  onChanged: (v) => setDialog(() => tracking = v ?? tracking),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('إلغاء'),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: karatController,
-              decoration: const InputDecoration(
-                labelText: 'العيار (مطلوب: 18 أو 21 أو 22 أو 24)',
-                border: OutlineInputBorder(),
-                hintText: '18 أو 21 أو 22 أو 24',
-              ),
-              keyboardType: TextInputType.number,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: wageController,
-              decoration: const InputDecoration(
-                labelText: 'متوسط الأجور المصنعية/جم (اختياري)',
-                border: OutlineInputBorder(),
-                hintText: 'مثال: 15.5',
-                prefixIcon: Icon(Icons.build_circle_outlined),
-              ),
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: descController,
-              decoration: const InputDecoration(
-                labelText: 'الوصف',
-                border: OutlineInputBorder(),
-              ),
-              maxLines: 2,
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('حفظ'),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('إلغاء'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('حفظ'),
-          ),
-        ],
       ),
     );
 
@@ -1404,6 +1431,7 @@ class _CategoriesManagementDialogState
               ? karatController.text
               : null,
           'default_wage': wageVal,
+          if (tracking != category.tracking) 'tracking': tracking,
         });
         final updatedCategory = Category.fromJson(response);
         setState(() {
