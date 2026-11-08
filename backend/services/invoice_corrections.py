@@ -427,6 +427,12 @@ def _correct_received_line(invoice: Invoice, old: InvoiceItem, raw, safe, *, rea
     from services.stock_ledger import allocate
 
     new = _received_lines(raw, old, approval=approval, user=user)
+    # A line with pieces (ADR-087 §5): not split, not below the pieces under it.
+    from services.pieces import pieces_weight
+    held = pieces_weight(old)
+    if held > GRAM and (len(new) != 1 or new[0]['weight'] < held - GRAM):
+        raise CorrectionRefused('correction_below_its_pieces',
+                                f'للسطر قطع مسجَّلة بـ{held:.2f} جم: لا يُقسم ولا يُصحَّح دونها')
     before = {**_line_of(old), 'supplier_weight': round(_f(old.supplier_weight, _f(old.weight)), 3),
               'wage_per_gram': round(_f(old.wage), 4)}
     # Invoiced, its cash too (ADR-087 R1.5 step C): the wage a gram on the line,
@@ -588,6 +594,9 @@ def cancel_receipt(invoice: Invoice, *, safe_box_id, reason: str, by: str, now) 
         raise CorrectionRefused('correction_safe_invalid', 'اختر خزينة الذهب التي فيها ذهب الاستلام الآن')
 
     items = InvoiceItem.query.filter_by(invoice_id=invoice.id).order_by(InvoiceItem.id).all()
+    from services.pieces import pieces_weight
+    if any(pieces_weight(i) > GRAM for i in items):
+        raise CorrectionRefused('receipt_has_pieces', 'للاستلام قطع مسجَّلة: تُلغى قطعه أولًا')
     lines = [{**_line_of(i), 'supplier_weight': round(_f(i.supplier_weight, _f(i.weight)), 3),
               'wage_per_gram': round(_f(i.wage), 4)} for i in items]
     stock = {k: 0.0 for k in KARATS}

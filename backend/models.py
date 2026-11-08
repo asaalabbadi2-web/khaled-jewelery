@@ -837,6 +837,12 @@ class Category(db.Model):
     # The scrap category of its karat: a customer scrap purchase line without a
     # category is given it (ADR-045 B).
     is_scrap = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
+    # How it is tracked (ADR-045, ADR-087 §5): 'weight' (every category today)
+    # or 'piece' -- its gold registered piece by piece on receiving.
+    tracking = db.Column(db.String(10), nullable=False, default='weight', server_default='weight')
+    # Its wage's basis (the owner, 8 Nov 2026: «الاجرة للجرام دائما ما عدا السبائك
+    # اجرتها بالقطعة»): 'per_gram', or 'per_piece' for bullion.
+    wage_basis = db.Column(db.String(10), nullable=False, default='per_gram', server_default='per_gram')
 
     # العلاقة مع الأصناف
     items = db.relationship('Item', backref='category', lazy=True)
@@ -852,8 +858,14 @@ class Category(db.Model):
             'items_count': len(self.items),
             'is_active': self.is_active is not False,
             'is_scrap': bool(self.is_scrap),
+            'tracking': self.tracking or 'weight',
+            'wage_basis': self.wage_basis or 'per_gram',
             'group_name': _category_group_name(self.name, self.karat),
         }
+
+
+# A piece's number, «KJ-» and the next of it (ADR-085 law 1): never reused.
+PIECE_NUMBER = db.Sequence('piece_number_seq', metadata=db.metadata)
 
 
 class Item(db.Model):
@@ -908,7 +920,15 @@ class Item(db.Model):
     description = db.Column(db.String(200))
     price = db.Column(db.Float, nullable=False)
     stock = db.Column(db.Integer, default=0)
-    invoice_items = db.relationship('InvoiceItem', backref='item', lazy=True)
+    # A piece (ADR-087 §5): the receipt line it was born under, when, by whom --
+    # services/pieces.register_piece, its one writer.
+    receipt_item_id = db.Column(db.Integer, db.ForeignKey('invoice_item.id', use_alter=True,
+                                                          name='fk_item_receipt_item'),
+                                nullable=True, index=True)   # added after both tables: they name each other
+    created_at = db.Column(db.DateTime, nullable=True)
+    created_by = db.Column(db.String(100), nullable=True)
+    invoice_items = db.relationship('InvoiceItem', backref='item', lazy=True,
+                                    foreign_keys='InvoiceItem.item_id')
 
     @staticmethod
     def periodic_inventory_report():

@@ -48,6 +48,7 @@ READERS = {
     'services/categories.py': 'derived',             # a return's line inherits its original's category
     'services/receiving.py': 'write',                # a receipt's lines, matched by the invoice completing it (ADR-087)
     'routes/purchase_receipts.py': 'derived',        # «استلامات بلا فاتورة»: a receipt's weight by karat (ADR-087 R2)
+    'services/pieces.py': 'write',                   # a piece born under a receipt's line (ADR-087 R3)
     'services/return_lines.py': 'derived',           # a return's share of its original
     'services/return_vat.py': 'derived',             # a return's VAT from its original's lines
     'services/gold_acquisition_reconciliation.py': 'derived',

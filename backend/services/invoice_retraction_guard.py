@@ -80,6 +80,9 @@ REFERENCES = {
     ('bonus_invoice_link', 'invoice_id'): ('invoice', EVIDENCE),
     ('invoice_correction', 'invoice_id'): ('invoice', EVIDENCE),            # «تصحيح فاتورة» (ت-1)
     ('invoice_correction', 'invoice_item_id'): ('invoice_item', EVIDENCE),
+    # a piece born under a receipt's line (ADR-087 R3): its registration, not
+    # the invoice, wrote it -- the receipt is not deleted under its pieces
+    ('item', 'receipt_item_id'): ('invoice_item', EVIDENCE),
     ('bonus_clawback_candidate', 'original_invoice_id'): ('invoice', EVIDENCE),
     ('bonus_clawback_candidate', 'return_invoice_id'): ('invoice', EVIDENCE),
     ('supplier_gold_transaction', 'invoice_id'): ('invoice', EVIDENCE),
