@@ -607,7 +607,12 @@ def _settings_actor() -> str:
 def get_settings():
     settings = _get_settings_singleton(create_if_missing=True)
     from services.vat_policy import periods as _vat_periods
-    response = jsonify({**settings.to_dict(), 'vat_periods': _vat_periods()})
+    # Receiving works today or not -- the server's day, not the screen's (ADR-087 R2).
+    from services.receiving import receiving_from, receiving_on
+    _start = receiving_from()
+    response = jsonify({**settings.to_dict(), 'vat_periods': _vat_periods(),
+                        'receiving_from': _start.isoformat() if _start else None,
+                        'receiving_active': receiving_on(datetime.now())})
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'

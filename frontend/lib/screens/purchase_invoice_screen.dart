@@ -107,6 +107,13 @@ class PurchaseInvoiceScreen extends StatefulWidget {
   final int? editInvoiceId;
   final Map<String, dynamic>? editInvoiceData;
 
+  /// A receipt's invoice completed here (ADR-087 R2): its lines are the
+  /// receipt's -- their weights read, not edited, none added or removed; its
+  /// wage, VAT, payment and the supplier's number written; saved, its cash
+  /// is posted on the receipt itself.
+  final int? completeReceiptId;
+  final Map<String, dynamic>? completeReceiptData;
+
   /// The server; tests pass a fake.
   final ApiService? apiService;
 
@@ -118,6 +125,8 @@ class PurchaseInvoiceScreen extends StatefulWidget {
     this.originalInvoiceId,
     this.editInvoiceId,
     this.editInvoiceData,
+    this.completeReceiptId,
+    this.completeReceiptData,
   });
 
   @override
@@ -188,6 +197,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
 
   bool get _isSupplierReturnMode => widget.supplierReturnMode == true;
   bool get _isEditMode => widget.editInvoiceId != null;
+  bool get _isCompletion => widget.completeReceiptId != null;
 
   // Branches (فروع المعرض/المحل)
   bool _isLoadingBranches = false;
@@ -875,7 +885,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
   }
 
   void _prefillFromEditData() {
-    final data = widget.editInvoiceData;
+    final data = widget.editInvoiceData ?? widget.completeReceiptData;
     if (data == null) return;
 
     double toDouble(dynamic v) {
@@ -1472,7 +1482,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
         _loadOriginalInvoiceDetails(originalId);
       }
 
-      if (_isEditMode) {
+      if (_isEditMode || _isCompletion) {
         _prefillFromEditData();
       }
     });
@@ -2672,7 +2682,11 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
       });
 
       final payload = _buildInvoicePayload();
-      final response = _isEditMode
+      final response = _isCompletion
+          ? (await _api.completeReceipt(widget.completeReceiptId!, payload))['invoice']
+                    as Map<String, dynamic>? ??
+                const {}
+          : _isEditMode
           ? await _api.updateUnpostedInvoice(widget.editInvoiceId!, payload)
           : await _api.addInvoice(payload);
 
@@ -2749,7 +2763,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
       }
 
       if (!mounted) return;
-      if (_isEditMode) {
+      if (_isEditMode || _isCompletion) {
         Navigator.pop(context, true);
       } else if (shouldPrint == 'new_invoice') {
         await _clearLocalDraft();
@@ -3082,7 +3096,11 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
         title: Text(
           _isSupplierReturnMode
               ? 'مرتجع شراء (مورد)'
-              : (_isEditMode ? 'تعديل فاتورة شراء' : 'فاتورة شراء جديدة'),
+              : (_isCompletion
+                    ? 'استكمال فاتورة الاستلام'
+                    : _isEditMode
+                    ? 'تعديل فاتورة شراء'
+                    : 'فاتورة شراء جديدة'),
         ),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(26.0),
@@ -3262,7 +3280,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
     final isDark = theme.brightness == Brightness.dark;
 
     final hasOriginalInvoice = _selectedOriginalInvoice != null;
-    final lockedByReturn = _isSupplierReturnMode && hasOriginalInvoice;
+    final lockedByReturn = (_isSupplierReturnMode && hasOriginalInvoice) || _isCompletion;
     final helperText = lockedByReturn
         ? 'المورد والفرع يتم تحديدهما تلقائياً من الفاتورة الأصلية.'
         : (_isSupplierReturnMode
@@ -4218,7 +4236,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final hasOriginalInvoice = _selectedOriginalInvoice != null;
 
-    final lockedByReturn = _isSupplierReturnMode && hasOriginalInvoice;
+    // A receipt completed: its lines are the receipt's (ADR-087 §1أ ٣).
+    final lockedByReturn = (_isSupplierReturnMode && hasOriginalInvoice) || _isCompletion;
 
     return Card(
       elevation: isDark ? 1 : 2,
@@ -4241,7 +4260,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        lockedByReturn
+                        _isCompletion
+                            ? 'أسطر الاستلام كما استُلمت: اكتب أجرة الجرام لكل سطر. فرق الوزن يُصحَّح من «تصحيح فاتورة»، لا هنا.'
+                            : lockedByReturn
                             ? 'تم تحميل أصناف الفاتورة الأصلية. عدّل الوزن أو احذف السطر لتحديد الأصناف المُرتجعة.'
                             : (_isSupplierReturnMode
                                   ? 'يمكنك إدخال المرتجع يدوياً، أو اختيار فاتورة أصلية (اختياري) للربط التلقائي.'
@@ -4631,15 +4652,22 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
         ),
         DataCell(Text(formatAmount(item.karat, decimals: 0))),
         DataCell(
-          InlineNumberCell(
-            key: ValueKey('weight-$index'),
-            value: item.weightGrams,
-            fractionDigits: 3,
-            allowZero: false,
-            label: 'الوزن',
-            onChanged: (v) =>
-                _setInlineItem(index, item.copyWith(weightGrams: v)),
-          ),
+          _isCompletion
+              // the weight received, read: a difference is the receipt's correction
+              ? Text(
+                  formatAmount(item.weightGrams, decimals: 3),
+                  key: ValueKey('weight-$index'),
+                  textDirection: TextDirection.ltr,
+                )
+              : InlineNumberCell(
+                  key: ValueKey('weight-$index'),
+                  value: item.weightGrams,
+                  fractionDigits: 3,
+                  allowZero: false,
+                  label: 'الوزن',
+                  onChanged: (v) =>
+                      _setInlineItem(index, item.copyWith(weightGrams: v)),
+                ),
         ),
         DataCell(
           InlineNumberCell(
@@ -4671,16 +4699,20 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              IconButton(
-                icon: const Icon(Icons.tune),
-                tooltip: 'تفاصيل',
-                onPressed: () => _editInlineItem(index),
-              ),
-              IconButton(
-                icon: Icon(Icons.delete, color: _cs.error),
-                tooltip: 'حذف',
-                onPressed: () => _removeInlineItem(index),
-              ),
+              // A receipt's lines are not edited nor removed while its
+              // invoice is completed: a difference is the receipt's correction.
+              if (!_isCompletion) ...[
+                IconButton(
+                  icon: const Icon(Icons.tune),
+                  tooltip: 'تفاصيل',
+                  onPressed: () => _editInlineItem(index),
+                ),
+                IconButton(
+                  icon: Icon(Icons.delete, color: _cs.error),
+                  tooltip: 'حذف',
+                  onPressed: () => _removeInlineItem(index),
+                ),
+              ],
             ],
           ),
         ),

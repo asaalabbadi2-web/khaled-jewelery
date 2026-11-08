@@ -91,6 +91,7 @@ void main() {
     Map<String, dynamic>? appSettings,
     Map<String, Object> prefs = const {},
     Map<String, dynamic>? editing,
+    Map<String, dynamic>? completing,
     bool supplierReturn = false,
     ThemeData? theme,
   }) async {
@@ -126,6 +127,8 @@ void main() {
                             supplierReturnMode: supplierReturn,
                             editInvoiceId: editing == null ? null : 77,
                             editInvoiceData: editing,
+                            completeReceiptId: completing == null ? null : 88,
+                            completeReceiptData: completing,
                           ),
                         ),
                       ),
@@ -682,6 +685,62 @@ void main() {
     await open(tester, api: FakePurchaseApi(), saved: draft());
     expect(tester.takeException(), isNull);
     await shotWidths(tester, 'purchase');
+  });
+
+  group('a receipt completed (ADR-087 R2)', () {
+    Map<String, dynamic> receipt() => {
+      'id': 88,
+      'invoice_type': 'شراء',
+      'supplier_id': 1,
+      'branch_id': 1,
+      'receiving_stage': 'received',
+      'items': [
+        {
+          'name': 'بنجرة ذهب 21',
+          'karat': 21,
+          'weight': 12.5,
+          'supplier_weight': 12.5,
+          'category_id': 40,
+          'category': 'سلسال 21',
+          'entry_type': 'category',
+        },
+      ],
+    };
+
+    testWidgets('its lines are the receipt\'s: weights read, none added or removed', (
+      tester,
+    ) async {
+      await open(tester, api: FakePurchaseApi(), completing: receipt());
+      expect(find.text('استكمال فاتورة الاستلام'), findsWidgets);
+      expect(find.byKey(const Key('purchase-entry-category')), findsNothing, reason: 'no line added');
+      expect(find.byTooltip('حذف'), findsNothing, reason: 'none removed');
+      expect(
+        find.descendant(of: find.byKey(const ValueKey('weight-0')), matching: find.byType(TextField)),
+        findsNothing,
+        reason: 'the weight received is read, not edited',
+      );
+      expect(find.textContaining('فرق الوزن يُصحَّح من «تصحيح فاتورة»'), findsOneWidget);
+    });
+
+    testWidgets('saved, it completes the receipt with its wage', (tester) async {
+      final api = FakePurchaseApi();
+      await open(tester, api: api, completing: receipt());
+      await tester.enterText(
+        find.descendant(of: find.byKey(const ValueKey('wage-0')), matching: find.byType(TextField)),
+        '18',
+      );
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+      await awaitPreview(tester);
+      await pressCtrlS(tester);
+      await tester.tap(find.text('حفظ الفاتورة').last);
+      await settle(tester);
+      expect(api.added, isEmpty, reason: 'no new invoice');
+      final (id, payload) = api.completed.single;
+      expect(id, 88);
+      final line = (payload['items'] as List).single as Map;
+      expect((line['weight'], line['category_id'], line['wage_per_gram']), (12.5, 40, 18.0));
+    });
   });
 
   testWidgets('what a purchase on credit sends is what it sent (ADR-049)', (

@@ -5267,6 +5267,38 @@ class ApiService {
     throw _apiError(response, fallback: fallback);
   }
 
+  // ── الاستلام قبل الفاتورة (ADR-087 R2) ──────────────────────────────
+
+  /// A receipt: its supplier, his paper's number, the save attempt's key, its
+  /// lines by category (weight received, his weight), a difference's
+  /// approval. Its gold posted. `{invoice: {...}}`; the same key, the same one.
+  Future<Map<String, dynamic>> receivePurchase(Map<String, dynamic> body) =>
+      _postJson('/purchase-receipts', body, fallback: 'تعذّر حفظ الاستلام');
+
+  /// «استلامات بلا فاتورة»: received, their invoice not completed.
+  Future<List<Map<String, dynamic>>> pendingReceipts() async {
+    final response = await _authedGet(
+      Uri.parse('$_baseUrl/purchase-receipts?pending=1'),
+    );
+    if (response.statusCode != 200) {
+      throw _apiError(response, fallback: 'تعذّر تحميل الاستلامات');
+    }
+    final body =
+        json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    return (body['receipts'] as List? ?? []).cast<Map<String, dynamic>>();
+  }
+
+  /// The purchase screen's own request completing a receipt: its cash posted
+  /// on the same document.
+  Future<Map<String, dynamic>> completeReceipt(
+    int receiptId,
+    Map<String, dynamic> payload,
+  ) => _postJson(
+    '/purchase-receipts/$receiptId/complete',
+    payload,
+    fallback: 'تعذّر استكمال الفاتورة',
+  );
+
   // ── «تصحيح فاتورة» (ADR-056) ──────────────────────────────────────────
 
   /// The invoice's corrections and the safe a correction starts from -- the

@@ -30,7 +30,9 @@ import 'items_screen_enhanced.dart';
 import 'add_customer_screen.dart';
 import 'add_item_screen_enhanced.dart';
 import 'sales_invoice_screen_v2.dart';
+import 'pending_receipts_screen.dart';
 import 'purchase_invoice_screen.dart';
+import 'receiving_screen.dart';
 import 'invoices_list_screen.dart';
 import 'customers_screen.dart';
 import 'suppliers_screen.dart';
@@ -1477,6 +1479,53 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         if (result == true) await _loadAllData();
       },
     );
+    // Receiving before the invoice (ADR-087 R2): offered from the day the
+    // server says it works -- 2027's first -- never before.
+    if (context.read<SettingsProvider>().receivingActive) {
+      addDestination(
+        icon: Icons.inventory_2_outlined,
+        title: isAr ? 'استلام ذهب من مورد' : 'Receive Supplier Gold',
+        keywords: const ['استلام', 'مورد', 'ميزان'],
+        color: _tone.invoice(InvoiceKind.purchase).fg,
+        onSelected: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const ReceivingScreen()),
+          );
+        },
+      );
+      addDestination(
+        icon: Icons.pending_actions_outlined,
+        title: isAr ? 'استلامات بلا فاتورة' : 'Receipts Awaiting Invoice',
+        keywords: const ['استلام', 'استكمال', 'فاتورة مورد'],
+        color: _tone.invoice(InvoiceKind.purchase).fg,
+        onSelected: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => PendingReceiptsScreen(
+                onComplete: (ctx, receipt) async {
+                  final id = receipt['id'] as int;
+                  final data = await ApiService().getInvoiceById(id);
+                  if (!ctx.mounted) return false;
+                  final done = await Navigator.push<bool>(
+                    ctx,
+                    MaterialPageRoute(
+                      builder: (_) => PurchaseInvoiceScreen(
+                        completeReceiptId: id,
+                        completeReceiptData: data,
+                      ),
+                    ),
+                  );
+                  if (done == true) await _loadAllData();
+                  return done;
+                },
+              ),
+            ),
+          );
+        },
+      );
+    }
     addDestination(
       icon: Icons.receipt_long,
       title: isAr ? 'جميع الفواتير' : 'All Invoices',

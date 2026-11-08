@@ -81,3 +81,15 @@ def test_completed_with_other_weights_refused(auth_headers, world, receiving_on)
     other['items'][0]['weight'] = 12.0
     status, done = _post(auth_headers, f"/api/purchase-receipts/{body['invoice']['id']}/complete", other)
     assert status == 400 and done['error'] == 'receipt_weights_differ'
+
+
+def test_the_settings_say_whether_receiving_works_today(auth_headers, world):
+    """The menu offers receiving from its day: the server's answer, not the screen's."""
+    Settings.query.first().receiving_from = None
+    db.session.flush()
+    status, body = _get(auth_headers, '/api/settings')
+    assert status == 200 and body['receiving_active'] is False and body['receiving_from'] is None
+    Settings.query.first().receiving_from = date(2026, 1, 1)
+    db.session.flush()
+    status, body = _get(auth_headers, '/api/settings')
+    assert body['receiving_active'] is True and body['receiving_from'] == '2026-01-01'

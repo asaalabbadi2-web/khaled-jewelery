@@ -160,6 +160,20 @@ class FakePurchaseApi extends ApiService {
     };
   }
 
+  /// What a receipt's completion sent (ADR-087 R2).
+  final completed = <(int, Map<String, dynamic>)>[];
+
+  @override
+  Future<Map<String, dynamic>> completeReceipt(
+    int receiptId,
+    Map<String, dynamic> payload,
+  ) async {
+    completed.add((receiptId, payload));
+    return {
+      'invoice': {'id': receiptId, 'total': payload['total'], 'items': []},
+    };
+  }
+
   final updated = <Map<String, dynamic>>[];
 
   @override

@@ -92,6 +92,10 @@ class SettingsProvider with ChangeNotifier {
   }
 
   int get mainKarat => _safeInt(_settings['main_karat'], fallback: 21);
+
+  /// Receiving before the invoice works today (ADR-087 R2) -- the server's
+  /// answer, from its day (Settings.receiving_from); off in 2026.
+  bool get receivingActive => _settings['receiving_active'] == true;
   int get decimalPlaces => _safeInt(_settings['decimal_places'], fallback: 2);
   String get dateFormat => _settings['date_format']?.toString() ?? 'DD/MM/YYYY';
   bool get taxEnabled => _safeBool(_settings['tax_enabled'], fallback: true);
