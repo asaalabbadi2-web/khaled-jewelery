@@ -3532,6 +3532,14 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
     if not invoice_type:
         return jsonify({'error': 'invoice_type or transaction_type is required'}), 400
 
+    # A piece is sold once, by its weight, its wage known (ADR-087 R3.2) --
+    # said first: a piece refused is refused for what it is.
+    from services.pieces import PieceRefused, refuse_piece_sales
+    try:
+        refuse_piece_sales(invoice_type, data.get('items'))
+    except PieceRefused as refused:
+        return jsonify({'error': refused.code, 'message': refused.message}), 400
+
     # A payment and a weight are never below nothing (ADR-062): a negative
     # payment line was added to the check and skipped at the posting -- -200 and
     # 1,200 paid a 1,000 sale and put 1,200 in the safe -- and a negative line

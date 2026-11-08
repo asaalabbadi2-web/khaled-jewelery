@@ -102,3 +102,51 @@ def register_piece(line: InvoiceItem, *, weight, stones_weight=0.0, by: str, now
                            'ذهب السطر غير موزَّع على تصنيفه في خزينة مخزون: لا يُسجَّل تحته قطع')
     db.session.flush()
     return piece
+
+
+def piece_held(item_id: int) -> float:
+    """A piece's grams in the stock: its allocations on posted, standing lines
+    -- its receipt put it in, a sale takes it out (ADR-045)."""
+    from accounting.balances import counted_line_filters
+    grams = (db.session.query(func.coalesce(func.sum(StockLineAllocation.grams), 0.0))
+             .join(JournalEntryLine, JournalEntryLine.id == StockLineAllocation.journal_entry_line_id)
+             .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+             .filter(StockLineAllocation.item_id == int(item_id), *counted_line_filters())
+             .scalar())
+    return round(float(grams or 0.0), 3)
+
+
+def refuse_piece_sales(invoice_type, items) -> None:
+    """A sale's lines against the piece's laws, or PieceRefused (ADR-087 R3.2;
+    ADR-045; ADR-085 law 3): a piece in the stock -- not sold twice; its
+    receipt's invoice completed -- never sold with its wage unknown (law 8);
+    the line its weight; a category tracked by the piece sold by its pieces."""
+    if (invoice_type or '').strip() != 'بيع':
+        return
+    for n, line in enumerate(items or [], start=1):
+        if not isinstance(line, dict):
+            continue
+        item_id = line.get('item_id')
+        if not item_id:
+            category = db.session.get(Category, int(line['category_id'])) if line.get('category_id') else None
+            if category is not None and (category.tracking or 'weight') == 'piece':
+                raise PieceRefused('piece_category_sold_by_piece',
+                                   f'السطر {n}: «{category.name}» يُباع بقطعه: امسح رقم القطعة')
+            continue
+        piece = db.session.get(Item, int(item_id))
+        if piece is None or piece.receipt_item_id is None:
+            continue                                    # not a piece: the catalogue's own rules
+        if piece_held(piece.id) <= GRAM:
+            raise PieceRefused('piece_sold', f'السطر {n}: القطعة {piece.item_code} ليست في المخزون: لا تُباع مرتين')
+        receipt_line = db.session.get(InvoiceItem, piece.receipt_item_id)
+        receipt = db.session.get(Invoice, receipt_line.invoice_id) if receipt_line else None
+        if receipt is None or getattr(receipt, 'receiving_stage', None) != 'invoiced':
+            raise PieceRefused('piece_wage_unknown',
+                               f'السطر {n}: القطعة {piece.item_code} لم تُستكمل فاتورة استلامها: أجرتها غير معروفة')
+        try:
+            weight = round(float(line.get('weight')), 3)
+        except (TypeError, ValueError):
+            weight = 0.0
+        if abs(weight - round(float(piece.weight or 0), 3)) > GRAM:
+            raise PieceRefused('piece_weight_differs',
+                               f'السطر {n}: القطعة {piece.item_code} تُباع بوزنها ({float(piece.weight):.2f} جم)')
