@@ -20,6 +20,7 @@ settled gets no gold row from posting.
 Run:
     python -m pytest tests/test_supplier_purchase_gold_follows_its_entry.py -v
 """
+from tests.purchase_category import categorized
 import uuid
 from datetime import datetime
 
@@ -87,7 +88,7 @@ def _create(headers, payload):
 def _purchase(w, grams=10.0):
     return {'invoice_type': 'شراء', 'supplier_id': w['supplier'].id, 'gold_type': 'new',
             'date': datetime.now().isoformat(), 'total': 1000.0,
-            'items': [{'name': 'سلسال', 'karat': 21, 'weight': grams, 'quantity': 1, 'price': 1000.0}]}
+            'items': categorized([{'name': 'سلسال', 'karat': 21, 'weight': grams, 'quantity': 1, 'price': 1000.0}])}
 
 
 def _statement_and_entry(invoice_id):
@@ -149,8 +150,8 @@ def test_a_supplier_return_records_its_gold_where_its_entry_took_it(auth_headers
     ret = _create(auth_headers, {
         'invoice_type': 'مرتجع شراء (مورد)', 'supplier_id': pworld['supplier'].id, 'gold_type': 'new',
         'date': datetime.now().isoformat(), 'original_invoice_id': original['id'], 'amount_paid': 0, 'total': 1000.0,
-        'items': [{'name': 'سلسال', 'karat': 21, 'weight': 10.0, 'quantity': 1, 'price': 1000.0,
-                   'original_invoice_item_id': item.id}]})
+        'items': categorized([{'name': 'سلسال', 'karat': 21, 'weight': 10.0, 'quantity': 1, 'price': 1000.0,
+                   'original_invoice_item_id': item.id}])})
     assert _agrees(ret['id']) == {}
     assert _statement_and_entry(ret['id'])[(pworld['display'].id, '21k')] == [-10.0, -10.0]
 
@@ -178,3 +179,16 @@ def test_a_purchase_a_reservation_settled_gets_no_gold_row_from_posting(auth_hea
     rows = SafeBoxTransaction.query.filter(SafeBoxTransaction.ref_id == inv.id,
                                            SafeBoxTransaction.ref_type.like('invoice_gold%')).all()
     assert [(r.safe_box_id, r.direction) for r in rows] == []
+
+
+def test_a_purchase_keeps_its_suppliers_invoice_number(auth_headers, pworld):
+    """The supplier's own number (the owner, 8 Nov 2026): saved as written,
+    Arabic digits read as Latin; tests/test_supplier_invoice_number.py holds
+    the rest of its law."""
+    from models import Invoice
+    body = _purchase(pworld)
+    body['supplier_invoice_number'] = ' ف-٧٧ '
+    saved = _create(auth_headers, body)
+    invoice = db.session.get(Invoice, (saved.get('invoice') or saved)['id'])
+    assert invoice.supplier_invoice_number == 'ف-77'
+    assert invoice.to_dict()['supplier_invoice_number'] == 'ف-77'

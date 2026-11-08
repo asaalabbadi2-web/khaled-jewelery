@@ -1,20 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../models/category_model.dart';
 import 'inline_number_cell.dart';
 
-/// One weight of one item, as the entry row hands it back.
+/// One weight of one category, as the entry row hands it back.
 class PurchaseItemEntry {
+  /// The description typed, or the category's name.
   final String name;
   final int karat;
   final double weight;
   final double wagePerGram;
+  final int categoryId;
+  final String categoryName;
 
   const PurchaseItemEntry({
     required this.name,
     required this.karat,
     required this.weight,
     required this.wagePerGram,
+    required this.categoryId,
+    required this.categoryName,
   });
 }
 
@@ -22,22 +28,28 @@ double? _readNumber(String text) => readTypedNumber(text);
 
 List<TextInputFormatter> get _numberFormatters => typedNumberFormatters();
 
-/// Purchase items typed in one row, one weight after another (PURCHASE-UX-5).
+/// Purchase lines typed in one row, one weight after another (PURCHASE-UX-5).
 ///
-/// The name, the karat and the wage are typed once; Enter on the weight adds
-/// the line and brings the cursor back to the weight, so the weights of one
-/// item follow each other without a dialog. The rare fields (code, barcode,
-/// stones, notes) are on each line's details.
+/// The karat, the category, an optional description and the wage are chosen
+/// once; Enter on the weight adds the line and brings the cursor back to the
+/// weight, so the weights of one category follow each other without a
+/// dialog. A line is a category of its karat, never an item (the owner, 8
+/// Nov 2026): the categories offered are the karat's; the piece is registered
+/// on receiving. The rare fields (stones, notes) are on each line's details.
 class PurchaseItemEntryRow extends StatefulWidget {
   final List<int> karats;
   final int initialKarat;
   final ValueChanged<PurchaseItemEntry> onAdd;
+
+  /// The categories a line may take: active, not scrap.
+  final List<Category> categories;
 
   const PurchaseItemEntryRow({
     super.key,
     required this.karats,
     required this.initialKarat,
     required this.onAdd,
+    this.categories = const [],
   });
 
   @override
@@ -55,6 +67,12 @@ class _PurchaseItemEntryRowState extends State<PurchaseItemEntryRow> {
       ? widget.initialKarat
       : widget.karats.first;
   String? _error;
+  int? _categoryId;
+
+  /// The karat's categories: a category's karat is fixed (ADR-045).
+  List<Category> get _ofKarat => widget.categories
+      .where((c) => double.tryParse(c.karat ?? '') == _karat.toDouble())
+      .toList();
 
   @override
   void dispose() {
@@ -76,12 +94,12 @@ class _PurchaseItemEntryRowState extends State<PurchaseItemEntryRow> {
   }
 
   void _add() {
-    final name = _name.text.trim();
+    final description = _name.text.trim();
     final weight = _readNumber(_weight.text) ?? 0;
     final wage = _readNumber(_wage.text) ?? 0;
-    if (name.isEmpty) {
-      setState(() => _error = 'اكتب اسم الصنف');
-      _focus(_nameFocus, _name);
+    final category = _ofKarat.where((c) => c.id == _categoryId).firstOrNull;
+    if (category == null) {
+      setState(() => _error = 'اختر التصنيف');
       return;
     }
     if (weight <= 0) {
@@ -91,10 +109,12 @@ class _PurchaseItemEntryRowState extends State<PurchaseItemEntryRow> {
     }
     widget.onAdd(
       PurchaseItemEntry(
-        name: name,
+        name: description.isEmpty ? category.name : description,
         karat: _karat,
         weight: weight,
         wagePerGram: wage,
+        categoryId: category.id!,
+        categoryName: category.name,
       ),
     );
     setState(() => _error = null);
@@ -116,11 +136,31 @@ class _PurchaseItemEntryRowState extends State<PurchaseItemEntryRow> {
       children: [
         LayoutBuilder(
           builder: (context, box) {
+            final ofKarat = _ofKarat;
+            final category = DropdownButtonFormField<int>(
+              key: const Key('purchase-entry-category'),
+              initialValue: ofKarat.any((c) => c.id == _categoryId)
+                  ? _categoryId
+                  : null,
+              isExpanded: true,
+              decoration: _decoration('التصنيف'),
+              hint: Text(
+                ofKarat.isEmpty ? 'لا تصنيف لعيار $_karat' : 'اختر التصنيف',
+              ),
+              items: [
+                for (final c in ofKarat)
+                  DropdownMenuItem(value: c.id, child: Text(c.name)),
+              ],
+              onChanged: (v) => setState(() {
+                _categoryId = v;
+                _error = null;
+              }),
+            );
             final name = TextField(
               key: const Key('purchase-entry-name'),
               controller: _name,
               focusNode: _nameFocus,
-              decoration: _decoration('الصنف'),
+              decoration: _decoration('الوصف (اختياري)'),
               textInputAction: TextInputAction.next,
               onSubmitted: (_) => _focus(_wageFocus, _wage),
             );
@@ -132,7 +172,11 @@ class _PurchaseItemEntryRowState extends State<PurchaseItemEntryRow> {
                 ],
                 selected: {_karat},
                 showSelectedIcon: false,
-                onSelectionChanged: (s) => setState(() => _karat = s.first),
+                // another karat, another category: the chosen one is its own
+                onSelectionChanged: (s) => setState(() {
+                  _karat = s.first;
+                  _categoryId = null;
+                }),
               ),
               SizedBox(
                 width: 100,
@@ -170,11 +214,14 @@ class _PurchaseItemEntryRowState extends State<PurchaseItemEntryRow> {
                 label: const Text('إضافة'),
               ),
             ];
-            // One line when it fits, the name taking what is left.
-            if (box.maxWidth >= 640) {
+            // One line when it fits, the category and the description
+            // taking what is left.
+            if (box.maxWidth >= 760) {
               return Row(
                 children: [
-                  Expanded(child: name),
+                  Expanded(flex: 3, child: category),
+                  const SizedBox(width: 8),
+                  Expanded(flex: 2, child: name),
                   for (final w in rest) ...[const SizedBox(width: 8), w],
                 ],
               );
@@ -184,7 +231,8 @@ class _PurchaseItemEntryRowState extends State<PurchaseItemEntryRow> {
               runSpacing: 8,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                SizedBox(width: 220, child: name),
+                SizedBox(width: 220, child: category),
+                SizedBox(width: 180, child: name),
                 ...rest,
               ],
             );

@@ -25,6 +25,7 @@ posting instead of losing the entry.
 Run:
     python -m pytest tests/test_karat_diff_commission_one_writer.py -v
 """
+from tests.purchase_category import categorized
 import inspect
 import uuid
 from datetime import datetime
@@ -85,7 +86,7 @@ def _create(headers, supplier, *, earn=0.0, pay=0.0):
         'invoice_type': 'شراء', 'supplier_id': supplier.id, 'gold_type': 'new',
         'date': datetime.now().isoformat(), 'total': 1000.0,
         'karat_diff_earn_total': earn, 'karat_diff_pay_total': pay,
-        'items': [{'name': 'سلسال', 'karat': 21, 'weight': 10.0, 'quantity': 1, 'price': 1000.0}]})
+        'items': categorized([{'name': 'سلسال', 'karat': 21, 'weight': 10.0, 'quantity': 1, 'price': 1000.0}])})
     assert resp.status_code == 201, resp.get_data(as_text=True)[:400]
     return resp.get_json()['id']
 
@@ -178,7 +179,7 @@ def test_a_24k_settlement_posted_at_creation_carries_its_commission(auth_headers
         'date': datetime.now().isoformat(), 'total': 1000.0,
         'gold24k_settlement': True, 'gold24k_weight': 10.0, 'gold24k_commission_per_gram': 5.0,
         'gold24k_commission_total': 50.0,
-        'items': [{'name': 'سلسال', 'karat': 21, 'weight': 10.0, 'quantity': 1, 'price': 1000.0}]})
+        'items': categorized([{'name': 'سلسال', 'karat': 21, 'weight': 10.0, 'quantity': 1, 'price': 1000.0}])})
     assert resp.status_code == 201, resp.get_data(as_text=True)[:300]
     invoice_id = resp.get_json()['id']
     assert JournalEntry.query.filter(JournalEntry.reference_type == 'invoice', JournalEntry.reference_id == invoice_id,

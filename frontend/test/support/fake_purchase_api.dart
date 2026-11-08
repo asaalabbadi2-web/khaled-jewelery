@@ -47,7 +47,16 @@ class FakePurchaseApi extends ApiService {
   ];
 
   @override
-  Future<List<dynamic>> getCategories({bool includeInactive = false}) async => [];
+  Future<List<dynamic>> getCategories({bool includeInactive = false}) async =>
+      categories;
+
+  /// The catalogue's categories: a purchase line is one of its karat (8 Nov 2026).
+  List<Map<String, dynamic>> categories = [
+    {'id': 40, 'name': 'سلسال 21', 'karat': '21', 'is_active': true},
+    {'id': 41, 'name': 'طقم ذهب 18', 'karat': '18', 'is_active': true},
+    {'id': 42, 'name': 'كسر 21', 'karat': '21', 'is_active': true, 'is_scrap': true},
+    {'id': 43, 'name': 'بنجرة ذهب 21 (موقوف)', 'karat': '21', 'is_active': false},
+  ];
 
   @override
   Future<Map<String, dynamic>> getGoldPrice() async =>

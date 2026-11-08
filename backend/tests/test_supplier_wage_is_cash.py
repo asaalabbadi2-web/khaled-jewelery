@@ -21,6 +21,7 @@ The law:
 Run:
     python -m pytest tests/test_supplier_wage_is_cash.py -v
 """
+from tests.purchase_category import categorized
 import uuid
 from datetime import datetime
 
@@ -81,7 +82,7 @@ def _purchase(supplier_id):
         'date': datetime.now().isoformat(), 'total': 11000.0,
         'gold_subtotal': 10000.0, 'manufacturing_wage_cash': 1000.0,
         'wage_tax_total': 0.0, 'gold_tax_total': 0.0, 'total_tax': 0.0,
-        'items': [{'name': 'سلسال', 'karat': 21, 'weight': 20.0, 'quantity': 1, 'price': 11000.0}],
+        'items': categorized([{'name': 'سلسال', 'karat': 21, 'weight': 20.0, 'quantity': 1, 'price': 11000.0}]),
     }
 
 

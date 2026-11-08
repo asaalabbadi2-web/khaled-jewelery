@@ -17,6 +17,7 @@ charges the supplier in cash.
 Run:
     python -m pytest tests/test_supplier_return_refund.py -v
 """
+from tests.purchase_category import categorized
 import uuid
 from datetime import datetime
 
@@ -49,8 +50,8 @@ def _general_form(b, purchase, method, refund):
         'original_invoice_id': purchase['id'], 'return_reason': 'تجربة', 'date': datetime.now().isoformat(),
         'total': refund, 'total_weight': 10.0, 'total_tax': 0.0, 'total_cost': refund, 'amount_paid': refund,
         'payments': [{'payment_method_id': method.id, 'amount': refund}],
-        'items': [{'original_invoice_item_id': item.id, 'name': 'سلسال', 'karat': 21, 'weight': 10.0,
-                   'wage': 20.0, 'quantity': 1, 'cost': 0, 'net': 0, 'tax': 0, 'tax_amount': 0, 'price': 0}],
+        'items': categorized([{'original_invoice_item_id': item.id, 'name': 'سلسال', 'karat': 21, 'weight': 10.0,
+                   'wage': 20.0, 'quantity': 1, 'cost': 0, 'net': 0, 'tax': 0, 'tax_amount': 0, 'price': 0}]),
     }
 
 
@@ -81,8 +82,8 @@ def test_a_cash_refund_within_the_wages_and_their_vat_stands(auth_headers, books
         'wage_tax_total': 30.0, 'gold_tax_total': 0.0, 'vat_applied': True,
         'manufacturing_wage_cash': 200.0, 'settlement_method': 'partial',
         'payments': [{'payment_method_id': method.id, 'amount': 230.0}], 'amount_paid': 230.0,
-        'items': [{'name': 'سلسال', 'karat': 21, 'weight': 10.0, 'quantity': 1,
-                   'manufacturing_wage_per_gram': 20.0, 'original_invoice_item_id': item.id}],
+        'items': categorized([{'name': 'سلسال', 'karat': 21, 'weight': 10.0, 'quantity': 1,
+                   'manufacturing_wage_per_gram': 20.0, 'original_invoice_item_id': item.id}]),
     })
     assert ret['id']
 
@@ -97,7 +98,7 @@ def test_a_return_on_credit_refunds_nothing_and_stands(auth_headers, books):
         'total': 230.0, 'total_tax': 30.0, 'wage_subtotal': 200.0, 'wage_tax_total': 30.0,
         'gold_tax_total': 0.0, 'vat_applied': True, 'manufacturing_wage_cash': 200.0,
         'settlement_method': 'credit', 'amount_paid': 0.0,
-        'items': [{'name': 'سلسال', 'karat': 21, 'weight': 10.0, 'quantity': 1,
-                   'manufacturing_wage_per_gram': 20.0, 'original_invoice_item_id': item.id}],
+        'items': categorized([{'name': 'سلسال', 'karat': 21, 'weight': 10.0, 'quantity': 1,
+                   'manufacturing_wage_per_gram': 20.0, 'original_invoice_item_id': item.id}]),
     })
     assert ret['id']

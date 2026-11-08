@@ -18,6 +18,7 @@ weight - its priced stones; the supplier's gold is recomputed from the lines.
 Run:
     python -m pytest tests/test_supplier_purchase_stones.py -v
 """
+from tests.purchase_category import categorized
 import uuid
 from datetime import datetime
 
@@ -79,7 +80,7 @@ def _purchase(supplier, *, kind=None, stones=0.0, value=0.0, vat=False, standing
     if kind:
         line.update({'has_stones': True, 'stones_weight': stones, 'stones_kind': kind, 'stones_value': value})
     body = {'invoice_type': 'شراء', 'supplier_id': supplier.id, 'gold_type': 'new', 'vat_applied': vat,
-            'date': datetime.now().date().isoformat(), 'items': [line],
+            'date': datetime.now().date().isoformat(), 'items': categorized([line]),
             # the screen's own copy, from the standing weights -- not read when stones are priced
             'supplier_gold_lines': [{'karat': 18, 'weight': standing}]}
     if kind == 'priced':
@@ -202,7 +203,7 @@ def test_a_return_of_a_line_with_priced_stones_is_refused_until_it_is_built(auth
     resp = _post(auth_headers, {
         'invoice_type': 'مرتجع شراء (مورد)', 'supplier_id': supplier.id, 'gold_type': 'new',
         'date': datetime.now().date().isoformat(), 'original_invoice_id': original,
-        'items': [{'name': 'طقم أبيض', 'karat': 18, 'weight': 27.3, 'quantity': 1, 'price': 0,
-                   'original_invoice_item_id': original_item.id}]})
+        'items': categorized([{'name': 'طقم أبيض', 'karat': 18, 'weight': 27.3, 'quantity': 1, 'price': 0,
+                   'original_invoice_item_id': original_item.id}])})
     assert resp.status_code == 400, resp.get_data(as_text=True)[:400]
     assert resp.get_json()['error'] == 'priced_stones_return_not_built'

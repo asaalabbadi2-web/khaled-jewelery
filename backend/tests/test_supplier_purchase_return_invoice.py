@@ -12,6 +12,8 @@ Run:
 """
 from __future__ import annotations
 
+from tests.purchase_category import categorized
+
 import uuid
 from datetime import datetime
 
@@ -70,7 +72,7 @@ def _purchase(headers, supplier, *, weight, quantity):
     resp = _post(headers, {
         'invoice_type': 'شراء', 'supplier_id': supplier.id, 'gold_type': 'new',
         'date': datetime.now().date().isoformat(), 'total': 0,
-        'items': [{'name': 'قطعة اختبار شراء', 'karat': 21, 'weight': weight, 'quantity': quantity, 'price': 0}],
+        'items': categorized([{'name': 'قطعة اختبار شراء', 'karat': 21, 'weight': weight, 'quantity': quantity, 'price': 0}]),
     })
     assert resp.status_code in (200, 201), resp.get_data(as_text=True)[:400]
     invoice_id = int(resp.get_json()['id'])
@@ -83,8 +85,8 @@ def test_a_return_within_its_original_with_nothing_paid_creates_no_payment(auth_
         'invoice_type': 'مرتجع شراء (مورد)', 'supplier_id': supplier.id, 'gold_type': 'new',
         'date': datetime.now().date().isoformat(), 'original_invoice_id': original_id,
         'payment_method_id': _receivable_method(), 'amount_paid': 0,
-        'items': [{'name': 'قطعة اختبار مرتجع', 'karat': 21, 'weight': 10.0, 'quantity': 1, 'price': 0,
-                   'original_invoice_item_id': original_item_id}],
+        'items': categorized([{'name': 'قطعة اختبار مرتجع', 'karat': 21, 'weight': 10.0, 'quantity': 1, 'price': 0,
+                   'original_invoice_item_id': original_item_id}]),
     })
     assert resp.status_code in (200, 201), resp.get_data(as_text=True)[:400]
     return_id = int(resp.get_json()['id'])
@@ -104,8 +106,8 @@ def test_a_return_beyond_its_original_quantity_is_refused(auth_headers, supplier
     resp = _post(auth_headers, {
         'invoice_type': 'مرتجع شراء (مورد)', 'supplier_id': supplier.id, 'gold_type': 'new',
         'date': datetime.now().date().isoformat(), 'original_invoice_id': original_id,
-        'items': [{'name': 'قطعة اختبار مرتجع 2', 'karat': 21, 'weight': 5.0, 'quantity': 2, 'price': 0,
-                   'original_invoice_item_id': original_item_id}],
+        'items': categorized([{'name': 'قطعة اختبار مرتجع 2', 'karat': 21, 'weight': 5.0, 'quantity': 2, 'price': 0,
+                   'original_invoice_item_id': original_item_id}]),
     })
     assert resp.status_code == 400
     assert (resp.get_json() or {}).get('error') in {

@@ -3882,6 +3882,17 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
     if gold_type not in ['new', 'scrap']:
         return jsonify({'error': 'gold_type must be either "new" or "scrap"'}), 400
 
+    # A supplier's purchase line is a category of its karat, never an item
+    # (the owner, 8 Nov 2026): a piece is registered on receiving.
+    from services.purchase_lines import PurchaseLineRefused, refuse_purchase_lines, supplier_invoice_number
+    try:
+        refuse_purchase_lines(invoice_type, gold_type, data.get('items'))
+        # the supplier's own number: optional, one per supplier (8 Nov 2026)
+        supplier_number = supplier_invoice_number(invoice_type, data.get('supplier_id'),
+                                                  data.get('supplier_invoice_number'))
+    except PurchaseLineRefused as refused:
+        return jsonify({'error': refused.code, 'message': refused.message}), 400
+
     # A returned line is the original's line coming back: it takes its category,
     # so the category's weight and the inventory ledger's bucket get it back.
     # Every sale return from April to 3300 (9 Oct 2026) was saved without one --
@@ -4598,6 +4609,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             invoice_type_id=next_invoice_type_id,
             customer_id=data.get('customer_id'),
             supplier_id=data.get('supplier_id'),
+            supplier_invoice_number=supplier_number,
             employee_id=employee_id_for_invoice,
             branch_id=branch_id,
             office_id=office_id,

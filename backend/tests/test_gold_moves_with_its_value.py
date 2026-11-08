@@ -28,6 +28,7 @@ from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE
 from models import Account, AccountingMapping, JournalEntry, JournalEntryLine, Settings, Voucher, db
 from services.gold_cost import pool_state, replay
 from services.gold_cost_postings import GoldCostRefused, value_the_gold
+from tests.purchase_category import category_of
 from tests.test_gold_cost import _child, _entry, _role_twin
 from tests.test_gold_cost import _account as _tree_account
 from tests.test_melting_and_renewal_classify import _category, _post
@@ -296,7 +297,7 @@ def test_a_suppliers_worked_gold_enters_at_the_scrap_average(auth_headers, roles
     _holds(scrap, 21, 100.0 - min(pool_state('scrap').weight, 0.0))
     _valued('scrap', pool_state('scrap').weight * 400.0)
     body = _purchase(supplier, standing=34.0)
-    body['items'][0]['karat'] = 21
+    body['items'][0].update(karat=21, category_id=category_of(21))  # a line of its karat's category
     body['supplier_gold_lines'] = [{'karat': 21, 'weight': 34.0}]
     resp = _post_invoice(auth_headers, body)
     assert resp.status_code in (200, 201), resp.get_data(as_text=True)[:400]

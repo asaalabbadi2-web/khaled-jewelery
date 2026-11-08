@@ -25,6 +25,7 @@ refuses paying more than it.
 Run:
     python -m pytest tests/test_purchase_cash_paid_against_its_obligation.py -v
 """
+from tests.purchase_category import categorized
 import uuid
 from datetime import datetime
 
@@ -109,7 +110,7 @@ def _purchase_paying_its_cash(w):
         'gold_subtotal': gold, 'wage_subtotal': 0.0,
         'wage_tax_total': 0.0, 'gold_tax_total': vat,
         'settlement_method': 'partial',
-        'items': [{'name': 'سلسال', 'karat': 21, 'weight': 10.0, 'quantity': 1}],
+        'items': categorized([{'name': 'سلسال', 'karat': 21, 'weight': 10.0, 'quantity': 1}]),
         'payments': [{'payment_method_id': w['pm'].id, 'amount': vat,
                       'safe_box_id': w['box'].id}],
         'amount_paid': vat,

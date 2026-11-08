@@ -969,6 +969,9 @@ class Invoice(db.Model):
     invoice_type_id = db.Column(db.Integer, nullable=False)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=True)
     supplier_id = db.Column(db.Integer, db.ForeignKey('supplier.id'), nullable=True)
+    # The supplier's own invoice number (the owner, 8 Nov 2026): optional; once
+    # written, one per supplier among invoices not retracted (services/purchase_lines).
+    supplier_invoice_number = db.Column(db.String(50), nullable=True)
     # 🆕 الموظف المنفّذ/البائع (مربوط بحساب المستخدم)
     employee_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=True)
     branch_id = db.Column(db.Integer, db.ForeignKey('branch.id'), nullable=True)  # 🆕 الفرع (منفصل عن مكاتب التسكير)
@@ -1149,7 +1152,14 @@ class Invoice(db.Model):
     # 🆕 تسويات الوزن (مصروف/تسكير)
     weight_settlements = db.relationship('InvoiceWeightSettlement', backref='invoice', lazy=True, cascade='all, delete-orphan')
 
-    __table_args__ = (db.UniqueConstraint('invoice_type', 'invoice_type_id', name='_invoice_type_uc'),)
+    __table_args__ = (
+        db.UniqueConstraint('invoice_type', 'invoice_type_id', name='_invoice_type_uc'),
+        # one supplier invoice number per supplier among invoices not retracted
+        # -- the backstop of services/purchase_lines (8 Nov 2026)
+        db.Index('uq_invoice_supplier_invoice_number', 'supplier_id', 'supplier_invoice_number', unique=True,
+                 postgresql_where=db.text("supplier_invoice_number IS NOT NULL "
+                                          "AND coalesce(status, '') NOT IN ('rejected', 'cancelled')")),
+    )
 
     @property
     def invoice_number(self) -> str:
@@ -1263,6 +1273,7 @@ class Invoice(db.Model):
             'invoice_number': getattr(self, 'invoice_number', None),
             'customer_id': self.customer_id,
             'supplier_id': self.supplier_id,
+            'supplier_invoice_number': self.supplier_invoice_number,
             'employee_id': self.employee_id,
             'branch_id': self.branch_id,
             'office_id': self.office_id,  # 🆕 المكتب

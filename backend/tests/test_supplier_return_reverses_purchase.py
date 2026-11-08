@@ -16,6 +16,7 @@ frozen treatment and 1400 credited; no cash for the gold's value.
 Run:
     python -m pytest tests/test_supplier_return_reverses_purchase.py -v
 """
+from tests.purchase_category import categorized
 from datetime import datetime
 
 from sqlalchemy import func
@@ -52,9 +53,9 @@ def _return_of(b, purchase):
         'total': gold + wage + vat, 'total_tax': vat,
         'gold_subtotal': gold, 'wage_subtotal': wage,
         'wage_tax_total': vat, 'gold_tax_total': 0.0, 'vat_applied': True,
-        'items': [{'name': 'سلسال', 'karat': 21, 'weight': 10.0, 'quantity': 1,
+        'items': categorized([{'name': 'سلسال', 'karat': 21, 'weight': 10.0, 'quantity': 1,
                    'manufacturing_wage_per_gram': 20.0,
-                   'original_invoice_item_id': item.id}],
+                   'original_invoice_item_id': item.id}]),
     }
 
 

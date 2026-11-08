@@ -14,6 +14,7 @@ what it is after -- the server's reader's, before and after the save (س٢).
 Run:
     python -m pytest tests/test_supplier_purchase_effect.py -v
 """
+from tests.purchase_category import categorized
 import uuid
 from datetime import datetime
 
@@ -99,12 +100,12 @@ SHAPES = {
     'items only, no VAT': (lambda w: _base(
         w, total=11000.0, total_tax=0.0, gold_subtotal=10000.0, manufacturing_wage_cash=1000.0,
         wage_tax_total=0.0, gold_tax_total=0.0, vat_applied=False,
-        items=[{'name': 'سلسال', 'karat': 21, 'weight': 20.0, 'quantity': 1, 'price': 11000.0}],
+        items=categorized([{'name': 'سلسال', 'karat': 21, 'weight': 20.0, 'quantity': 1, 'price': 11000.0}]),
     ), {'21': 20.0}),
     'the supplier names its gold, two karats': (lambda w: _base(
         w, total=8000.0, total_tax=0.0, gold_subtotal=7500.0, manufacturing_wage_cash=500.0,
         wage_tax_total=0.0, gold_tax_total=0.0, vat_applied=False,
-        items=[{'name': 'طقم', 'karat': 21, 'weight': 15.0, 'quantity': 1, 'price': 8000.0}],
+        items=categorized([{'name': 'طقم', 'karat': 21, 'weight': 15.0, 'quantity': 1, 'price': 8000.0}]),
         supplier_gold_lines=[{'karat': 21, 'weight': 10.0}, {'karat': 18, 'weight': 6.0}],
     ), {'21': 15.0}),
     'gold VAT and wage VAT': (lambda w: _base(

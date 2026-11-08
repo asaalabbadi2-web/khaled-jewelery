@@ -455,15 +455,23 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('three weights of one item are typed with Enter, no dialog', (
+    Future<void> chooseCategory(WidgetTester tester, String name) async {
+      await tester.tap(find.byKey(const Key('purchase-entry-category')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(name).last);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('three weights of one category are typed with Enter, no dialog', (
       tester,
     ) async {
       final api = FakePurchaseApi();
       await open(tester, api: api, saved: draft(withItem: false));
 
+      await chooseCategory(tester, 'سلسال 21');
       await tester.enterText(
         find.byKey(const Key('purchase-entry-name')),
-        'سلسال',
+        'سلاسل حبل',
       );
       await tester.enterText(
         find.byKey(const Key('purchase-entry-wage')),
@@ -473,7 +481,7 @@ void main() {
         await typeWeight(tester, w);
         expect(find.byType(Dialog), findsNothing);
       }
-      // The weight is cleared for the next one; the name and wage stay.
+      // The weight is cleared for the next one; the rest stays.
       final weightField = tester.widget<TextField>(
         find.byKey(const Key('purchase-entry-weight')),
       );
@@ -483,20 +491,48 @@ void main() {
       final items = (await save(tester, api))['items'] as List;
       expect(items.map((i) => (i as Map)['weight']), [12.5, 3.0, 4.25]);
       for (final i in items.cast<Map>()) {
-        expect(i['name'], 'سلسال');
+        expect(i['name'], 'سلاسل حبل', reason: 'the description');
+        expect(i['category_id'], 40);
         expect(i['karat'], 21);
         expect(i['wage_per_gram'], 18.0);
-        expect(i['create_inline'], isTrue);
+        expect(i.containsKey('create_inline'), isFalse, reason: 'a category, never an item');
       }
     });
 
-    testWidgets('without a name nothing is added, and it says so', (
+    testWidgets('the categories are the karat\'s, active, not scrap', (
+      tester,
+    ) async {
+      await open(tester, api: FakePurchaseApi(), saved: draft(withItem: false));
+      await tester.tap(find.byKey(const Key('purchase-entry-category')));
+      await tester.pumpAndSettle();
+      expect(find.text('سلسال 21'), findsWidgets);
+      expect(find.text('طقم ذهب 18'), findsNothing, reason: 'of 18');
+      expect(find.text('كسر 21'), findsNothing, reason: 'scrap');
+      expect(find.text('بنجرة ذهب 21 (موقوف)'), findsNothing, reason: 'stopped');
+    });
+
+    testWidgets('the supplier\'s invoice number is sent when written, never empty', (
+      tester,
+    ) async {
+      final api = FakePurchaseApi();
+      await open(tester, api: api, saved: draft(withItem: false));
+      await chooseCategory(tester, 'سلسال 21');
+      await typeWeight(tester, '10');
+      await tester.enterText(
+        find.byKey(const Key('purchase-supplier-invoice-number')),
+        ' F-77 ',
+      );
+      await tester.pumpAndSettle();
+      expect((await save(tester, api))['supplier_invoice_number'], 'F-77');
+    });
+
+    testWidgets('without a category nothing is added, and it says so', (
       tester,
     ) async {
       await open(tester, api: FakePurchaseApi(), saved: draft(withItem: false));
 
       await typeWeight(tester, '5');
-      expect(find.text('اكتب اسم الصنف'), findsOneWidget);
+      expect(find.text('اختر التصنيف'), findsWidgets);
       expect(find.text('غير جاهز للحفظ — أضف أصناف الفاتورة'), findsNothing);
       expect(find.textContaining('أضف أصناف الفاتورة'), findsWidgets);
     });

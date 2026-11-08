@@ -209,6 +209,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
   // Settlement
   _PurchaseSettlementMode _settlementMode = _PurchaseSettlementMode.credit;
   final TextEditingController _cashPaidController = TextEditingController();
+  // The supplier's own invoice number: optional, one per supplier (8 Nov 2026).
+  final TextEditingController _supplierInvoiceNumberController =
+      TextEditingController();
   final TextEditingController _goldPaidWeightController =
       TextEditingController();
   List<SafeBoxModel> _goldSafeBoxes = [];
@@ -843,6 +846,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
       line.dispose();
     }
     _goldSettlementLines.clear();
+    _supplierInvoiceNumberController.clear();
     setState(() {
       _selectedSupplierId = null;
       _vatChoice = null;
@@ -935,6 +939,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
       );
     }).toList();
 
+    _supplierInvoiceNumberController.text =
+        data['supplier_invoice_number']?.toString() ?? '';
     setState(() {
       _selectedSupplierId = toInt(data['supplier_id']);
       _selectedBranchId = toInt(data['branch_id']);
@@ -968,6 +974,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
     return {
       'version': 1,
       'supplier_id': _selectedSupplierId,
+      'supplier_invoice_number': _supplierInvoiceNumberController.text.trim(),
       'branch_id': _selectedBranchId,
       'apply_vat_on_gold': _applyVatOnGold,
       'ui_lock_price_edits': _uiLockPriceEdits,
@@ -1185,6 +1192,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
           ..clear()
           ..addAll(restoredGoldSettlements);
         _selectedSupplierId = toInt(payload['supplier_id']);
+        _supplierInvoiceNumberController.text =
+            payload['supplier_invoice_number']?.toString() ?? '';
         _selectedBranchId = toInt(payload['branch_id']);
         _applyVatOnGold = payload['apply_vat_on_gold'] == true;
         _uiLockPriceEdits = payload['ui_lock_price_edits'] == true;
@@ -1646,6 +1655,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
     stopLiveGoldPrices();
     _previewTimer?.cancel();
     _cashPaidController.dispose();
+    _supplierInvoiceNumberController.dispose();
     _goldPaidWeightController.dispose();
     for (final line in _goldSettlementLines) {
       line.dispose();
@@ -2256,7 +2266,11 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
         karat: entry.karat.toDouble(),
         weightGrams: entry.weight,
         wagePerGram: entry.wagePerGram,
-        allowInlineCreation: !_isSupplierReturnMode,
+        // A category, never an item (8 Nov 2026): the piece on receiving.
+        allowInlineCreation: false,
+        category: entry.categoryName,
+        categoryId: entry.categoryId,
+        entryType: PurchaseInlineEntryType.category,
       ),
     ]);
   }
@@ -2278,7 +2292,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
             karat: result.karat,
             weightGrams: weight,
             wagePerGram: result.wagePerGram,
-            allowInlineCreation: !_isSupplierReturnMode,
+            allowInlineCreation: false,
             description: result.description,
             itemCode: result.itemCode,
             barcode: result.barcode,
@@ -2487,6 +2501,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
     final payload = <String, dynamic>{
       'branch_id': _selectedBranchId,
       'supplier_id': _selectedSupplierId,
+      if (!_isSupplierReturnMode &&
+          _supplierInvoiceNumberController.text.trim().isNotEmpty)
+        'supplier_invoice_number': _supplierInvoiceNumberController.text.trim(),
       'invoice_type': _isSupplierReturnMode ? 'مرتجع شراء (مورد)' : 'شراء',
       'date': DateTime.now().toIso8601String(),
       'total': _round(_grandTotal, 2),
@@ -3356,6 +3373,20 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
               enabled: !lockedByReturn && _suppliers.isNotEmpty,
               onTap: lockedByReturn ? null : _pickSupplier,
             ),
+            if (!_isSupplierReturnMode) ...[
+              const SizedBox(height: 16),
+              TextField(
+                key: const Key('purchase-supplier-invoice-number'),
+                controller: _supplierInvoiceNumberController,
+                textDirection: TextDirection.ltr,
+                decoration: const InputDecoration(
+                  labelText: 'رقم فاتورة المورد (اختياري)',
+                  helperText: 'لا يتكرّر للمورد نفسه',
+                  prefixIcon: Icon(Icons.receipt_long_outlined),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
             const SizedBox(height: 16),
             if (!lockedByReturn)
               OutlinedButton.icon(
@@ -4232,6 +4263,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
             if (!lockedByReturn) ...[
               PurchaseItemEntryRow(
                 karats: const [18, 21, 22, 24],
+                categories: _categories
+                    .where((c) => c.isActive && !c.isScrap && c.id != null)
+                    .toList(),
                 initialKarat: _mainKaratFromSettings(),
                 onAdd: _addEnteredItem,
               ),
@@ -4509,12 +4543,24 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
     }
   }
 
-  List<DropdownMenuItem<String?>> _buildCategoryDropdownItems() {
+  List<DropdownMenuItem<String?>> _buildCategoryDropdownItems({
+    double? karat,
+  }) {
     final items = <DropdownMenuItem<String?>>[
       const DropdownMenuItem<String?>(value: null, child: Text('بدون تصنيف')),
     ];
 
     for (final category in _categories) {
+      // In a purchase: what the server takes -- active, not scrap, of the
+      // line's karat (8 Nov 2026).
+      if (!_isSupplierReturnMode &&
+          (!category.isActive ||
+              category.isScrap ||
+              (karat != null &&
+                  double.tryParse(category.karat ?? '') != null &&
+                  double.tryParse(category.karat!) != karat))) {
+        continue;
+      }
       items.add(
         DropdownMenuItem<String?>(
           value: category.name,
@@ -4728,7 +4774,11 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
     // Counted as gold (the shop's practice) or priced by the carat (ت4).
     String stonesKind = existing?.stonesKind ?? 'as_gold';
     bool wageInputIsTotal = false;
-    var entryType = existing?.entryType ?? PurchaseInlineEntryType.item;
+    // A supplier's purchase line is a category, never an item (8 Nov 2026).
+    var entryType = existing?.entryType ??
+        (_isSupplierReturnMode
+            ? PurchaseInlineEntryType.item
+            : PurchaseInlineEntryType.category);
     String? selectedCategoryName = (existing?.category?.isNotEmpty ?? false)
         ? existing!.category
         : null;
@@ -4761,7 +4811,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
                   ? math.min(parsedWeight, maxWeight)
                   : parsedWeight;
 
-              final categoryItems = _buildCategoryDropdownItems();
+              final categoryItems = _buildCategoryDropdownItems(karat: karat);
               final hasCategoryValue = categoryItems.any(
                 (item) => item.value == selectedCategoryName,
               );
@@ -4876,7 +4926,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
                 ? stonesWeight
                 : 0.0;
             final netWeight = math.max(0.0, weight - resolvedStonesWeight);
-            final categoryItems = _buildCategoryDropdownItems();
+            final categoryItems = _buildCategoryDropdownItems(karat: karat);
             final hasCategoryValue = categoryItems.any(
               (item) => item.value == selectedCategoryName,
             );
@@ -4939,6 +4989,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
                                 ListView(
                                   padding: EdgeInsets.zero,
                                   children: [
+                                    if (_isSupplierReturnMode)
                                     ToggleButtons(
                                       isSelected: [
                                         entryType ==
@@ -5450,7 +5501,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
     String? selectedCategoryName;
     final weightsFocusNode = FocusNode();
     int wageModeIndex = 0; // 0: per-gram, 1: total
-    var entryType = PurchaseInlineEntryType.item;
+    var entryType = _isSupplierReturnMode
+        ? PurchaseInlineEntryType.item
+        : PurchaseInlineEntryType.category;
 
     wageController.selection = TextSelection(
       baseOffset: 0,
@@ -5504,7 +5557,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
             final computedWageTotal = wageIsTotal
                 ? wageTotalInput
                 : (wagePerGramInput * totalWeight);
-            final categoryItems = _buildCategoryDropdownItems();
+            final categoryItems = _buildCategoryDropdownItems(karat: karat);
             final hasCategoryValue = categoryItems.any(
               (item) => item.value == selectedCategoryName,
             );
@@ -5587,6 +5640,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
                                 ListView(
                                   padding: EdgeInsets.zero,
                                   children: [
+                                    if (_isSupplierReturnMode)
                                     ToggleButtons(
                                       isSelected: [
                                         entryType ==

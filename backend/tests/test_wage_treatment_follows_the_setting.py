@@ -20,6 +20,7 @@ The law:
 Run:
     python -m pytest tests/test_wage_treatment_follows_the_setting.py -v
 """
+from tests.purchase_category import categorized
 import uuid
 from datetime import datetime
 
@@ -124,8 +125,8 @@ def _purchase(b, wage=200.0):
         'gold_subtotal': gold, 'wage_subtotal': wage,
         'wage_tax_total': vat, 'gold_tax_total': 0.0,
         'settlement_method': 'credit', 'amount_paid': 0.0,
-        'items': [{'name': 'سلسال', 'karat': 21, 'weight': 10.0, 'quantity': 1,
-                   'manufacturing_wage_per_gram': wage / 10.0}],
+        'items': categorized([{'name': 'سلسال', 'karat': 21, 'weight': 10.0, 'quantity': 1,
+                   'manufacturing_wage_per_gram': wage / 10.0}]),
     }
 
 
