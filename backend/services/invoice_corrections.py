@@ -552,3 +552,127 @@ def _correct_received_line(invoice: Invoice, old: InvoiceItem, raw, safe, *, rea
         from services.invoice_payment_state_service import InvoicePaymentStateService
         InvoicePaymentStateService().recompute(invoice)
     return correction
+
+
+def cancel_receipt(invoice: Invoice, *, safe_box_id, reason: str, by: str, now) -> InvoiceCorrection:
+    """A supplier's purchase received, cancelled whole (ADR-087 R1.5 step E) --
+    or CorrectionRefused. One COR entry on its day takes its gold out of the
+    safe by what was received (each line's category), off the supplier by his
+    paper, the difference off the count's roles; invoiced, its wages and their
+    VAT off his cash. The original stands; its lines read nothing, its stage
+    'cancelled', the record keeps what was. Not while a payment stands."""
+    from accounting.safe_boxes import _rebuild_safe_box_transactions_for_journal_entry
+    from accounting.voucher_engine import _generate_journal_entry_number
+    from dual_system_helpers import create_dual_journal_entry, verify_dual_balance
+    from models import Supplier
+    from services.inventory_accounting_service import ROLE_SHORTAGE, ROLE_SURPLUS, InventoryAccountingService
+    from services.invoice_retraction_guard import live_payments_message, live_payments_of
+    from services.live_balances import safe_gold_available
+    from services.stock_ledger import allocate
+
+    reason = (reason or '').strip()
+    if not reason:
+        raise CorrectionRefused('correction_reason_required', 'سبب الإلغاء مطلوب')
+    if invoice is None:
+        raise CorrectionRefused('invoice_not_found', 'الفاتورة غير موجودة')
+    stage = getattr(invoice, 'receiving_stage', None)
+    if (invoice.invoice_type or '').strip() != SUPPLIER or stage not in ('received', 'invoiced') or not invoice.is_posted:
+        raise CorrectionRefused('receipt_not_cancellable', 'لا يُلغى إلا مستند شراء مستلَم أو مستكمَل لم يُلغَ')
+    standing = live_payments_of(invoice.id)
+    if standing:
+        raise CorrectionRefused('receipt_has_payments', live_payments_message('إلغاء الاستلام', standing))
+    if _f(invoice.gold_tax_total) > CENT or _f(invoice.stones_subtotal) > CENT:
+        raise CorrectionRefused('cancel_receipt_not_built', 'إلغاء شراء على ذهبه ضريبة أو فيه أحجار مسعّرة لم يُبنَ بعد')
+    safe = db.session.get(SafeBox, int(safe_box_id)) if safe_box_id else None
+    if safe is None or (safe.safe_type or '').lower() != 'gold' or not safe.stock_location:
+        raise CorrectionRefused('correction_safe_invalid', 'اختر خزينة الذهب التي فيها ذهب الاستلام الآن')
+
+    items = InvoiceItem.query.filter_by(invoice_id=invoice.id).order_by(InvoiceItem.id).all()
+    lines = [{**_line_of(i), 'supplier_weight': round(_f(i.supplier_weight, _f(i.weight)), 3),
+              'wage_per_gram': round(_f(i.wage), 4)} for i in items]
+    stock = {k: 0.0 for k in KARATS}
+    paper = {k: 0.0 for k in KARATS}
+    for l in lines:
+        stock[l['karat']] += l['weight']
+        paper[l['karat']] += l['supplier_weight']
+    for karat, grams in _grams(stock).items():
+        if grams > safe_gold_available(safe, karat) + 1e-6:
+            raise CorrectionRefused('insufficient_balance',
+                                    f'«{safe.name}» لا تحمل {grams:.3f} غ عيار {karat}: أين ذهب الاستلام الآن؟',
+                                    karat=karat, available=round(safe_gold_available(safe, karat), 3))
+    supplier = db.session.get(Supplier, invoice.supplier_id) if invoice.supplier_id else None
+    supplier_account = db.session.get(Account, supplier.account_id) if supplier and supplier.account_id else None
+    supplier_twin = getattr(supplier_account, 'memo_account_id', None)
+    if not supplier_twin:
+        raise CorrectionRefused('correction_party_missing', 'لا حساب وزني للمورد يُقيَّد عليه الإلغاء')
+    invoiced = stage == 'invoiced'
+    wage, vat = (round(_f(invoice.wage_subtotal), 2), round(_f(invoice.wage_tax_total), 2)) if invoiced else (0.0, 0.0)
+
+    correction = InvoiceCorrection(invoice_id=invoice.id, invoice_item_id=None, safe_box_id=safe.id, reason=reason,
+                                   before={'snapshot_schema_version': 1, 'lines': lines, 'invoice': _invoice_of(invoice)},
+                                   after={}, cash_delta=-round(wage + vat, 2), created_by=by, created_at=now)
+    db.session.add(correction)
+    db.session.flush()
+    entry = JournalEntry(entry_number=_generate_journal_entry_number('COR', now), date=now,
+                         description=f'إلغاء استلام #{invoice.id}: {reason}'[:250], entry_type='عادي',
+                         reference_type='invoice_correction', reference_id=correction.id,
+                         is_posted=True, is_draft=False, posted_at=now, posted_by=by, created_by=by)
+    db.session.add(entry)
+    db.session.flush()
+
+    def line(account_id, what, **amounts):
+        create_dual_journal_entry(journal_entry_id=entry.id, account_id=account_id, apply_golden_rule=False,
+                                  description=f'إلغاء استلام #{invoice.id} — {what}', **amounts)
+        db.session.flush()
+        return (JournalEntryLine.query.filter_by(journal_entry_id=entry.id, account_id=account_id)
+                .order_by(JournalEntryLine.id.desc()).first())
+
+    stock_lines = [(line(safe.account_id, 'الذهب المستلَم', **{f'credit_{l["karat"]}k': l['weight']}),
+                    l['karat'], l['category_id'], -l['weight']) for l in lines if l['weight'] > GRAM]
+    for karat, grams in _grams(paper).items():
+        line(supplier_twin, 'ذهب المورد', **{f'debit_{karat}k': grams})
+    for karat in KARATS:
+        gained = round(stock[karat] - paper[karat], 6)      # as receiving wrote it, undone
+        if abs(gained) > GRAM:
+            line(InventoryAccountingService._weight_account(ROLE_SURPLUS if gained > 0 else ROLE_SHORTAGE),
+                 'فرق وزن الاستلام', **{f'{"debit" if gained > 0 else "credit"}_{karat}k': abs(gained)})
+    if invoiced and wage + vat > CENT:
+        from accounting.wages import (manufacturing_wage_expense_account_id,
+                                      manufacturing_wage_inventory_account_id, wage_mode_of, wages_are_capitalized)
+        from services.vat_policy import input_vat_account
+        wage_account = (manufacturing_wage_inventory_account_id() if wages_are_capitalized(wage_mode_of(invoice))
+                        else manufacturing_wage_expense_account_id())
+        if wage > CENT:
+            line(wage_account, 'الأجور', cash_credit=wage, exclude_from_ledger=True)
+        if vat > CENT:
+            line(input_vat_account(invoice.date.date(), operation_type=SUPPLIER, cost_account_id=wage_account),
+                 'ضريبة الأجور', cash_credit=vat, exclude_from_ledger=True)
+        line(supplier.account_id, 'الأجور وضريبتها', cash_debit=round(wage + vat, 2))
+    verify_dual_balance(entry.id)
+
+    from services.gold_cost_postings import applies as gold_cost_applies
+    if gold_cost_applies(now):
+        from services.gold_cost_postings import value_the_gold
+        value_the_gold(entry.id, description=f'إلغاء استلام #{invoice.id}')
+    for written_line, karat, category_id, grams in stock_lines:
+        if category_id:
+            allocate(written_line, karat, category_id, grams, now=now, by=by)
+    _rebuild_safe_box_transactions_for_journal_entry(
+        entry, JournalEntryLine.query.filter_by(journal_entry_id=entry.id, is_deleted=False).all(), created_by=by)
+
+    for item in items:
+        item.weight = item.standing_weight = item.supplier_weight = 0.0
+    # Cancelled, it reads nothing: no gold, no wage, no value -- its gold's value
+    # (gold_subtotal) is no cash but would count in a sum of purchases.
+    invoice.receiving_stage = 'cancelled'
+    invoice.total_weight = 0.0
+    invoice.wage_subtotal = invoice.wage_tax_total = invoice.gold_tax_total = invoice.total_tax = 0.0
+    invoice.gold_subtotal = invoice.total = invoice.net_amount = 0.0
+    correction.journal_entry_id = entry.id
+    correction.after = {'snapshot_schema_version': 1,
+                        'lines': [{**l, 'weight': 0.0, 'supplier_weight': 0.0} for l in lines],
+                        'invoice': _invoice_of(invoice)}
+    db.session.flush()
+    from services.invoice_payment_state_service import InvoicePaymentStateService
+    InvoicePaymentStateService().recompute(invoice)
+    return correction

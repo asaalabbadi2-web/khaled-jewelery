@@ -91,3 +91,19 @@ def list_invoice_corrections(invoice_id: int):
     rows = InvoiceCorrection.query.filter_by(invoice_id=invoice_id).order_by(InvoiceCorrection.id).all()
     return jsonify({'corrections': [r.to_dict() for r in rows],
                     'suggested_safe_box_id': invoice_gold_safe_id(invoice_id)}), 200
+
+
+@invoice_corrections_bp.route('/invoices/<int:invoice_id>/cancel-receipt', methods=['POST'])
+@require_permission('invoices.cancel')
+def cancel_invoice_receipt(invoice_id: int):
+    """A receipt cancelled whole by one documented entry, the original standing
+    (ADR-087 R1.5 step E). Body: reason, safe_box_id."""
+    from services.invoice_corrections import cancel_receipt
+    data = request.get_json(silent=True) or {}
+    try:
+        correction = cancel_receipt(db.session.get(Invoice, invoice_id), safe_box_id=data.get('safe_box_id'),
+                                    reason=data.get('reason'), by=_by(), now=datetime.now())
+    except CorrectionRefused as refused:
+        return _refused(refused)
+    db.session.commit()
+    return jsonify({**correction.to_dict(), 'lines': _entry_lines(correction.journal_entry_id)}), 201
