@@ -2320,8 +2320,10 @@ def unpost_invoice(invoice_id: int):
     # back (1641/1779/2204/2478, 92,385.00). See invoice_retraction_guard.
     from services.invoice_retraction_guard import (
         closing_executions_message, closing_executions_of, live_payments_message, live_payments_of,
-        posted_returns_message, posted_returns_of,
+        posted_returns_message, posted_returns_of, received_refusal,
     )
+    if received_refusal(invoice):
+        return jsonify({'error': 'received_document', 'message': received_refusal(invoice)}), 409
     returns = posted_returns_of(invoice_id)
     if returns:
         return jsonify({'error': 'has_posted_returns', 'message': posted_returns_message('إلغاء ترحيل', returns),
@@ -3329,13 +3331,18 @@ def _karat_price(gold_price_data, karat, price_24k) -> float:
 @invoices_bp.route('/invoices', methods=['POST'])
 @require_permission('invoices.create')
 def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_invoice_type_id=None,
-                defer_commit=False, posting_part='whole'):
+                defer_commit=False, posting_part='whole', complete_invoice_id=None):
     """Create a new invoice.
 
     posting_part: internal-use only (ADR-087) -- a supplier's purchase entry
     whole (the default, as always), its gold alone (receiving) or its cash
     alone (the invoice completing it). The sections are the same code; the
     part only says which of them write.
+
+    complete_invoice_id: internal-use only (ADR-087 §1, option B) -- the cash
+    part written on a document received, a second entry on it: no new
+    invoice, no line twice. Refused for a document not received or weights
+    other than its own; a document already completed comes back as it is.
 
     preserve_invoice_type_id: internal-use only, set by the same edit flow -- an
     edited invoice keeps its number (EDIT-001).
@@ -3889,12 +3896,49 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
 
     # A supplier's purchase line is a category of its karat, never an item
     # (the owner, 8 Nov 2026): a piece is registered on receiving.
+    # Received and completed by category lines (ADR-087 §1): the karat lines
+    # are the old screen's whole purchase, which no screen sends any more.
+    if posting_part != 'whole' and data.get('karat_lines'):
+        return jsonify({'error': 'receiving_lines_by_category',
+                        'message': 'الاستلام واستكماله بأسطر التصنيفات، لا بأسطر العيار'}), 400
+
+    # Law 1 (ADR-087): from the day the settings name, a supplier's new gold
+    # is received first -- no purchase of it posted whole.
+    from services.receiving import receiving_on
+    if (invoice_type == 'شراء' and str(gold_type or 'new').strip().lower() == 'new'
+            and posting_part == 'whole' and receiving_on(requested_date)):
+        return jsonify({'error': 'receiving_first',
+                        'message': 'الذهب الجديد من المورد يُستلم أولًا، ثم تُستكمل فاتورته'}), 400
+
+    # One document however often a save is sent (ADR-087 §1أ ٤): the key
+    # the screen sends with each attempt, once.
+    request_key = (str(data.get('request_key') or '').strip() or None) if complete_invoice_id is None else None
+    if request_key:
+        _saved = Invoice.query.filter_by(request_key=request_key).first()
+        if _saved is not None:
+            return jsonify({'invoice': _saved.to_dict(), 'already_saved': True}), 200
+
+    # The document received this invoice completes (ADR-087 §1): locked, the
+    # same supplier, the same lines -- or refused; completed already, as it is.
+    receipt = None
+    if complete_invoice_id is not None:
+        from services.receiving import completion_refusal
+        receipt = Invoice.query.with_for_update().get(int(complete_invoice_id))
+        if receipt is None:
+            return jsonify({'error': 'not_found', 'message': 'المستند المستلَم غير موجود'}), 404
+        if receipt.receiving_stage == 'invoiced':
+            return jsonify({'invoice': receipt.to_dict(), 'already_completed': True}), 200
+        refused = completion_refusal(receipt, data, posting_part=posting_part)
+        if refused:
+            return jsonify(refused), 400
+
     from services.purchase_lines import PurchaseLineRefused, refuse_purchase_lines, supplier_invoice_number
     try:
         refuse_purchase_lines(invoice_type, gold_type, data.get('items'))
         # the supplier's own number: optional, one per supplier (8 Nov 2026)
         supplier_number = supplier_invoice_number(invoice_type, data.get('supplier_id'),
-                                                  data.get('supplier_invoice_number'))
+                                                  data.get('supplier_invoice_number'),
+                                                  exclude_invoice_id=receipt.id if receipt else None)
     except PurchaseLineRefused as refused:
         return jsonify({'error': refused.code, 'message': refused.message}), 400
 
@@ -4610,7 +4654,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                         'message': f'الفاتورة «بلا ضريبة» وتحمل ضريبة ({round(carried, 2)})',
                     }), 400
 
-        new_invoice = Invoice(
+        _invoice_fields = dict(
             invoice_type_id=next_invoice_type_id,
             customer_id=data.get('customer_id'),
             supplier_id=data.get('supplier_id'),
@@ -4649,10 +4693,29 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             # 🆕 الحقول الجديدة
             original_invoice_id=data.get('original_invoice_id'),
             return_reason=data.get('return_reason'),
-            gold_type=gold_type
+            gold_type=gold_type,
+            request_key=request_key,
         )
-        db.session.add(new_invoice)
+        if receipt is not None:
+            # Completing (ADR-087): the received document takes the invoice's
+            # cash fields; what receiving fixed -- its number, party, day, place
+            # and kind -- stays.
+            from services.receiving import RECEIPT_KEEPS
+            for _field, _value in _invoice_fields.items():
+                if _field not in RECEIPT_KEEPS and not (_field == 'supplier_invoice_number' and _value is None):
+                    setattr(receipt, _field, _value)
+            receipt.receiving_stage = 'invoiced'
+            new_invoice = receipt
+        else:
+            new_invoice = Invoice(**_invoice_fields)
+            if posting_part == 'gold':
+                new_invoice.receiving_stage = 'received'
+            db.session.add(new_invoice)
         db.session.flush()
+        # Completing, its lines are the receipt's: matched in order, they take
+        # the invoice's wage and figures; none is added (ADR-087 §1أ ٣).
+        _receipt_lines = (list(InvoiceItem.query.filter_by(invoice_id=new_invoice.id).order_by(InvoiceItem.id))
+                          if receipt is not None else None)
 
         computed_total_weight = 0.0
 
@@ -4785,6 +4848,10 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
 
             item_wage_val = _to_float(item_wage, 0.0)
 
+            if _receipt_lines is not None:
+                _line = _receipt_lines.pop(0)
+                _line.wage, _line.net, _line.tax, _line.price = item_wage_val, net_price, tax_amount_val, total_price
+                continue
             db.session.add(InvoiceItem(
                 invoice_id=new_invoice.id,
                 item_id=item.id if item else None,

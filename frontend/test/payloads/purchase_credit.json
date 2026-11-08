@@ -18,7 +18,8 @@
   "invoice_type": "شراء",
   "items": [
     {
-      "create_inline": true,
+      "category": "سلسال 21",
+      "category_id": 40,
       "has_stones": false,
       "karat": 21.0,
       "manufacturing_wage_per_gram": 18.0,

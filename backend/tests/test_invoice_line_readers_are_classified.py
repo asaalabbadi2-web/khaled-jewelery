@@ -46,6 +46,7 @@ READERS = {
     'routes/catalog.py': 'derived',                  # whether an item was invoiced
     'summary_routes.py': 'derived',                  # top items
     'services/categories.py': 'derived',             # a return's line inherits its original's category
+    'services/receiving.py': 'write',                # a receipt's lines, matched by the invoice completing it (ADR-087)
     'services/return_lines.py': 'derived',           # a return's share of its original
     'services/return_vat.py': 'derived',             # a return's VAT from its original's lines
     'services/gold_acquisition_reconciliation.py': 'derived',

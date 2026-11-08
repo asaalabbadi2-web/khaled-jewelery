@@ -354,3 +354,14 @@ def draft_payments_of(invoice) -> list:
         .order_by(InvoicePayment.id).all()
         if not SafeBoxTransaction.query.filter_by(invoice_payment_id=p.id).first()
     ]
+
+
+RECEIVED_REFUSAL = ('مستند مستلَم (ADR-087): لا يُلغى ترحيله ولا يُرفض؛ '
+                    'يُلغى استلامه بقيد عكسي موثّق، والأصل يبقى')
+
+
+def received_refusal(invoice) -> str | None:
+    """A document received is not unposted, so never rejected after it: its
+    receiving is reversed by a documented entry, the original standing (the
+    owner's fifth control, ADR-087 §1أ ٥). None for any other invoice."""
+    return RECEIVED_REFUSAL if getattr(invoice, 'receiving_stage', None) else None

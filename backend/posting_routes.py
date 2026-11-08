@@ -2584,8 +2584,11 @@ def unpost_invoice(invoice_id):
         # cash and Mada statements. See services/invoice_retraction_guard.py.
         from services.invoice_retraction_guard import (
             closing_executions_message, closing_executions_of, live_payments_message, live_payments_of,
-            posted_returns_message, posted_returns_of,
+            posted_returns_message, posted_returns_of, received_refusal,
         )
+        if received_refusal(invoice):
+            return jsonify({'success': False, 'error': 'received_document',
+                            'message': received_refusal(invoice)}), 409
         returns = posted_returns_of(invoice_id)
         if returns:
             return jsonify({'success': False, 'error': 'has_posted_returns',
@@ -3027,7 +3030,7 @@ def unpost_invoices_batch():
         # All or nothing, asked before anything is written: one invoice with a
         # standing payment stops the batch, and the reply names it.
         from services.invoice_retraction_guard import (
-            closing_executions_of, live_payments_message, live_payments_of, posted_returns_of,
+            closing_executions_of, live_payments_message, live_payments_of, posted_returns_of, received_refusal,
         )
         # A return in the same batch is unposted before its original (the owner,
         # 31 Oct 2026): only a return left posted outside the batch stops it.
@@ -3040,6 +3043,8 @@ def unpost_invoices_batch():
             if closed > 0:
                 standing = list(standing) + [f'تسكير منفَّذ {closed:.3f} جم']
             standing = list(standing) + [f'مرتجع مرحّل {r}' for r in posted_returns_of(invoice.id, besides=in_batch)]
+            if received_refusal(invoice):
+                standing = list(standing) + [received_refusal(invoice)]
             if standing:
                 blocked[str(invoice.id)] = standing
         if blocked:

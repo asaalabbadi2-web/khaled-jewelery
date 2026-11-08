@@ -37,7 +37,15 @@ enum PurchaseReadinessTarget {
 class PurchaseItemFacts {
   final double weight;
   final double? maxWeight;
-  const PurchaseItemFacts({required this.weight, this.maxWeight});
+
+  /// A supplier's purchase line is a category (8 Nov 2026): false when it
+  /// has none -- a draft kept before, its line an item.
+  final bool hasCategory;
+  const PurchaseItemFacts({
+    required this.weight,
+    this.maxWeight,
+    this.hasCategory = true,
+  });
 }
 
 class PurchaseGoldLineFacts {
@@ -189,6 +197,13 @@ PurchaseReadiness purchaseReadiness(
     if (item.weight <= 0) {
       return notReady(
         'أدخل وزن الصنف ${i + 1}',
+        PurchaseReadinessTarget.item,
+        i,
+      );
+    }
+    if (!item.hasCategory) {
+      return notReady(
+        'اختر تصنيف الصنف ${i + 1}',
         PurchaseReadinessTarget.item,
         i,
       );

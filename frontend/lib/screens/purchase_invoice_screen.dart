@@ -1119,11 +1119,16 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
       final restoredInlineItems = <PurchaseInlineItem>[];
       for (final rawItem in decodedInlineItems) {
         final map = Map<String, dynamic>.from(rawItem);
-        final entryType = (map['entry_type']?.toString() == 'category')
+        // A supplier's purchase line is a category, never an item (8 Nov
+        // 2026): a draft kept before comes back a category line, asking its
+        // category if it has none -- not an item the server refuses.
+        final entryType =
+            (map['entry_type']?.toString() == 'category' || !_isSupplierReturnMode)
             ? PurchaseInlineEntryType.category
             : PurchaseInlineEntryType.item;
         restoredInlineItems.add(
           PurchaseInlineItem(
+            allowInlineCreation: _isSupplierReturnMode,
             name: (map['name'] ?? '').toString(),
             karat: toDouble(map['karat']),
             weightGrams: toDouble(map['weight_grams']),
@@ -2405,6 +2410,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
               (item) => PurchaseItemFacts(
                 weight: item.weightGrams,
                 maxWeight: item.maxWeightGrams,
+                // a supplier's purchase line is a category (8 Nov 2026)
+                hasCategory: _isSupplierReturnMode || item.categoryId != null,
               ),
             )
             .toList(),

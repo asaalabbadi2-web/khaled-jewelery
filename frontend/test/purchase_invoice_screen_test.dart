@@ -60,7 +60,10 @@ void main() {
           'karat': 21,
           'weight_grams': 12.5,
           'wage_per_gram': 18,
-          'entry_type': 'item',
+          // a supplier's purchase line is a category (8 Nov 2026)
+          'entry_type': 'category',
+          'category': 'سلسال 21',
+          'category_id': 40,
           ...stones,
         },
     ],
@@ -390,18 +393,13 @@ void main() {
         ),
       );
 
-      expect(find.text('جاهز للحفظ'), findsOneWidget);
+      // Its weight came back a line -- a category line now (8 Nov 2026),
+      // which asks its category before it is saved, never an item.
+      expect(find.textContaining('اختر تصنيف الصنف 1'), findsWidgets);
+      expect(find.text('جاهز للحفظ'), findsNothing);
       await pressCtrlS(tester);
-      await tester.tap(find.text('حفظ الفاتورة').last);
       await settle(tester);
-
-      final sent = api.added.single;
-      expect(sent['karat_lines'], anyOf(isNull, isEmpty));
-      final item = (sent['items'] as List).single as Map;
-      expect(item['karat'], 21);
-      expect(item['weight'], 10.0);
-      expect(item['wage_total'], closeTo(100.0, 0.001));
-      expect(item.containsKey('create_inline'), isFalse); // no new stock item
+      expect(api.added, isEmpty, reason: 'nothing saved without its category');
     });
 
     testWidgets('an invoice holding weights without items is not edited here, '

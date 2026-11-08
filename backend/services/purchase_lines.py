@@ -59,7 +59,7 @@ def refuse_purchase_lines(invoice_type, gold_type, items) -> None:
                                       f'لا يوافق عيار السطر {line_karat:g}')
 
 
-def supplier_invoice_number(invoice_type, supplier_id, raw) -> str | None:
+def supplier_invoice_number(invoice_type, supplier_id, raw, *, exclude_invoice_id=None) -> str | None:
     """The supplier's own invoice number, as saved -- or PurchaseLineRefused.
 
     Optional (the owner, 8 Nov 2026): empty is None. Written, it is trimmed and
@@ -83,7 +83,8 @@ def supplier_invoice_number(invoice_type, supplier_id, raw) -> str | None:
     if supplier_id:
         taken = (Invoice.query.filter(Invoice.supplier_id == int(supplier_id),
                                       Invoice.supplier_invoice_number == number,
-                                      func.coalesce(Invoice.status, '').notin_(list(RETRACTED_INVOICE_STATUSES)))
+                                      func.coalesce(Invoice.status, '').notin_(list(RETRACTED_INVOICE_STATUSES)),
+                                      Invoice.id != (exclude_invoice_id or -1))
                  .first())
         if taken is not None:
             raise PurchaseLineRefused('supplier_invoice_number_taken',
