@@ -60,3 +60,19 @@ def test_never_twice_and_never_unposted(auth_headers, world, roles, showroom):
     assert refused.value.code == 'receipt_not_cancellable'
     from services.invoice_retraction_guard import received_refusal
     assert received_refusal(invoice)
+
+
+def test_not_while_a_payment_stands(auth_headers, world, roles, showroom):
+    """The reject's guard (invoice_retraction_guard.live_payments_of): a cash
+    payment made against the receipt stands -- cancel it first."""
+    from models import InvoicePayment, PaymentMethod
+    invoice, _ = _invoiced(auth_headers, world)
+    method = PaymentMethod.query.first() or PaymentMethod(name='نقد', payment_type='cash', is_active=True)
+    db.session.add(method)
+    db.session.flush()
+    db.session.add(InvoicePayment(invoice_id=invoice.id, payment_method_id=method.id, amount=100.0, net_amount=100.0))
+    db.session.flush()
+    with pytest.raises(CorrectionRefused) as refused:
+        _cancel(invoice, showroom)
+    assert refused.value.code == 'receipt_has_payments'
+    assert invoice.receiving_stage == 'invoiced'
