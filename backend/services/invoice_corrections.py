@@ -389,6 +389,10 @@ def _received_lines(raw, old: InvoiceItem, *, approval, user) -> list[dict]:
         karat = int(round(_f(line.get('karat'))))
         if karat not in KARATS:
             raise CorrectionRefused('correction_karat_invalid', f'السطر {n}: العيار 18 أو 21 أو 22 أو 24')
+        if karat != int(round(_f(old.karat))):
+            # the supplier's gold obligation is a karat's (ADR-028, R1.5 step D)
+            raise CorrectionRefused('correction_receipt_karat_not_built',
+                                    f'السطر {n}: تصحيح عيار سطر مستلَم لم يُبنَ بعد')
         weight = round(_f(line.get('weight')), 3)
         if weight <= GRAM:
             raise CorrectionRefused('correction_weight_invalid', f'السطر {n}: الوزن أكبر من صفر')

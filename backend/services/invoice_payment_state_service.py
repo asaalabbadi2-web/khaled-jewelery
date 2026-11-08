@@ -370,6 +370,7 @@ class InvoicePaymentStateService:
             return None, None
         try:
             from services.gold_allocation_service import (
+                corrected_weight,
                 direct_linked_settlement_for_invoice,
                 obligation_attributed_remaining,
             )
@@ -380,7 +381,7 @@ class InvoicePaymentStateService:
                 invoice_id=invoice.id
             ).all()
             required = sum(
-                float(convert_to_main_karat(float(o.weight or 0.0), o.karat))
+                float(convert_to_main_karat(corrected_weight(o), o.karat))
                 for o in obligations
             )
             remaining = sum(obligation_attributed_remaining(o) for o in obligations)

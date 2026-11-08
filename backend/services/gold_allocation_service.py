@@ -272,6 +272,22 @@ def obligation_attributed_settlement(obligation: InvoiceGoldObligation) -> float
     return round(float(allocated) + float(direct), 2)
 
 
+def corrected_weight(obligation: InvoiceGoldObligation) -> float:
+    """The obligation's weight as its invoice's corrections leave it, in its
+    karat's grams (ADR-087 R1.5 step D). The obligation is the ORIGINAL debt,
+    never edited (ADR-028); a receipt's correction is its own record
+    (InvoiceCorrection, the supplier's weight before and after), so the gold
+    owed is the original plus the corrections' differences in its karat."""
+    from models import InvoiceCorrection
+    weight = float(obligation.weight or 0.0)
+    for correction in InvoiceCorrection.query.filter_by(invoice_id=obligation.invoice_id).all():
+        for side, sign in (('after', 1.0), ('before', -1.0)):
+            for line in (getattr(correction, side) or {}).get('lines', []):
+                if 'supplier_weight' in line and int(round(float(line.get('karat') or 0))) == int(obligation.karat):
+                    weight += sign * float(line.get('supplier_weight') or 0.0)
+    return round(weight, 3)
+
+
 def obligation_attributed_remaining(obligation: InvoiceGoldObligation) -> float:
     """Gross obligation minus evidenced settlement, main-karat-equivalent.
 
@@ -284,7 +300,7 @@ def obligation_attributed_remaining(obligation: InvoiceGoldObligation) -> float:
     """
     if obligation is None:
         return 0.0
-    gross = convert_to_main_karat(float(obligation.weight or 0.0), obligation.karat)
+    gross = convert_to_main_karat(corrected_weight(obligation), obligation.karat)
     remaining = float(gross) - obligation_attributed_settlement(obligation)
     return round(max(remaining, 0.0), 2)
 
@@ -455,7 +471,7 @@ def reconcile_supplier(supplier) -> dict:
     gross = 0.0
     attributed = 0.0
     for obligation in obligations:
-        gross += float(convert_to_main_karat(float(obligation.weight or 0.0), obligation.karat))
+        gross += float(convert_to_main_karat(corrected_weight(obligation), obligation.karat))
         attributed += obligation_attributed_settlement(obligation)
 
     gross = round(gross, 2)
@@ -636,7 +652,8 @@ def create_gold_obligations_for_invoice(invoice: Invoice) -> list[InvoiceGoldObl
     else:
         for item in (invoice.items or []):
             karat_val = item.karat
-            weight_val = item.weight
+            # a receipt line owes the supplier his paper (ADR-087 §4)
+            weight_val = item.supplier_weight if getattr(item, 'supplier_weight', None) is not None else item.weight
             if karat_val in (None, 0, 0.0) and item.item_id:
                 linked = Item.query.get(item.item_id)
                 if linked is not None:
