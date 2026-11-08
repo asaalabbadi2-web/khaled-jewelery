@@ -91,6 +91,7 @@ void main() {
     Future<void> Function() steps, {
     ThemeData? theme,
     Size size = const Size(1200, 2000),
+    List<Map<String, dynamic>>? goldSafes,
   }) async {
     SharedPreferences.setMockInitialValues({
       'jwt_token': 'token',
@@ -147,7 +148,9 @@ void main() {
           }, 201);
         }
         if (path.endsWith('/safe-boxes/balances')) {
-          return json({'rows': mode == 'cash' ? _cashSafes : _goldSafes});
+          return json({
+            'rows': mode == 'cash' ? _cashSafes : (goldSafes ?? _goldSafes),
+          });
         }
         return json({
           'safes': [
@@ -257,6 +260,23 @@ void main() {
     final body = sent.single['body'] as Map<String, dynamic>;
     expect(body['weight'], 2);
     expect(body['weight_out'], 1.8);
+  });
+
+  testWidgets('from the showroom to the scrap it says melting, and sends nothing', (
+    tester,
+  ) async {
+    // 8 Nov 2026: the server refuses it (melting_or_renewal_required).
+    final located = [
+      {..._goldSafes[0], 'stock_location': 'showroom'},
+      {..._goldSafes[1], 'stock_location': 'scrap'},
+    ];
+    final sent = await run(tester, 'gold', () async {
+      await type(tester, 'transfer-weight-21', '5');
+      expect(find.textContaining('التجديد والتكسير'), findsWidgets);
+      await tester.tap(find.byKey(const Key('transfer-submit')));
+      await tester.pumpAndSettle();
+    }, goldSafes: located);
+    expect(sent, isEmpty);
   });
 
   testWidgets('the karat correction asks first', (tester) async {

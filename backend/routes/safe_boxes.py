@@ -1196,6 +1196,16 @@ def create_safe_box_transfer_voucher():
     if refused:
         return jsonify(refused), 400
 
+    # From the showroom to the scrap is a melting, back a renewal (the owner,
+    # 8 Nov 2026): each its voucher, saying the category, the damaged wage and
+    # what is not gold. A transfer moves gold as it is.
+    if {from_safe.stock_location, to_safe.stock_location} == {'showroom', 'scrap'}:
+        return jsonify({'error': 'melting_or_renewal_required',
+                        'message': ('من المعروض إلى الكسر تكسير، ومن الكسر إلى المعروض تجديد: '
+                                    'يُسجَّل من شاشة «التجديد والتكسير»'),
+                        'from_stock_location': from_safe.stock_location,
+                        'to_stock_location': to_safe.stock_location}), 400
+
     # Prevent mixing gold transfer with cash transfer in a single request.
     if ('gold' in {from_type, to_type}) and not (from_type == 'gold' and to_type == 'gold'):
         return jsonify({'error': 'cannot_mix_gold_and_cash_safe_boxes'}), 400
@@ -1391,6 +1401,12 @@ def create_safe_box_transfer_voucher():
         voucher.journal_entry_id = journal_entry.id
 
         _append_safe_transactions_for_voucher(voucher, created_by=created_by)
+
+        # Scrap moves as scrap: its karat's scrap category with it (8 Nov 2026).
+        if is_gold_transfer:
+            from services.stock_ledger import carry_scrap
+            carry_scrap(journal_entry, from_safe, to_safe, {24: w_24, 22: w_22, 21: w_21, 18: w_18},
+                        now=voucher_dt, by=created_by, what=f'التحويل {voucher_number}')
 
         # Stamp per-karat stones data onto SBTs (if provided)
         if is_gold_transfer:
@@ -1610,15 +1626,13 @@ def correct_safe_box_karat(safe_box_id):
         # «بلا تصنيف», the one left negative. Elsewhere unclassified, as before.
         if safe.stock_location == 'scrap':
             from services.categories import scrap_category
-            from services.stock_ledger import spread, stock_balances
+            from services.stock_ledger import category_held, spread
             on_safe = (JournalEntryLine.query.filter_by(journal_entry_id=journal_entry.id, account_id=safe.account_id)
                        .order_by(JournalEntryLine.id).all())
             leaving, joining = scrap_category(from_karat), scrap_category(to_karat)
             if leaving is not None:
-                held = sum(r['grams'] for r in stock_balances() if r['safe_box_id'] == safe.id
-                           and r['karat'] == from_karat and r['category_id'] == leaving.id)
-                # held counts this entry's own line, unallocated: before it
-                take = min(weight, max(round(held, 6), 0.0))
+                # this entry's own line is not allocated yet: what it held before
+                take = min(weight, max(category_held(safe, from_karat, leaving.id), 0.0))
                 if take > 0:
                     spread(on_safe, from_karat, [(leaving.id, None, take)], now=voucher_dt, by=created_by,
                            what=f'تصحيح العيار {voucher_number}')

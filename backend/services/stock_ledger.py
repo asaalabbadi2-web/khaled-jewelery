@@ -164,6 +164,48 @@ def stock_balances() -> list:
     return rows
 
 
+def category_held(safe_box, karat: int, category_id: int) -> float:
+    """Grams a stock safe holds of one category in one karat -- the reader
+    stock_balances() reads, for one (safe, karat, category)."""
+    from accounting.balances import counted_line_filters
+    grams = (db.session.query(func.sum(StockLineAllocation.grams))
+             .join(JournalEntryLine, JournalEntryLine.id == StockLineAllocation.journal_entry_line_id)
+             .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+             .filter(JournalEntryLine.account_id == safe_box.account_id, StockLineAllocation.karat == int(karat),
+                     StockLineAllocation.category_id == int(category_id), *counted_line_filters())
+             .scalar())
+    return round(float(grams or 0.0), 6)
+
+
+# Where scrap is held (ADR-045's locations): scrap moved between them stays scrap.
+SCRAP_HOLDERS = ('custody', 'scrap')
+
+
+def carry_scrap(entry, source, target, grams_by_karat: dict, *, now, by=None, what: str) -> list:
+    """Scrap moved between scrap holders takes its karat's scrap category (the
+    owner, 8 Nov 2026): out of the source as much as it holds of it -- never
+    below zero, the rest unclassified as it was -- and into the target the
+    same. It stayed behind: the custody kept «كسر 21», its «بلا تصنيف» went
+    negative. Read before the entry's own lines are allocated."""
+    from services.categories import scrap_category
+    if source.stock_location not in SCRAP_HOLDERS or target.stock_location not in SCRAP_HOLDERS:
+        return []
+    lines = (JournalEntryLine.query.filter_by(journal_entry_id=entry.id, is_deleted=False)
+             .order_by(JournalEntryLine.id).all())
+    written = []
+    for karat, grams in sorted(grams_by_karat.items()):
+        category = scrap_category(karat) if grams > TOLERANCE else None
+        if category is None:
+            continue
+        take = min(float(grams), max(category_held(source, karat, category.id), 0.0))
+        if take <= TOLERANCE:
+            continue
+        for safe in (source, target):
+            written += spread([l for l in lines if l.account_id == safe.account_id], int(karat),
+                              [(category.id, None, take)], now=now, by=by, what=what)
+    return written
+
+
 UNCLASSIFIED = 'بلا تصنيف'
 
 

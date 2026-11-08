@@ -1727,6 +1727,17 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
           ? 'المصدر والوجهة خزينة واحدة'
           : 'Source and destination are one safe';
     }
+    // From the showroom to the scrap is a melting, back a renewal (8 Nov
+    // 2026): the server refuses it; said before the button, not after.
+    final ends = {
+      _safeByIdOrNull(_fromSafeId)?.stockLocation,
+      _safeByIdOrNull(_toSafeId)?.stockLocation,
+    };
+    if (_mode == 'gold' && ends.containsAll(const ['showroom', 'scrap'])) {
+      return isAr
+          ? 'من المعروض إلى الكسر تكسير، ومن الكسر إلى المعروض تجديد: من شاشة «التجديد والتكسير»'
+          : 'Showroom to scrap is a melting, scrap to showroom a renewal: from «Melting & renewal»';
+    }
     if (_mode == 'cash') {
       if (_parseDouble(_amountCashController.text) <= 0) {
         return isAr ? 'أدخل المبلغ' : 'Enter the amount';

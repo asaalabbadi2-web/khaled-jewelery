@@ -85,10 +85,12 @@ def test_a_transfer_with_a_party_s_gold_is_refused_by_name(auth_headers, party_e
 
 
 def test_the_shop_s_own_safes_still_transfer(auth_headers):
+    # to a custody: from the showroom to a scrap safe is a melting (8 Nov 2026,
+    # tests/test_transfer_is_not_melting.py)
     showroom = _gold_safe('showroom', 50.0)
-    scrap = _gold_safe('scrap')
+    custody = _gold_safe('custody')
 
-    status, body = _transfer(auth_headers, showroom, scrap)
+    status, body = _transfer(auth_headers, showroom, custody)
 
     assert status == 201, body
 

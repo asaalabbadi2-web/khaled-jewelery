@@ -70,6 +70,7 @@ OPEN_CLOSING_OF_RETRACTED_INVOICE = 'OPEN_CLOSING_OF_RETRACTED_INVOICE'
 COMMISSION_NOT_WRITTEN = 'COMMISSION_NOT_WRITTEN'
 ENTRY_WEIGHT_UNBALANCED = 'ENTRY_WEIGHT_UNBALANCED'
 STOCK_ALLOCATION_INVALID = 'STOCK_ALLOCATION_INVALID'
+STOCK_UNCLASSIFIED_NEGATIVE = 'STOCK_UNCLASSIFIED_NEGATIVE'
 ROLE_NOT_MAPPED = 'ROLE_NOT_MAPPED'
 CLEARING_DUE_DRIFT = 'CLEARING_DUE_DRIFT'
 GOLD_COST_DRIFT = 'GOLD_COST_DRIFT'
@@ -89,6 +90,7 @@ KINDS = (
     COMMISSION_NOT_WRITTEN,
     ENTRY_WEIGHT_UNBALANCED,
     STOCK_ALLOCATION_INVALID,
+    STOCK_UNCLASSIFIED_NEGATIVE,
     ROLE_NOT_MAPPED,
     CLEARING_DUE_DRIFT,
     GOLD_COST_DRIFT,
@@ -551,6 +553,40 @@ def check_stock_allocations() -> list:
     return facts
 
 
+def check_stock_unclassified_negative() -> list:
+    """A stock location's «بلا تصنيف» below zero, per karat (the owner, 8 Nov 2026).
+
+    Gold left the location without its category -- a transfer, a gold payment
+    voucher, a manual entry -- and the category stayed behind as if held. The
+    karat's total is right; its split by category is not, until the count.
+    Or the karat's total is itself below zero (the reserve scrap safe on the 5
+    Nov copy, −870.49 g of 21k): more left than came in. The detail says which
+    (`karat_total_grams`). Keyed 'safe_box:<id>:<k>k', the metric the negative
+    grams."""
+    from services.stock_ledger import TOLERANCE, stock_balances
+
+    rows = stock_balances()
+    totals = {}
+    for row in rows:
+        key = (row['safe_box_id'], row['karat'])
+        totals[key] = totals.get(key, 0.0) + row['grams']
+    names = {}
+    facts = []
+    for row in rows:
+        if row['category_id'] is not None or row['grams'] >= -TOLERANCE:
+            continue
+        box_id = row['safe_box_id']
+        if box_id not in names:
+            box = db.session.get(SafeBox, box_id)
+            names[box_id] = (box.name, box.stock_location) if box else (None, None)
+        name, location = names[box_id]
+        facts.append(Fact(STOCK_UNCLASSIFIED_NEGATIVE, f"safe_box:{box_id}:{row['karat']}k", row['grams'],
+                          {'safe_box_id': box_id, 'safe_box_name': name, 'stock_location': location,
+                           'karat': row['karat'], 'unclassified_grams': row['grams'],
+                           'karat_total_grams': round(totals[(box_id, row['karat'])], 3)}))
+    return facts
+
+
 def check_roles_not_mapped() -> list:
     """A role the postings ask for that no mapping resolves (CHART-002).
 
@@ -680,6 +716,7 @@ CHECKS = {
     COMMISSION_NOT_WRITTEN: check_commissions_not_written,
     ENTRY_WEIGHT_UNBALANCED: check_entries_weight_unbalanced,
     STOCK_ALLOCATION_INVALID: check_stock_allocations,
+    STOCK_UNCLASSIFIED_NEGATIVE: check_stock_unclassified_negative,
     ROLE_NOT_MAPPED: check_roles_not_mapped,
     CLEARING_DUE_DRIFT: check_clearing_due_drift,
     GOLD_COST_DRIFT: check_gold_cost_drift,
