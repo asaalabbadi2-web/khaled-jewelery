@@ -129,3 +129,27 @@ def test_a_received_document_is_not_unposted_nor_so_rejected(auth_headers, world
     resp = flask_app.test_client().post(f'/api/invoices/{receipt}/reject', headers=auth_headers, json={})
     assert resp.status_code == 400, 'posted: never rejected'
     assert Invoice.query.get(receipt).is_posted
+
+
+def test_two_stations_one_key_at_once_one_document(auth_headers, world, monkeypatch):
+    """The race (the owner, 8 Nov 2026: «محطتين مختلفتين في اللحظة نفسها»): both
+    ask whether the key was saved before either has saved it; the second's
+    insert meets the first's row on the unique key. It was a 500; it is the
+    first's document, nothing written twice."""
+    from models import db
+    import routes.invoices as invoices
+    build, _ = SHAPES['items only, no VAT']
+    payload = dict(build(world), request_key='two-stations')
+    first = _received(auth_headers, payload)
+    entries = JournalEntry.query.count()
+    real = invoices._saved_under_key
+    calls = []
+
+    def not_yet(key):              # the second asked before the first was saved
+        calls.append(key)
+        return None if len(calls) == 1 else real(key)
+    monkeypatch.setattr(invoices, '_saved_under_key', not_yet)
+    status, body = _call(auth_headers, payload, posting_part='gold')
+    assert status == 200 and _id(body) == first, body
+    assert Invoice.query.filter_by(request_key='two-stations').count() == 1
+    assert JournalEntry.query.count() == entries, 'no entry written twice'

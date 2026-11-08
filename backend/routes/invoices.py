@@ -3328,6 +3328,11 @@ def _karat_price(gold_price_data, karat, price_24k) -> float:
     return float(price_24k or 0.0) * karat / 24.0
 
 
+def _saved_under_key(request_key):
+    """The document a save attempt's key already made, or None (ADR-087 §1أ ٤)."""
+    return Invoice.query.filter_by(request_key=request_key).first() if request_key else None
+
+
 @invoices_bp.route('/invoices', methods=['POST'])
 @require_permission('invoices.create')
 def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_invoice_type_id=None,
@@ -3914,7 +3919,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
     # the screen sends with each attempt, once.
     request_key = (str(data.get('request_key') or '').strip() or None) if complete_invoice_id is None else None
     if request_key:
-        _saved = Invoice.query.filter_by(request_key=request_key).first()
+        _saved = _saved_under_key(request_key)
         if _saved is not None:
             return jsonify({'invoice': _saved.to_dict(), 'already_saved': True}), 200
 
@@ -4710,7 +4715,20 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             new_invoice = Invoice(**_invoice_fields)
             if posting_part == 'gold':
                 new_invoice.receiving_stage = 'received'
-            db.session.add(new_invoice)
+            # Two stations, one key, the same moment (ADR-087 §1أ ٤): both found
+            # it unsaved; the second's row meets the first's on the unique key --
+            # its document is the first's, nothing of its own written.
+            try:
+                with db.session.begin_nested():
+                    db.session.add(new_invoice)
+                    db.session.flush()
+            except IntegrityError:
+                _saved = _saved_under_key(request_key) if request_key else None
+                if _saved is None:
+                    raise
+                # only the failed insert is undone (its savepoint); nothing is
+                # committed on this answer, the request's work goes with it
+                return jsonify({'invoice': _saved.to_dict(), 'already_saved': True}), 200
         db.session.flush()
         # Completing, its lines are the receipt's: matched in order, they take
         # the invoice's wage and figures; none is added (ADR-087 §1أ ٣).
