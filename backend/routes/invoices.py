@@ -3947,6 +3947,15 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
     except PurchaseLineRefused as refused:
         return jsonify({'error': refused.code, 'message': refused.message}), 400
 
+    # A receipt line's supplier weight against its weight received (ADR-087 §4):
+    # above the tolerance, the owner or the manager approves it with a reason.
+    if invoice_type == 'شراء':
+        from services.receiving import difference_refusal
+        refused = difference_refusal(data.get('items'), data.get('difference_approval'),
+                                     getattr(g, 'current_user', None))
+        if refused:
+            return jsonify(refused), 400
+
     # A returned line is the original's line coming back: it takes its category,
     # so the category's weight and the inventory ledger's bucket get it back.
     # Every sale return from April to 3300 (9 Oct 2026) was saved without one --
@@ -4874,6 +4883,8 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 invoice_id=new_invoice.id,
                 item_id=item.id if item else None,
                 category_id=item_data.get('category_id'),
+                supplier_weight=(_to_float(item_data.get('supplier_weight'), None)
+                                 if item_data.get('supplier_weight') not in (None, '') else None),
                 name=item_name,
                 karat=item_karat,
                 weight=weight_per_item,
@@ -8033,22 +8044,50 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                         'message': 'حساب المورد الوزني (memo) غير موجود أو غير مربوط. الرجاء إعادة ربط حساب المورد بوجود حساب مذكرة وزني.',
                     }), 400
 
+                # A receipt's lines owe the supplier his paper's weight (ADR-087
+                # §4): the stock took what was received; the difference, per
+                # karat, on the count's roles -- received more, gained; less, lost.
+                _supplier_paper = {}
+                if _gold_part and any(isinstance(i, dict) and i.get('supplier_weight') not in (None, '')
+                                      for i in (data.get('items') or [])):
+                    from services.receiving import supplier_weight_of
+                    for _i in data.get('items') or []:
+                        _k = _normalize_karat(_i.get('karat'))
+                        if _k:
+                            _supplier_paper[_k] = round(_supplier_paper.get(_k, 0.0) + supplier_weight_of(_i), 3)
+                    from services.inventory_accounting_service import (ROLE_SHORTAGE, ROLE_SURPLUS,
+                                                                       InventoryAccountingService)
+                    for _k in sorted(set(_supplier_paper) | set(physical_gold_weights_for_posting)):
+                        _gained = round(float(physical_gold_weights_for_posting.get(_k, 0.0))
+                                        - _supplier_paper.get(_k, 0.0), 3)
+                        if abs(_gained) < 0.0005:
+                            continue
+                        create_dual_journal_entry(
+                            journal_entry_id=journal_entry.id,
+                            account_id=InventoryAccountingService._weight_account(
+                                ROLE_SURPLUS if _gained > 0 else ROLE_SHORTAGE),
+                            **_weight_kwargs_for_karat(_k, abs(_gained), 'credit' if _gained > 0 else 'debit'),
+                            apply_golden_rule=False,
+                            exclude_from_ledger=True,
+                            description=f"فرق وزن الاستلام - عيار {_k} ({'زيادة' if _gained > 0 else 'نقص'})",
+                        )
                 if _gold_part and supplier_memo_account_id and supplier_gold_by_karat:
+                    _owed_gold = _supplier_paper or physical_gold_weights_for_posting
                     supplier_weight_kwargs = {
                         f'weight_{karat}k_credit': round(weight, 3)
-                        for karat, weight in physical_gold_weights_for_posting.items()  # ← أوزان الذهب الفعلية
+                        for karat, weight in _owed_gold.items()  # his paper's, else the gold received
                         if weight > 0 and f'weight_{karat}k_credit' in dual_entry_params
                     }
 
                     # إن لم تُطابق أسماء الوسائط (عيار غير مدعوم)، نحاول تحويله إلى العيار الرئيسي
                     unsupported_karats = [
-                        karat for karat in physical_gold_weights_for_posting  # ← أوزان الذهب الفعلية
+                        karat for karat in _owed_gold
                         if f'weight_{karat}k_credit' not in dual_entry_params
                     ]
 
                     additional_21k = 0.0
                     for karat in unsupported_karats:
-                        weight = physical_gold_weights_for_posting.get(karat, 0)  # ← أوزان الذهب الفعلية
+                        weight = _owed_gold.get(karat, 0)
                         additional_21k += convert_to_main_karat(weight, int(round(float(karat))))
 
                     if additional_21k > 0:

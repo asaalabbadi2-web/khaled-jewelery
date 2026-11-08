@@ -68,3 +68,49 @@ def completion_refusal(receipt, data: dict, *, posting_part: str):
         return {'error': 'receipt_weights_differ',
                 'message': 'أسطر الفاتورة غير أسطر الاستلام: الفرق يُسوّى بمستند تسوية موثّق، لا هنا'}
     return None
+
+
+def weight_tolerance() -> float:
+    from models import Settings
+    value = getattr(Settings.query.first(), 'receiving_weight_tolerance', None)
+    return 0.10 if value is None else float(value)
+
+
+def supplier_weight_of(item: dict):
+    """A receipt line's supplier weight, or its weight received when it says none."""
+    raw = item.get('supplier_weight')
+    try:
+        return round(float(raw), 3) if raw not in (None, '') else round(float(item.get('weight') or 0), 3)
+    except (TypeError, ValueError):
+        return round(float(item.get('weight') or 0), 3)
+
+
+def difference_refusal(items, approval, user):
+    """Why a receipt's weights cannot stand, or None (ADR-087 §4).
+
+    A line whose supplier weight and weight received differ by more than the
+    settings' tolerance needs the owner's or the manager's approval
+    (receiving.approve_difference), with a reason.
+    """
+    tolerance = weight_tolerance()
+    over = []
+    for n, item in enumerate(items or [], start=1):
+        if not isinstance(item, dict) or item.get('supplier_weight') in (None, ''):
+            continue
+        try:
+            received = round(float(item.get('weight') or 0), 3)
+        except (TypeError, ValueError):
+            received = 0.0
+        difference = round(received - supplier_weight_of(item), 3)
+        if abs(difference) > tolerance + 1e-9:
+            over.append(f'السطر {n}: {difference:+.3f} جم')
+    if not over:
+        return None
+    reason = str((approval or {}).get('reason') or '').strip() if isinstance(approval, dict) else ''
+    if not reason:
+        return {'error': 'receipt_difference_over_tolerance',
+                'message': f'فرق الوزن فوق الحدّ ({tolerance:.2f} جم): {"، ".join(over)} — يعتمده المالك أو المدير بسبب'}
+    if user is None or not user.has_permission('receiving.approve_difference'):
+        return {'error': 'receipt_difference_not_approved',
+                'message': 'فرق الوزن فوق الحدّ يعتمده المالك أو المدير'}
+    return None

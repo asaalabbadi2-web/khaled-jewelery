@@ -96,6 +96,8 @@ INVENTORY_PERMISSIONS = {
     'inventory.view':    'عرض أرصدة الجرد والتقارير',
     'inventory.count':   'فتح وتسجيل جلسات الجرد الفعلي',
     'inventory.approve': 'اعتماد الجرد وتوليد قيود التسوية',
+    # فرق الوزن فوق الحدّ في الاستلام (ADR-087 §4؛ المالك، 8 نوفمبر 2026: «المالك والمدير»)
+    'receiving.approve_difference': 'اعتماد فرق وزن الاستلام فوق الحدّ',
     # افتتاح سنة جديدة (ADR-044، TR-2؛ المالك، 6 نوفمبر 2026: «المدير يُدخل، والمالك يعتمد»)
     'opening.enter':   'إدخال أرقام الافتتاح الفعلية',
     'opening.approve': 'اعتماد الافتتاح',
@@ -198,7 +200,7 @@ ROLE_PERMISSIONS = {
         'suppliers.view', 'suppliers.create', 'suppliers.edit', 'suppliers.delete',
         'items.view', 'items.create', 'items.edit', 'items.delete', 'items.adjust',
         'gold_price.view', 'gold_price.update', 'costing.recompute', 'costing.view',
-        'inventory.view', 'inventory.count', 'inventory.approve', 'opening.enter',
+        'inventory.view', 'inventory.count', 'inventory.approve', 'opening.enter', 'receiving.approve_difference',
         'accounts.view',
         'safe_boxes.view', 'safe_boxes.create', 'safe_boxes.edit', 'safe_boxes.delete',
         'safe_boxes.transfer',

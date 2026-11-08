@@ -56,6 +56,7 @@ MATRIX = {
     'gold_price.view': 'MCSE', 'gold_price.update': 'MCSE', 'costing.recompute': 'MC', 'costing.view': 'MC',
     'inventory.view': 'MCSE', 'inventory.count': 'MS', 'inventory.approve': 'M',
     'opening.enter': 'M', 'opening.approve': '',   # «المدير يُدخل، والمالك يعتمد» (6 Nov 2026)
+    'receiving.approve_difference': 'M',           # فرق الاستلام فوق الحدّ: «المالك والمدير» (8 Nov 2026, ADR-087)
     'accounts.view': 'MC', 'accounts.create': 'C', 'accounts.edit': 'C', 'accounts.delete': '',
     'safe_boxes.view': 'MCSE', 'safe_boxes.create': 'M', 'safe_boxes.edit': 'M', 'safe_boxes.delete': 'M',
     'safe_boxes.transfer': 'MCS',

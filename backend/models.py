@@ -2787,6 +2787,11 @@ class Settings(db.Model):
     # gold posted on receiving, its cash on the invoice (ADR-087); NULL: never
     # -- 2026 posts as it always has. The 2027 database opens with 1 January.
     receiving_from = db.Column(db.Date, nullable=True)
+    # A receipt line's supplier weight against its weight received, in grams:
+    # within it the difference goes on the count's roles; above it, approved
+    # by the owner or the manager (ADR-087 §4; the owner, 8 Nov 2026: 0.10).
+    receiving_weight_tolerance = db.Column(db.Float, nullable=False, default=0.10,
+                                           server_default=db.text('0.10'))
     # ترحيل القيود تلقائياً فور الحفظ
     auto_post_entries = db.Column(db.Boolean, default=True)
     # طلب موافقة قبل الترحيل (يؤثر على بوابات الاعتماد - below_cost/large_discount)

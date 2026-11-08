@@ -333,3 +333,37 @@ def test_the_replay_reads_a_partys_gold_out_and_back_as_it_is_written(roles):
     assert (z.weight - a.weight, z.value - a.value) == (pytest.approx(r.pools['scrap'].weight),
                                                          pytest.approx(r.pools['scrap'].value))
     assert r.pools['scrap'].value == pytest.approx(8000 - 2000 + 5000 + 800)
+
+
+def test_a_receipts_weight_difference_is_valued_at_its_pools_average(auth_headers, roles, supplier):
+    """ADR-087 §4 from the cost day: 34 g received, 34.05 g on the supplier's
+    paper. The worked gold enters at the scrap's average (as a purchase), the
+    supplier is owed his paper, and the 0.05 g lost is written off at the
+    scrap's average onto the count's loss -- valued, not refused."""
+    from models import SafeBox
+    from tests.test_melting_and_renewal_go_one_way import _account as _fin_account
+    from tests.test_receiving_completes_one_document import _call
+    stock = db.session.get(Account, WORKED())
+    SafeBox.query.filter_by(account_id=stock.memo_account_id).first().stock_location = 'showroom'
+    _from(date(2026, 1, 1))
+    loss = {}
+    for role, root, kind, name in (('inventory_count_shortage', 'operating_expenses_root', 'Expense', 'فقد الاستلام'),
+                                   ('inventory_count_surplus', 'revenue_root', 'Revenue', 'زيادة الاستلام')):
+        weight = _weight_child(root, f'{name} وزني')
+        fin = _fin_account('5', name, type=kind)
+        fin.memo_account_id, weight.memo_account_id = weight.id, fin.id
+        _map(role, fin)
+        loss[role] = (fin, weight)
+    scrap = _safe('scrap')
+    _holds(scrap, 21, 100.0 - min(pool_state('scrap').weight, 0.0))
+    _valued('scrap', pool_state('scrap').weight * 400.0)
+    body = _purchase(supplier, standing=34.0)
+    body['items'][0].update(karat=21, category_id=category_of(21), supplier_weight=34.05)
+    body['supplier_gold_lines'] = [{'karat': 21, 'weight': 34.0}]
+    status, answer = _call(auth_headers, body, posting_part='gold')
+    assert status == 201, answer
+    entry = JournalEntry.query.filter_by(reference_type='invoice', reference_id=(answer.get('invoice') or answer)['id']).first()
+    assert _cash(entry.id, WORKED()) == pytest.approx(34 * 400.0)
+    # the riyals on the loss's side, where value_the_gold writes an expense's
+    assert sum(_cash(entry.id, a.id) for a in loss['inventory_count_shortage']) == pytest.approx(0.05 * 400.0)
+    assert _cash(entry.id, SCRAP()) == pytest.approx(-34.05 * 400.0)
