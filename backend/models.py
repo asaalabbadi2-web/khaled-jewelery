@@ -926,6 +926,10 @@ class Item(db.Model):
     created_by = db.Column(db.String(100), nullable=True)
     # The station's save attempt (ADR-087 R3.4; §1أ ٤): pressed twice, one piece.
     request_key = db.Column(db.String(64), nullable=True)
+    # Or the batch of existing stock it was coded in (ADR-087 R3.5) -- a piece
+    # has one source: a receipt line or a batch.
+    coding_id = db.Column(db.Integer, db.ForeignKey('stock_coding.id', use_alter=True, name='fk_item_stock_coding'),
+                          nullable=True, index=True)
     invoice_items = db.relationship('InvoiceItem', backref='item', lazy=True,
                                     foreign_keys='InvoiceItem.item_id')
 
@@ -5958,6 +5962,29 @@ class StockLineAllocation(db.Model):
     item_id = db.Column(db.Integer, db.ForeignKey('item.id', ondelete='RESTRICT'), nullable=True, index=True)
     grams = db.Column(db.Float, nullable=False)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    created_by = db.Column(db.String(100), nullable=True)
+
+
+class StockCoding(db.Model):
+    """«ترميز من المخزون الموجود» (ADR-087 §5, R3.5): a batch of the pieces a
+    location already holds of a category, coded one by one at the station.
+
+    No entry: the gold does not move. Its pieces take their share of the
+    category's grams the location holds not yet pieced (its allocations);
+    their weights add to no more than the batch's. Its wage is entered by
+    hand, per gram (the owner, 9 Nov 2026) -- a piece's wage its share, as a
+    receipt line's (§6). services/pieces is its one writer.
+    """
+    __tablename__ = 'stock_coding'
+
+    id = db.Column(db.Integer, primary_key=True)
+    safe_box_id = db.Column(db.Integer, db.ForeignKey('safe_box.id', ondelete='RESTRICT'), nullable=False, index=True)
+    category_id = db.Column(db.Integer, db.ForeignKey('category.id', ondelete='RESTRICT'), nullable=False)
+    karat = db.Column(db.Integer, nullable=False)
+    weight = db.Column(db.Float, nullable=False)
+    wage_per_gram = db.Column(db.Float, nullable=False)
+    note = db.Column(db.String(200), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False)
     created_by = db.Column(db.String(100), nullable=True)
 
 

@@ -5319,8 +5319,25 @@ class ApiService {
   Future<Map<String, dynamic>> pieceLine(int lineId) =>
       _getMap('/pieces/lines/$lineId', fallback: 'تعذّر تحميل السطر');
 
-  /// A piece under a line: line_id, weight, stones_weight, request_key -- the
-  /// same key, the same piece. `{piece: {...}, line: {...}}`.
+  /// A batch of existing stock and its pieces (R3.5). `{line, pieces}`.
+  Future<Map<String, dynamic>> pieceCoding(int codingId) =>
+      _getMap('/pieces/codings/$codingId', fallback: 'تعذّر تحميل دفعة الترميز');
+
+  /// What a location holds of a category not yet coded nor promised:
+  /// `{free, reserved, room, karat}`.
+  Future<Map<String, dynamic>> stockCodingRoom(int safeBoxId, int categoryId) => _getMap(
+        '/stock-codings/free?safe_box_id=$safeBoxId&category_id=$categoryId',
+        fallback: 'تعذّر قراءة رصيد التصنيف',
+      );
+
+  /// «ترميز من المخزون الموجود»: safe_box_id, category_id, weight,
+  /// wage_per_gram (by hand), note. `{line, pieces}`.
+  Future<Map<String, dynamic>> openStockCoding(Map<String, dynamic> body) =>
+      _postJson('/stock-codings', body, fallback: 'تعذّر فتح دفعة الترميز');
+
+  /// A piece under a line (line_id) or a batch (coding_id): weight,
+  /// stones_weight, request_key -- the same key, the same piece.
+  /// `{piece: {...}, line: {...}}`.
   Future<Map<String, dynamic>> registerPiece(Map<String, dynamic> body) =>
       _postJson('/pieces', body, fallback: 'تعذّر تسجيل القطعة');
 

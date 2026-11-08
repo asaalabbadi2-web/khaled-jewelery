@@ -7,6 +7,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/api_service.dart';
+import 'package:frontend/models/safe_box_model.dart';
 import 'package:frontend/screens/piece_station_screen.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -20,6 +21,41 @@ Map<String, dynamic> _line({int pieces = 0, double coded = 0}) => {
 
 class _Api extends ApiService {
   final sent = <Map<String, dynamic>>[];
+  final opened = <Map<String, dynamic>>[];
+
+  @override
+  Future<List<SafeBoxModel>> getSafeBoxes({
+    String? safeType,
+    bool? isActive,
+    int? karat,
+    bool includeAccount = false,
+    bool includeBalance = false,
+  }) async => [
+    SafeBoxModel.fromJson({'id': 3, 'account_id': 30, 'name': 'المعرض', 'safe_type': 'gold', 'stock_location': 'showroom'}),
+    SafeBoxModel.fromJson({'id': 4, 'account_id': 40, 'name': 'وديعة المكتب', 'safe_type': 'gold', 'stock_location': 'deposit'}),
+  ];
+
+  @override
+  Future<List<dynamic>> getCategories({bool includeInactive = false}) async => [
+    {'id': 28, 'name': 'بنجرة ذهب 21', 'karat': '21', 'is_active': true, 'tracking': 'piece'},
+    {'id': 30, 'name': 'خواتم 21', 'karat': '21', 'is_active': true},
+  ];
+
+  @override
+  Future<Map<String, dynamic>> stockCodingRoom(int safeBoxId, int categoryId) async =>
+      {'free': 120.0, 'reserved': 0.0, 'room': 120.0, 'karat': 21};
+
+  @override
+  Future<Map<String, dynamic>> openStockCoding(Map<String, dynamic> body) async {
+    opened.add(body);
+    return {
+      'line': {'kind': 'stock', 'line_id': null, 'coding_id': 5, 'invoice_number': 'ترميز مخزون #5',
+               'safe_name': 'المعرض', 'category_name': 'بنجرة ذهب 21', 'karat': 21, 'weight': 50.0,
+               'pieces': 0, 'pieces_weight': 0.0, 'rest': 50.0},
+      'pieces': [],
+    };
+  }
+
   ApiException? refuseNext;
   bool loseNext = false;
   int _n = 0;
@@ -114,5 +150,40 @@ void main() {
     await tester.tap(find.byKey(const Key('piece-register')));
     await tester.pumpAndSettle();
     expect(api.sent, isEmpty);
+  });
+
+  testWidgets('from the stock a location holds: a batch opened, its wage by hand, coded here', (tester) async {
+    final api = _Api();
+    SharedPreferences.setMockInitialValues({'jwt_token': 't'});
+    tester.view.physicalSize = const Size(1400, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(theme: LightTheme.theme, home: PieceStationScreen(api: api)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('station-from-stock')));
+    await tester.pumpAndSettle();
+    expect(find.text('وديعة المكتب'), findsNothing, reason: 'an office deposit is not coded');
+    await tester.tap(find.byKey(const Key('coding-safe')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('المعرض').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('coding-category')));
+    await tester.pumpAndSettle();
+    expect(find.text('خواتم 21'), findsNothing, reason: 'only categories tracked by the piece');
+    await tester.tap(find.text('بنجرة ذهب 21').last);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('المتاح للترميز: 120.00'), findsOneWidget);
+    await tester.enterText(find.byKey(const Key('coding-weight')), '50');
+    await tester.tap(find.text('أجرة الدفعة كلها'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('coding-wage')), '750');
+    await tester.tap(find.byKey(const Key('coding-open')));
+    await tester.pumpAndSettle();
+    expect(api.opened.single, {'safe_box_id': 3, 'category_id': 28, 'weight': 50.0, 'wage_per_gram': 15.0});
+    await tester.enterText(find.byKey(const Key('piece-weight')), '14.37');
+    await tester.tap(find.byKey(const Key('piece-register')));
+    await tester.pumpAndSettle();
+    expect(api.sent.single['coding_id'], 5);
+    expect(api.sent.single.containsKey('line_id'), isFalse);
   });
 }
