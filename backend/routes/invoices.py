@@ -3329,8 +3329,13 @@ def _karat_price(gold_price_data, karat, price_24k) -> float:
 @invoices_bp.route('/invoices', methods=['POST'])
 @require_permission('invoices.create')
 def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_invoice_type_id=None,
-                defer_commit=False):
+                defer_commit=False, posting_part='whole'):
     """Create a new invoice.
+
+    posting_part: internal-use only (ADR-087) -- a supplier's purchase entry
+    whole (the default, as always), its gold alone (receiving) or its cash
+    alone (the invoice completing it). The sections are the same code; the
+    part only says which of them write.
 
     preserve_invoice_type_id: internal-use only, set by the same edit flow -- an
     edited invoice keeps its number (EDIT-001).
@@ -7490,6 +7495,11 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
         
         elif invoice_type == 'شراء':
             # 5. شراء (مورد)
+            # ADR-087: the gold sections (the stock's weight, the supplier's gold)
+            # write on receiving, the cash ones (wages, VAT, the cash owed, priced
+            # stones, gold paid with it) on the invoice; whole, both, as always.
+            _gold_part = posting_part in ('whole', 'gold')
+            _cash_part = posting_part in ('whole', 'cash')
             # السيناريو الجديد: المخزون يُثبت بالوزن والقيمة، المورد دائن بالذهب،
             # ويتم تسجيل التقييم النقدي على حساب جسر مستقل.
 
@@ -7671,7 +7681,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 # Track which karats had an inventory weight debit posted.
                 posted_weight_debits = set()
                 
-                if valuation_cash_total > 0 or total_weight_for_allocation > 0:
+                if _gold_part and (valuation_cash_total > 0 or total_weight_for_allocation > 0):
                     positive_karats = [k for k in valuation_weights if k in inventory_accounts and valuation_weights[k] > 0]
 
                     # If we have explicit cash allocation by karat, normalize it to ALWAYS sum
@@ -7772,7 +7782,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 # --- Safety net: ensure physical weight is always balanced ---
                 # If a karat weight exists but inventory mapping was missing, we still need a debit
                 # to balance the supplier payable weight credit.
-                for karat_key, weight_val in (physical_gold_weights_for_posting or {}).items():
+                for karat_key, weight_val in ((physical_gold_weights_for_posting or {}) if _gold_part else {}).items():
                     karat_str = str(karat_key)
                     if weight_val <= 0 or karat_str in posted_weight_debits:
                         continue
@@ -7834,7 +7844,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 # --- 2) أجور المصنعية: كما تقول المعالجة المثبّتة على الفاتورة (ADR-039) ---
                 # رسملة: مدين مخزون أجور المصنعية (تُنقل إلى المصروف عند البيع).
                 # مصروفات: مدين مصروف الأجور (ولا يُخصم شيء عند البيع).
-                if wage_cash > 0:
+                if _cash_part and wage_cash > 0:
                     wages_capitalized = wages_are_capitalized(wage_mode_of(new_invoice))
                     wage_account_id = (
                         manufacturing_wage_inventory_account_id()
@@ -7871,16 +7881,16 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 # with the wages, the gold's on «غير القابلة للاسترداد». Unmapped and
                 # recovered: refused (rule 4).
                 _purchase_day = new_invoice.date.date()
-                if wage_tax_total > 0:
+                if _cash_part and wage_tax_total > 0:
                     _wage_vat_acc = _input_vat_account(
                         _purchase_day, operation_type='شراء',
                         cost_account_id=(manufacturing_wage_inventory_account_id()
                                          if wages_are_capitalized(wage_mode_of(new_invoice))
                                          else manufacturing_wage_expense_account_id()))
-                if gold_tax_total > 0:
+                if _cash_part and gold_tax_total > 0:
                     _gold_vat_acc = _input_vat_account(_purchase_day, operation_type='شراء')
 
-                if wage_tax_total > 0:
+                if _cash_part and wage_tax_total > 0:
                     create_dual_journal_entry(
                         journal_entry_id=journal_entry.id,
                         account_id=_wage_vat_acc,
@@ -7892,7 +7902,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                     cash_debit_booked = round(cash_debit_booked + wage_tax_total, 2)
                 
                 # إذا كانت هناك ضريبة على الذهب، تُضاف للمخزون (مدرجة ضمن valuation_cash_total)
-                if gold_tax_total > 0:
+                if _cash_part and gold_tax_total > 0:
                     create_dual_journal_entry(
                         journal_entry_id=journal_entry.id,
                         account_id=_gold_vat_acc,
@@ -7915,7 +7925,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 # into gold for a supplier flagged 'gold' and posted twice -- cash
                 # here and gold on the memo -- and the entry, unbalanced by that
                 # weight, was refused. The wage is in owed.wage_payable below.
-                if valuation_bridge_cash > 0:
+                if _cash_part and valuation_bridge_cash > 0:
                     create_dual_journal_entry(
                         journal_entry_id=journal_entry.id,
                         account_id=supplier_fin_account_id,
@@ -7938,7 +7948,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                         'message': 'حساب المورد الوزني (memo) غير موجود أو غير مربوط. الرجاء إعادة ربط حساب المورد بوجود حساب مذكرة وزني.',
                     }), 400
 
-                if supplier_memo_account_id and supplier_gold_by_karat:
+                if _gold_part and supplier_memo_account_id and supplier_gold_by_karat:
                     supplier_weight_kwargs = {
                         f'weight_{karat}k_credit': round(weight, 3)
                         for karat, weight in physical_gold_weights_for_posting.items()  # ← أوزان الذهب الفعلية
@@ -7973,7 +7983,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                         )
 
                 # سطر التزام المورد (نقد) للأجور + ضريبة الأجور
-                if supplier_fin_account_id and wage_payable_cash > 0:
+                if _cash_part and supplier_fin_account_id and wage_payable_cash > 0:
                     create_dual_journal_entry(
                         journal_entry_id=journal_entry.id,
                         account_id=supplier_fin_account_id,
@@ -7984,7 +7994,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
 
                 # Stones priced by the carat (ت4): their value on «مخزون الأحجار»,
                 # their VAT as the wages', owed to the supplier in riyals.
-                if priced_stones_value > 0:
+                if _cash_part and priced_stones_value > 0:
                     create_dual_journal_entry(
                         journal_entry_id=journal_entry.id,
                         account_id=priced_stones_account_id,
@@ -8025,7 +8035,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 supplier_side = 'debit' if settlement_direction == 'out' else 'credit'
                 safe_side = 'credit' if settlement_direction == 'out' else 'debit'
 
-                if supplier_memo_account_id and resolved_gold_settlements_lines and (not gold_settlement_voucher_created):
+                if _cash_part and supplier_memo_account_id and resolved_gold_settlements_lines and (not gold_settlement_voucher_created):
                     aggregated = {}
                     for row in resolved_gold_settlements_lines:
                         try:
