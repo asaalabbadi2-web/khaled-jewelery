@@ -1,10 +1,13 @@
 # Production compose — images from GitLab Container Registry
 # Built and pushed by .gitlab-ci.yml on every push to main.
 #
-# Deploy command (run by GitLab CI automatically):
+# Deploy (update-prod.ps1 by hand; .gitlab-ci.yml's job the same) -- the
+# migration first, then the app: the app's start writes the models' tables and
+# columns (create_all, schema_guard), and a migration then meeting them fails,
+# its backfill never run. tests/test_production_compose.py
 #   docker compose -f docker-compose.prod.gitlab.yml --env-file .env.production pull
+#   docker compose -f docker-compose.prod.gitlab.yml --env-file .env.production run --rm backend bash -c "cd /app/backend && alembic upgrade head"
 #   docker compose -f docker-compose.prod.gitlab.yml --env-file .env.production up -d
-#   docker compose -f docker-compose.prod.gitlab.yml --env-file .env.production run --rm backend alembic upgrade head
 
 # Every service: restart: unless-stopped -- a container that dies (the scheduler
 # exits on purpose when a critical scheduler fails) or a machine that reboots
