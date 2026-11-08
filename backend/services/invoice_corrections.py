@@ -17,7 +17,11 @@ document instead (docs/plans/invoice-correction-study.md):
 
 It corrects a customer's scrap purchase and a sale -- its VAT at its own
 invoice's rate, its wage released with the weight sold, from the gold-cost
-day its gold's cost. A supplier's invoice comes after; refused by name.
+day its gold's cost -- and a supplier's purchase received (ADR-087 R1.5 step
+B): a receipt is never unposted, it is corrected here -- the stock by what
+was received, the supplier's gold by his paper, the rest on the count's
+roles within the tolerance. A supplier's purchase invoiced (its cash) is step
+C; one posted whole before receiving, refused by name.
 """
 from __future__ import annotations
 
@@ -25,6 +29,7 @@ from models import (Account, Customer, Invoice, InvoiceCorrection, InvoiceItem, 
                     SafeBox, db)
 
 SALE = 'بيع'
+SUPPLIER = 'شراء'
 CORRECTABLE = ('شراء من عميل', SALE)
 KARATS = (18, 21, 22, 24)
 GRAM = 0.0005
@@ -145,7 +150,8 @@ def _grams(karat_weights: dict) -> dict:
     return {k: round(w, 6) for k, w in karat_weights.items() if abs(w) > GRAM}
 
 
-def correct_line(invoice: Invoice, *, line_id, lines, safe_box_id, reason: str, by: str, now) -> InvoiceCorrection:
+def correct_line(invoice: Invoice, *, line_id, lines, safe_box_id, reason: str, by: str, now,
+                 difference_approval=None, user=None) -> InvoiceCorrection:
     """Correct one line of a posted invoice -- or CorrectionRefused. Runs in the
     caller's transaction (the preview rolls it back)."""
     from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, get_account_id_for_mapping, require_account
@@ -161,7 +167,11 @@ def correct_line(invoice: Invoice, *, line_id, lines, safe_box_id, reason: str, 
         raise CorrectionRefused('invoice_not_found', 'الفاتورة غير موجودة')
     if not invoice.is_posted:
         raise CorrectionRefused('invoice_not_posted', 'الفاتورة غير مرحّلة: تُعدَّل بدل أن تُصحَّح')
-    if (invoice.invoice_type or '').strip() not in CORRECTABLE:
+    received = (invoice.invoice_type or '').strip() == SUPPLIER and getattr(invoice, 'receiving_stage', None)
+    if received == 'invoiced':
+        raise CorrectionRefused('correction_invoiced_receipt_not_built',
+                                'تصحيح مستند شراء مستكمَل (أجرته ونقده) لم يُبنَ بعد')
+    if (invoice.invoice_type or '').strip() not in CORRECTABLE and not received:
         raise CorrectionRefused('correction_not_built_for_type',
                                 f'تصحيح «{invoice.invoice_type}» لم يُبنَ بعد — يُصحَّح بمرتجع وإعادة إدخال')
     if Invoice.query.filter(Invoice.original_invoice_id == invoice.id, Invoice.is_posted.is_(True)).first():
@@ -176,10 +186,13 @@ def correct_line(invoice: Invoice, *, line_id, lines, safe_box_id, reason: str, 
         raise CorrectionRefused('correction_line_not_found', 'السطر ليس من هذه الفاتورة')
     if _f(old.stones_weight) > GRAM:
         raise CorrectionRefused('correction_stones_not_built', 'تصحيح سطر فيه فصوص لم يُبنَ بعد')
-    new = _new_lines(lines, old)
     safe = db.session.get(SafeBox, int(safe_box_id)) if safe_box_id else None
     if safe is None or (safe.safe_type or '').lower() != 'gold' or not safe.stock_location:
         raise CorrectionRefused('correction_safe_invalid', 'اختر خزينة الذهب التي فيها ذهب السطر الآن')
+    if received:
+        return _correct_received_line(invoice, old, lines, safe, reason=reason, by=by, now=now,
+                                      approval=difference_approval, user=user)
+    new = _new_lines(lines, old)
 
     before_line = _line_of(old)
     sale = (invoice.invoice_type or '').strip() == SALE
@@ -357,4 +370,137 @@ def correct_line(invoice: Invoice, *, line_id, lines, safe_box_id, reason: str, 
 
     from services.invoice_payment_state_service import InvoicePaymentStateService
     InvoicePaymentStateService().recompute(invoice)
+    return correction
+
+
+def _received_lines(raw, old: InvoiceItem, *, approval, user) -> list[dict]:
+    """A received line's right lines: karat, weight received, the supplier's
+    weight (his paper; the weight received if none), a category of its karat
+    -- the purchase's law (services/purchase_lines) and the tolerance's
+    (services/receiving), as on receiving."""
+    from services.purchase_lines import PurchaseLineRefused, refuse_purchase_lines
+    from services.receiving import difference_refusal, supplier_weight_of
+    if not isinstance(raw, list) or not raw:
+        raise CorrectionRefused('correction_lines_required', 'اكتب السطر الصحيح: عياره ووزنه ووزن المورد')
+    items = []
+    for n, line in enumerate(raw, start=1):
+        if not isinstance(line, dict):
+            raise CorrectionRefused('correction_lines_required', f'السطر {n} غير مفهوم')
+        karat = int(round(_f(line.get('karat'))))
+        if karat not in KARATS:
+            raise CorrectionRefused('correction_karat_invalid', f'السطر {n}: العيار 18 أو 21 أو 22 أو 24')
+        weight = round(_f(line.get('weight')), 3)
+        if weight <= GRAM:
+            raise CorrectionRefused('correction_weight_invalid', f'السطر {n}: الوزن أكبر من صفر')
+        item = {'name': line.get('name') or old.name, 'karat': karat, 'weight': weight,
+                'category_id': line.get('category_id', old.category_id)}
+        if line.get('supplier_weight') not in (None, ''):
+            item['supplier_weight'] = line.get('supplier_weight')
+        item['supplier_weight'] = supplier_weight_of(item)
+        items.append(item)
+    try:
+        refuse_purchase_lines(SUPPLIER, 'new', items)
+    except PurchaseLineRefused as refused:
+        raise CorrectionRefused(refused.code, refused.message) from None
+    refused = difference_refusal(items, approval, user)
+    if refused:
+        raise CorrectionRefused(refused['error'], refused['message'])
+    return items
+
+
+def _correct_received_line(invoice: Invoice, old: InvoiceItem, raw, safe, *, reason, by, now, approval,
+                           user) -> InvoiceCorrection:
+    """A supplier's purchase received, one line corrected (ADR-087 R1.5 step B):
+    the stock moves by the weight received, the supplier's gold by his paper,
+    the rest by karat on the count's roles; from the gold-cost day valued as
+    receiving values it. One entry on its day; the line in place."""
+    from accounting.safe_boxes import _rebuild_safe_box_transactions_for_journal_entry
+    from accounting.voucher_engine import _generate_journal_entry_number
+    from dual_system_helpers import create_dual_journal_entry, verify_dual_balance
+    from models import Supplier
+    from services.inventory_accounting_service import ROLE_SHORTAGE, ROLE_SURPLUS, InventoryAccountingService
+    from services.live_balances import safe_gold_available
+    from services.stock_ledger import allocate
+
+    new = _received_lines(raw, old, approval=approval, user=user)
+    before = {**_line_of(old), 'supplier_weight': round(_f(old.supplier_weight, _f(old.weight)), 3)}
+    stock = {k: 0.0 for k in KARATS}
+    paper = {k: 0.0 for k in KARATS}
+    stock[before['karat']] -= before['weight']
+    paper[before['karat']] -= before['supplier_weight']
+    for l in new:
+        stock[l['karat']] += l['weight']
+        paper[l['karat']] += l['supplier_weight']
+    for karat, grams in _grams(stock).items():
+        if grams < 0 and -grams > safe_gold_available(safe, karat) + 1e-6:
+            raise CorrectionRefused('insufficient_balance',
+                                    f'«{safe.name}» لا تحمل {-grams:.3f} غ عيار {karat}: أين ذهب السطر الآن؟',
+                                    karat=karat, available=round(safe_gold_available(safe, karat), 3))
+    supplier = db.session.get(Supplier, invoice.supplier_id) if invoice.supplier_id else None
+    supplier_account = db.session.get(Account, supplier.account_id) if supplier and supplier.account_id else None
+    supplier_twin = getattr(supplier_account, 'memo_account_id', None)
+    if not supplier_twin:
+        raise CorrectionRefused('correction_party_missing', 'لا حساب وزني للمورد يُقيَّد عليه الفرق')
+
+    correction = InvoiceCorrection(invoice_id=invoice.id, invoice_item_id=old.id, safe_box_id=safe.id, reason=reason,
+                                   before={'snapshot_schema_version': 1, 'lines': [before],
+                                           'invoice': _invoice_of(invoice)},
+                                   after={}, cash_delta=0.0, created_by=by, created_at=now)
+    db.session.add(correction)
+    db.session.flush()
+    entry = JournalEntry(entry_number=_generate_journal_entry_number('COR', now), date=now,
+                         description=f'تصحيح استلام #{invoice.id}: {reason}'[:250], entry_type='عادي',
+                         reference_type='invoice_correction', reference_id=correction.id,
+                         is_posted=True, is_draft=False, posted_at=now, posted_by=by, created_by=by)
+    db.session.add(entry)
+    db.session.flush()
+
+    def line(account_id, what, **amounts):
+        create_dual_journal_entry(journal_entry_id=entry.id, account_id=account_id, apply_golden_rule=False,
+                                  description=f'تصحيح استلام #{invoice.id} — {what}', **amounts)
+        db.session.flush()
+        return (JournalEntryLine.query.filter_by(journal_entry_id=entry.id, account_id=account_id)
+                .order_by(JournalEntryLine.id.desc()).first())
+
+    stock_lines = [(line(safe.account_id, 'السطر كما استُلم', **{f'credit_{before["karat"]}k': before['weight']}),
+                    before['karat'], before['category_id'], -before['weight'])]
+    for l in new:
+        stock_lines.append((line(safe.account_id, 'السطر الصحيح', **{f'debit_{l["karat"]}k': l['weight']}),
+                            l['karat'], l['category_id'], l['weight']))
+    for karat, grams in _grams(paper).items():          # he is owed more (credit) or less (debit)
+        line(supplier_twin, 'ذهب المورد', **{f'{"credit" if grams > 0 else "debit"}_{karat}k': abs(grams)})
+    for karat in KARATS:
+        gained = round(stock[karat] - paper[karat], 6)
+        if abs(gained) > GRAM:
+            line(InventoryAccountingService._weight_account(ROLE_SURPLUS if gained > 0 else ROLE_SHORTAGE),
+                 'فرق وزن الاستلام', **{f'{"credit" if gained > 0 else "debit"}_{karat}k': abs(gained)})
+    verify_dual_balance(entry.id)
+
+    from services.gold_cost_postings import applies as gold_cost_applies
+    if gold_cost_applies(now):
+        from services.gold_cost_postings import value_the_gold
+        value_the_gold(entry.id, description=f'تصحيح استلام #{invoice.id}')
+    for written_line, karat, category_id, grams in stock_lines:
+        if category_id:
+            allocate(written_line, karat, category_id, grams, now=now, by=by)
+    _rebuild_safe_box_transactions_for_journal_entry(
+        entry, JournalEntryLine.query.filter_by(journal_entry_id=entry.id, is_deleted=False).all(), created_by=by)
+
+    written = []
+    for item, l in [(old, new[0])] + [(None, l) for l in new[1:]]:
+        if item is None:
+            item = InvoiceItem(invoice_id=invoice.id, quantity=1, price=0.0, wage=old.wage)
+            db.session.add(item)
+        written.append(item)
+        item.name, item.karat, item.weight = l['name'], float(l['karat']), l['weight']
+        item.standing_weight, item.supplier_weight = l['weight'], l['supplier_weight']
+        item.category_id = int(l['category_id']) if l['category_id'] else None
+    db.session.flush()
+    invoice.total_weight = round(sum(_f(i.weight) for i in InvoiceItem.query.filter_by(invoice_id=invoice.id)), 3)
+    correction.journal_entry_id = entry.id
+    correction.after = {'snapshot_schema_version': 1,
+                        'lines': [{**_line_of(i), 'supplier_weight': round(_f(i.supplier_weight), 3)}
+                                  for i in written],
+                        'invoice': _invoice_of(invoice)}
+    db.session.flush()
     return correction

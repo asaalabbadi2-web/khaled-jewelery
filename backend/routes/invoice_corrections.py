@@ -20,7 +20,9 @@ invoice_corrections_bp = Blueprint('invoice_corrections', __name__)
 def _body():
     data = request.get_json(silent=True) or {}
     return dict(line_id=data.get('line_id'), lines=data.get('lines'), safe_box_id=data.get('safe_box_id'),
-                reason=data.get('reason'))
+                reason=data.get('reason'),
+                # a receipt's weight difference above the tolerance (ADR-087 §4)
+                difference_approval=data.get('difference_approval'), user=getattr(g, 'current_user', None))
 
 
 def _by():

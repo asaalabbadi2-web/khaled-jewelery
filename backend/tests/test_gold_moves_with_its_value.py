@@ -367,3 +367,30 @@ def test_a_receipts_weight_difference_is_valued_at_its_pools_average(auth_header
     # the riyals on the loss's side, where value_the_gold writes an expense's
     assert sum(_cash(entry.id, a.id) for a in loss['inventory_count_shortage']) == pytest.approx(0.05 * 400.0)
     assert _cash(entry.id, SCRAP()) == pytest.approx(-34.05 * 400.0)
+
+
+def test_a_receipt_corrected_from_the_cost_day_moves_its_value_with_its_grams(auth_headers, roles, supplier):
+    """ADR-087 R1.5 step B from the cost day: 34 g received and corrected to
+    33.5 -- the 0.5 g leave the worked stock at its value and the supplier is
+    owed 0.5 g less, valued as receiving values it; nothing refused."""
+    from models import Invoice, InvoiceItem, SafeBox
+    from services.invoice_corrections import correct_line
+    from tests.test_receiving_completes_one_document import _call
+    stock = db.session.get(Account, WORKED())
+    display = SafeBox.query.filter_by(account_id=stock.memo_account_id).first()
+    display.stock_location = 'showroom'
+    _from(date(2026, 1, 1))
+    scrap = _safe('scrap')
+    _holds(scrap, 21, 100.0 - min(pool_state('scrap').weight, 0.0))
+    _valued('scrap', pool_state('scrap').weight * 400.0)
+    body = _purchase(supplier, standing=34.0)
+    body['items'][0].update(karat=21, category_id=category_of(21))
+    body['supplier_gold_lines'] = [{'karat': 21, 'weight': 34.0}]
+    status, answer = _call(auth_headers, body, posting_part='gold')
+    assert status == 201, answer
+    invoice = db.session.get(Invoice, (answer.get('invoice') or answer)['id'])
+    item = InvoiceItem.query.filter_by(invoice_id=invoice.id).one()
+    correction = correct_line(invoice, line_id=item.id, safe_box_id=display.id, reason='ميزان', by='t',
+                              now=datetime(2026, 11, 9, 12, 0),
+                              lines=[{'karat': 21, 'weight': 33.5, 'category_id': item.category_id}])
+    assert _cash(correction.journal_entry_id, WORKED()) == pytest.approx(-0.5 * 400.0)
