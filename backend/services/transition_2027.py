@@ -278,6 +278,12 @@ def _skip(table, row, ex) -> bool:
     return False
 
 
+def opening_settings(row: dict, *, opens_on) -> dict:
+    """2026's settings as 2027 opens with them: the gold's cost from its first
+    day (ADR-042), receiving from its first day (ADR-087), no boot seeding."""
+    return {**row, 'gold_cost_from': opens_on, 'receiving_from': opens_on, 'disable_startup_bootstrap': True}
+
+
 def carry_master_data(source_engine, *, opens_on, accounts: '_Accounts | None' = None) -> dict:
     """The master data into the 2027 database, after its chart and roles:
     each row with its id, its accounts in 2027's, what does not move left
@@ -317,8 +323,7 @@ def carry_master_data(source_engine, *, opens_on, accounts: '_Accounts | None' =
                     elif kind == 'safe' and value in ex['safes']:
                         row[column] = None
                 if table == 'settings':
-                    row['gold_cost_from'] = opens_on
-                    row['disable_startup_bootstrap'] = True
+                    row = opening_settings(row, opens_on=opens_on)
                 out.append({k: _as_column(target.c[k], v) for k, v in row.items() if k in target.c})
             if out:
                 db.session.execute(target.insert(), out)

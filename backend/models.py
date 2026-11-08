@@ -972,6 +972,12 @@ class Invoice(db.Model):
     # The supplier's own invoice number (the owner, 8 Nov 2026): optional; once
     # written, one per supplier among invoices not retracted (services/purchase_lines).
     supplier_invoice_number = db.Column(db.String(50), nullable=True)
+    # ADR-087: 'received' (its gold posted) or 'invoiced' (its cash posted
+    # too); NULL -- a document posted whole, as before receiving.
+    receiving_stage = db.Column(db.String(12), nullable=True)
+    # The key the screen sends with each save attempt: one document however
+    # often it is sent (ADR-087 §1أ ٤).
+    request_key = db.Column(db.String(64), nullable=True)
     # 🆕 الموظف المنفّذ/البائع (مربوط بحساب المستخدم)
     employee_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=True)
     branch_id = db.Column(db.Integer, db.ForeignKey('branch.id'), nullable=True)  # 🆕 الفرع (منفصل عن مكاتب التسكير)
@@ -1154,6 +1160,7 @@ class Invoice(db.Model):
 
     __table_args__ = (
         db.UniqueConstraint('invoice_type', 'invoice_type_id', name='_invoice_type_uc'),
+        db.UniqueConstraint('request_key', name='uq_invoice_request_key'),
         # one supplier invoice number per supplier among invoices not retracted
         # -- the backstop of services/purchase_lines (8 Nov 2026)
         db.Index('uq_invoice_supplier_invoice_number', 'supplier_id', 'supplier_invoice_number', unique=True,
@@ -1542,6 +1549,9 @@ class InvoiceItem(db.Model):
     weight = db.Column(db.Float)
     standing_weight = db.Column(db.Float, default=0.0)
     stones_weight = db.Column(db.Float, default=0.0)
+    # The supplier's weight on his paper, beside `weight` received on the
+    # scale (ADR-087 §4); NULL -- a line saved before receiving.
+    supplier_weight = db.Column(db.Float, nullable=True)
     # 'as_gold' (the supplier counts them as gold: they stay in the line's gold)
     # or 'priced' (by the carat: out of the gold, owed in riyals) -- ت4.
     stones_kind = db.Column(db.String(10), nullable=True)
@@ -2773,6 +2783,10 @@ class Settings(db.Model):
     # costs its pool's average (ADR-042 phase 3); NULL: never -- 2026 posts as
     # it always has. The 2027 database opens with 1 January (ADR-044).
     gold_cost_from = db.Column(db.Date, nullable=True)
+    # From this day a supplier's purchase of new gold is received first, its
+    # gold posted on receiving, its cash on the invoice (ADR-087); NULL: never
+    # -- 2026 posts as it always has. The 2027 database opens with 1 January.
+    receiving_from = db.Column(db.Date, nullable=True)
     # ترحيل القيود تلقائياً فور الحفظ
     auto_post_entries = db.Column(db.Boolean, default=True)
     # طلب موافقة قبل الترحيل (يؤثر على بوابات الاعتماد - below_cost/large_discount)
