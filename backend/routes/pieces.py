@@ -10,6 +10,10 @@ POST /api/pieces                  -- a piece under a line (line_id) or a batch
      key: pressed twice, one.
 GET  /api/pieces/lookup?code=     -- a piece by its number: its view and
      where it is (the transfer screen, R3.6).
+POST /api/pieces/<id>/tag         -- its tag mounted: by default the number's
+     (value, technology optional).
+POST /api/pieces/<id>/tag/replace -- a damaged tag stopped (reason), a new one.
+GET  /api/pieces/by-tag/<value>   -- the piece a reader read.
 GET  /api/stock-codings/free      -- what a location holds of a category not
      yet pieced nor promised to an open batch (safe_box_id, category_id).
 POST /api/stock-codings           -- «ترميز من المخزون الموجود»: a batch --
@@ -111,6 +115,50 @@ def piece_lookup():
     piece = Item.query.filter_by(item_code=code).first() if code else None
     if not is_piece(piece):
         return jsonify({'error': 'piece_unknown', 'message': f'لا قطعة بالرقم {code}'}), 404
+    where = piece_location(piece)
+    return jsonify({'piece': piece_view(piece),
+                    'location': {'id': where.id, 'name': where.name} if where is not None else None}), 200
+
+
+def _tagged(piece_id: int, write):
+    piece = db.session.get(Item, piece_id)
+    if piece is None:
+        return jsonify({'error': 'not_found', 'message': 'القطعة غير موجودة'}), 404
+    try:
+        tag = write(piece)
+    except PieceRefused as refused:
+        db.session.rollback()
+        return jsonify({'error': refused.code, 'message': refused.message}), 400
+    db.session.commit()
+    return jsonify({'tag': {'value': tag.value, 'technology': tag.technology}, 'piece': piece_view(piece)}), 201
+
+
+@pieces_bp.route('/pieces/<int:piece_id>/tag', methods=['POST'])
+@require_permission('items.create')
+def piece_tag_mount(piece_id: int):
+    from services.pieces import mount_tag
+    data = request.get_json(silent=True) or {}
+    return _tagged(piece_id, lambda piece: mount_tag(piece, value=data.get('value'),
+                                                    technology=data.get('technology') or 'uhf_epc96',
+                                                    by=_by(), now=datetime.now()))
+
+
+@pieces_bp.route('/pieces/<int:piece_id>/tag/replace', methods=['POST'])
+@require_permission('items.create')
+def piece_tag_replace(piece_id: int):
+    from services.pieces import replace_tag
+    data = request.get_json(silent=True) or {}
+    return _tagged(piece_id, lambda piece: replace_tag(piece, reason=data.get('reason'), value=data.get('value'),
+                                                      by=_by(), now=datetime.now()))
+
+
+@pieces_bp.route('/pieces/by-tag/<value>', methods=['GET'])
+@require_permission('items.view')
+def piece_by_tag_route(value: str):
+    from services.pieces import piece_by_tag, piece_location
+    piece = piece_by_tag(value)
+    if piece is None:
+        return jsonify({'error': 'tag_unknown', 'message': f'لا قطعة برقاقة نشطة {value}'}), 404
     where = piece_location(piece)
     return jsonify({'piece': piece_view(piece),
                     'location': {'id': where.id, 'name': where.name} if where is not None else None}), 200

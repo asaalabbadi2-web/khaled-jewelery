@@ -8,6 +8,7 @@ import '../models/safe_box_model.dart';
 import '../utils/currency_utils.dart' show formatAmount, formatGrams;
 import '../widgets/app_feedback.dart';
 import '../widgets/app_state_views.dart';
+import '../widgets/confirm_financial_action.dart';
 import '../widgets/inline_number_cell.dart' show readTypedNumber;
 
 /// «محطة ترميز القطع» (ADR-087 R3.4): the pieces of a received line, one by
@@ -87,6 +88,45 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
       _stones.clear();
     });
     _weightFocus.requestFocus();
+  }
+
+  void _replacePiece(Map<String, dynamic> piece) {
+    setState(() {
+      _pieces = [for (final p in _pieces) p['id'] == piece['id'] ? piece : p];
+    });
+  }
+
+  Future<void> _tag(Map<String, dynamic> p) async {
+    try {
+      final saved = await _api.mountPieceTag(p['id'] as int);
+      if (!mounted) return;
+      _replacePiece(saved['piece'] as Map<String, dynamic>);
+      AppFeedback.success(context, 'سُجّلت رقاقة ${p['item_code']}');
+    } catch (e) {
+      if (mounted) AppFeedback.error(context, e);
+    }
+  }
+
+  Future<void> _retag(Map<String, dynamic> p) async {
+    final reason = await confirmFinancialAction(
+      context,
+      title: 'رقاقة جديدة للقطعة ${p['item_code']}؟',
+      effect:
+          'تُوقف الرقاقة الحالية بسببها، وتُسجَّل رقاقة جديدة للقطعة نفسها. '
+          'رقم القطعة لا يتغيّر.',
+      confirmLabel: 'استبدال الرقاقة',
+      reasonLabel: 'سبب الاستبدال',
+      destructive: false,
+    );
+    if (reason == null || reason.trim().isEmpty || !mounted) return;
+    try {
+      final saved = await _api.replacePieceTag(p['id'] as int, reason.trim());
+      if (!mounted) return;
+      _replacePiece(saved['piece'] as Map<String, dynamic>);
+      AppFeedback.success(context, 'استُبدلت رقاقة ${p['item_code']}');
+    } catch (e) {
+      if (mounted) AppFeedback.error(context, e);
+    }
   }
 
   /// «ترميز من المخزون الموجود»: a batch opened, then coded here.
@@ -361,10 +401,31 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
               '${_g(p['weight'])} جم'
               '${((p['stones_weight'] as num?) ?? 0) > 0 ? ' · فصوص ${_g(p['stones_weight'])} جم' : ''}',
             ),
-            trailing: Text(
-              p['wage_known'] == true
-                  ? 'الأجرة ${formatAmount((p['wage'] as num).toDouble())}'
-                  : 'بانتظار الفاتورة',
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  p['wage_known'] == true
+                      ? 'الأجرة ${formatAmount((p['wage'] as num).toDouble())}'
+                      : 'بانتظار الفاتورة',
+                ),
+                const SizedBox(width: 8),
+                // Its RFID tag (R3.7): mounted once written and hung; a
+                // damaged one replaced with its reason.
+                p['tag'] == null
+                    ? TextButton.icon(
+                        key: Key('station-tag-${p['id']}'),
+                        onPressed: () => _tag(p),
+                        icon: const Icon(Icons.nfc),
+                        label: const Text('تسجيل الرقاقة'),
+                      )
+                    : TextButton.icon(
+                        key: Key('station-retag-${p['id']}'),
+                        onPressed: () => _retag(p),
+                        icon: const Icon(Icons.nfc),
+                        label: const Text('رقاقة جديدة'),
+                      ),
+              ],
             ),
           ),
       ],

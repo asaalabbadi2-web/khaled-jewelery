@@ -5319,6 +5319,17 @@ class ApiService {
   Future<Map<String, dynamic>> pieceLine(int lineId) =>
       _getMap('/pieces/lines/$lineId', fallback: 'تعذّر تحميل السطر');
 
+  /// Its tag mounted (R3.7): by default the number's. `{tag, piece}`.
+  Future<Map<String, dynamic>> mountPieceTag(int pieceId) =>
+      _postJson('/pieces/$pieceId/tag', const {}, fallback: 'تعذّر تسجيل الرقاقة');
+
+  /// A damaged tag stopped with its reason, a new one mounted. `{tag, piece}`.
+  Future<Map<String, dynamic>> replacePieceTag(int pieceId, String reason) => _postJson(
+        '/pieces/$pieceId/tag/replace',
+        {'reason': reason},
+        fallback: 'تعذّر استبدال الرقاقة',
+      );
+
   /// A piece by its number and where it is (R3.6): `{piece, location}`.
   Future<Map<String, dynamic>> lookupPiece(String code) => _getMap(
         '/pieces/lookup?code=${Uri.encodeQueryComponent(code)}',

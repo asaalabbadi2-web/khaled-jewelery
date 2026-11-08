@@ -5965,6 +5965,31 @@ class StockLineAllocation(db.Model):
     created_by = db.Column(db.String(100), nullable=True)
 
 
+class PieceTag(db.Model):
+    """A piece's RFID tag (ADR-087 §7; ADR-085): its value, its technology,
+    when it was mounted and when stopped. A piece has its tags over time --
+    a damaged one is stopped, a new one mounted -- one active at a time; an
+    active value is never another's (law 6): both partial unique indexes.
+    The value by default is the piece number's (ADR-085 law 2): 4B4A, then
+    the number in decimal digits padded to twenty. services/pieces writes it.
+    """
+    __tablename__ = 'piece_tag'
+    __table_args__ = (
+        db.Index('uq_piece_tag_active_value', 'value', unique=True, postgresql_where=db.text('stopped_at IS NULL')),
+        db.Index('uq_piece_tag_active_item', 'item_id', unique=True, postgresql_where=db.text('stopped_at IS NULL')),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    item_id = db.Column(db.Integer, db.ForeignKey('item.id', ondelete='RESTRICT'), nullable=False, index=True)
+    value = db.Column(db.String(64), nullable=False)
+    technology = db.Column(db.String(20), nullable=False, default='uhf_epc96')
+    mounted_at = db.Column(db.DateTime, nullable=False)
+    mounted_by = db.Column(db.String(100), nullable=True)
+    stopped_at = db.Column(db.DateTime, nullable=True)
+    stopped_by = db.Column(db.String(100), nullable=True)
+    stop_reason = db.Column(db.String(200), nullable=True)
+
+
 class StockCoding(db.Model):
     """«ترميز من المخزون الموجود» (ADR-087 §5, R3.5): a batch of the pieces a
     location already holds of a category, coded one by one at the station.

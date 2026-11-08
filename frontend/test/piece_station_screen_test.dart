@@ -60,6 +60,18 @@ class _Api extends ApiService {
   bool loseNext = false;
   int _n = 0;
 
+  final tagged = <int>[];
+
+  @override
+  Future<Map<String, dynamic>> mountPieceTag(int pieceId) async {
+    tagged.add(pieceId);
+    return {
+      'tag': {'value': '4B4A00000000000000000121'},
+      'piece': {'id': pieceId, 'item_code': 'KJ-000121', 'weight': 14.37, 'stones_weight': 0,
+                'wage': null, 'wage_known': false, 'tag': '4B4A00000000000000000121'},
+    };
+  }
+
   @override
   Future<List<Map<String, dynamic>>> piecesPending() async => [_line()];
 
@@ -185,5 +197,18 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.sent.single['coding_id'], 5);
     expect(api.sent.single.containsKey('line_id'), isFalse);
+  });
+
+  testWidgets('a piece\'s tag is recorded once written; then it is replaced, not doubled', (tester) async {
+    final api = _Api();
+    await _open(tester, api);
+    await tester.enterText(find.byKey(const Key('piece-weight')), '14.37');
+    await tester.tap(find.byKey(const Key('piece-register')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('station-tag-101')));
+    await tester.pumpAndSettle();
+    expect(api.tagged, [101]);
+    expect(find.byKey(const Key('station-tag-101')), findsNothing);
+    expect(find.byKey(const Key('station-retag-101')), findsOneWidget);
   });
 }

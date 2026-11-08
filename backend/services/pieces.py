@@ -19,7 +19,7 @@ from __future__ import annotations
 from sqlalchemy import func
 
 from models import (Category, Invoice, InvoiceItem, Item, JournalEntry, JournalEntryLine, PIECE_NUMBER,
-                    SafeBox, StockCoding, StockLineAllocation, db)
+                    PieceTag, SafeBox, StockCoding, StockLineAllocation, db)
 
 GRAM = 0.0005
 RECEIVED_STAGES = ('received', 'invoiced')
@@ -371,13 +371,14 @@ def line_view(line: InvoiceItem) -> dict:
 
 def piece_view(piece: Item) -> dict:
     wage = piece_wage(piece)
+    tag = active_tag(piece)
     return {'id': piece.id, 'item_code': piece.item_code, 'barcode': piece.barcode, 'name': piece.name,
             'karat': piece.karat, 'weight': round(float(piece.weight or 0.0), 3),
             'stones_weight': round(float(piece.stones_weight or 0.0), 3), 'line_id': piece.receipt_item_id,
             'coding_id': piece.coding_id,
             'wage': wage, 'wage_known': wage is not None, 'in_stock': piece_held(piece.id) > GRAM,
             'created_at': piece.created_at.isoformat() if piece.created_at else None,
-            'created_by': piece.created_by}
+            'created_by': piece.created_by, 'tag': tag.value if tag is not None else None}
 
 
 def pending_lines() -> list[dict]:
@@ -551,3 +552,74 @@ def carry_pieces(entry, from_safe: SafeBox, to_safe: SafeBox, pieces, *, now, by
             written += spread([l for l in lines if l.account_id == safe.account_id], karat, part,
                               now=now, by=by, what=what)
     return written
+
+
+
+# ── its RFID tag (R3.7, §7; ADR-085 law 2; law 6) ────────────────────────────
+
+EPC_PREFIX = '4B4A'          # «KJ» in ASCII hexadecimal
+TECHNOLOGIES = ('uhf_epc96',)
+
+
+def epc_of(number: str) -> str:
+    """A number's tag value: 4B4A, then its digits padded to twenty -- 24
+    hexadecimal characters (EPC-96)."""
+    digits = ''.join(ch for ch in str(number) if ch.isdigit())
+    return f'{EPC_PREFIX}{int(digits):020d}'
+
+
+def number_of_epc(value: str):
+    """The number a value of ours says -- None for another's."""
+    value = str(value or '').strip().upper()
+    if len(value) != 24 or not value.startswith(EPC_PREFIX) or not value[4:].isdigit():
+        return None
+    return f'KJ-{int(value[4:]):06d}'
+
+
+def _valid_epc96(value: str) -> bool:
+    return len(value) == 24 and all(ch in '0123456789ABCDEF' for ch in value)
+
+
+def active_tag(piece: Item):
+    return PieceTag.query.filter_by(item_id=piece.id, stopped_at=None).first()
+
+
+def piece_by_tag(value: str):
+    """The piece whose active tag a reader read."""
+    tag = PieceTag.query.filter_by(value=str(value or '').strip().upper(), stopped_at=None).first()
+    return db.session.get(Item, tag.item_id) if tag is not None else None
+
+
+def mount_tag(piece: Item, *, value=None, technology='uhf_epc96', by: str, now) -> PieceTag:
+    """A tag on a piece -- or PieceRefused: one active a piece; an active
+    value never another's (law 6); EPC-96, 24 hexadecimal characters."""
+    if not is_piece(piece):
+        raise PieceRefused('piece_unknown', 'الرقاقة تُركَّب على قطعة مرمَّزة')
+    if technology not in TECHNOLOGIES:
+        raise PieceRefused('tag_value_invalid', f'تقنية الرقاقة غير معروفة: {technology}')
+    value = str(value).strip().upper() if value else epc_of(piece.item_code)
+    if not _valid_epc96(value):
+        raise PieceRefused('tag_value_invalid', 'رمز الرقاقة 24 خانة ست عشرية (EPC-96)')
+    if active_tag(piece) is not None:
+        raise PieceRefused('piece_has_active_tag', f'للقطعة {piece.item_code} رقاقة نشطة: استبدلها إن تلفت')
+    other = PieceTag.query.filter_by(value=value, stopped_at=None).first()
+    if other is not None:
+        raise PieceRefused('tag_in_use', f'الرمز {value} على رقاقة نشطة لقطعة أخرى')
+    tag = PieceTag(item_id=piece.id, value=value, technology=technology, mounted_at=now, mounted_by=by)
+    db.session.add(tag)
+    db.session.flush()
+    return tag
+
+
+def replace_tag(piece: Item, *, reason, value=None, by: str, now) -> PieceTag:
+    """A damaged tag stopped with its reason, a new one mounted; the piece and
+    its number as they were."""
+    reason = str(reason or '').strip()
+    if not reason:
+        raise PieceRefused('tag_reason_required', 'اذكر سبب استبدال الرقاقة')
+    old = active_tag(piece)
+    if old is not None:
+        old.stopped_at, old.stopped_by, old.stop_reason = now, by, reason[:200]
+        db.session.flush()
+    return mount_tag(piece, value=value, technology=old.technology if old is not None else 'uhf_epc96',
+                     by=by, now=now)
