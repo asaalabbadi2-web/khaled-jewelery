@@ -150,3 +150,59 @@ def refuse_piece_sales(invoice_type, items) -> None:
         if abs(weight - round(float(piece.weight or 0), 3)) > GRAM:
             raise PieceRefused('piece_weight_differs',
                                f'السطر {n}: القطعة {piece.item_code} تُباع بوزنها ({float(piece.weight):.2f} جم)')
+
+
+# ── receiving alone makes a piece (ADR-087 §5, law 3; R3.3) ──────────────────
+
+BORN_ON_RECEIVING = 'القطعة تولد في الاستلام وحده: سجّلها تحت سطر استلام، أو بالاستلام من المخزون الموجود'
+
+# A piece's facts: what its allocations and its receipt say -- its wage its
+# share of the line's (§6, law 5). Its name and description are words, edited
+# from the catalogue; these are not.
+PIECE_FIXED = ('item_code', 'barcode', 'weight', 'stones_weight', 'karat', 'category_id', 'count', 'stock',
+               'wage', 'manufacturing_wage_per_gram', 'price')
+
+
+def refuse_inline_items(items) -> None:
+    """No invoice makes an item (its create_inline closed): PieceRefused."""
+    for line in items or []:
+        if isinstance(line, dict) and line.get('create_inline'):
+            raise PieceRefused('piece_born_on_receiving', BORN_ON_RECEIVING)
+
+
+def refuse_catalogue_item(now) -> None:
+    """The catalogue adds no item while receiving is on: PieceRefused. In 2026,
+    with no receiving, it adds as it did -- until the sunset (R6)."""
+    from services.receiving import receiving_on
+    if receiving_on(now):
+        raise PieceRefused('piece_born_on_receiving', BORN_ON_RECEIVING)
+
+
+def _same(fact, before, after) -> bool:
+    if after in (None, '') and before in (None, ''):
+        return True
+    if fact in ('weight', 'stones_weight', 'count', 'stock', 'karat', 'wage', 'manufacturing_wage_per_gram',
+                'price'):
+        try:
+            return abs(float(str(after)) - float(before or 0)) <= GRAM
+        except (TypeError, ValueError):
+            return False
+    if fact == 'category_id':
+        return (int(after) if after not in (None, '') else None) == before
+    return str(after).strip() == str(before or '').strip()
+
+
+def refuse_piece_edit(item: Item, data: dict) -> None:
+    """A piece's book facts are not edited from the catalogue: PieceRefused.
+    A fact sent as it is (the edit screen sends the whole item) is not a change."""
+    if item.receipt_item_id is None:
+        return
+    for fact in PIECE_FIXED:
+        if fact in (data or {}) and not _same(fact, getattr(item, fact), data[fact]):
+            raise PieceRefused('piece_fixed', f'لا يُعدَّل في القطعة {item.item_code} إلا اسمها ووصفها')
+
+
+def refuse_piece_delete(item: Item) -> None:
+    """A piece is not deleted: its allocations in the books name it."""
+    if item.receipt_item_id is not None:
+        raise PieceRefused('piece_not_deleted', f'القطعة {item.item_code} لا تُحذف: الدفاتر تذكرها')

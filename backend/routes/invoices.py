@@ -116,8 +116,6 @@ from accounting.balances import _recalculate_account_balances_for_accounts
 from routes import (
     get_current_gold_price,
     _next_invoice_type_id,
-    create_item_from_invoice_payload,
-    InlineItemCreationError,
     _resolve_inventory_account_id_for_invoice,
     _gold_inventory_account_id,
     validate_bridge_account_balance,
@@ -3534,8 +3532,9 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
 
     # A piece is sold once, by its weight, its wage known (ADR-087 R3.2) --
     # said first: a piece refused is refused for what it is.
-    from services.pieces import PieceRefused, refuse_piece_sales
+    from services.pieces import PieceRefused, refuse_inline_items, refuse_piece_sales
     try:
+        refuse_inline_items(data.get('items'))          # no invoice makes an item (ADR-087 R3.3)
         refuse_piece_sales(invoice_type, data.get('items'))
     except PieceRefused as refused:
         return jsonify({'error': refused.code, 'message': refused.message}), 400
@@ -4784,14 +4783,6 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
         for item_data in data.get('items', []):
             item_id = item_data.get('item_id')
             item = Item.query.get(item_id) if item_id else None
-
-            if (item_data.get('create_inline') or False) and not item:
-                try:
-                    item = create_item_from_invoice_payload(item_data)
-                    item_id = item.id
-                except InlineItemCreationError as exc:
-                    db.session.rollback()
-                    return jsonify({'error': str(exc)}), 400
 
             if item_id and not item:
                 return jsonify({'error': f"Item {item_id} not found"}), 404

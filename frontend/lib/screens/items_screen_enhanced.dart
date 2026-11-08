@@ -271,7 +271,8 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final auth = context.watch<AuthProvider>();
-    final canCreateItems = auth.hasPermission('items.create');
+    final canCreateItems = auth.hasPermission('items.create') &&
+        context.read<SettingsProvider>().catalogueAddsItems;
 
     return Scaffold(
       appBar: AppBar(
@@ -543,7 +544,8 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
     final textTheme = theme.textTheme;
     final karatBadgeColor = _cs(context).primary;
     final auth = context.read<AuthProvider>();
-    final canCreateItems = auth.hasPermission('items.create');
+    final canCreateItems = auth.hasPermission('items.create') &&
+        context.read<SettingsProvider>().catalogueAddsItems;
     final canEditItems = auth.hasPermission('items.edit');
     final canDeleteItems = auth.hasPermission('items.delete');
 
@@ -888,7 +890,8 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
           const SizedBox(height: 8),
           TextButton.icon(
             onPressed:
-                (context.read<AuthProvider>().hasPermission('items.create'))
+                (context.read<AuthProvider>().hasPermission('items.create') &&
+                    context.read<SettingsProvider>().catalogueAddsItems)
                 ? () async {
                     final result = await Navigator.push(
                       context,

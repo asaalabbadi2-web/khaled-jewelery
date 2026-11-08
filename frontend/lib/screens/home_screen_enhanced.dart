@@ -1667,19 +1667,22 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         );
       },
     );
-    addDestination(
-      icon: Icons.add_box,
-      title: isAr ? 'إضافة صنف' : 'Add Item',
-      color: _tone.sectionOrange.fg,
-      onSelected: () async {
-        await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => AddItemScreenEnhanced(api: api),
-          ),
-        );
-      },
-    );
+    // Receiving on, a piece is born there alone (ADR-087 R3.3).
+    if (context.read<SettingsProvider>().catalogueAddsItems) {
+      addDestination(
+        icon: Icons.add_box,
+        title: isAr ? 'إضافة صنف' : 'Add Item',
+        color: _tone.sectionOrange.fg,
+        onSelected: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => AddItemScreenEnhanced(api: api),
+            ),
+          );
+        },
+      );
+    }
     addDestination(
       icon: Icons.autorenew,
       title: isAr ? 'التجديد والتكسير' : 'Melting & Renewal',
@@ -4884,6 +4887,16 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         );
         break;
       case 'add_item':
+        // Receiving on, a piece is born there alone (ADR-087 R3.3).
+        if (!context.read<SettingsProvider>().catalogueAddsItems) {
+          AppFeedback.warning(
+            context,
+            widget.isArabic
+                ? 'القطعة تُسجَّل في الاستلام: «استلام ذهب من مورد»'
+                : 'A piece is registered on receiving',
+          );
+          break;
+        }
         result = await Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => AddItemScreenEnhanced(api: api)),

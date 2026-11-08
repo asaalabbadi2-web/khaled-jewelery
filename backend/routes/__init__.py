@@ -38,7 +38,6 @@ import tempfile
 import zipfile
 import sqlite3
 from datetime import datetime, timedelta
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker, joinedload
 from sqlalchemy import func, or_, and_, not_, case, cast, String, Integer
 from gold_price import fetch_gold_price, save_gold_price
@@ -91,7 +90,6 @@ from party_account_service import ensure_customer_accounts, ensure_supplier_acco
 from account_pair_service import link_accounts, unlink_account
 from settlement_state_service import get_settled_amounts, is_locked
 from allocation_service import AllocationService
-from code_generator import generate_item_code, generate_barcode_from_item_code, validate_item_code
 from dual_system_helpers import (
     create_dual_journal_entry,
     verify_dual_balance,
@@ -348,30 +346,6 @@ def _enforce_api_auth_and_permissions():
 from core.dates import _parse_iso_date  # noqa: F401
 
 
-class InlineItemCreationError(Exception):
-    """Validation/creation errors for inline purchase items."""
-
-
-def _inline_item_float(value, default=0.0):
-    if value in (None, '', False):
-        return default
-    try:
-        return float(normalize_number(str(value)))
-    except Exception:
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return default
-
-
-def _inline_pick_number(item_data, keys, default=0.0):
-    for key in keys:
-        if key is None:
-            continue
-        if key in item_data and item_data[key] not in (None, ''):
-            return _inline_item_float(item_data[key], default)
-    return default
-
 # DEFAULT_WEIGHT_CLOSING_SETTINGS → accounting/weight_closing.py (re-exported above)
 # System domain → routes/system.py
 # (GET /weight-closing/settings, PUT /weight-closing/settings)
@@ -593,77 +567,6 @@ def _invoice_weight_mk_v2(invoice: Invoice) -> float:
 def _invoice_weight_in_main_karat(invoice: Invoice) -> float:
     """Wrapper لـ _invoice_weight_mk_v2 — الأسماء القديمة محفوظة للتوافق."""
     return _invoice_weight_mk_v2(invoice)
-
-
-def create_item_from_invoice_payload(item_data):
-    if not isinstance(item_data, dict):
-        raise InlineItemCreationError('بيانات الصنف غير صالحة')
-
-    name = (item_data.get('name') or 'صنف بدون اسم').strip() or 'صنف بدون اسم'
-
-    item_code = (item_data.get('item_code') or '').strip()
-    if item_code:
-        validation = validate_item_code(item_code)
-        if not validation['is_valid']:
-            raise InlineItemCreationError(validation['message'])
-        if Item.query.filter_by(item_code=item_code).first():
-            raise InlineItemCreationError(f'كود الصنف {item_code} مستخدم بالفعل')
-    else:
-        item_code = generate_item_code()
-
-    barcode = (item_data.get('barcode') or '').strip()
-    if not barcode:
-        barcode = generate_barcode_from_item_code(item_code)
-
-    weight_value = _inline_pick_number(item_data, ['weight', 'weight_grams', 'total_weight'])
-    if weight_value <= 0:
-        raise InlineItemCreationError('وزن الصنف يجب أن يكون أكبر من صفر')
-
-    from pricing.karat_service import LineKaratMissing, line_karat
-    try:
-        karat_text = str(line_karat(item_data.get('karat'), 'صنف جديد'))
-    except LineKaratMissing:
-        raise InlineItemCreationError('عيار الصنف مطلوب: 18 أو 21 أو 22 أو 24') from None
-
-    wage_per_gram = _inline_pick_number(
-        item_data,
-        ['manufacturing_wage_per_gram', 'wage_per_gram'],
-        default=0.0,
-    )
-    wage_total = _inline_pick_number(
-        item_data,
-        ['wage_total', 'wage', 'total_wage'],
-        default=weight_value * wage_per_gram,
-    )
-
-    stones_weight = _inline_pick_number(item_data, ['stones_weight'], default=0.0)
-    stones_value = _inline_pick_number(item_data, ['stones_value'], default=0.0)
-
-    new_item = Item(
-        item_code=item_code,
-        name=name,
-        barcode=barcode,
-        karat=karat_text,
-        weight=weight_value,
-        wage=wage_total,
-        manufacturing_wage_per_gram=wage_per_gram,
-        description=item_data.get('description'),
-        price=_inline_item_float(item_data.get('price'), 0.0),
-        stock=int(item_data.get('stock') or 1),
-        count=int(item_data.get('count') or 1),
-        category_id=item_data.get('category_id'),
-        has_stones=bool(item_data.get('has_stones', False)),
-        stones_weight=stones_weight,
-        stones_value=stones_value,
-    )
-
-    try:
-        db.session.add(new_item)
-        db.session.flush()
-    except IntegrityError as exc:
-        raise InlineItemCreationError('كود الصنف أو الباركود مستخدم مسبقاً') from exc
-
-    return new_item
 
 
 from core.dates import _parse_iso_time  # noqa: F401

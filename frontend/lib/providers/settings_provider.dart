@@ -96,6 +96,11 @@ class SettingsProvider with ChangeNotifier {
   /// Receiving before the invoice works today (ADR-087 R2) -- the server's
   /// answer, from its day (Settings.receiving_from); off in 2026.
   bool get receivingActive => _settings['receiving_active'] == true;
+
+  /// The catalogue adds items -- «إضافة صنف», «إضافة سريعة», «استنساخ» --
+  /// until receiving works: then a piece is born there alone (ADR-087 R3.3;
+  /// the server refuses the same, piece_born_on_receiving).
+  bool get catalogueAddsItems => !receivingActive;
   int get decimalPlaces => _safeInt(_settings['decimal_places'], fallback: 2);
   String get dateFormat => _settings['date_format']?.toString() ?? 'DD/MM/YYYY';
   bool get taxEnabled => _safeBool(_settings['tax_enabled'], fallback: true);

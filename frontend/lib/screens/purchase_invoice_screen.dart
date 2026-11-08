@@ -934,7 +934,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
         wagePerGram: toDouble(
           item['wage_per_gram'] ?? item['manufacturing_wage_per_gram'],
         ),
-        allowInlineCreation: false,
         description: item['description']?.toString(),
         hasStones:
             item['has_stones'] == true || toDouble(item['stones_weight']) > 0,
@@ -1138,7 +1137,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
             : PurchaseInlineEntryType.item;
         restoredInlineItems.add(
           PurchaseInlineItem(
-            allowInlineCreation: _isSupplierReturnMode,
             name: (map['name'] ?? '').toString(),
             karat: toDouble(map['karat']),
             weightGrams: toDouble(map['weight_grams']),
@@ -2282,7 +2280,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
         weightGrams: entry.weight,
         wagePerGram: entry.wagePerGram,
         // A category, never an item (8 Nov 2026): the piece on receiving.
-        allowInlineCreation: false,
         category: entry.categoryName,
         categoryId: entry.categoryId,
         entryType: PurchaseInlineEntryType.category,
@@ -2307,7 +2304,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
             karat: result.karat,
             weightGrams: weight,
             wagePerGram: result.wagePerGram,
-            allowInlineCreation: false,
             description: result.description,
             itemCode: result.itemCode,
             barcode: result.barcode,
@@ -3599,7 +3595,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
             stonesWeight: hasStones ? stonesWeight : 0,
             stonesValue: hasStones ? stonesValue : 0,
             entryType: PurchaseInlineEntryType.item,
-            allowInlineCreation: false,
             originalInvoiceItemId: origItemId,
             maxWeightGrams: weightPerUnit > 0 ? weightPerUnit : null,
           ),
@@ -4918,8 +4913,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
                   karat: karat,
                   weightGrams: clampedWeight,
                   wagePerGram: resolvedWagePerGram,
-                  allowInlineCreation:
-                      existing?.allowInlineCreation ?? !_isSupplierReturnMode,
                   originalInvoiceItemId: existing?.originalInvoiceItemId,
                   maxWeightGrams: existing?.maxWeightGrams,
                   description: descriptionController.text.trim().isEmpty
@@ -6190,7 +6183,6 @@ class PurchaseInlineItem {
   final double karat;
   final double weightGrams;
   final double wagePerGram;
-  final bool allowInlineCreation;
   final int? originalInvoiceItemId;
   final double? maxWeightGrams;
   final String? description;
@@ -6212,7 +6204,6 @@ class PurchaseInlineItem {
     required this.karat,
     required this.weightGrams,
     required this.wagePerGram,
-    this.allowInlineCreation = true,
     this.originalInvoiceItemId,
     this.maxWeightGrams,
     this.description,
@@ -6232,7 +6223,6 @@ class PurchaseInlineItem {
     double? karat,
     double? weightGrams,
     double? wagePerGram,
-    bool? allowInlineCreation,
     int? originalInvoiceItemId,
     double? maxWeightGrams,
     String? description,
@@ -6251,7 +6241,6 @@ class PurchaseInlineItem {
       karat: karat ?? this.karat,
       weightGrams: weightGrams ?? this.weightGrams,
       wagePerGram: wagePerGram ?? this.wagePerGram,
-      allowInlineCreation: allowInlineCreation ?? this.allowInlineCreation,
       originalInvoiceItemId:
           originalInvoiceItemId ?? this.originalInvoiceItemId,
       maxWeightGrams: maxWeightGrams ?? this.maxWeightGrams,
@@ -6297,10 +6286,6 @@ class PurchaseInlineItem {
       'category': category,
       'category_id': categoryId,
     };
-
-    if (allowInlineCreation && entryType == PurchaseInlineEntryType.item) {
-      payload['create_inline'] = true;
-    }
 
     payload.removeWhere((key, value) => value == null);
     return payload;

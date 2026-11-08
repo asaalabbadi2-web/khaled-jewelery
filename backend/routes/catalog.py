@@ -27,30 +27,37 @@ def update_item(id):
     إذا تم تحديث barcode إلى فارغ، يُولّد تلقائياً من item_code
     """
     from code_generator import generate_barcode_from_item_code
-    
+    from services.pieces import PieceRefused, refuse_piece_edit
+
     item = Item.query.get_or_404(id)
-    data = request.json
-    
-    # Update item details (but not item_code)
+    data = request.json or {}
+    try:
+        refuse_piece_edit(item, data)          # a piece: its name and description only (ADR-087 R3.3)
+    except PieceRefused as refused:
+        return jsonify({'error': refused.code, 'message': refused.message}), 400
+
     item.name = data.get('name', item.name)
-    
-    # إذا تم حذف barcode، أعد توليده
-    new_barcode = data.get('barcode', item.barcode)
-    if not new_barcode:
-        new_barcode = generate_barcode_from_item_code(item.item_code)
-    item.barcode = new_barcode
-    
-    item.karat = normalize_number(str(data.get('karat', item.karat)))
-    item.weight = normalize_number(str(data.get('weight', item.weight)))
-    item.count = normalize_number(str(data.get('count', item.count)))
-    item.wage = normalize_number(str(data.get('wage', item.wage)))
-    item.manufacturing_wage_per_gram = normalize_number(str(data.get('manufacturing_wage_per_gram', item.manufacturing_wage_per_gram)))
-    if 'category_id' in data:
-        item.category_id = data.get('category_id')
     item.description = data.get('description', item.description)
-    item.price = normalize_number(str(data.get('price', item.price)))
-    item.stock = normalize_number(str(data.get('stock', item.stock)))
-    
+    if item.receipt_item_id is None:           # the catalogue's item; a piece's facts are its receipt's
+        # إذا تم حذف barcode، أعد توليده
+        new_barcode = data.get('barcode', item.barcode)
+        if not new_barcode:
+            new_barcode = generate_barcode_from_item_code(item.item_code)
+        item.barcode = new_barcode
+
+        def number(key, empty=None):
+            # An empty number stays NULL (the price 0, never NULL) -- str(None)
+            # reached the float columns and the save failed (an item whose wage
+            # was never set).
+            value = data.get(key, getattr(item, key))
+            return empty if value in (None, '') else normalize_number(str(value))
+
+        for key in ('karat', 'weight', 'count', 'wage', 'manufacturing_wage_per_gram', 'stock'):
+            setattr(item, key, number(key))
+        item.price = number('price', 0)
+        if 'category_id' in data:
+            item.category_id = data.get('category_id')
+
     db.session.commit()
     return jsonify({
         'result': 'success',
@@ -61,7 +68,12 @@ def update_item(id):
 @catalog_bp.route('/items/<int:id>', methods=['DELETE'])
 @require_permission('items.delete')
 def delete_item(id):
+    from services.pieces import PieceRefused, refuse_piece_delete
     item = Item.query.get_or_404(id)
+    try:
+        refuse_piece_delete(item)
+    except PieceRefused as refused:
+        return jsonify({'error': refused.code, 'message': refused.message}), 400
     db.session.delete(item)
     db.session.commit()
     return jsonify({'result': 'success'})
@@ -265,7 +277,12 @@ def add_item():
     يتم توليد item_code تلقائياً
     إذا لم يُدخل barcode، يتم توليده تلقائياً من item_code
     """
+    from services.pieces import PieceRefused, refuse_catalogue_item
     data = request.json
+    try:
+        refuse_catalogue_item(datetime.now())  # receiving on: the piece is born there (ADR-087 R3.3)
+    except PieceRefused as refused:
+        return jsonify({'error': refused.code, 'message': refused.message}), 400
     try:
         item = _new_item(data)
         db.session.commit()
@@ -298,6 +315,11 @@ def quick_add_items():
     its weight. A piece's karat is its category's -- manual entry must not
     mistake one karat for another (the owner, 14 Oct 2026). All or none.
     """
+    from services.pieces import PieceRefused, refuse_catalogue_item
+    try:
+        refuse_catalogue_item(datetime.now())  # receiving on: the piece is born there (ADR-087 R3.3)
+    except PieceRefused as refused:
+        return jsonify({'error': refused.code, 'message': refused.message}), 400
     data = request.json or {}
     base_name = (data.get('base_name') or '').strip()
     pieces = data.get('pieces') or []
