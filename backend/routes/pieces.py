@@ -8,6 +8,8 @@ GET  /api/pieces/codings/<id>     -- a batch of existing stock and its pieces.
 POST /api/pieces                  -- a piece under a line (line_id) or a batch
      (coding_id): weight, stones_weight, request_key -- the save attempt's
      key: pressed twice, one.
+GET  /api/pieces/lookup?code=     -- a piece by its number: its view and
+     where it is (the transfer screen, R3.6).
 GET  /api/stock-codings/free      -- what a location holds of a category not
      yet pieced nor promised to an open batch (safe_box_id, category_id).
 POST /api/stock-codings           -- «ترميز من المخزون الموجود»: a batch --
@@ -99,6 +101,19 @@ def station_register():
         return saved
     db.session.commit()
     return jsonify({'piece': piece_view(piece), 'line': _view(line)}), 201
+
+
+@pieces_bp.route('/pieces/lookup', methods=['GET'])
+@require_permission('items.view')
+def piece_lookup():
+    from services.pieces import is_piece, piece_location
+    code = (request.args.get('code') or '').strip().upper()
+    piece = Item.query.filter_by(item_code=code).first() if code else None
+    if not is_piece(piece):
+        return jsonify({'error': 'piece_unknown', 'message': f'لا قطعة بالرقم {code}'}), 404
+    where = piece_location(piece)
+    return jsonify({'piece': piece_view(piece),
+                    'location': {'id': where.id, 'name': where.name} if where is not None else None}), 200
 
 
 @pieces_bp.route('/stock-codings/free', methods=['GET'])

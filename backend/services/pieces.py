@@ -455,3 +455,99 @@ def open_coding(*, safe_box_id, category_id, weight, wage_per_gram, note=None, b
     db.session.add(batch)
     db.session.flush()
     return batch
+
+
+# ── a piece moves with the voucher that names it (R3.6) ─────────────────────
+
+def piece_location(piece: Item):
+    """The stock safe holding the piece: its allocations' net, by account."""
+    from accounting.balances import counted_line_filters
+    rows = (db.session.query(JournalEntryLine.account_id, func.sum(StockLineAllocation.grams))
+            .join(StockLineAllocation, StockLineAllocation.journal_entry_line_id == JournalEntryLine.id)
+            .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+            .filter(StockLineAllocation.item_id == piece.id, *counted_line_filters())
+            .group_by(JournalEntryLine.account_id).all())
+    held = [account_id for account_id, grams in rows if float(grams or 0.0) > GRAM]
+    return SafeBox.query.filter_by(account_id=held[0]).first() if len(held) == 1 else None
+
+
+def _piece_by_ref(ref):
+    if isinstance(ref, int) or (isinstance(ref, str) and ref.strip().isdigit()):
+        return db.session.get(Item, int(ref))
+    return Item.query.filter_by(item_code=str(ref or '').strip().upper()).first()
+
+
+def pieces_grams_at(safe_box: SafeBox, karat: int) -> float:
+    """The grams of the pieces a location holds in a karat -- pieces only: a
+    catalogue item of before (I-) names its allocations too, and is not one."""
+    from sqlalchemy import or_
+    from accounting.balances import counted_line_filters
+    grams = (db.session.query(func.coalesce(func.sum(StockLineAllocation.grams), 0.0))
+             .join(JournalEntryLine, JournalEntryLine.id == StockLineAllocation.journal_entry_line_id)
+             .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+             .join(Item, Item.id == StockLineAllocation.item_id)
+             .filter(JournalEntryLine.account_id == safe_box.account_id, StockLineAllocation.karat == int(karat),
+                     or_(Item.receipt_item_id.isnot(None), Item.coding_id.isnot(None)), *counted_line_filters())
+             .scalar())
+    return round(float(grams or 0.0), 3)
+
+
+def refuse_piece_transfer(from_safe: SafeBox, to_safe: SafeBox, refs, weights: dict, held: dict = None) -> list:
+    """The pieces a transfer names -- or PieceRefused: each a piece, named
+    once, in the stock and in the source; into a stock location that is not
+    an office's deposit; each karat's weight at least its pieces'. And what
+    stays in the source of a karat (*held*, its balance, less what moves)
+    covers the pieces left there: pieces moved unnamed would stay «in» a
+    location their gold has left."""
+    pieces, seen = [], set()
+    for ref in refs or []:
+        piece = _piece_by_ref(ref)
+        if not is_piece(piece):
+            raise PieceRefused('piece_unknown', f'لا قطعة بالرقم {ref}')
+        if piece.id in seen:
+            raise PieceRefused('piece_named_twice', f'القطعة {piece.item_code} مذكورة مرتين')
+        seen.add(piece.id)
+        if piece_held(piece.id) <= GRAM:
+            raise PieceRefused('piece_sold', f'القطعة {piece.item_code} ليست في المخزون')
+        where = piece_location(piece)
+        if where is None or where.id != from_safe.id:
+            raise PieceRefused('piece_not_here', f'القطعة {piece.item_code} ليست في «{from_safe.name}»'
+                                                 + (f' بل في «{where.name}»' if where is not None else ''))
+        pieces.append(piece)
+    if pieces and getattr(to_safe, 'stock_location', None) in (None, '', 'deposit'):
+        raise PieceRefused('piece_destination_invalid', 'القطعة تُنقل إلى خزينة مخزون، لا إلى وديعة مكتب')
+    by_karat = {}
+    for piece in pieces:
+        k = int(round(float(piece.karat)))
+        by_karat[k] = round(by_karat.get(k, 0.0) + float(piece.weight), 3)
+    for karat, grams in by_karat.items():
+        if grams > float(weights.get(karat) or 0.0) + GRAM:
+            raise PieceRefused('transfer_lighter_than_pieces',
+                               f'وزن عيار {karat} في السند أقل من قطعه ({grams:.2f} جم)')
+    for karat, moving in (weights or {}).items():
+        moving = float(moving or 0.0)
+        if held is None or moving <= GRAM:
+            continue
+        staying = round(float(held.get(karat) or 0.0) - moving, 3)
+        left = round(pieces_grams_at(from_safe, karat) - by_karat.get(karat, 0.0), 3)
+        if left > staying + GRAM:
+            raise PieceRefused('pieces_left_unnamed',
+                               f'يبقى في «{from_safe.name}» من عيار {karat} {max(staying, 0.0):.2f} جم '
+                               f'وفيه قطع {left:.2f} جم: سمِّ القطع المنقولة')
+    return pieces
+
+
+def carry_pieces(entry, from_safe: SafeBox, to_safe: SafeBox, pieces, *, now, by, what: str) -> list:
+    """Each piece's share out of the source's line and into the target's,
+    under its number -- the allocation's one rule (spread)."""
+    from services.stock_ledger import spread
+    lines = (JournalEntryLine.query.filter_by(journal_entry_id=entry.id, is_deleted=False)
+             .order_by(JournalEntryLine.id).all())
+    written = []
+    for piece in pieces:
+        karat = int(round(float(piece.karat)))
+        part = [(piece.category_id, piece.id, round(float(piece.weight), 3))]
+        for safe in (from_safe, to_safe):
+            written += spread([l for l in lines if l.account_id == safe.account_id], karat, part,
+                              now=now, by=by, what=what)
+    return written

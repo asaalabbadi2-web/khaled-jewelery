@@ -142,6 +142,9 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
   void _sourceChanged() {
     _stonesTyped.clear();
     _fillStones();
+    // the pieces named were the last source's
+    _pieces.clear();
+    _pieceProblem = null;
   }
 
   void _onInputChanged() {
@@ -151,6 +154,7 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
 
   @override
   void dispose() {
+    _pieceCode.dispose();
     _amountCashController.dispose();
     _weight24kController.dispose();
     _weight22kController.dispose();
@@ -742,6 +746,7 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
           toSafeBoxId: _toSafeId!,
           weights: weights,
           stonesWeights: stones.isNotEmpty ? stones : null,
+          pieces: [for (final p in _pieces) '${p['item_code']}'],
           notes: notes,
           date: DateTime.now(),
         );
@@ -772,6 +777,8 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
         _stones21kController.clear();
         _stones18kController.clear();
         _stonesTyped.clear();
+        _pieces.clear();
+        _pieceProblem = null;
         _notesController.clear();
       });
 
@@ -1200,6 +1207,116 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
 
   /// One row a karat the source holds (or the employee added): what is
   /// there, what moves, what stays. «الكل» moves all of it.
+  // ── the pieces it names (ADR-087 R3.6) ─────────────────────────────────
+
+  /// The pieces the transfer names, as the server found them: each moves
+  /// with it under its number. The server decides; the screen says.
+  final List<Map<String, dynamic>> _pieces = [];
+  final _pieceCode = TextEditingController();
+  String? _pieceProblem;
+
+  Future<void> _addPiece() async {
+    final code = _pieceCode.text.trim().toUpperCase();
+    if (code.isEmpty) return;
+    if (_pieces.any((p) => p['item_code'] == code)) {
+      setState(() => _pieceProblem = 'القطعة $code مذكورة');
+      return;
+    }
+    try {
+      final found = await widget.api.lookupPiece(code);
+      if (!mounted) return;
+      final piece = found['piece'] as Map<String, dynamic>;
+      final where = found['location'] as Map<String, dynamic>?;
+      setState(() {
+        if (piece['in_stock'] != true) {
+          _pieceProblem = 'القطعة $code ليست في المخزون';
+        } else if (where == null || where['id'] != _fromSafeId) {
+          _pieceProblem =
+              'القطعة $code ليست في خزينة المصدر'
+              '${where == null ? '' : ' بل في «${where['name']}»'}';
+        } else {
+          _pieces.add(piece);
+          _pieceProblem = null;
+          _pieceCode.clear();
+        }
+      });
+    } catch (e) {
+      if (mounted) setState(() => _pieceProblem = '$e');
+    }
+  }
+
+  Widget _piecesSection() {
+    final byKarat = <String, double>{};
+    for (final p in _pieces) {
+      final k = '${p['karat']}';
+      byKarat[k] = (byKarat[k] ?? 0) + ((p['weight'] as num?) ?? 0).toDouble();
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: AppSpace.md),
+        Text('القطع المرمَّزة المنقولة', style: _text.titleSmall),
+        const SizedBox(height: AppSpace.xs),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                key: const Key('transfer-piece-code'),
+                controller: _pieceCode,
+                textDirection: TextDirection.ltr,
+                decoration: const InputDecoration(
+                  labelText: 'رقم القطعة (KJ-…)',
+                  isDense: true,
+                ),
+                onSubmitted: (_) => _addPiece(),
+              ),
+            ),
+            const SizedBox(width: AppSpace.sm),
+            OutlinedButton(
+              key: const Key('transfer-piece-add'),
+              onPressed: _fromSafeId == null ? null : _addPiece,
+              child: const Text('إضافة'),
+            ),
+          ],
+        ),
+        if (_pieceProblem != null)
+          Padding(
+            padding: const EdgeInsets.only(top: AppSpace.xs),
+            child: Text(
+              _pieceProblem!,
+              style: _text.bodySmall?.copyWith(color: _cs.error),
+            ),
+          ),
+        if (_pieces.isNotEmpty) ...[
+          const SizedBox(height: AppSpace.sm),
+          Wrap(
+            spacing: AppSpace.sm,
+            runSpacing: AppSpace.xs,
+            children: [
+              for (final p in _pieces)
+                InputChip(
+                  key: Key('transfer-piece-${p['item_code']}'),
+                  label: Text(
+                    '${p['item_code']} · ${_fmtWeight(((p['weight'] as num?) ?? 0).toDouble())}',
+                  ),
+                  onDeleted: () => setState(() => _pieces.remove(p)),
+                ),
+            ],
+          ),
+          const SizedBox(height: AppSpace.xs),
+          Text(
+            [
+              for (final e in byKarat.entries)
+                'وزن القطع عيار ${e.key}: ${_fmtWeight(e.value)} — يدخل في وزن العيار أعلاه',
+            ].join('\n'),
+            key: const Key('transfer-pieces-weight'),
+            style: _text.bodySmall,
+          ),
+        ],
+      ],
+    );
+  }
+
   Widget _goldTable() {
     final isAr = widget.isArabic;
     final source = _safeByIdOrNull(_fromSafeId);
@@ -1281,6 +1398,7 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
                       ),
                   ],
                 ),
+                _piecesSection(),
               ],
             );
           },
@@ -1662,7 +1780,9 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
               _gramsField(
                 key: const Key('correction-weight-out'),
                 controller: _corrWeightOutController,
-                label: isAr ? 'الوزن الناتج (اختياري)' : 'Weight out (optional)',
+                label: isAr
+                    ? 'الوزن الناتج (اختياري)'
+                    : 'Weight out (optional)',
                 helper: isAr
                     ? 'للصبّ والتحليل، إن تغيّر الوزن. فارغ: الوزن نفسه.'
                     : 'For a casting and assay, if the weight changed. Empty: the same weight.',

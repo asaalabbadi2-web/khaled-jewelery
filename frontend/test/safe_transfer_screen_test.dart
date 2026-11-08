@@ -147,6 +147,16 @@ void main() {
             'voucher': {'id': 900, 'voucher_number': 'AV-2026-00900'},
           }, 201);
         }
+        if (path.endsWith('/pieces/lookup')) {
+          // ADR-087 R3.6: KJ-000001 is in the source, KJ-000002 elsewhere
+          final code = request.url.queryParameters['code'];
+          return json({
+            'piece': {'id': 5, 'item_code': code, 'karat': '21', 'weight': 14.37, 'in_stock': true},
+            'location': code == 'KJ-000001'
+                ? {'id': 30, 'name': 'خزينة الذهب المعروض'}
+                : {'id': 33, 'name': 'معرض الفرع'},
+          });
+        }
         if (path.endsWith('/safe-boxes/balances')) {
           return json({
             'rows': mode == 'cash' ? _cashSafes : (goldSafes ?? _goldSafes),
@@ -198,6 +208,25 @@ void main() {
         await openFrom(tester);
         expect(find.textContaining('مكتب الراقي'), findsWidgets);
       });
+    });
+  });
+
+  group('the pieces it names move with it (ADR-087 R3.6)', () {
+    testWidgets('a piece of the source is named and sent; one elsewhere is said', (tester) async {
+      final sent = await run(tester, 'gold', () async {
+        await type(tester, 'transfer-piece-code', 'kj-000002');
+        await tester.tap(find.byKey(const Key('transfer-piece-add')));
+        await tester.pumpAndSettle();
+        expect(find.textContaining('ليست في خزينة المصدر بل في «معرض الفرع»'), findsOneWidget);
+        await type(tester, 'transfer-piece-code', 'KJ-000001');
+        await tester.tap(find.byKey(const Key('transfer-piece-add')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('transfer-piece-KJ-000001')), findsOneWidget);
+        expect(find.textContaining('وزن القطع عيار 21'), findsOneWidget);
+        await type(tester, 'transfer-weight-21', '14.37');
+        await submitAndConfirm(tester);
+      });
+      expect((sent.single['body'] as Map)['pieces'], ['KJ-000001']);
     });
   });
 

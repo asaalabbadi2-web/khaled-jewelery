@@ -1283,6 +1283,15 @@ def create_safe_box_transfer_voucher():
                                            f'ومعه فصوصه {held_stones[karat]:.3f} جم: '
                                            'الفصوص تُحوَّل مع ذهبها'}), 400
 
+        # The pieces it names move with it, each under its number (ADR-087 R3.6).
+        from services.pieces import PieceRefused, refuse_piece_transfer
+        try:
+            moving_pieces = refuse_piece_transfer(from_safe, to_safe, data.get('pieces') or [],
+                                                  {24: w_24, 22: w_22, 21: w_21, 18: w_18},
+                                                  {k: w_bal.get(f'{k}k', 0.0) for k in (18, 21, 22, 24)})
+        except PieceRefused as refused:
+            return jsonify({'error': refused.code, 'message': refused.message}), 400
+
     # ------------------------------------------------------------------
     # Cash transfer (amount_cash)
     # ------------------------------------------------------------------
@@ -1407,6 +1416,9 @@ def create_safe_box_transfer_voucher():
             from services.stock_ledger import carry_scrap
             carry_scrap(journal_entry, from_safe, to_safe, {24: w_24, 22: w_22, 21: w_21, 18: w_18},
                         now=voucher_dt, by=created_by, what=f'التحويل {voucher_number}')
+            from services.pieces import carry_pieces
+            carry_pieces(journal_entry, from_safe, to_safe, moving_pieces, now=voucher_dt, by=created_by,
+                         what=f'التحويل {voucher_number}')
 
         # Stamp per-karat stones data onto SBTs (if provided)
         if is_gold_transfer:

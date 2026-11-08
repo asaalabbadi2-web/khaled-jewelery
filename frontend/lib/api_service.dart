@@ -5319,6 +5319,12 @@ class ApiService {
   Future<Map<String, dynamic>> pieceLine(int lineId) =>
       _getMap('/pieces/lines/$lineId', fallback: 'تعذّر تحميل السطر');
 
+  /// A piece by its number and where it is (R3.6): `{piece, location}`.
+  Future<Map<String, dynamic>> lookupPiece(String code) => _getMap(
+        '/pieces/lookup?code=${Uri.encodeQueryComponent(code)}',
+        fallback: 'لا قطعة بهذا الرقم',
+      );
+
   /// A batch of existing stock and its pieces (R3.5). `{line, pieces}`.
   Future<Map<String, dynamic>> pieceCoding(int codingId) =>
       _getMap('/pieces/codings/$codingId', fallback: 'تعذّر تحميل دفعة الترميز');
@@ -5416,6 +5422,7 @@ class ApiService {
     required int toSafeBoxId,
     Map<String, double>? weights,
     Map<String, double>? stonesWeights,
+    List<String>? pieces,
     double? amountCash,
     String? notes,
     DateTime? date,
@@ -5439,6 +5446,8 @@ class ApiService {
       'to_safe_box_id': toSafeBoxId,
       if (hasWeights) 'weights': weights,
       if (hasWeights && hasStones) 'stones': stonesWeights,
+      // the pieces it names move with it, each under its number (ADR-087 R3.6)
+      if (hasWeights && pieces != null && pieces.isNotEmpty) 'pieces': pieces,
       if (hasCash) 'amount_cash': amountCash,
       if (notes != null) 'notes': notes,
       if (date != null) 'date': date.toIso8601String(),
