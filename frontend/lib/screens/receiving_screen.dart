@@ -199,8 +199,10 @@ class _ReceivingScreenState extends State<ReceivingScreen> {
       ],
     );
     if (ok == null || !mounted) return;
+    // 0x7fffffff, not 1 << 32: on the web a shift is 32-bit -- 1 << 32 is 0,
+    // and nextInt(0) threw before anything was sent.
     _requestKey ??=
-        '${Random.secure().nextInt(1 << 32)}-${Random.secure().nextInt(1 << 32)}';
+        '${Random.secure().nextInt(0x7fffffff)}-${Random.secure().nextInt(0x7fffffff)}';
     await _send();
   }
 
