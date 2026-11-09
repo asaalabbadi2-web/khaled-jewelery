@@ -356,7 +356,9 @@ def check_safebox_subledger_drift(threshold: float = DRIFT_THRESHOLD) -> list:
     Uses services/safebox_subledger.py, the same computation behind
     /safe-boxes/reconciliation.
     """
-    boxes = SafeBox.query.with_entities(SafeBox.id, SafeBox.name).all()
+    # A stopped safe's ledger is no longer its own (ADR-052's old office safes
+    # sit on their suppliers' live accounts): the active safes are read.
+    boxes = SafeBox.query.with_entities(SafeBox.id, SafeBox.name).filter(SafeBox.is_active.is_(True)).all()
     totals = subledger_totals_by_box([b.id for b in boxes])
     names = {int(b.id): b.name for b in boxes}
     facts = []
@@ -381,9 +383,14 @@ def check_safebox_gold_drift(threshold: float = GOLD_DRIFT_THRESHOLD) -> list:
     entry made (3,388.8 g). One fact per safe and karat, keyed
     'safe_box:<id>:<karat>k'; the metric is statement minus ledger, in grams.
     """
-    names = {int(b.id): b.name for b in SafeBox.query.with_entities(SafeBox.id, SafeBox.name).all()}
+    # The active safes only, as the statement rows are written (a stopped safe's
+    # ledger is no longer its own -- ADR-052).
+    names = {int(b.id): b.name for b in SafeBox.query.with_entities(SafeBox.id, SafeBox.name)
+             .filter(SafeBox.is_active.is_(True)).all()}
     facts = []
     for sid, by_karat in gold_subledger_by_box().items():
+        if int(sid) not in names:
+            continue
         for karat, (statement, ledger) in by_karat.items():
             diff = round(statement - ledger, 3)
             if abs(diff) > threshold:

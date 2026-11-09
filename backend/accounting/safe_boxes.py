@@ -3,6 +3,20 @@ from __future__ import annotations
 from models import db, JournalEntry, JournalEntryLine, PaymentMethod, SafeBox, SafeBoxTransaction
 
 
+def row_safes_by_account(account_ids) -> dict:
+    """{account id: its safe}, for the statement rows a posting writes: the
+    active safes only. A stopped safe takes no new row -- ADR-052 stopped each
+    office's old gold safe on its supplier's weight account, which stays the
+    supplier's, live: matched by account, each gold payment to the office
+    wrote a row on it (the Dewan's: 465.5 g, 26 Oct and 7 Nov 2026). The
+    invoice's gold rows already read the active safes (posting_routes)."""
+    ids = [int(i) for i in (account_ids or []) if i is not None]
+    if not ids:
+        return {}
+    return {int(sb.account_id): sb
+            for sb in SafeBox.query.filter(SafeBox.account_id.in_(ids), SafeBox.is_active.is_(True)).all()
+            if sb.account_id is not None}
+
 def _is_manual_like_journal_entry(entry: 'JournalEntry') -> bool:
     """Return True when a JournalEntry is manually created/edited (not system-generated).
 
@@ -63,10 +77,7 @@ def _rebuild_safe_box_transactions_for_journal_entry(
     if not account_ids:
         return
 
-    safe_by_account_id = {}
-    for sb in SafeBox.query.filter(SafeBox.account_id.in_(account_ids)).all():
-        if getattr(sb, 'account_id', None) is not None:
-            safe_by_account_id[int(sb.account_id)] = sb
+    safe_by_account_id = row_safes_by_account(account_ids)
 
     if not safe_by_account_id:
         return
@@ -166,11 +177,7 @@ def _ensure_safe_box_transactions_for_invoice_je(
         return []
 
     account_ids = list({int(l.account_id) for l in je_lines if getattr(l, 'account_id', None) is not None})
-    safe_by_account_id: dict = {}
-    if account_ids:
-        for sb in SafeBox.query.filter(SafeBox.account_id.in_(account_ids)).all():
-            if getattr(sb, 'account_id', None) is not None:
-                safe_by_account_id[int(sb.account_id)] = sb
+    safe_by_account_id: dict = row_safes_by_account(account_ids)
 
     if not safe_by_account_id:
         return []

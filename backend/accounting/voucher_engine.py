@@ -427,10 +427,8 @@ def _append_safe_transactions_for_voucher(voucher: 'Voucher', created_by=None):
                 je_lines = _filtered
 
         account_ids = list({int(l.account_id) for l in je_lines if getattr(l, 'account_id', None) is not None})
-        safe_by_account_id = {}
-        if account_ids:
-            for sb in SafeBox.query.filter(SafeBox.account_id.in_(account_ids)).all():
-                safe_by_account_id[int(sb.account_id)] = sb
+        from accounting.safe_boxes import row_safes_by_account
+        safe_by_account_id = row_safes_by_account(account_ids)        # a stopped safe takes no row
 
         if not safe_by_account_id:
             return []
@@ -537,10 +535,8 @@ def _append_safe_transactions_for_voucher(voucher: 'Voucher', created_by=None):
         return []
 
     account_ids = list({l.account_id for l in lines if getattr(l, 'account_id', None) is not None})
-    safe_by_account_id = {}
-    if account_ids:
-        for sb in SafeBox.query.filter(SafeBox.account_id.in_(account_ids)).all():
-            safe_by_account_id[sb.account_id] = sb
+    from accounting.safe_boxes import row_safes_by_account
+    safe_by_account_id = row_safes_by_account(account_ids)            # a stopped safe takes no row
 
     pm_by_safe_id = {}
     safe_ids = list({sb.id for sb in safe_by_account_id.values()})
