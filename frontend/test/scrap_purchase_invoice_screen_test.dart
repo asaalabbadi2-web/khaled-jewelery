@@ -513,6 +513,20 @@ void main() {
     });
   });
 
+  testWidgets('on an iPhone a scrap line is a card: its weights, its total and «حذف» in sight', (tester) async {
+    // The table scrolled the total and «حذف» off an iPhone (9 Nov 2026).
+    await open(tester, api: FakeSalesApi(), editing: invoice());
+    tester.view.physicalSize = const Size(390, 844);
+    await tester.pumpAndSettle();
+    final card = find.byKey(const ValueKey('scrap-line-card-0'));
+    expect(card, findsOneWidget);
+    for (final label in ['الوزن القائم', 'وزن الأحجار', 'الإجمالي']) {
+      expect(find.descendant(of: card, matching: find.text(label)), findsOneWidget);
+    }
+    expect(find.descendant(of: card, matching: find.byTooltip('حذف')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('what a paid scrap purchase sends is what it sent (ADR-049)', (
     tester,
   ) async {

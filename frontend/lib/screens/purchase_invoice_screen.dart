@@ -18,6 +18,7 @@ import '../widgets/invoice_price_strip.dart';
 import '../models/safe_box_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/settings_provider.dart';
+import '../theme/app_breakpoints.dart';
 import '../theme/app_theme.dart';
 import '../widgets/invoice_review_dialog.dart';
 import '../widgets/invoice_saved_dialog.dart';
@@ -4493,6 +4494,18 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
   }
 
   Widget _buildInlineItemsTable() {
+    // On a phone each line is a card: every figure in sight, nothing scrolled
+    // sideways off the screen (the owner, 9 Nov 2026). Its cells are the
+    // table's own -- the same keys, the same edits.
+    if (AppBreakpoints.isPhone(context)) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (int index = 0; index < _inlineItems.length; index++)
+            _buildInlineItemCard(_inlineItems[index], index),
+        ],
+      );
+    }
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: DataTable(
@@ -4588,89 +4601,87 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
     );
   }
 
+  Widget _lineTitle(PurchaseInlineItem item) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    mainAxisAlignment: MainAxisAlignment.center,
+    children: [
+      Text(item.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+      if (item.entryType == PurchaseInlineEntryType.category)
+        Text('نوع: تصنيف فقط', style: Theme.of(context).textTheme.bodySmall),
+      if (item.category?.isNotEmpty ?? false)
+        Text('تصنيف: ${item.category}', style: Theme.of(context).textTheme.bodySmall),
+      if (item.entryType == PurchaseInlineEntryType.item && (item.itemCode?.isNotEmpty ?? false))
+        Text('كود: ${item.itemCode}', style: Theme.of(context).textTheme.bodySmall),
+      if (item.entryType == PurchaseInlineEntryType.item && (item.barcode?.isNotEmpty ?? false))
+        Text('باركود: ${item.barcode}', style: Theme.of(context).textTheme.bodySmall),
+    ],
+  );
+
+  Widget _lineWeightCell(PurchaseInlineItem item, int index) => _isCompletion
+      // the weight received, read: a difference is the receipt's correction
+      ? Text(
+          formatAmount(item.weightGrams, decimals: 3),
+          key: ValueKey('weight-$index'),
+          textDirection: TextDirection.ltr,
+        )
+      : InlineNumberCell(
+          key: ValueKey('weight-$index'),
+          value: item.weightGrams,
+          fractionDigits: 3,
+          allowZero: false,
+          label: 'الوزن',
+          onChanged: (v) => _setInlineItem(index, item.copyWith(weightGrams: v)),
+        );
+
+  Widget _lineWageCell(PurchaseInlineItem item, int index) => InlineNumberCell(
+    key: ValueKey('wage-$index'),
+    value: item.wagePerGram,
+    fractionDigits: 2,
+    label: 'الأجرة',
+    onChanged: (v) => _setInlineItem(index, item.copyWith(wagePerGram: v)),
+  );
+
+  // The line's wage, written whole when so given -- bullion's -- is divided
+  // by its weight: the wage is per gram, always (the owner, 9 Nov 2026;
+  // ADR-087 §6).
+  Widget _lineWageTotalCell(PurchaseInlineItem item, int index) => item.weightGrams > 0
+      ? InlineNumberCell(
+          key: ValueKey('wage-total-$index'),
+          value: item.weightGrams * item.wagePerGram,
+          fractionDigits: 2,
+          label: 'أجرة السطر',
+          onChanged: (v) => _setInlineItem(index, item.copyWith(wagePerGram: v / item.weightGrams)),
+        )
+      : Text(formatAmount((item.weightGrams * item.wagePerGram)));
+
+  Widget _lineActions(int index) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      // A receipt's lines are not edited nor removed while its invoice is
+      // completed: a difference is the receipt's correction.
+      if (!_isCompletion) ...[
+        IconButton(
+          icon: const Icon(Icons.tune),
+          tooltip: 'تفاصيل',
+          onPressed: () => _editInlineItem(index),
+        ),
+        IconButton(
+          icon: Icon(Icons.delete, color: _cs.error),
+          tooltip: 'حذف',
+          onPressed: () => _removeInlineItem(index),
+        ),
+      ],
+    ],
+  );
+
   DataRow _buildInlineItemRow(PurchaseInlineItem item, int index) {
     return DataRow(
       cells: [
-        DataCell(
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                item.name,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              if (item.entryType == PurchaseInlineEntryType.category)
-                Text(
-                  'نوع: تصنيف فقط',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              if (item.category?.isNotEmpty ?? false)
-                Text(
-                  'تصنيف: ${item.category}',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(),
-                ),
-              if (item.entryType == PurchaseInlineEntryType.item &&
-                  (item.itemCode?.isNotEmpty ?? false))
-                Text(
-                  'كود: ${item.itemCode}',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(),
-                ),
-              if (item.entryType == PurchaseInlineEntryType.item &&
-                  (item.barcode?.isNotEmpty ?? false))
-                Text(
-                  'باركود: ${item.barcode}',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(),
-                ),
-            ],
-          ),
-        ),
+        DataCell(_lineTitle(item)),
         DataCell(Text(formatAmount(item.karat, decimals: 0))),
-        DataCell(
-          _isCompletion
-              // the weight received, read: a difference is the receipt's correction
-              ? Text(
-                  formatAmount(item.weightGrams, decimals: 3),
-                  key: ValueKey('weight-$index'),
-                  textDirection: TextDirection.ltr,
-                )
-              : InlineNumberCell(
-                  key: ValueKey('weight-$index'),
-                  value: item.weightGrams,
-                  fractionDigits: 3,
-                  allowZero: false,
-                  label: 'الوزن',
-                  onChanged: (v) =>
-                      _setInlineItem(index, item.copyWith(weightGrams: v)),
-                ),
-        ),
-        DataCell(
-          InlineNumberCell(
-            key: ValueKey('wage-$index'),
-            value: item.wagePerGram,
-            fractionDigits: 2,
-            label: 'الأجرة',
-            onChanged: (v) =>
-                _setInlineItem(index, item.copyWith(wagePerGram: v)),
-          ),
-        ),
-        // The line's wage, written whole when so given -- bullion's -- is
-        // divided by its weight: the wage is per gram, always (the owner,
-        // 9 Nov 2026; ADR-087 §6).
-        DataCell(
-          item.weightGrams > 0
-              ? InlineNumberCell(
-                  key: ValueKey('wage-total-$index'),
-                  value: item.weightGrams * item.wagePerGram,
-                  fractionDigits: 2,
-                  label: 'أجرة السطر',
-                  onChanged: (v) => _setInlineItem(
-                    index,
-                    item.copyWith(wagePerGram: v / item.weightGrams),
-                  ),
-                )
-              : Text(formatAmount((item.weightGrams * item.wagePerGram))),
-        ),
+        DataCell(_lineWeightCell(item, index)),
+        DataCell(_lineWageCell(item, index)),
+        DataCell(_lineWageTotalCell(item, index)),
         DataCell(Text(item.hasStones ? 'نعم' : '-')),
         DataCell(
           item.description == null || item.description!.isEmpty
@@ -4684,28 +4695,68 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
                   ),
                 ),
         ),
-        DataCell(
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // A receipt's lines are not edited nor removed while its
-              // invoice is completed: a difference is the receipt's correction.
-              if (!_isCompletion) ...[
-                IconButton(
-                  icon: const Icon(Icons.tune),
-                  tooltip: 'تفاصيل',
-                  onPressed: () => _editInlineItem(index),
-                ),
-                IconButton(
-                  icon: Icon(Icons.delete, color: _cs.error),
-                  tooltip: 'حذف',
-                  onPressed: () => _removeInlineItem(index),
-                ),
-              ],
-            ],
-          ),
-        ),
+        DataCell(_lineActions(index)),
       ],
+    );
+  }
+
+  /// A line on a phone: what the table's row says, every figure in sight.
+  Widget _buildInlineItemCard(PurchaseInlineItem item, int index) {
+    final theme = Theme.of(context);
+    Widget figure(String label, Widget cell) => Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+          cell,
+        ],
+      ),
+    );
+    return Card(
+      key: ValueKey('purchase-line-card-$index'),
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsetsDirectional.fromSTEB(12, 8, 4, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: _lineTitle(item)),
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Chip(
+                    label: Text('عيار ${formatAmount(item.karat, decimals: 0)}'),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+                _lineActions(index),
+              ],
+            ),
+            if (item.hasStones || (item.description?.isNotEmpty ?? false))
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  [
+                    if (item.hasStones) 'أحجار',
+                    if (item.description?.isNotEmpty ?? false) item.description!,
+                  ].join(' · '),
+                  style: theme.textTheme.bodySmall,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            Row(
+              children: [
+                figure('الوزن (جم)', _lineWeightCell(item, index)),
+                figure('أجرة/جرام', _lineWageCell(item, index)),
+                figure('أجرة السطر', _lineWageTotalCell(item, index)),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 

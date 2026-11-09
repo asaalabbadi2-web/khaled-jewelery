@@ -560,6 +560,31 @@ void main() {
       expect((items.single as Map)['category_id'], 44, reason: 'Enter took the match');
     });
 
+    testWidgets('on an iPhone a line is a card, every figure in sight, edited as in the table', (tester) async {
+      // The owner, 9 Nov 2026: the invoices on an iPhone. The table scrolled
+      // its wage and its total off the screen; a card shows them.
+      final api = FakePurchaseApi();
+      await open(tester, api: api, saved: draft());
+      tester.view.physicalSize = const Size(390, 844);
+      await tester.pumpAndSettle();
+      expect(find.byType(DataTable), findsNothing);
+      final card = find.byKey(const ValueKey('purchase-line-card-0'));
+      expect(card, findsOneWidget);
+      for (final label in ['الوزن (جم)', 'أجرة/جرام', 'أجرة السطر']) {
+        expect(find.descendant(of: card, matching: find.text(label)), findsWidgets);
+      }
+      await tester.ensureVisible(find.byKey(const ValueKey('wage-total-0')));
+      await tester.enterText(
+        find.descendant(of: find.byKey(const ValueKey('wage-total-0')), matching: find.byType(TextField)),
+        '250',
+      );
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+      final line = ((await save(tester, api))['items'] as List).single as Map;
+      expect(line['wage_per_gram'], 20.0, reason: '250 over 12.5 g, as in the table');
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('the categories are the karat\'s, active, not scrap', (
       tester,
     ) async {

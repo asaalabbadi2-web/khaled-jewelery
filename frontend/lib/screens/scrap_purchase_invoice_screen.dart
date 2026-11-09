@@ -7,6 +7,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import '../api_service.dart';
+import '../theme/app_breakpoints.dart';
 import '../theme/app_theme.dart';
 import '../models/safe_box_model.dart';
 import 'package:provider/provider.dart';
@@ -2780,6 +2781,14 @@ class _ScrapPurchaseInvoiceScreenState
       fontWeight: FontWeight.w600,
     );
 
+    if (AppBreakpoints.isPhone(context)) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < _items.length; i++) _buildScrapLineCard(i, _items[i], cellStyle),
+        ],
+      );
+    }
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: DataTable(
@@ -2814,8 +2823,28 @@ class _ScrapPurchaseInvoiceScreenState
             cells: [
               DataCell(Text((index + 1).toString(), style: cellStyle)),
               DataCell(Text(item.name, style: cellStyle)),
+              DataCell(_scrapKaratCell(index, item, cellStyle)),
+              DataCell(_scrapStandingCell(index, item, cellStyle)),
+              DataCell(_scrapQuantityCell(index, item, cellStyle)),
+              DataCell(_scrapStonesCell(index, item, cellStyle)),
+              DataCell(Text(formatAmount(item.weight), style: cellStyle)),
               DataCell(
-                InkWell(
+                Text(
+                  formatAmount(item.calculateDirectPurchaseCostPerGram()),
+                  style: cellStyle,
+                ),
+              ),
+              DataCell(_scrapTotalCell(index, item, cellStyle)),
+              DataCell(_scrapLineActions(index)),
+            ],
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  // A scrap purchase's line: the table's cells and the phone's card, one each.
+  Widget _scrapKaratCell(int index, InvoiceItem item, TextStyle? cellStyle) => InkWell(
                   onTap: () => _showEditDialog(index, 'karat', item.karat),
                   child: Container(
                     padding: const EdgeInsets.symmetric(
@@ -2834,10 +2863,9 @@ class _ScrapPurchaseInvoiceScreenState
                       style: cellStyle,
                     ),
                   ),
-                ),
-              ),
-              DataCell(
-                InkWell(
+                );
+
+  Widget _scrapStandingCell(int index, InvoiceItem item, TextStyle? cellStyle) => InkWell(
                   onTap: () => _showEditDialog(
                     index,
                     'standing_weight',
@@ -2860,10 +2888,9 @@ class _ScrapPurchaseInvoiceScreenState
                       style: cellStyle,
                     ),
                   ),
-                ),
-              ),
-              DataCell(
-                InkWell(
+                );
+
+  Widget _scrapQuantityCell(int index, InvoiceItem item, TextStyle? cellStyle) => InkWell(
                   onTap: () => _showEditDialog(
                     index,
                     'quantity',
@@ -2883,10 +2910,9 @@ class _ScrapPurchaseInvoiceScreenState
                     ),
                     child: Text(item.quantity.toString(), style: cellStyle),
                   ),
-                ),
-              ),
-              DataCell(
-                InkWell(
+                );
+
+  Widget _scrapStonesCell(int index, InvoiceItem item, TextStyle? cellStyle) => InkWell(
                   onTap: () => _showEditDialog(
                     index,
                     'stones_weight',
@@ -2909,17 +2935,9 @@ class _ScrapPurchaseInvoiceScreenState
                       style: cellStyle,
                     ),
                   ),
-                ),
-              ),
-              DataCell(Text(formatAmount(item.weight), style: cellStyle)),
-              DataCell(
-                Text(
-                  formatAmount(item.calculateDirectPurchaseCostPerGram()),
-                  style: cellStyle,
-                ),
-              ),
-              DataCell(
-                InkWell(
+                );
+
+  Widget _scrapTotalCell(int index, InvoiceItem item, TextStyle? cellStyle) => InkWell(
                   onTap: () =>
                       _showEditDialog(index, 'total', item.totalWithTax),
                   child: Container(
@@ -2939,10 +2957,9 @@ class _ScrapPurchaseInvoiceScreenState
                       style: cellStyle,
                     ),
                   ),
-                ),
-              ),
-              DataCell(
-                IconButton(
+                );
+
+  Widget _scrapLineActions(int index) => IconButton(
                   icon: Icon(
                     Icons.delete,
                     size: 22,
@@ -2950,11 +2967,55 @@ class _ScrapPurchaseInvoiceScreenState
                   ),
                   onPressed: () => _removeItem(index),
                   tooltip: 'حذف',
-                ),
-              ),
-            ],
-          );
-        }).toList(),
+                );
+
+  /// A line on a phone: what the table's row says, every figure in sight --
+  /// the table scrolled the total and «حذف» off an iPhone (9 Nov 2026).
+  Widget _buildScrapLineCard(int index, InvoiceItem item, TextStyle? cellStyle) {
+    final theme = Theme.of(context);
+    Widget figure(String label, Widget cell) => Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+          const SizedBox(height: 2),
+          cell,
+        ],
+      ),
+    );
+    return Card(
+      key: ValueKey('scrap-line-card-$index'),
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsetsDirectional.fromSTEB(12, 8, 4, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(child: Text(item.name, style: cellStyle)),
+                _scrapKaratCell(index, item, cellStyle),
+                _scrapLineActions(index),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                figure('الوزن القائم', _scrapStandingCell(index, item, cellStyle)),
+                figure('وزن الأحجار', _scrapStonesCell(index, item, cellStyle)),
+                figure('العدد', _scrapQuantityCell(index, item, cellStyle)),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                figure('الوزن', Text(formatAmount(item.weight), style: cellStyle)),
+                figure('التكلفة/جرام', Text(formatAmount(item.calculateDirectPurchaseCostPerGram()), style: cellStyle)),
+                figure('الإجمالي', _scrapTotalCell(index, item, cellStyle)),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

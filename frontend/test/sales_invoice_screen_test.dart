@@ -555,6 +555,18 @@ void main() {
       expect(prefs.getString(draftKey), isNull);
     });
 
+    testWidgets('on an iPhone a line is a card: its total and its actions in sight', (tester) async {
+      // The table scrolled the total and «حذف» off an iPhone (9 Nov 2026).
+      await open(tester, api: FakeSalesApi(), saved: draft());
+      tester.view.physicalSize = const Size(390, 844);
+      await tester.pumpAndSettle();
+      final card = find.byKey(const ValueKey('sale-line-card-0'));
+      expect(card, findsOneWidget);
+      expect(find.descendant(of: card, matching: find.textContaining('1,000.00')), findsWidgets);
+      expect(find.descendant(of: card, matching: find.byTooltip('حذف')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('leaving an empty invoice does not ask', (tester) async {
       await open(tester, api: FakeSalesApi());
 

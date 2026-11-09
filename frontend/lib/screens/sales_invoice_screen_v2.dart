@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../api_service.dart';
+import '../theme/app_breakpoints.dart';
 import '../theme/app_theme.dart';
 import '../models/safe_box_model.dart';
 import 'package:provider/provider.dart';
@@ -4028,6 +4029,14 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
       fontWeight: FontWeight.w600,
     );
 
+    if (AppBreakpoints.isPhone(context)) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < _items.length; i++) _buildSaleLineCard(i, _items[i], cellStyle),
+        ],
+      );
+    }
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: DataTable(
@@ -4069,8 +4078,34 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
           return DataRow(
             cells: [
               DataCell(Text('${index + 1}', style: cellStyle)),
+              DataCell(_saleNameCell(item, cellStyle)),
+              DataCell(Text('${item.count}', style: cellStyle)),
+              DataCell(_saleKaratCell(index, item, cellStyle)),
+              DataCell(_saleWeightCell(index, item, cellStyle)),
+              DataCell(_saleWageCell(index, item, cellStyle)),
               DataCell(
-                item.sellsStones
+                Text(
+                  cu.formatAmount(item.calculateSellingPricePerGram()),
+                  style: cellStyle,
+                ),
+              ),
+              if (_seesCost)
+                DataCell(Text(cu.formatAmount(item.cost), style: cellStyle)),
+              if (!_uiDisableVat) ...[
+                DataCell(Text(cu.formatAmount(item.net), style: cellStyle)),
+                DataCell(Text(cu.formatAmount(item.tax), style: cellStyle)),
+              ],
+              DataCell(_saleTotalCell(index, item, cellStyle)),
+              DataCell(_saleLineActions(index, item)),
+            ],
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  // A sale's line: the table's cells and the phone's card, one each.
+  Widget _saleNameCell(InvoiceItem item, TextStyle? cellStyle) => item.sellsStones
                     ? Column(
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -4086,11 +4121,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
                           ),
                         ],
                       )
-                    : Text(item.name, style: cellStyle),
-              ),
-              DataCell(Text('${item.count}', style: cellStyle)),
-              DataCell(
-                InkWell(
+                    : Text(item.name, style: cellStyle);
+
+  Widget _saleKaratCell(int index, InvoiceItem item, TextStyle? cellStyle) => InkWell(
                   onTap: () => _showEditDialog(index, 'karat', item.karat),
                   child: Container(
                     padding: const EdgeInsets.symmetric(
@@ -4109,10 +4142,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
                       style: cellStyle,
                     ),
                   ),
-                ),
-              ),
-              DataCell(
-                _uiLockPriceEdits
+                );
+
+  Widget _saleWeightCell(int index, InvoiceItem item, TextStyle? cellStyle) => _uiLockPriceEdits
                     ? Text(cu.formatGrams(item.weight), style: cellStyle)
                     : InlineNumberCell(
                         key: ObjectKey(item),
@@ -4121,10 +4153,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
                         allowZero: false,
                         label: 'الوزن',
                         onChanged: (v) => _updateItem(index, 'weight', v),
-                      ),
-              ),
-              DataCell(
-                (item.wageLocked || _uiLockPriceEdits)
+                      );
+
+  Widget _saleWageCell(int index, InvoiceItem item, TextStyle? cellStyle) => (item.wageLocked || _uiLockPriceEdits)
                     ? Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -4142,22 +4173,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
                         fractionDigits: 2,
                         label: 'المصنعية',
                         onChanged: (v) => _updateItem(index, 'wage', v),
-                      ),
-              ),
-              DataCell(
-                Text(
-                  cu.formatAmount(item.calculateSellingPricePerGram()),
-                  style: cellStyle,
-                ),
-              ),
-              if (_seesCost)
-                DataCell(Text(cu.formatAmount(item.cost), style: cellStyle)),
-              if (!_uiDisableVat) ...[
-                DataCell(Text(cu.formatAmount(item.net), style: cellStyle)),
-                DataCell(Text(cu.formatAmount(item.tax), style: cellStyle)),
-              ],
-              DataCell(
-                InkWell(
+                      );
+
+  Widget _saleTotalCell(int index, InvoiceItem item, TextStyle? cellStyle) => InkWell(
                   onTap: () =>
                       _showEditDialog(index, 'total', item.totalWithTax),
                   child: Container(
@@ -4177,10 +4195,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
                       style: cellStyle,
                     ),
                   ),
-                ),
-              ),
-              DataCell(
-                Row(
+                );
+
+  Widget _saleLineActions(int index, InvoiceItem item) => Row(
                   children: [
                     IconButton(
                       icon: Icon(
@@ -4203,11 +4220,56 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
                       tooltip: 'حذف',
                     ),
                   ],
-                ),
-              ),
-            ],
-          );
-        }).toList(),
+                );
+
+  /// A line on a phone: what the table's row says, every figure in sight --
+  /// the table scrolled the total and the actions off an iPhone (9 Nov 2026).
+  Widget _buildSaleLineCard(int index, InvoiceItem item, TextStyle? cellStyle) {
+    final theme = Theme.of(context);
+    Widget figure(String label, Widget cell) => Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+          cell,
+        ],
+      ),
+    );
+    return Card(
+      key: ValueKey('sale-line-card-$index'),
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsetsDirectional.fromSTEB(12, 8, 4, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: _saleNameCell(item, cellStyle)),
+                _saleKaratCell(index, item, cellStyle),
+                _saleLineActions(index, item),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                figure('الوزن (جم)', _saleWeightCell(index, item, cellStyle)),
+                figure('المصنعية', _saleWageCell(index, item, cellStyle)),
+                figure('الإجمالي', _saleTotalCell(index, item, cellStyle)),
+              ],
+            ),
+            Text(
+              [
+                'العدد ${item.count}',
+                'السعر/جم ${cu.formatAmount(item.calculateSellingPricePerGram())}',
+                if (_seesCost) 'التكلفة ${cu.formatAmount(item.cost)}',
+                if (!_uiDisableVat) 'الضريبة ${cu.formatAmount(item.tax)}',
+              ].join(' · '),
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
+        ),
       ),
     );
   }
