@@ -539,6 +539,22 @@ void main() {
       expect(api.added, isEmpty);
     });
 
+    testWidgets('left without saving, what was kept goes too -- and no «إكمال لاحقاً» in the bar', (
+      tester,
+    ) async {
+      // Kept as it is written (9 Nov 2026); the leave question offers «إكمال لاحقاً».
+      await open(tester, api: FakeSalesApi(), saved: draft());
+      expect(find.byTooltip('إكمال لاحقاً'), findsNothing);
+      await tester.pump(const Duration(seconds: 4));
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString(draftKey), isNotNull);
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('خروج دون حفظ'));
+      await tester.pumpAndSettle();
+      expect(prefs.getString(draftKey), isNull);
+    });
+
     testWidgets('leaving an empty invoice does not ask', (tester) async {
       await open(tester, api: FakeSalesApi());
 

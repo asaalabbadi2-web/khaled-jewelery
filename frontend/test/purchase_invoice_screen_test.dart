@@ -500,6 +500,66 @@ void main() {
       }
     });
 
+    // What is written is kept as it is written (9 Nov 2026): an iPhone or an
+    // iPad closes a page in the background without asking.
+    testWidgets('what is written is kept on the device as it is written', (tester) async {
+      final api = FakePurchaseApi();
+      await open(tester, api: api);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString(draftKey), isNull, reason: 'nothing written, nothing kept');
+
+      await chooseCategory(tester, 'سلسال 21');
+      await typeWeight(tester, '7.25');
+      await tester.pump(const Duration(seconds: 4));
+      final kept = prefs.getString(draftKey);
+      expect(kept, isNotNull, reason: 'kept without «إكمال لاحقاً»');
+      expect(kept, contains('7.25'));
+
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('خروج دون حفظ'));
+      await tester.pumpAndSettle();
+      expect(prefs.getString(draftKey), isNull, reason: 'left without saving: what was kept goes too');
+    });
+
+    testWidgets('the bar has no «إكمال لاحقاً»: leaving offers it', (tester) async {
+      await open(tester, api: FakePurchaseApi(), saved: draft());
+      expect(find.byTooltip('إكمال لاحقاً'), findsNothing);
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+      expect(find.text('إكمال لاحقاً'), findsOneWidget);
+    });
+
+    testWidgets('the supplier list is the server\'s each time it is opened', (tester) async {
+      final api = _CountingSuppliers();
+      await open(tester, api: api, saved: draft());
+      expect(find.text('تحديث قائمة الموردين'), findsNothing, reason: 'no button: the list is fresh');
+      final before = api.calls;
+      await tester.tap(find.text('مصنع الريّان للذهب').first);
+      await tester.pumpAndSettle();
+      expect(api.calls, before + 1);
+    });
+
+    testWidgets('a category is found by typing part of its name, as the sale\'s', (tester) async {
+      // The owner, 9 Nov 2026: «فاتورة شراء لا تدعم البحث في قائمة التصنيفات مثل فاتورة البيع».
+      final api = FakePurchaseApi()
+        ..categories = [
+          {'id': 40, 'name': 'سلسال 21', 'karat': '21', 'is_active': true},
+          {'id': 44, 'name': 'بنجرة ذهب 21', 'karat': '21', 'is_active': true},
+          {'id': 45, 'name': 'خاتم رجالي 21', 'karat': '21', 'is_active': true},
+        ];
+      await open(tester, api: api, saved: draft(withItem: false));
+      await tester.enterText(find.byKey(const Key('purchase-entry-category')), 'بنج');
+      await tester.pumpAndSettle();
+      expect(find.text('بنجرة ذهب 21'), findsOneWidget, reason: 'the match');
+      expect(find.text('خاتم رجالي 21'), findsNothing, reason: 'the rest narrowed away');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+      await typeWeight(tester, '9.5');
+      final items = (await save(tester, api))['items'] as List;
+      expect((items.single as Map)['category_id'], 44, reason: 'Enter took the match');
+    });
+
     testWidgets('the categories are the karat\'s, active, not scrap', (
       tester,
     ) async {
@@ -1171,4 +1231,14 @@ void main() {
     expect(inSummary(find.textContaining('غير مسدَّدة')), findsOneWidget);
     expect(inSummary(find.textContaining('متبقي 300.00')), findsOneWidget);
   });
+}
+
+class _CountingSuppliers extends FakePurchaseApi {
+  int calls = 0;
+
+  @override
+  Future<List<dynamic>> getSuppliers() {
+    calls++;
+    return super.getSuppliers();
+  }
 }

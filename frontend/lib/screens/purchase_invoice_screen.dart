@@ -10,7 +10,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../api_service.dart';
 import '../models/category_model.dart';
 import '../models/gold_prices.dart';
+import '../utils/invoice_draft_autosave.dart';
 import '../utils/live_gold_prices.dart';
+import '../widgets/type_to_pick_field.dart';
 import '../widgets/invoice_bar_actions.dart';
 import '../widgets/invoice_price_strip.dart';
 import '../models/safe_box_model.dart';
@@ -135,7 +137,7 @@ class PurchaseInvoiceScreen extends StatefulWidget {
 }
 
 class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
-    with LiveGoldPrices<PurchaseInvoiceScreen> {
+    with LiveGoldPrices<PurchaseInvoiceScreen>, InvoiceDraftAutosave<PurchaseInvoiceScreen> {
   // ADR-049: colors from the theme, so the screen reads in both modes.
   ColorScheme get _cs => Theme.of(context).colorScheme;
   AppSemanticColors get _tone => AppSemanticColors.of(context);
@@ -1043,10 +1045,18 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
     }
   }
 
-  Future<void> _clearLocalDraft() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_localDraftKey());
-  }
+  Future<void> _clearLocalDraft() => forgetDraft();
+
+  // Kept as it is written (lib/utils/invoice_draft_autosave.dart, 9 Nov 2026).
+  @override
+  String get draftKey => _localDraftKey();
+
+  @override
+  bool get draftKeepable => !_isSupplierReturnMode && !_isEditMode && !_isCompletion && _checkedLocalDraft &&
+      !_isSavingInvoice && !_saveFlowOpen && _hasUnsavedWork;
+
+  @override
+  Map<String, dynamic> buildDraft() => _buildLocalDraftPayload();
 
   Future<void> _maybePromptRestoreLocalDraft() async {
     if (!mounted || _checkedLocalDraft) return;
@@ -1475,6 +1485,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
       if (!_isSupplierReturnMode && !_isEditMode) {
         _maybePromptRestoreLocalDraft();
       }
+      if (!_isSupplierReturnMode && !_isEditMode && !_isCompletion) startDraftAutosave();
 
       final originalId = widget.originalInvoiceId;
       if (_isSupplierReturnMode && originalId != null) {
@@ -1666,6 +1677,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
 
   @override
   void dispose() {
+    stopDraftAutosave();
     stopLiveGoldPrices();
     _previewTimer?.cancel();
     _cashPaidController.dispose();
@@ -2105,7 +2117,10 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
 
   Future<void> _pickSupplier() async {
     if (_isLoadingSuppliers) return;
-    if (_suppliers.isEmpty) return;
+    // The list as the server has it now: a supplier added on another
+    // device is there, with no «تحديث قائمة الموردين» (9 Nov 2026).
+    await _loadSuppliers();
+    if (!mounted || _suppliers.isEmpty) return;
 
     final selected = await showDialog<Map<String, dynamic>>(
       context: context,
@@ -3151,14 +3166,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
               ),
             ),
           ),
-          keep: [
-          if (!_isSupplierReturnMode)
-            IconButton(
-              tooltip: 'إكمال لاحقاً',
-              icon: const Icon(Icons.schedule),
-              onPressed: _completeLater,
-            ),
-          ],
           fold: [
           IconButton(
             tooltip: 'تحديث سعر الذهب',
@@ -3368,18 +3375,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
               ),
             ],
             const SizedBox(height: 16),
-            if (!lockedByReturn)
-              OutlinedButton.icon(
-                onPressed: _loadSuppliers,
-                icon: const Icon(Icons.refresh),
-                label: const Text('تحديث قائمة الموردين'),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                ),
-              ),
           ],
         ),
       ),
@@ -4315,6 +4310,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
     if (choice == 'later') {
       await _completeLater();
     } else if (choice == 'discard') {
+      stopDraftAutosave();           // no tick writes it back before the screen goes
+      await _clearLocalDraft();      // what was kept as it was written goes too
+      if (!mounted) return;
       Navigator.of(context).pop();
     }
   }
@@ -4558,16 +4556,35 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
     return items;
   }
 
-  InputDecoration _categoryDropdownDecoration({
-    String labelText = 'التصنيف (اختياري)',
+  /// A line's category, found by typing (the owner, 9 Nov 2026: «فاتورة شراء
+  /// لا تدعم البحث في قائمة التصنيفات مثل فاتورة البيع») -- the dialogs' list
+  /// as it was (_buildCategoryDropdownItems: the karat's, active, not scrap),
+  /// «بدون تصنيف» first when the category may be left out.
+  Widget _categoryPicker({
+    required double? karat,
+    required String? selectedName,
+    required bool required,
+    required ValueChanged<String?> onChanged,
   }) {
-    return InputDecoration(
-      labelText: labelText,
-      border: const OutlineInputBorder(),
-      prefixIcon: const Icon(Icons.category_outlined),
-      helperText:
-          _categoriesError ??
+    final names = [
+      for (final item in _buildCategoryDropdownItems(karat: karat))
+        if (item.value != null) item.value!,
+    ];
+    final index = selectedName == null ? -1 : names.indexOf(selectedName);
+    return TypeToPickField(
+      items: [
+        if (!required) {'id': -1, 'name': 'بدون تصنيف'},
+        for (var i = 0; i < names.length; i++) {'id': i, 'name': names[i]},
+      ],
+      selectedId: index >= 0 ? index : (required ? null : -1),
+      labelOf: (c) => '${c['name'] ?? ''}',
+      labelText: required ? 'التصنيف (مطلوب)' : 'التصنيف (اختياري)',
+      hintText: 'اكتب للبحث أو اختر',
+      helperText: _categoriesError ??
           (_categories.isEmpty ? 'لا توجد تصنيفات متاحة حالياً.' : null),
+      prefixIcon: Icons.category_outlined,
+      enabled: !_isLoadingCategories,
+      onSelected: (c) => onChanged(c['id'] == -1 ? null : '${c['name']}'),
     );
   }
 
@@ -5254,20 +5271,13 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
                                       ),
                                       const SizedBox(height: 12),
                                     ],
-                                    DropdownButtonFormField<String?>(
-                                      initialValue: dropdownCategoryValue,
-                                      items: categoryItems,
-                                      isExpanded: true,
-                                      onChanged: _isLoadingCategories
-                                          ? null
-                                          : (value) => setDialogState(() {
-                                              selectedCategoryName = value;
-                                            }),
-                                      decoration: _categoryDropdownDecoration(
-                                        labelText: isCategoryOnly
-                                            ? 'التصنيف (مطلوب)'
-                                            : 'التصنيف (اختياري)',
-                                      ),
+                                    _categoryPicker(
+                                      karat: karat,
+                                      selectedName: dropdownCategoryValue,
+                                      required: isCategoryOnly,
+                                      onChanged: (value) => setDialogState(() {
+                                        selectedCategoryName = value;
+                                      }),
                                     ),
                                     const SizedBox(height: 12),
                                     if (!isCategoryOnly)
@@ -5722,20 +5732,13 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
                                       },
                                     ),
                                     const SizedBox(height: 12),
-                                    DropdownButtonFormField<String?>(
-                                      initialValue: dropdownCategoryValue,
-                                      items: categoryItems,
-                                      isExpanded: true,
-                                      onChanged: _isLoadingCategories
-                                          ? null
-                                          : (value) => setDialogState(() {
-                                              selectedCategoryName = value;
-                                            }),
-                                      decoration: _categoryDropdownDecoration(
-                                        labelText: isCategoryOnly
-                                            ? 'التصنيف (مطلوب)'
-                                            : 'التصنيف (اختياري)',
-                                      ),
+                                    _categoryPicker(
+                                      karat: karat,
+                                      selectedName: dropdownCategoryValue,
+                                      required: isCategoryOnly,
+                                      onChanged: (value) => setDialogState(() {
+                                        selectedCategoryName = value;
+                                      }),
                                     ),
                                     const SizedBox(height: 12),
                                     ToggleButtons(

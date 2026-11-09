@@ -25,6 +25,7 @@ import '../widgets/party_picker_dialog.dart';
 import '../widgets/searchable_picker_field.dart';
 import 'settings_screen_enhanced.dart';
 import '../utils.dart';
+import '../utils/invoice_draft_autosave.dart';
 import '../utils/arabic_number_formatter.dart';
 import '../utils/invoice_direct_print.dart';
 import '../utils/currency_utils.dart' as cu;
@@ -75,7 +76,7 @@ class SalesInvoiceScreenV2 extends StatefulWidget {
 }
 
 class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
-    with LiveGoldPrices<SalesInvoiceScreenV2> {
+    with LiveGoldPrices<SalesInvoiceScreenV2>, InvoiceDraftAutosave<SalesInvoiceScreenV2> {
   // ADR-049: colors from the theme, so the screen reads in both modes.
   ColorScheme get _cs => Theme.of(context).colorScheme;
   AppSemanticColors get _tone => AppSemanticColors.of(context);
@@ -302,10 +303,17 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
     }
   }
 
-  Future<void> _clearLocalDraft() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_localDraftKey());
-  }
+  Future<void> _clearLocalDraft() => forgetDraft();
+
+  // Kept as it is written (lib/utils/invoice_draft_autosave.dart, 9 Nov 2026).
+  @override
+  String get draftKey => _localDraftKey();
+
+  @override
+  bool get draftKeepable => !_isEditMode && _checkedLocalDraft && !_saving && _hasUnsavedWork;
+
+  @override
+  Map<String, dynamic> buildDraft() => _buildLocalDraftPayload();
 
   Future<void> _maybePromptRestoreLocalDraft() async {
     if (!mounted || _checkedLocalDraft) return;
@@ -572,6 +580,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _maybePromptRestoreLocalDraft();
       });
+      startDraftAutosave();
     }
   }
 
@@ -699,6 +708,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
 
   @override
   void dispose() {
+    stopDraftAutosave();
     stopLiveGoldPrices();
     _smartInputController.dispose();
     _smartInputFocus.dispose();
@@ -3215,13 +3225,6 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
                   ),
                 ),
               ),
-              keep: [
-              IconButton(
-                tooltip: 'إكمال لاحقاً',
-                onPressed: _completeLater,
-                icon: const Icon(Icons.schedule),
-              ),
-              ],
               fold: [
               IconButton(
                 tooltip: 'تحديث سعر الذهب',
@@ -3394,6 +3397,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
     if (choice == 'later') {
       await _completeLater();
     } else if (choice == 'discard') {
+      stopDraftAutosave();           // no tick writes it back before the screen goes
+      await _clearLocalDraft();      // what was kept as it was written goes too
+      if (!mounted) return;
       Navigator.of(context).pop();
     }
   }

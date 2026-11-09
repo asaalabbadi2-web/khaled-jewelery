@@ -12,6 +12,7 @@ import '../widgets/app_state_views.dart';
 import '../widgets/confirm_financial_action.dart';
 import '../widgets/inline_number_cell.dart';
 import '../widgets/party_picker_dialog.dart';
+import '../widgets/type_to_pick_field.dart';
 import '../widgets/searchable_picker_field.dart';
 
 /// Receiving a supplier's gold before his invoice (ADR-087 R2).
@@ -337,25 +338,22 @@ class _ReceivingScreenState extends State<ReceivingScreen> {
             ),
             SizedBox(
               width: 220,
-              child: DropdownButtonFormField<int>(
-                key: const Key('receiving-category'),
-                initialValue: ofKarat.any((c) => c.id == _categoryId)
+              // Found by typing, as the sale's and the purchase's (9 Nov 2026).
+              child: TypeToPickField(
+                fieldKey: const Key('receiving-category'),
+                items: [
+                  for (final c in ofKarat) {'id': c.id, 'name': c.name},
+                ],
+                selectedId: ofKarat.any((c) => c.id == _categoryId)
                     ? _categoryId
                     : null,
-                isExpanded: true,
-                decoration: const InputDecoration(
-                  labelText: 'التصنيف',
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                ),
-                hint: Text(
-                  ofKarat.isEmpty ? 'لا تصنيف لعيار $_karat' : 'اختر التصنيف',
-                ),
-                items: [
-                  for (final c in ofKarat)
-                    DropdownMenuItem(value: c.id, child: Text(c.name)),
-                ],
-                onChanged: (v) => setState(() => _categoryId = v),
+                labelOf: (c) => '${c['name'] ?? ''}',
+                labelText: 'التصنيف',
+                hintText: ofKarat.isEmpty
+                    ? 'لا تصنيف لعيار $_karat'
+                    : 'اكتب للبحث أو اختر',
+                enabled: ofKarat.isNotEmpty,
+                onSelected: (c) => setState(() => _categoryId = c['id'] as int?),
               ),
             ),
             SizedBox(

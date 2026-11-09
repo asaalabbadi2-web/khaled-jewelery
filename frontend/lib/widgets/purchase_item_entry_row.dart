@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../models/category_model.dart';
 import 'inline_number_cell.dart';
+import 'type_to_pick_field.dart';
 
 /// One weight of one category, as the entry row hands it back.
 class PurchaseItemEntry {
@@ -137,22 +138,24 @@ class _PurchaseItemEntryRowState extends State<PurchaseItemEntryRow> {
         LayoutBuilder(
           builder: (context, box) {
             final ofKarat = _ofKarat;
-            final category = DropdownButtonFormField<int>(
-              key: const Key('purchase-entry-category'),
-              initialValue: ofKarat.any((c) => c.id == _categoryId)
+            // Found by typing, as the sale's (the owner, 9 Nov 2026: «فاتورة
+            // شراء لا تدعم البحث في قائمة التصنيفات مثل فاتورة البيع»).
+            final category = TypeToPickField(
+              fieldKey: const Key('purchase-entry-category'),
+              items: [
+                for (final c in ofKarat) {'id': c.id, 'name': c.name},
+              ],
+              selectedId: ofKarat.any((c) => c.id == _categoryId)
                   ? _categoryId
                   : null,
-              isExpanded: true,
-              decoration: _decoration('التصنيف'),
-              hint: Text(
-                ofKarat.isEmpty ? 'لا تصنيف لعيار $_karat' : 'اختر التصنيف',
-              ),
-              items: [
-                for (final c in ofKarat)
-                  DropdownMenuItem(value: c.id, child: Text(c.name)),
-              ],
-              onChanged: (v) => setState(() {
-                _categoryId = v;
+              labelOf: (c) => '${c['name'] ?? ''}',
+              labelText: 'التصنيف',
+              hintText: ofKarat.isEmpty
+                  ? 'لا تصنيف لعيار $_karat'
+                  : 'اكتب للبحث أو اختر',
+              enabled: ofKarat.isNotEmpty,
+              onSelected: (c) => setState(() {
+                _categoryId = c['id'] as int?;
                 _error = null;
               }),
             );
