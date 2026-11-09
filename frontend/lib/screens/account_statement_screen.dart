@@ -1366,6 +1366,25 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
       ),
     ];
 
+    // The gold the office holds for us, its deposit (ADR-052).
+    final custody = statement.custody;
+    if (custody != null && showGold) {
+      final byKarat = custody.closingByKarat.entries
+          .where((e) => e.value.abs() >= 0.0005)
+          .map((e) => '${e.key.replaceAll('k', '')}: ${ltrIsolate(_goldFmt.format(e.value))}')
+          .join('  ·  ');
+      tiles.add(_summaryTile(
+        key: const Key('summary-custody'),
+        title: 'ذهبنا عنده (العهدة)',
+        lines: [
+          _summaryLine('ذهب ع${statement.mainKarat ?? context.read<SettingsProvider>().mainKarat}',
+              '${ltrIsolate(_goldFmt.format(ranged ? _custodyBoundary(opening: false) : custody.closingMain))} جم',
+              tones.gold.fg),
+        ],
+        footnote: [custody.name, if (!ranged && byKarat.isNotEmpty) 'بالعيار: $byKarat'].join(' — '),
+      ));
+    }
+
     final price = statement.goldPricePerGramMainKarat ?? 0;
     final value = statement.valuationTotalValueEstimate;
     if (price > 0 || (value ?? 0) != 0) {
@@ -1646,6 +1665,25 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
 
   /// The table in the room it is given (the card's 4-point margin aside) --
   /// not the screen's width less a guess (ADR-049).
+  /// An office's statement, in a view that shows gold: the custody columns
+  /// (ADR-052; the owner, 9 Nov 2026).
+  bool get _showsCustody => _statement?.custody != null && _viewMode != 2;
+
+  /// The custody at the period's start or end, from the rows in date order --
+  /// the server's running balance, never recomputed.
+  double _custodyBoundary({required bool opening}) {
+    final custody = _statement?.custody;
+    final rows = [..._filteredLines]..sort((a, b) => a.date.compareTo(b.date));
+    if (rows.isEmpty) {
+      return (opening ? custody?.openingMain : custody?.closingMain) ?? 0.0;
+    }
+    if (opening) {
+      final first = rows.first;
+      return (first.runningCustodyMain ?? 0) - (first.custodyMain ?? 0);
+    }
+    return rows.last.runningCustodyMain ?? custody?.closingMain ?? 0.0;
+  }
+
   Widget _buildStatementTable() => LayoutBuilder(
     builder: (context, constraints) =>
         _buildStatementTableIn(constraints.maxWidth - 8),
@@ -1661,6 +1699,8 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
       if (_viewMode != 2) 'gold_debit': const AppTableColumn(115),
       if (_viewMode != 2) 'gold_credit': const AppTableColumn(115),
       if (_viewMode != 2) 'gold_balance': const AppTableColumn(160),
+      if (_showsCustody) 'custody': const AppTableColumn(125),
+      if (_showsCustody) 'custody_balance': const AppTableColumn(150),
       if (_viewMode != 1) 'cash_debit': const AppTableColumn(125),
       if (_viewMode != 1) 'cash_credit': const AppTableColumn(125),
       if (_viewMode != 1) 'cash_balance': const AppTableColumn(170),
@@ -1748,6 +1788,8 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
       required double cashDebit,
       required double cashCredit,
       required double? cashBalance,
+      double? custody,
+      double? custodyBalance,
       bool bold = false,
     }) {
       return [
@@ -1758,6 +1800,22 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
               child: _numCell(goldCredit, color: theme.colorScheme.onSurface, fractionDigits: 3)),
           bodyCell(width: widths['gold_balance']!, alignment: AlignmentDirectional.centerEnd,
               child: _balanceCell(goldBalance, fractionDigits: 3, bold: bold)),
+        ],
+        // The gold the office holds for us (ADR-052): its movement, signed,
+        // and the custody after it.
+        if (_showsCustody) ...[
+          bodyCell(width: widths['custody']!, alignment: AlignmentDirectional.centerEnd,
+              child: (custody ?? 0).abs() < 0.0005
+                  ? const SizedBox.shrink()
+                  : Text(ltrIsolate('${custody! > 0 ? '+' : '−'}${_goldFmt.format(custody.abs())}'),
+                      style: theme.textTheme.bodyMedium?.copyWith(fontFeatures: const [FontFeature.tabularFigures()]))),
+          bodyCell(width: widths['custody_balance']!, alignment: AlignmentDirectional.centerEnd,
+              child: custodyBalance == null
+                  ? const SizedBox.shrink()
+                  : Text(ltrIsolate(_goldFmt.format(custodyBalance)),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: bold ? FontWeight.w800 : FontWeight.w600,
+                          fontFeatures: const [FontFeature.tabularFigures()]))),
         ],
         if (_viewMode != 1) ...[
           bodyCell(width: widths['cash_debit']!, alignment: AlignmentDirectional.centerEnd,
@@ -1798,6 +1856,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
               goldBalance: opening ? period.openingGold : period.closingGold,
               cashDebit: 0, cashCredit: 0,
               cashBalance: opening ? period.openingCash : period.closingCash,
+              custodyBalance: _showsCustody ? _custodyBoundary(opening: opening) : null,
               bold: true,
             ),
             if (_includeBreakdown && _viewMode != 2)
@@ -1871,6 +1930,18 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                                 width: widths['gold_balance']!,
                                 alignment: AlignmentDirectional.centerEnd,
                                 sortColumn: _StatementSortColumn.goldBalance,
+                              ),
+                            if (_showsCustody)
+                              headerCell(
+                                label: 'ذهبنا عنده',
+                                width: widths['custody']!,
+                                alignment: AlignmentDirectional.centerEnd,
+                              ),
+                            if (_showsCustody)
+                              headerCell(
+                                label: 'رصيد العهدة',
+                                width: widths['custody_balance']!,
+                                alignment: AlignmentDirectional.centerEnd,
                               ),
                             if (_viewMode != 1)
                               headerCell(
@@ -1964,6 +2035,8 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                                           cashDebit: line.cashDebit,
                                           cashCredit: line.cashCredit,
                                           cashBalance: line.runningCashBalance,
+                                          custody: line.custodyMain,
+                                          custodyBalance: line.runningCustodyMain,
                                         ),
                                         if (_includeBreakdown && _viewMode != 2)
                                           bodyCell(
@@ -2203,6 +2276,16 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                       color: _tone.gold.fg,
                       icon: Icons.auto_awesome_outlined,
                     ),
+                  if (_showsCustody) ...[
+                    const SizedBox(width: 8),
+                    metricTile(
+                      label: 'ذهبنا عنده',
+                      movement: cu.formatGrams(line.custodyMain ?? 0),
+                      balance: cu.formatGrams(line.runningCustodyMain ?? 0),
+                      color: _tone.gold.fg,
+                      icon: Icons.account_balance_outlined,
+                    ),
+                  ],
                   if (_viewMode != 2 && _viewMode != 1)
                     const SizedBox(width: 8),
                   if (_viewMode != 1)

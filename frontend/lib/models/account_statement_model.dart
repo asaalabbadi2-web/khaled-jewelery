@@ -7,6 +7,7 @@ class AccountStatement {
   final double closingBalanceGoldNormalized;
   final double closingBalanceCash;
   final Map<String, double> closingBalanceGoldDetails;
+
   /// The statement's main karat as the server sent it; the screen reads the
   /// settings' when it did not -- never a fixed one.
   final int? mainKarat;
@@ -47,6 +48,10 @@ class AccountStatement {
   /// wrong method's statement (the owner, 9 Oct 2026).
   final int correctionCount;
 
+  /// An office's statement: the gold it holds for us, its deposit (ADR-052;
+  /// the owner, 9 Nov 2026) -- null for any other party.
+  final StatementCustody? custody;
+
   AccountStatement({
     required this.openingBalanceGold,
     required this.openingBalanceCash,
@@ -55,6 +60,7 @@ class AccountStatement {
     required this.closingBalanceCash,
     required this.closingBalanceGoldDetails,
     this.mainKarat,
+    this.custody,
     required this.totalDebitGold,
     required this.totalCreditGold,
     required this.totalDebitCash,
@@ -83,7 +89,6 @@ class AccountStatement {
     List<StatementLine> statementLines = linesFromJson
         .map((i) => StatementLine.fromJson(i))
         .toList();
-
 
     final priceSnapshot = json['gold_price_snapshot'] as Map<String, dynamic>?;
     final valuation = json['valuation'] as Map<String, dynamic>?;
@@ -158,6 +163,9 @@ class AccountStatement {
           ) ??
           {},
       mainKarat: json['main_karat'] as int?,
+      custody: json['custody'] is Map<String, dynamic>
+          ? StatementCustody.fromJson(json['custody'] as Map<String, dynamic>)
+          : null,
       totalDebitGold:
           json['totals']?['gold_debit_normalized']?.toDouble() ?? 0.0,
       totalCreditGold:
@@ -167,7 +175,8 @@ class AccountStatement {
       lines: statementLines,
 
       isMerged: (json['is_merged'] == true) || (json['is_merged'] == 1),
-      memoAccountName: (json['memo_account_name'] ?? '').toString().trim().isEmpty
+      memoAccountName:
+          (json['memo_account_name'] ?? '').toString().trim().isEmpty
           ? null
           : (json['memo_account_name'] ?? '').toString().trim(),
 
@@ -188,6 +197,37 @@ class AccountStatement {
   }
 }
 
+/// The gold an office holds for us: its deposit's closing, as the server read
+/// it (services/office_custody.py).
+@immutable
+class StatementCustody {
+  final int safeBoxId;
+  final String name;
+  final double openingMain;
+  final double closingMain;
+  final Map<String, double> closingByKarat;
+
+  const StatementCustody({
+    required this.safeBoxId,
+    required this.name,
+    required this.openingMain,
+    required this.closingMain,
+    required this.closingByKarat,
+  });
+
+  factory StatementCustody.fromJson(Map<String, dynamic> json) =>
+      StatementCustody(
+        safeBoxId: (json['safe_box_id'] as num).toInt(),
+        name: (json['name'] ?? '').toString(),
+        openingMain: (json['opening_main'] as num?)?.toDouble() ?? 0.0,
+        closingMain: (json['closing_main'] as num?)?.toDouble() ?? 0.0,
+        closingByKarat:
+            (json['closing_by_karat'] as Map<String, dynamic>? ?? const {}).map(
+              (k, v) => MapEntry(k, (v as num?)?.toDouble() ?? 0.0),
+            ),
+      );
+}
+
 @immutable
 class StatementLine {
   final int id;
@@ -197,11 +237,19 @@ class StatementLine {
   final double goldCredit;
   final double cashDebit;
   final double cashCredit;
+
   /// The balance after this line, as the server computes the closing: the
   /// screen shows it, and a filter hides lines without ever recomputing it
   /// (10 Oct 2026 -- it used to restart from the filtered lines).
   final double? runningGoldBalance;
   final double? runningCashBalance;
+
+  /// An office's statement: the gold this row moved into (+) or out of (−)
+  /// its deposit, and the custody after it, in the main karat. A row the
+  /// trade did not move is the deposit's alone ([custodyOnly]).
+  final double? custodyMain;
+  final double? runningCustodyMain;
+  final bool custodyOnly;
 
   // Optional reference metadata (may be omitted by some endpoints/versions).
   final int? journalEntryId;
@@ -229,6 +277,9 @@ class StatementLine {
     required this.cashCredit,
     this.runningGoldBalance,
     this.runningCashBalance,
+    this.custodyMain,
+    this.runningCustodyMain,
+    this.custodyOnly = false,
     this.journalEntryId,
     this.entryNumber,
     this.referenceType,
@@ -266,6 +317,9 @@ class StatementLine {
       cashCredit: json['cash_credit']?.toDouble() ?? 0.0,
       runningGoldBalance: (json['running_gold_balance'] as num?)?.toDouble(),
       runningCashBalance: (json['running_cash_balance'] as num?)?.toDouble(),
+      custodyMain: (json['custody_main'] as num?)?.toDouble(),
+      runningCustodyMain: (json['running_custody_main'] as num?)?.toDouble(),
+      custodyOnly: json['custody_only'] == true,
       debit18k: json['debit_18k']?.toDouble() ?? 0.0,
       credit18k: json['credit_18k']?.toDouble() ?? 0.0,
       debit21k: json['debit_21k']?.toDouble() ?? 0.0,

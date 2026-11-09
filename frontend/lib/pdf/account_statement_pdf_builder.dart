@@ -344,6 +344,11 @@ class AccountStatementPdfBuilder {
     const cashDebitKey = 'cash_debit';
     const cashCreditKey = 'cash_credit';
     const cashBalKey = 'cash_balance';
+    const custodyKey = 'custody';
+    const custodyBalKey = 'custody_balance';
+    // An office's statement says the gold it holds for us (ADR-052; the
+    // owner, 9 Nov 2026) -- printed too, for the office to match its books.
+    final showsCustody = statement.custody != null && viewMode != 2;
 
     final valueColumns = <({String key, String header})>[];
     if (viewMode != 2) {
@@ -351,6 +356,12 @@ class AccountStatementPdfBuilder {
         (key: goldDebitKey, header: 'ذهب مدين\n(${mainKarat}k)'),
         (key: goldCreditKey, header: 'ذهب دائن\n(${mainKarat}k)'),
         (key: goldBalKey, header: 'رصيد الذهب\n(${mainKarat}k)'),
+      ]);
+    }
+    if (showsCustody) {
+      valueColumns.addAll([
+        (key: custodyKey, header: 'ذهبنا عنده\n(${mainKarat}k)'),
+        (key: custodyBalKey, header: 'رصيد العهدة\n(${mainKarat}k)'),
       ]);
     }
     if (viewMode != 1) {
@@ -388,7 +399,7 @@ class AccountStatementPdfBuilder {
                     // description keeps more than it had (the owner, 29 Oct).
                     : columns[i].key == cashBalKey
                         ? const pw.FixedColumnWidth(66)
-                        : columns[i].key == goldBalKey
+                        : columns[i].key == goldBalKey || columns[i].key == custodyBalKey
                             ? const pw.FixedColumnWidth(60)
                             : cashCols.contains(columns[i].key)
                                 ? const pw.FixedColumnWidth(54)
@@ -691,7 +702,19 @@ class AccountStatementPdfBuilder {
       from: dateRange?.start,
       to: dateRange?.end,
     );
-    Map<String, String> balanceRowValues(StatementBalanceRow row) => <String, String>{
+    // The custody at the period's ends: the server's running balance, the
+    // rows in date order -- never recomputed.
+    final byDate = [...resolvedTableLines]..sort((a, b) => a.date.compareTo(b.date));
+    final custodyOpening = byDate.isEmpty
+        ? (statement.custody?.openingMain ?? 0.0)
+        : (byDate.first.runningCustodyMain ?? 0) - (byDate.first.custodyMain ?? 0);
+    final custodyClosing = byDate.isEmpty
+        ? (statement.custody?.closingMain ?? 0.0)
+        : (byDate.last.runningCustodyMain ?? 0);
+    String signed(double? v) =>
+        (v ?? 0).abs() < 0.0005 ? '' : '${v! > 0 ? '+' : '-'}${v.abs().toStringAsFixed(3)}';
+
+    Map<String, String> balanceRowValues(StatementBalanceRow row, {required bool opening}) => <String, String>{
       dateKey: row.date == null ? '—' : DateFormat('yyyy-MM-dd').format(row.date!),
       refKey: '—',
       descKey: row.label,
@@ -701,8 +724,10 @@ class AccountStatementPdfBuilder {
       cashDebitKey: '—',
       cashCreditKey: '—',
       cashBalKey: statementBalance(row.cash, decimals: 2),
+      custodyKey: '—',
+      custodyBalKey: (opening ? custodyOpening : custodyClosing).toStringAsFixed(3),
     };
-    final openingValues = balanceRowValues(edges.first);
+    final openingValues = balanceRowValues(edges.first, opening: !newestFirst);
 
     final allRows = <List<pw.Widget>>[
       buildRowCells(openingValues, isOpening: true),
@@ -738,11 +763,13 @@ class AccountStatementPdfBuilder {
             cashDebitKey: commaFmt.format(line.cashDebit),
             cashCreditKey: commaFmt.format(line.cashCredit),
             cashBalKey: statementBalance(line.runningCashBalance ?? 0, decimals: 2),
+            custodyKey: signed(line.custodyMain),
+            custodyBalKey: (line.runningCustodyMain ?? 0).toStringAsFixed(3),
           },
           isAlt: idx.isOdd,
         );
       }),
-      buildRowCells(balanceRowValues(edges.last), isOpening: true),
+      buildRowCells(balanceRowValues(edges.last, opening: newestFirst), isOpening: true),
     ];
 
     // ── valuation card ────────────────────────────────────────────
@@ -773,6 +800,9 @@ class AccountStatementPdfBuilder {
             pw.SizedBox(height: 8),
             _valRow('رصيد الذهب',
                 '${periodClosingGold.toStringAsFixed(3)} جم', baseFont, boldFont),
+            if (showsCustody)
+              _valRow('ذهبنا عنده (العهدة)',
+                  '${custodyClosing.toStringAsFixed(3)} جم', baseFont, boldFont),
             pw.Padding(
               padding: const pw.EdgeInsets.only(bottom: 5),
               child: pw.Row(

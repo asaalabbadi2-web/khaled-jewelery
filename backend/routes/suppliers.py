@@ -990,6 +990,8 @@ def get_supplier_weight_statement(supplier_id):
             'credit_22k': line.credit_22k or 0.0,
             'debit_24k': line.debit_24k or 0.0,
             'credit_24k': line.credit_24k or 0.0,
+            '_k': (_effective_entry_dt(getattr(line, 'journal_entry', None)), int(line.journal_entry_id or 0),
+                   int(line.id or 0)),
         })
 
         total_cash_debit += float(line.cash_debit or 0.0)
@@ -1003,6 +1005,18 @@ def get_supplier_weight_statement(supplier_id):
         convert_to_main_karat(running_balances_gold['22k'], 22) +
         convert_to_main_karat(running_balances_gold['24k'], 24)
     )
+
+    # An office's statement says the gold it holds for us: its deposit's
+    # movements, beside the trade (ADR-052; the owner, 9 Nov 2026).
+    from services.office_custody import add_custody
+    custody = add_custody(
+        statement_lines, supplier,
+        order_key=lambda je, line_id: (_effective_entry_dt(je), int(je.id), int(line_id)),
+        iso=_iso_or_none, opening_cash=opening_balance_cash,
+        opening_gold=round(by_karat_in_main_karat(opening_balances_gold), 3),
+        include_cancelled=include_cancelled_requested(request.args))
+    for _row in statement_lines:
+        _row.pop('_k', None)
 
     price_snapshot = get_current_gold_price()
     price_main = float(price_snapshot.get('price_per_gram_main_karat', 0.0) or 0.0)
@@ -1065,6 +1079,7 @@ def get_supplier_weight_statement(supplier_id):
         'closing_balance_cash': running_balance_cash,
         'closing_balance_gold_normalized': closing_balance_gold_normalized,
         'closing_balance_gold_details': running_balances_gold,
+        'custody': custody,
     })
 
 @suppliers_bp.route('/suppliers/<int:supplier_id>/weight-summary', methods=['GET'])
