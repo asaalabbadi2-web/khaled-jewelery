@@ -1424,6 +1424,7 @@ def _reverse_voucher_journal_entry(voucher, cancelled_by='system', reason=None):
     db.session.add(reversal_entry)
     db.session.flush()
 
+    pairs = []
     for line in lines_to_reverse:
         line_description = line.description or reversal_description
         reversal_line = JournalEntryLine(
@@ -1447,6 +1448,12 @@ def _reverse_voucher_journal_entry(voucher, cancelled_by='system', reason=None):
             description=f"عكس: {line_description}",
         )
         db.session.add(reversal_line)
+        pairs.append((line, reversal_line))
+
+    # The categories go back with the lines (the owner, 10 Nov 2026).
+    db.session.flush()
+    from services.stock_ledger import mirror_allocations
+    mirror_allocations(pairs, now=datetime.now(), by=cancelled_by)
 
     return reversal_entry
 

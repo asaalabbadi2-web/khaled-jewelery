@@ -206,6 +206,54 @@ def carry_scrap(entry, source, target, grams_by_karat: dict, *, now, by=None, wh
     return written
 
 
+def pay_out_scrap(entry, *, now, by=None, what: str) -> list:
+    """Gold paid out of a scrap holder leaves as scrap (the owner, 10 Nov 2026):
+    each of the entry's lines taking a karat out of a custody or a scrap safe
+    takes its karat's scrap category -- as much as the holder holds of it,
+    never below zero, the rest unclassified as it was. PV-2026-01534 paid
+    190.9 g of 21k out of the scrap safe by weight: «كسر 21» stayed as if
+    held, «بلا تصنيف» went to −81.431 g. Worked gold still leaves by weight
+    (STOCK-EXIT-1)."""
+    from services.categories import scrap_category
+    holders = {b.account_id: b for b in SafeBox.query.filter(SafeBox.is_active.is_(True),
+                                                            SafeBox.stock_location.in_(SCRAP_HOLDERS))}
+    lines = (JournalEntryLine.query.filter_by(journal_entry_id=entry.id, is_deleted=False)
+             .order_by(JournalEntryLine.id).all())
+    held, written = {}, []
+    for line in lines:
+        box = holders.get(line.account_id)
+        if box is None:
+            continue
+        for karat in KARATS:
+            out = -line_grams(line, karat)
+            category = scrap_category(karat) if out > TOLERANCE else None
+            if category is None:
+                continue
+            key = (box.id, karat)
+            if key not in held:
+                held[key] = max(category_held(box, karat, category.id), 0.0)
+            take = min(out, held[key])
+            if take <= TOLERANCE:
+                continue
+            written += spread([line], karat, [(category.id, None, take)], now=now, by=by, what=what)
+            held[key] -= take
+    return written
+
+
+def mirror_allocations(pairs, *, now, by=None) -> list:
+    """A reversal's lines take back the categories of the lines they reverse
+    -- (original, reversal) pairs. A cancelled transfer gave the custody its
+    grams back «بلا تصنيف» and left the scrap safe «كسر 21» held, its «بلا
+    تصنيف» negative (the owner, 10 Nov 2026)."""
+    written = []
+    for original, reversal in pairs:
+        for a in StockLineAllocation.query.filter_by(journal_entry_line_id=original.id).order_by(
+                StockLineAllocation.id):
+            written.append(allocate(reversal, a.karat, a.category_id, -float(a.grams), item_id=a.item_id,
+                                    by=by, now=now))
+    return written
+
+
 UNCLASSIFIED = 'بلا تصنيف'
 
 

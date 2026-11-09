@@ -257,6 +257,13 @@ def create_journal_entry_from_voucher(voucher):
 
         db.session.flush()
 
+        # Gold paid out of a scrap holder leaves as scrap: its karat's scrap
+        # category with it (the owner, 10 Nov 2026; PV-2026-01534).
+        if (voucher.voucher_type or '').lower() == 'payment':
+            from services.stock_ledger import pay_out_scrap
+            pay_out_scrap(journal_entry, now=datetime.now(), by=voucher.created_by,
+                          what=f'السند {voucher.voucher_number}')
+
         # From the day the settings name, the gold a voucher moves carries its
         # value: between the pools at the average of the one it leaves, to an
         # expense or from a revenue at its pool's (ADR-042 phase 3, step 4).
