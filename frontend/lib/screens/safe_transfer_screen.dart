@@ -1241,7 +1241,7 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
         }
       });
     } catch (e) {
-      if (mounted) setState(() => _pieceProblem = '$e');
+      if (mounted) setState(() => _pieceProblem = AppFeedback.messageOf(e));
     }
   }
 

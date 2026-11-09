@@ -9,7 +9,7 @@ import 'package:pdf/widgets.dart' as pw;
 import '../models/account_statement_model.dart';
 import '../models/statement_period.dart';
 import '../theme/pdf_print_ink.dart';
-import '../utils/currency_utils.dart' show isNewSarSymbol;
+import '../utils/currency_utils.dart' show formatGrams, isNewSarSymbol;
 import 'pdf_text_utils.dart';
 import 'statement_print_facts.dart';
 
@@ -712,7 +712,7 @@ class AccountStatementPdfBuilder {
         ? (statement.custody?.closingMain ?? 0.0)
         : (byDate.last.runningCustodyMain ?? 0);
     String signed(double? v) =>
-        (v ?? 0).abs() < 0.0005 ? '' : '${v! > 0 ? '+' : '-'}${v.abs().toStringAsFixed(3)}';
+        (v ?? 0).abs() < 0.0005 ? '' : '${v! > 0 ? '+' : '-'}${formatGrams(v.abs(), decimals: 3)}';
 
     Map<String, String> balanceRowValues(StatementBalanceRow row, {required bool opening}) => <String, String>{
       dateKey: row.date == null ? '—' : DateFormat('yyyy-MM-dd').format(row.date!),
@@ -725,7 +725,7 @@ class AccountStatementPdfBuilder {
       cashCreditKey: '—',
       cashBalKey: statementBalance(row.cash, decimals: 2),
       custodyKey: '—',
-      custodyBalKey: (opening ? custodyOpening : custodyClosing).toStringAsFixed(3),
+      custodyBalKey: formatGrams(opening ? custodyOpening : custodyClosing, decimals: 3),
     };
     final openingValues = balanceRowValues(edges.first, opening: !newestFirst);
 
@@ -764,7 +764,7 @@ class AccountStatementPdfBuilder {
             cashCreditKey: commaFmt.format(line.cashCredit),
             cashBalKey: statementBalance(line.runningCashBalance ?? 0, decimals: 2),
             custodyKey: signed(line.custodyMain),
-            custodyBalKey: (line.runningCustodyMain ?? 0).toStringAsFixed(3),
+            custodyBalKey: formatGrams(line.runningCustodyMain ?? 0, decimals: 3),
           },
           isAlt: idx.isOdd,
         );
@@ -802,7 +802,7 @@ class AccountStatementPdfBuilder {
                 '${periodClosingGold.toStringAsFixed(3)} جم', baseFont, boldFont),
             if (showsCustody)
               _valRow('ذهبنا عنده (العهدة)',
-                  '${custodyClosing.toStringAsFixed(3)} جم', baseFont, boldFont),
+                  '${formatGrams(custodyClosing, decimals: 3)} جم', baseFont, boldFont),
             pw.Padding(
               padding: const pw.EdgeInsets.only(bottom: 5),
               child: pw.Row(

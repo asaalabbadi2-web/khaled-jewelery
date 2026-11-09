@@ -512,7 +512,7 @@ class _FromStockDialogState extends State<_FromStockDialog> {
       final room = await widget.api.stockCodingRoom(safe, category);
       if (mounted) setState(() => _room = (room['room'] as num?)?.toDouble());
     } catch (e) {
-      if (mounted) setState(() => _problem = '$e');
+      if (mounted) setState(() => _problem = AppFeedback.messageOf(e));
     }
   }
 
