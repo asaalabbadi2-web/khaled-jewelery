@@ -8903,6 +8903,23 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
         elif invoice_type == 'مرتجع شراء (مورد)' and getattr(new_invoice, 'original_invoice_id', None):
             reverse_gold_allocations_for_invoice(new_invoice.original_invoice_id)
 
+        # The gold paid with the purchase says which invoice it paid (ADR-028):
+        # its voucher was approved above, before the obligations existed, and
+        # wrote no attribution -- PV-2026-01515 and -01518 (7 Nov 2026). Now
+        # that they exist, the one writer; refused by name, never skipped.
+        if invoice_type == 'شراء':
+            from services.gold_allocation_service import sync_gold_attribution_after_voucher_approval
+            try:
+                for _gold_voucher in Voucher.query.filter_by(reference_type='invoice', reference_id=new_invoice.id,
+                                                             status='approved').order_by(Voucher.id).all():
+                    sync_gold_attribution_after_voucher_approval(_gold_voucher)
+            except ValueError as _attribution_refused:
+                db.session.rollback()
+                return jsonify({'error': 'gold_attribution_refused',
+                                'message': 'الذهب المسدَّد مع الفاتورة لا يُنسب إليها: '
+                                           'أكثر مما عليها أو بعيار لا يقابله التزام',
+                                'detail': str(_attribution_refused)}), 400
+
         journal_entry.is_posted = True
         journal_entry.is_draft = False
         if hasattr(journal_entry, 'posted_at') and not getattr(journal_entry, 'posted_at', None):
