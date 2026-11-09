@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../widgets/card_header_row.dart';
 import '../widgets/invoice_bar_actions.dart';
 import '../widgets/invoice_price_strip.dart';
 import '../widgets/inline_number_cell.dart';
@@ -2178,9 +2179,9 @@ class _ScrapPurchaseInvoiceScreenState
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            CardHeaderRow(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+              lead: [
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
@@ -2210,6 +2211,8 @@ class _ScrapPurchaseInvoiceScreenState
                     ],
                   ),
                 ),
+              ],
+              actions: [
                 FilledButton.tonalIcon(
                   onPressed: _addNewCustomer,
                   icon: const Icon(Icons.person_add_alt_1),
@@ -2543,8 +2546,8 @@ class _ScrapPurchaseInvoiceScreenState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Header
-          Row(
-            children: [
+          CardHeaderRow(
+            lead: [
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
@@ -2577,6 +2580,8 @@ class _ScrapPurchaseInvoiceScreenState
                   ],
                 ),
               ),
+            ],
+            actions: [
               _buildQuickButton(
                 Icons.camera_alt,
                 _tone.info.fg,

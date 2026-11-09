@@ -167,56 +167,78 @@ class _PurchaseItemEntryRowState extends State<PurchaseItemEntryRow> {
               textInputAction: TextInputAction.next,
               onSubmitted: (_) => _focus(_wageFocus, _wage),
             );
+            final karat = SegmentedButton<int>(
+              segments: [
+                for (final k in widget.karats)
+                  ButtonSegment(value: k, label: Text('$k')),
+              ],
+              selected: {_karat},
+              showSelectedIcon: false,
+              // another karat, another category: the chosen one is its own
+              onSelectionChanged: (s) => setState(() {
+                _karat = s.first;
+                _categoryId = null;
+              }),
+            );
+            final wage = TextField(
+              key: const Key('purchase-entry-wage'),
+              controller: _wage,
+              focusNode: _wageFocus,
+              decoration: _decoration('أجرة/جم'),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              inputFormatters: _numberFormatters,
+              textInputAction: TextInputAction.next,
+              onSubmitted: (_) => _focus(_weightFocus, _weight),
+            );
+            final weight = TextField(
+              key: const Key('purchase-entry-weight'),
+              controller: _weight,
+              focusNode: _weightFocus,
+              decoration: _decoration('الوزن (جم)'),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              inputFormatters: _numberFormatters,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _add(),
+            );
+            final add = FilledButton.icon(
+              onPressed: _add,
+              icon: const Icon(Icons.keyboard_return),
+              label: const Text('إضافة'),
+            );
             final rest = <Widget>[
-              SegmentedButton<int>(
-                segments: [
-                  for (final k in widget.karats)
-                    ButtonSegment(value: k, label: Text('$k')),
-                ],
-                selected: {_karat},
-                showSelectedIcon: false,
-                // another karat, another category: the chosen one is its own
-                onSelectionChanged: (s) => setState(() {
-                  _karat = s.first;
-                  _categoryId = null;
-                }),
-              ),
-              SizedBox(
-                width: 100,
-                child: TextField(
-                  key: const Key('purchase-entry-wage'),
-                  controller: _wage,
-                  focusNode: _wageFocus,
-                  decoration: _decoration('أجرة/جم'),
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  inputFormatters: _numberFormatters,
-                  textInputAction: TextInputAction.next,
-                  onSubmitted: (_) => _focus(_weightFocus, _weight),
-                ),
-              ),
-              SizedBox(
-                width: 120,
-                child: TextField(
-                  key: const Key('purchase-entry-weight'),
-                  controller: _weight,
-                  focusNode: _weightFocus,
-                  decoration: _decoration('الوزن (جم)'),
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  inputFormatters: _numberFormatters,
-                  textInputAction: TextInputAction.done,
-                  onSubmitted: (_) => _add(),
-                ),
-              ),
-              FilledButton.icon(
-                onPressed: _add,
-                icon: const Icon(Icons.keyboard_return),
-                label: const Text('إضافة'),
-              ),
+              karat,
+              SizedBox(width: 100, child: wage),
+              SizedBox(width: 120, child: weight),
+              add,
             ];
+            // A phone: one field a line, the screen's width, the wage and
+            // the weight side by side (the owner, 9 Nov 2026: «هاتف ايفون»).
+            if (box.maxWidth < 480) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  category,
+                  const SizedBox(height: 8),
+                  name,
+                  const SizedBox(height: 8),
+                  karat,
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(child: wage),
+                      const SizedBox(width: 8),
+                      Expanded(child: weight),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  add,
+                ],
+              );
+            }
             // One line when it fits, the category and the description
             // taking what is left.
             if (box.maxWidth >= 760) {

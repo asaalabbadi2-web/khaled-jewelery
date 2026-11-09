@@ -560,6 +560,45 @@ void main() {
       expect((items.single as Map)['category_id'], 44, reason: 'Enter took the match');
     });
 
+    testWidgets('on an iPhone a line is typed as on the desk, one field a line', (tester) async {
+      // The owner, 9 Nov 2026: the fields kept their desk widths on an
+      // iPhone; now each is the screen's width, the wage and weight paired.
+      final api = FakePurchaseApi();
+      await open(tester, api: api, saved: draft(withItem: false));
+      tester.view.physicalSize = const Size(390, 844);
+      await tester.pumpAndSettle();
+      final category = find.byKey(const Key('purchase-entry-category'));
+      await tester.ensureVisible(category);
+      await tester.pumpAndSettle();
+      final add = find.ancestor(of: find.text('إضافة'), matching: find.byWidgetPredicate((w) => w is FilledButton));
+      expect(tester.getSize(add).width, closeTo(tester.getSize(category).width, 1), reason: 'both the screen\'s width');
+      final wage = find.byKey(const Key('purchase-entry-wage'));
+      final weight = find.byKey(const Key('purchase-entry-weight'));
+      expect(tester.getCenter(wage).dy, tester.getCenter(weight).dy, reason: 'side by side');
+
+      await chooseCategory(tester, 'سلسال 21');
+      await tester.enterText(wage, '18');
+      await typeWeight(tester, '12.5');
+      expect(find.byKey(const ValueKey('purchase-line-card-0')), findsOneWidget);
+      final line = ((await save(tester, api))['items'] as List).single as Map;
+      expect(line['weight'], 12.5);
+      expect(line['category_id'], 40);
+      expect(line['wage_per_gram'], 18.0);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('on an iPhone «مورد جديد» is under its title, beside it on a desk', (tester) async {
+      // Beside it the title was a word a line on an iPhone (9 Nov 2026).
+      await open(tester, api: FakePurchaseApi(), saved: draft());
+      double gap() =>
+          tester.getTopLeft(find.text('مورد جديد')).dy - tester.getTopLeft(find.text('بيانات المورد')).dy;
+      expect(gap(), lessThan(20), reason: 'a desk: one row');
+      tester.view.physicalSize = const Size(390, 844);
+      await tester.pumpAndSettle();
+      expect(gap(), greaterThan(40), reason: 'a phone: under the title');
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('on an iPhone the weight and the wages are said by the save', (tester) async {
       // The summary is far above the save on an iPhone (9 Nov 2026).
       await open(tester, api: FakePurchaseApi(), saved: draft());

@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'support/shots.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/settings_provider.dart';
 import 'package:frontend/screens/scrap_purchase_invoice_screen.dart';
@@ -539,6 +541,12 @@ void main() {
     final total = find.byKey(const Key('footer-total'));
     expect(tester.widget<Text>(total).data, contains('4,000.00'));
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a scrap purchase being written draws (SHOT_DIR)', (tester) async {
+    await open(tester, api: FakeSalesApi(), editing: invoice(payments: [paid(1000)]));
+    expect(tester.takeException(), isNull);
+    await shotWidths(tester, 'scrap_purchase');
   });
 
   testWidgets('what a paid scrap purchase sends is what it sent (ADR-049)', (

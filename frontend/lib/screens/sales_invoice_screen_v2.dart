@@ -13,6 +13,7 @@ import '../providers/settings_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/sales_race_refresh_provider.dart';
 import 'add_customer_screen.dart';
+import '../widgets/card_header_row.dart';
 import '../widgets/invoice_bar_actions.dart';
 import '../widgets/invoice_price_strip.dart';
 import '../widgets/inline_number_cell.dart';
@@ -3626,9 +3627,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            CardHeaderRow(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+              lead: [
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
@@ -3658,6 +3659,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
                     ],
                   ),
                 ),
+              ],
+              actions: [
                 FilledButton.tonalIcon(
                   onPressed: _addNewCustomer,
                   icon: const Icon(Icons.person_add_alt_1),
@@ -3838,8 +3841,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Header
-          Row(
-            children: [
+          CardHeaderRow(
+            lead: [
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
@@ -3872,6 +3875,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
                   ],
                 ),
               ),
+            ],
+            actions: [
               _buildQuickButton(
                 Icons.camera_alt,
                 _tone.info.fg,

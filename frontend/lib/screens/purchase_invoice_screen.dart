@@ -12,6 +12,7 @@ import '../models/category_model.dart';
 import '../models/gold_prices.dart';
 import '../utils/invoice_draft_autosave.dart';
 import '../utils/live_gold_prices.dart';
+import '../widgets/card_header_row.dart';
 import '../widgets/type_to_pick_field.dart';
 import '../widgets/invoice_bar_actions.dart';
 import '../widgets/invoice_price_strip.dart';
@@ -3259,9 +3260,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            CardHeaderRow(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+              lead: [
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
@@ -3292,6 +3293,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
                     ],
                   ),
                 ),
+              ],
+              actions: [
                 const SizedBox(width: 12),
                 if (_isLoadingSuppliers)
                   const SizedBox(
@@ -4201,9 +4204,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            CardHeaderRow(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+              lead: [
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -4226,6 +4229,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
                     ],
                   ),
                 ),
+              ],
+              actions: [
                 const SizedBox(width: 12),
                 if (!lockedByReturn)
                   Wrap(

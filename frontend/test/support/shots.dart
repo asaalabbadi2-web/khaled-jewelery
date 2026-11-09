@@ -20,6 +20,9 @@ Future<void> shot(WidgetTester tester, String name) async {
 /// 16 Oct 2026: «more than one kind of device»).
 const tabletSize = Size(820, 1180);
 
+/// An iPhone's width, drawn tall: a survey of the whole screen at once.
+const phoneSurveySize = Size(390, 2200);
+
 /// Draws the screen as opened, as `<name>_desktop`, then again at
 /// [tabletSize] as `<name>_tablet`. What does not fit on the tablet is said
 /// on the console (`SHOT <name> tablet: ...`) and is not a failure: the
@@ -39,4 +42,18 @@ Future<void> shotWidths(WidgetTester tester, String name) async {
     debugPrint('SHOT $name tablet: ${e.toString().split('\n').first}');
   }
   await shot(tester, '${name}_tablet');
+  // An iPhone's width, tall enough to see the whole screen (the owner,
+  // 9 Nov 2026: «هاتف ايفون»).
+  tester.view.physicalSize = phoneSurveySize;
+  for (var i = 0; i < 6; i++) {
+    await tester.pump(const Duration(milliseconds: 100));
+  }
+  for (
+    Object? e = tester.takeException();
+    e != null;
+    e = tester.takeException()
+  ) {
+    debugPrint('SHOT $name phone: ${e.toString().split('\n').first}');
+  }
+  await shot(tester, '${name}_phone');
 }
