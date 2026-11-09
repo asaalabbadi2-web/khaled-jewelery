@@ -69,7 +69,7 @@ def _live_lines(entry, include_deleted=False):
 
 
 def write_entry(*, date, description, reference_type, reference_id, reference_number=None, lines, by, now,
-                prefix='COR', safe_rows=True, entry_type='عادي') -> JournalEntry:
+                prefix='COR', safe_rows=True, entry_type='عادي', allow_protected=frozenset()) -> JournalEntry:
     """A posted entry from *lines*: dicts of JournalEntryLine columns.
 
     Refuses a protected account. With safe_rows, a line on a cash safe box's
@@ -77,7 +77,9 @@ def write_entry(*, date, description, reference_type, reference_id, reference_nu
     clock, passed in (ADR-015): the posting time, not the entry's date.
     """
     from accounting.voucher_engine import _generate_journal_entry_number
-    protected = protected_account_ids()
+    # *allow_protected*: protected accounts the owner named for one repair --
+    # an error made after the 3 Oct reconciliation, in them (9 Nov 2026: «أ»).
+    protected = protected_account_ids() - set(allow_protected)
     hit = [l['account_id'] for l in lines if l['account_id'] in protected]
     if hit:
         raise ProtectedAccount(f'a correction may not touch accounts {sorted(set(hit))} (the owner, 3 Oct 2026)')
@@ -171,7 +173,8 @@ def mirrored_lines(entry, *, substitute=False, flip=True, include_deleted=False)
     return specs
 
 
-def reverse_entry(entry, *, by, reason, now, substitute=False, safe_rows=False, voucher=None) -> JournalEntry:
+def reverse_entry(entry, *, by, reason, now, substitute=False, safe_rows=False, voucher=None,
+                  allow_protected=frozenset()) -> JournalEntry:
     """A posted reversal of *entry*, dated as the original: 'journal_entry_reversal'
     -> the original's id. The original is not touched.
 
@@ -182,4 +185,4 @@ def reverse_entry(entry, *, by, reason, now, substitute=False, safe_rows=False, 
         date=entry.date, description=f'عكس القيد {entry.entry_number} — {reason}',
         reference_type=ref_type, reference_id=ref_id, reference_number=entry.entry_number,
         lines=mirrored_lines(entry, substitute=substitute), by=by, now=now, prefix='REV', safe_rows=safe_rows,
-        entry_type=entry.entry_type or 'عادي')
+        entry_type=entry.entry_type or 'عادي', allow_protected=allow_protected)

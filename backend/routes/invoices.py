@@ -1623,6 +1623,14 @@ def _compute_commission_fields(amount: float, pm) -> dict:
     from accounting.payment_commission import payment_commission
     return payment_commission(pm, amount)
 
+from services.payment_direction import payment_direction as _payment_direction  # noqa: E402
+
+
+def _direction_unknown():
+    return jsonify({'error': 'payment_direction_unknown',
+                    'message': 'لا يُعرف من سجلّ الدفعة أهي واردة أم صادرة: لا تُصحَّح وسيلتها'}), 400
+
+
 def _correct_invoice_payment_method_multi_split(invoice, ip, data):
     """N-way split: one InvoicePayment row that mixed 3+ payment methods.
 
@@ -1724,6 +1732,13 @@ def _correct_invoice_payment_method_multi_split(invoice, ip, data):
         # still recorded via the voucher/JE created below + AuditLog.
         remainder = round(full_amount - total_split, 2)
         original_removed = remainder <= 0.005
+        direction = _payment_direction(ip, old_safe_account_id)
+        moves = any(s['sb_id'] is not None for s in parsed_splits) or bool(old_safe_account_id and any(
+            s['account_id'] and s['account_id'] != old_safe_account_id for s in parsed_splits))
+        if direction is None and moves:
+            return _direction_unknown()
+        direction = direction or 'in'        # nothing moves: it says nothing
+        paid_out = direction == 'out'
         old_sbt = SafeBoxTransaction.query.filter_by(invoice_payment_id=payment_id).first()
         if original_removed:
             if old_sbt:
@@ -1759,7 +1774,7 @@ def _correct_invoice_payment_method_multi_split(invoice, ip, data):
                     invoice_id=invoice.id,
                     invoice_payment_id=new_ip.id,
                     payment_method_id=s['pm_id'],
-                    direction='in',
+                    direction=direction,                # as its payment went
                     amount_cash=s['amount'],
                     notes=f'تقسيم من دفعة #{payment_id} — {reason}',
                     created_by=actor,
@@ -1812,10 +1827,11 @@ def _correct_invoice_payment_method_multi_split(invoice, ip, data):
             db.session.add(voucher)
             db.session.flush()
 
+            # Received: credit the old safe, debit the new. Paid out: the reverse.
             db.session.add(VoucherAccountLine(
                 voucher_id=voucher.id,
                 account_id=int(old_safe_account_id),
-                line_type='credit',
+                line_type='debit' if paid_out else 'credit',
                 amount_type='cash',
                 amount=total_moved,
                 description=f'إعادة تصنيف دفعة #{payment_id} من {getattr(old_pm, "name", old_pm_id)} (تقسيم متعدد)',
@@ -1828,7 +1844,7 @@ def _correct_invoice_payment_method_multi_split(invoice, ip, data):
                 db.session.add(VoucherAccountLine(
                     voucher_id=voucher.id,
                     account_id=int(acc_id),
-                    line_type='debit',
+                    line_type='credit' if paid_out else 'debit',
                     amount_type='cash',
                     amount=amt,
                     description=f'إعادة تصنيف دفعة #{payment_id} (تقسيم متعدد)',
@@ -1842,12 +1858,13 @@ def _correct_invoice_payment_method_multi_split(invoice, ip, data):
             reclass_je_id = journal_entry.id
 
             old_acc = Account.query.get(int(old_safe_account_id))
+            sign = -1.0 if paid_out else 1.0
             if old_acc is not None:
-                old_acc.update_balance(cash_amount=-total_moved)
+                old_acc.update_balance(cash_amount=-total_moved * sign)
             for acc_id, amt in by_account.items():
                 acc = Account.query.get(int(acc_id))
                 if acc is not None:
-                    acc.update_balance(cash_amount=amt)
+                    acc.update_balance(cash_amount=amt * sign)
 
             reclass_voucher_number = voucher.voucher_number
 
@@ -2010,6 +2027,14 @@ def correct_invoice_payment_method(invoice_id: int, payment_id: int):
         new_sb_obj = SafeBox.query.get(new_sb_id)
         new_safe_account_id = getattr(new_sb_obj, 'account_id', None) if new_sb_obj else None
 
+    direction = _payment_direction(ip, old_safe_account_id)
+    moves = bool(old_safe_account_id and new_safe_account_id and old_safe_account_id != new_safe_account_id) \
+        or (is_partial and new_sb_id is not None)
+    if direction is None and moves:
+        return _direction_unknown()
+    direction = direction or 'in'            # nothing moves: it says nothing
+    paid_out = direction == 'out'
+
     try:
         old_commission = {
             'commission_rate': ip.commission_rate,
@@ -2061,7 +2086,7 @@ def correct_invoice_payment_method(invoice_id: int, payment_id: int):
                     invoice_id=invoice.id,
                     invoice_payment_id=new_ip.id,
                     payment_method_id=new_pm_id,
-                    direction='in',
+                    direction=direction,                # as its payment went
                     amount_cash=correction_amount,
                     notes=f'تقسيم من دفعة #{payment_id} — {reason}',
                     created_by=(g.current_user.username if hasattr(g, 'current_user') and g.current_user else 'admin'),
@@ -2104,10 +2129,11 @@ def correct_invoice_payment_method(invoice_id: int, payment_id: int):
             db.session.add(voucher)
             db.session.flush()
 
+            # Received: debit the new safe, credit the old. Paid out: the reverse.
             db.session.add(VoucherAccountLine(
                 voucher_id=voucher.id,
                 account_id=int(new_safe_account_id),
-                line_type='debit',
+                line_type='credit' if paid_out else 'debit',
                 amount_type='cash',
                 amount=correction_amount,
                 description=f'إعادة تصنيف دفعة #{payment_id} إلى {new_pm.name}',
@@ -2115,7 +2141,7 @@ def correct_invoice_payment_method(invoice_id: int, payment_id: int):
             db.session.add(VoucherAccountLine(
                 voucher_id=voucher.id,
                 account_id=int(old_safe_account_id),
-                line_type='credit',
+                line_type='debit' if paid_out else 'credit',
                 amount_type='cash',
                 amount=correction_amount,
                 description=f'إعادة تصنيف دفعة #{payment_id} من {getattr(old_pm, "name", old_pm_id)}',
@@ -2130,10 +2156,11 @@ def correct_invoice_payment_method(invoice_id: int, payment_id: int):
 
             new_acc = Account.query.get(int(new_safe_account_id))
             old_acc = Account.query.get(int(old_safe_account_id))
+            sign = -1.0 if paid_out else 1.0
             if new_acc is not None:
-                new_acc.update_balance(cash_amount=correction_amount)
+                new_acc.update_balance(cash_amount=correction_amount * sign)
             if old_acc is not None:
-                old_acc.update_balance(cash_amount=-correction_amount)
+                old_acc.update_balance(cash_amount=-correction_amount * sign)
 
             reclass_voucher_number = voucher.voucher_number
 
