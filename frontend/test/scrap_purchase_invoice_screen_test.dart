@@ -527,6 +527,20 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('on an iPhone a payment is one row, and the total by the save', (tester) async {
+    // The payments' five columns are too narrow for an iPhone (9 Nov 2026).
+    await open(tester, api: FakeSalesApi(), editing: invoice(payments: [paid(4000)]));
+    tester.view.physicalSize = const Size(390, 844);
+    await tester.pumpAndSettle();
+    final row = find.byKey(const ValueKey('payment-phone-row-0'));
+    await tester.ensureVisible(row);
+    expect(find.descendant(of: row, matching: find.textContaining('4,000.00', findRichText: true)), findsWidgets);
+    expect(find.descendant(of: row, matching: find.byTooltip('حذف')), findsOneWidget);
+    final total = find.byKey(const Key('footer-total'));
+    expect(tester.widget<Text>(total).data, contains('4,000.00'));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('what a paid scrap purchase sends is what it sent (ADR-049)', (
     tester,
   ) async {

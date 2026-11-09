@@ -4320,6 +4320,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
 
   Widget _buildFooter(PurchaseReadiness readiness) {
     final theme = Theme.of(context);
+    final phone = AppBreakpoints.isPhone(context);
     return Container(
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
@@ -4330,11 +4331,27 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+          padding: EdgeInsets.symmetric(horizontal: phone ? 12 : 24, vertical: 10),
           child: Row(
             children: [
-              Expanded(child: _buildStatus(readiness)),
-              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // On a phone the summary is far above: the invoice's
+                    // weight and wages are said where the save is (9 Nov 2026).
+                    if (phone && _inlineItems.isNotEmpty)
+                      Text(
+                        '${_formatWeight(_inlineTotalWeight)} · ${_formatCurrency(_inlineTotalWage)}',
+                        key: const Key('footer-total'),
+                        style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+                      ),
+                    _buildStatus(readiness, compact: phone),
+                  ],
+                ),
+              ),
+              SizedBox(width: phone ? 8 : 16),
               _buildSaveButton(readiness),
             ],
           ),
@@ -4345,7 +4362,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
 
   /// The one state the user reads: green only when the server would take the
   /// invoice as it stands.
-  Widget _buildStatus(PurchaseReadiness readiness) {
+  Widget _buildStatus(PurchaseReadiness readiness, {bool compact = false}) {
     final theme = Theme.of(context);
     final tones = AppSemanticColors.of(context);
     final (IconData icon, Color color, String text) = switch (readiness.kind) {
@@ -4372,7 +4389,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
         Expanded(
           child: Text(
             text,
-            style: theme.textTheme.bodyLarge?.copyWith(
+            style: (compact ? theme.textTheme.bodySmall : theme.textTheme.bodyLarge)?.copyWith(
               color: color,
               fontWeight: FontWeight.w700,
             ),
@@ -4439,10 +4456,14 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
 
   Widget _buildInlineMetricChip(String label, String value) {
     final theme = Theme.of(context);
+    // Compact on a phone: the three in a line or two, not one a line (9 Nov 2026).
+    final phone = AppBreakpoints.isPhone(context);
     return Chip(
       backgroundColor: theme.colorScheme.primaryContainer.withValues(
         alpha: 0.35,
       ),
+      visualDensity: phone ? VisualDensity.compact : null,
+      labelStyle: phone ? theme.textTheme.bodySmall : null,
       label: Text('$label: $value'),
     );
   }

@@ -560,6 +560,22 @@ void main() {
       expect((items.single as Map)['category_id'], 44, reason: 'Enter took the match');
     });
 
+    testWidgets('on an iPhone the weight and the wages are said by the save', (tester) async {
+      // The summary is far above the save on an iPhone (9 Nov 2026).
+      await open(tester, api: FakePurchaseApi(), saved: draft());
+      tester.view.physicalSize = const Size(390, 844);
+      await tester.pumpAndSettle();
+      final total = find.byKey(const Key('footer-total'));
+      expect(total, findsOneWidget);
+      expect(tester.widget<Text>(total).data, contains('12.5'));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('on a desk the bar says only whether it is ready', (tester) async {
+      await open(tester, api: FakePurchaseApi(), saved: draft());
+      expect(find.byKey(const Key('footer-total')), findsNothing);
+    });
+
     testWidgets('on an iPhone a line is a card, every figure in sight, edited as in the table', (tester) async {
       // The owner, 9 Nov 2026: the invoices on an iPhone. The table scrolled
       // its wage and its total off the screen; a card shows them.

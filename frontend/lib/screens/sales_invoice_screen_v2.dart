@@ -3415,6 +3415,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
     final tone = ready ? tones.ready : (empty ? tones.info : tones.blocked);
     final remaining = _remainingAmount;
     final onCredit = ready && remaining > 0.01;
+    final phone = AppBreakpoints.isPhone(context);
     final text = _saving
         ? 'جارٍ الحفظ…'
         : ready
@@ -3430,7 +3431,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+          padding: EdgeInsets.symmetric(horizontal: phone ? 12 : 24, vertical: 10),
           child: Row(
             children: [
               Expanded(
@@ -3448,27 +3449,41 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
                       ),
                       const SizedBox(width: 8),
                       Expanded(
-                        child: Text(
-                          text,
-                          style: theme.textTheme.bodyLarge?.copyWith(
-                            color: tone.fg,
-                            fontWeight: FontWeight.w700,
-                          ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // On a phone the summary is far above: its total
+                            // is said where the save is (9 Nov 2026).
+                            if (phone && _items.isNotEmpty)
+                              Text(
+                                'الإجمالي ${_formatCurrency(_calculateGrandTotal())}',
+                                key: const Key('footer-total'),
+                                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+                              ),
+                            Text(
+                              text,
+                              style: (phone ? theme.textTheme.bodySmall : theme.textTheme.bodyLarge)?.copyWith(
+                                color: tone.fg,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
                   ),
                 ),
               ),
-              const SizedBox(width: 16),
+              SizedBox(width: phone ? 8 : 16),
               FilledButton.icon(
                 onPressed: ready && !_saving ? _submitInvoice : null,
                 icon: const Icon(Icons.check_circle_outline, size: 22),
                 label: _settingsProvider.buildText('حفظ الفاتورة'),
                 style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
+                  padding: EdgeInsets.symmetric(
                     vertical: 16,
-                    horizontal: 24,
+                    horizontal: phone ? 16 : 24,
                   ),
                   textStyle: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.bold,
@@ -3483,6 +3498,102 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// A payment's method: its name, its safe (changed by a tap), its fee.
+  Widget _paymentMethodCell(int index, PaymentEntry payment, ThemeData theme, bool isDark) =>
+      Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    payment.paymentMethodName,
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  if (payment.safeBoxId != null)
+                                    InkWell(
+                                      onTap: () => _changePaymentSafe(index),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Flexible(
+                                            child: Text(
+                                              _safeNames[payment.safeBoxId] ??
+                                                  'خزينة ${payment.safeBoxId}',
+                                              style: theme.textTheme.bodySmall
+                                                  ?.copyWith(
+                                                    decoration: TextDecoration
+                                                        .underline,
+                                                  ),
+                                            ),
+                                          ),
+                                          const Icon(Icons.edit, size: 12),
+                                        ],
+                                      ),
+                                    ),
+                                  if (payment.commissionRate > 0 || payment.commissionFixed > 0)
+                                    Container(
+                                      margin: const EdgeInsets.only(top: 4),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 3,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: _tone.warning.fg.withValues(
+                                          alpha: isDark ? 0.2 : 0.25,
+                                        ),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        'عمولة ${PaymentFee.label(payment.commissionRate, payment.commissionFixed)}',
+                                        style: theme.textTheme.labelSmall
+                                            ?.copyWith(
+                                              color: _tone.warning.fg,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                      ),
+                                    ),
+                                ],
+                              );
+
+  /// A payment on a phone: its method, its amount, «حذف» in one row -- the
+  /// table's five columns wrapped «1,000.0 / 0 ر.س» on an iPhone (9 Nov 2026).
+  Widget _buildPaymentPhoneRow(int index, PaymentEntry payment, ThemeData theme, bool isDark,
+      Color dividerColor) {
+    final currency = _settingsProvider.currencySymbolText;
+    return Container(
+      key: ValueKey('payment-phone-row-$index'),
+      padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: dividerColor, width: 1)),
+      ),
+      child: Row(
+        children: [
+          Expanded(child: _paymentMethodCell(index, payment, theme, isDark)),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              _settingsProvider.buildText(
+                '${cu.formatAmount(payment.amount)} $currency',
+                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700, color: _tone.ready.fg),
+              ),
+              if (payment.commissionAmount > 0)
+                _settingsProvider.buildText(
+                  'صافي ${cu.formatAmount(payment.netAmount)} $currency',
+                  style: theme.textTheme.bodySmall?.copyWith(color: _tone.info.fg),
+                ),
+            ],
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_forever, size: 22),
+            color: _cs.error,
+            tooltip: 'حذف',
+            onPressed: () => _removePayment(index),
+          ),
+        ],
       ),
     );
   }
@@ -4607,6 +4718,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
                 child: Column(
                   children: [
                     // Header
+                    if (!AppBreakpoints.isPhone(context))
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
@@ -4737,6 +4849,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
                     // Rows
                     ...List.generate(_payments.length, (index) {
                       final payment = _payments[index];
+                      if (AppBreakpoints.isPhone(context)) {
+                        return _buildPaymentPhoneRow(index, payment, theme, isDark, dividerColor);
+                      }
                       return Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
@@ -4750,63 +4865,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
                         ),
                         child: Row(
                           children: [
-                            Expanded(
-                              flex: 3,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    payment.paymentMethodName,
-                                    style: theme.textTheme.bodyMedium?.copyWith(
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  if (payment.safeBoxId != null)
-                                    InkWell(
-                                      onTap: () => _changePaymentSafe(index),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Flexible(
-                                            child: Text(
-                                              _safeNames[payment.safeBoxId] ??
-                                                  'خزينة ${payment.safeBoxId}',
-                                              style: theme.textTheme.bodySmall
-                                                  ?.copyWith(
-                                                    decoration: TextDecoration
-                                                        .underline,
-                                                  ),
-                                            ),
-                                          ),
-                                          const Icon(Icons.edit, size: 12),
-                                        ],
-                                      ),
-                                    ),
-                                  if (payment.commissionRate > 0 || payment.commissionFixed > 0)
-                                    Container(
-                                      margin: const EdgeInsets.only(top: 4),
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 3,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: _tone.warning.fg.withValues(
-                                          alpha: isDark ? 0.2 : 0.25,
-                                        ),
-                                        borderRadius: BorderRadius.circular(6),
-                                      ),
-                                      child: Text(
-                                        'عمولة ${PaymentFee.label(payment.commissionRate, payment.commissionFixed)}',
-                                        style: theme.textTheme.labelSmall
-                                            ?.copyWith(
-                                              color: _tone.warning.fg,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
+                            Expanded(flex: 3, child: _paymentMethodCell(index, payment, theme, isDark)),
                             Expanded(
                               flex: 2,
                               child: _settingsProvider.buildText(
