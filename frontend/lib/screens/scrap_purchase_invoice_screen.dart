@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../widgets/invoice_bar_actions.dart';
+import '../widgets/invoice_price_strip.dart';
 import '../widgets/inline_number_cell.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'dart:io';
@@ -16,7 +18,6 @@ import '../widgets/pay_box.dart';
 import '../widgets/scrap_purchase_entry_row.dart';
 import '../models/gold_prices.dart';
 import '../utils/live_gold_prices.dart';
-import '../widgets/gold_market_tag.dart';
 import '../utils/payment_fee.dart';
 import '../utils/scrap_purchase_readiness.dart';
 import '../widgets/invoice_review_dialog.dart';
@@ -1870,68 +1871,20 @@ class _ScrapPurchaseInvoiceScreenState
             title: const Text('فاتورة شراء الكسر'),
             bottom: PreferredSize(
               preferredSize: const Size.fromHeight(26.0),
-              child: Container(
-                color: _cs.shadow.withValues(alpha: 0.20),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 4,
-                ),
-                child: Directionality(
-                  textDirection: TextDirection.ltr,
-                  child: _stripSell.known
-                      ? Row(
-                          children: [
-                            Icon(
-                              Icons.monetization_on_outlined,
-                              size: 12,
-                              color: AppSemanticColors.invoiceBar(context, InvoiceKind.purchaseScrap).foreground,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              'أونصة: \$${formatAmount(_stripSell.ounceUsd, decimals: 0)}',
-                              style: Theme.of(context).textTheme.labelSmall?.copyWith(color: AppSemanticColors.invoiceBar(context, InvoiceKind.purchaseScrap).foreground, fontWeight: FontWeight.w700,),
-                            ),
-                            Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 5),
-                              child: Text(
-                                '|',
-                                style: Theme.of(context).textTheme.labelSmall?.copyWith(color: AppSemanticColors.invoiceBar(context, InvoiceKind.purchaseScrap).foreground.withValues(alpha: 0.55),),
-                              ),
-                            ),
-                            ...([24, 22, 21, 18].map((k) {
-                              // A purchase shows the market's buy price (the owner, 29 Oct 2026).
-                              final gp = _stripBuy.of(k);
-                              final isMain = k == _settingsProvider.mainKarat;
-                              return Padding(
-                                padding: const EdgeInsets.only(right: 10),
-                                child: Text(
-                                  '${k}k: ${formatAmount(gp)}',
-                                  style: Theme.of(context).textTheme.labelSmall?.copyWith(color: AppSemanticColors.invoiceBar(context, InvoiceKind.purchaseScrap).foreground, decoration: isMain ? TextDecoration.underline : null, fontWeight: isMain
-                                        ? FontWeight.w800
-                                        : FontWeight.w500,),
-                                ),
-                              );
-                            }).toList()),
-                            Text(
-                              '/جم',
-                              style: Theme.of(context).textTheme.labelSmall?.copyWith(color: AppSemanticColors.invoiceBar(context, InvoiceKind.purchaseScrap).foreground.withValues(alpha: 0.7),),
-                            ),
-                            // Closed or unavailable, it says so (PRICE-MARKET-1).
-                            if (liveMarket.quiet) ...[
-                              const Spacer(),
-                              GoldMarketTag(market: liveMarket, compact: true, color: AppSemanticColors.invoiceBar(context, InvoiceKind.purchaseScrap).foreground),
-                            ],
-                          ],
-                        )
-                      : Text(
-                          'جاري تحميل سعر الذهب...',
-                          style: Theme.of(context).textTheme.labelSmall?.copyWith(color: AppSemanticColors.invoiceBar(context, InvoiceKind.purchaseScrap).foreground.withValues(alpha: 0.7),),
-                        ),
-                ),
+              child: InvoicePriceStrip(
+                ounce: _stripSell,
+                // A purchase shows the market's buy price (the owner, 29 Oct 2026).
+                karats: _stripBuy,
+                mainKarat: _settingsProvider.mainKarat,
+                market: liveMarket,
+                foreground: AppSemanticColors.invoiceBar(context, InvoiceKind.purchaseScrap).foreground,
+                background: _cs.shadow.withValues(alpha: 0.20),
+                unit: Text('/جم', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: AppSemanticColors.invoiceBar(context, InvoiceKind.purchaseScrap).foreground.withValues(alpha: 0.7))),
               ),
             ),
-            actions: [
-              Consumer<AuthProvider>(
+            actions: invoiceBarActions(
+              context,
+              user: Consumer<AuthProvider>(
                 builder: (context, auth, _) => Padding(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 4,
@@ -1964,6 +1917,7 @@ class _ScrapPurchaseInvoiceScreenState
                   ),
                 ),
               ),
+              fold: [
               IconButton(
                 tooltip: 'تحديث سعر الذهب',
                 onPressed: _loadSettings,
@@ -1990,7 +1944,8 @@ class _ScrapPurchaseInvoiceScreenState
                   );
                 },
               ),
-            ],
+              ],
+            ),
           ),
           body: SafeArea(
             child: SingleChildScrollView(

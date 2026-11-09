@@ -12,6 +12,8 @@ import '../providers/settings_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/sales_race_refresh_provider.dart';
 import 'add_customer_screen.dart';
+import '../widgets/invoice_bar_actions.dart';
+import '../widgets/invoice_price_strip.dart';
 import '../widgets/inline_number_cell.dart';
 import '../widgets/pay_box.dart';
 import '../widgets/invoice_settings_sheet.dart';
@@ -29,7 +31,6 @@ import '../utils/currency_utils.dart' as cu;
 import '../utils/invoice_saved_facts.dart';
 import '../models/gold_prices.dart';
 import '../utils/live_gold_prices.dart';
-import '../widgets/gold_market_tag.dart';
 import '../utils/payment_fee.dart';
 import '../utils/sales_readiness.dart';
 import '../widgets/app_feedback.dart';
@@ -3165,68 +3166,23 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
             ),
             bottom: PreferredSize(
               preferredSize: const Size.fromHeight(26.0),
-              child: Container(
-                color: _cs.shadow.withValues(alpha: 0.20),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 4,
-                ),
-                child: Directionality(
-                  textDirection: TextDirection.ltr,
-                  child: _stripPrices.known
-                      ? Row(
-                          children: [
-                            Icon(
-                              Icons.monetization_on_outlined,
-                              size: 12,
-                              color: invoiceBar.foreground,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              'أونصة: \$${cu.formatAmount(_stripPrices.ounceUsd, decimals: 0)}',
-                              style: Theme.of(context).textTheme.labelSmall?.copyWith(color: invoiceBar.foreground, fontWeight: FontWeight.w700,),
-                            ),
-                            Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 5),
-                              child: Text(
-                                '|',
-                                style: Theme.of(context).textTheme.labelSmall?.copyWith(color: invoiceBar.foreground.withValues(alpha: 0.55),),
-                              ),
-                            ),
-                            ...([24, 22, 21, 18].map((k) {
-                              final gp = _stripPrices.of(k);
-                              final isMain = k == _settingsProvider.mainKarat;
-                              return Padding(
-                                padding: const EdgeInsets.only(right: 10),
-                                child: Text(
-                                  '${k}k: ${cu.formatAmount(gp)}',
-                                  style: Theme.of(context).textTheme.labelSmall?.copyWith(color: invoiceBar.foreground, decoration: isMain ? TextDecoration.underline : null, fontWeight: isMain
-                                        ? FontWeight.w800
-                                        : FontWeight.w500,),
-                                ),
-                              );
-                            }).toList()),
-                            cu.SarAwareText(
-                              '${context.read<SettingsProvider>().currencySymbolText}/جم',
-              isNewSar: context.read<SettingsProvider>().currencyIsNewSar,
-                              style: Theme.of(context).textTheme.labelSmall?.copyWith(color: invoiceBar.foreground.withValues(alpha: 0.7),),
-                            ),
-                            // Closed or unavailable, it says so (PRICE-MARKET-1).
-                            if (liveMarket.quiet) ...[
-                              const Spacer(),
-                              GoldMarketTag(market: liveMarket, compact: true, color: invoiceBar.foreground),
-                            ],
-                          ],
-                        )
-                      : Text(
-                          'جاري تحميل سعر الذهب...',
-                          style: Theme.of(context).textTheme.labelSmall?.copyWith(color: invoiceBar.foreground.withValues(alpha: 0.7),),
-                        ),
+              child: InvoicePriceStrip(
+                ounce: _stripPrices,
+                karats: _stripPrices,
+                mainKarat: _settingsProvider.mainKarat,
+                market: liveMarket,
+                foreground: invoiceBar.foreground,
+                background: _cs.shadow.withValues(alpha: 0.20),
+                unit: cu.SarAwareText(
+                  '${context.read<SettingsProvider>().currencySymbolText}/جم',
+                  isNewSar: context.read<SettingsProvider>().currencyIsNewSar,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(color: invoiceBar.foreground.withValues(alpha: 0.7)),
                 ),
               ),
             ),
-            actions: [
-              Consumer<AuthProvider>(
+            actions: invoiceBarActions(
+              context,
+              user: Consumer<AuthProvider>(
                 builder: (context, auth, _) => Padding(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 4,
@@ -3259,11 +3215,14 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
                   ),
                 ),
               ),
+              keep: [
               IconButton(
                 tooltip: 'إكمال لاحقاً',
                 onPressed: _completeLater,
                 icon: const Icon(Icons.schedule),
               ),
+              ],
+              fold: [
               IconButton(
                 tooltip: 'تحديث سعر الذهب',
                 onPressed: _loadSettings,
@@ -3302,7 +3261,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
                 },
                 icon: const Icon(Icons.settings),
               ),
-            ],
+              ],
+            ),
           ),
           body: SafeArea(
             child: SingleChildScrollView(

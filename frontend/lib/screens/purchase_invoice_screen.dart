@@ -11,7 +11,8 @@ import '../api_service.dart';
 import '../models/category_model.dart';
 import '../models/gold_prices.dart';
 import '../utils/live_gold_prices.dart';
-import '../widgets/gold_market_tag.dart';
+import '../widgets/invoice_bar_actions.dart';
+import '../widgets/invoice_price_strip.dart';
 import '../models/safe_box_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/settings_provider.dart';
@@ -3102,71 +3103,25 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
           preferredSize: const Size.fromHeight(26.0),
           child: Builder(
             builder: (context) {
-              final gp24 = _stripPrices.k24;
-              final gpOz = _stripPrices.ounceUsd;
               final mk = _mainKaratFromSettings();
-              return Container(
-                color: _cs.shadow.withValues(alpha: 0.20),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 4,
-                ),
-                child: Directionality(
-                  textDirection: TextDirection.ltr,
-                  child: gp24 > 0
-                      ? Row(
-                          children: [
-                            Icon(
-                              Icons.monetization_on_outlined,
-                              size: 12,
-                              color: invoiceBar.foreground,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              'أونصة: \$${formatAmount(gpOz, decimals: 0)}',
-                              style: Theme.of(context).textTheme.labelSmall?.copyWith(color: invoiceBar.foreground, fontWeight: FontWeight.w700,),
-                            ),
-                            Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 5),
-                              child: Text(
-                                '|',
-                                style: Theme.of(context).textTheme.labelSmall?.copyWith(color: invoiceBar.foreground.withValues(alpha: 0.55),),
-                              ),
-                            ),
-                            ...([24, 22, 21, 18].map((k) {
-                              final isMain = k == mk;
-                              return Padding(
-                                padding: const EdgeInsets.only(right: 10),
-                                child: Text(
-                                  '${k}k: ${formatAmount(_stripPrices.of(k))}',
-                                  style: Theme.of(context).textTheme.labelSmall?.copyWith(color: invoiceBar.foreground, decoration: isMain ? TextDecoration.underline : null, fontWeight: isMain
-                                        ? FontWeight.w800
-                                        : FontWeight.w500,),
-                                ),
-                              );
-                            }).toList()),
-                            context.read<SettingsProvider>().buildText(
-                              '${context.read<SettingsProvider>().currencySymbolText}/جم',
-                              style: Theme.of(context).textTheme.labelSmall?.copyWith(color: invoiceBar.foreground.withValues(alpha: 0.7),),
-                            ),
-                            // Closed or unavailable, it says so (PRICE-MARKET-1).
-                            if (liveMarket.quiet) ...[
-                              const Spacer(),
-                              GoldMarketTag(market: liveMarket, compact: true, color: invoiceBar.foreground),
-                            ],
-                          ],
-                        )
-                      : Text(
-                          'جاري تحميل سعر الذهب...',
-                          style: Theme.of(context).textTheme.labelSmall?.copyWith(color: invoiceBar.foreground.withValues(alpha: 0.7),),
-                        ),
+              return InvoicePriceStrip(
+                ounce: _stripPrices,
+                karats: _stripPrices,
+                mainKarat: mk,
+                market: liveMarket,
+                foreground: invoiceBar.foreground,
+                background: _cs.shadow.withValues(alpha: 0.20),
+                unit: context.read<SettingsProvider>().buildText(
+                  '${context.read<SettingsProvider>().currencySymbolText}/جم',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(color: invoiceBar.foreground.withValues(alpha: 0.7)),
                 ),
               );
             },
           ),
         ),
-        actions: [
-          Consumer<AuthProvider>(
+        actions: invoiceBarActions(
+          context,
+          user: Consumer<AuthProvider>(
             builder: (context, auth, _) => Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
               child: Container(
@@ -3196,12 +3151,15 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
               ),
             ),
           ),
+          keep: [
           if (!_isSupplierReturnMode)
             IconButton(
               tooltip: 'إكمال لاحقاً',
               icon: const Icon(Icons.schedule),
               onPressed: _completeLater,
             ),
+          ],
+          fold: [
           IconButton(
             tooltip: 'تحديث سعر الذهب',
             icon: const Icon(Icons.refresh),
@@ -3229,7 +3187,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
               );
             },
           ),
-        ],
+          ],
+        ),
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -4206,13 +4165,17 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontWeight: weight,
-              color: theme.colorScheme.onSurface,
+          // The label wraps; the amount keeps its line (an iPhone SE cut it, 9 Nov 2026).
+          Flexible(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontWeight: weight,
+                color: theme.colorScheme.onSurface,
+              ),
             ),
           ),
+          const SizedBox(width: 8),
           context.read<SettingsProvider>().buildText(
             value,
             style: TextStyle(
