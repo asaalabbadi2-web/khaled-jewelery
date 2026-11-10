@@ -457,6 +457,58 @@ void main() {
       expect(category.focusNode!.hasFocus, isTrue);
     });
 
+    // The owner, 10 Nov 2026: «بلا سعر كالبيع» -- a line was the buy price
+    // until the asked amount was spread, with Enter an iPhone has not.
+    testWidgets('a line typed with its weight alone is without its price, and not saved', (tester) async {
+      final api = FakeSalesApi(categories: categories);
+      await open(tester, api: api);
+      await pick(tester, 'كس', 'كسر');
+      await type(tester, 'standing', '10');
+      await tester.tap(find.byKey(const Key('scrap-entry-add')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('line-unpriced-0')), findsOneWidget);
+      expect(find.textContaining('السطر 1 بلا سعر'), findsWidgets);
+      await pressCtrlS(tester);
+      await settle(tester);
+      expect(find.byType(Dialog), findsNothing, reason: 'no review: not ready');
+      expect(api.added, isEmpty);
+    });
+
+    testWidgets('on an iPhone the asked amount goes over the lines not written by hand, in whole riyals', (
+      tester,
+    ) async {
+      final api = FakeSalesApi(categories: categories);
+      await open(tester, api: api);
+      await pick(tester, 'كس', 'كسر');
+      await type(tester, 'standing', '10');
+      await type(tester, 'amount', '1000');
+      await enter(tester);
+      await pick(tester, 'مخت', 'كسر مختلط');
+      await type(tester, 'standing', '7.3');
+      await tester.tap(find.byKey(const Key('scrap-entry-add')));
+      await tester.pumpAndSettle();
+      tester.view.physicalSize = const Size(390, 844);
+      await tester.pumpAndSettle();
+
+      final target = find.byKey(const Key('target-amount'));
+      await tester.ensureVisible(target);
+      await tester.enterText(target, '٣٣٣٣٫٥');   // no Enter: the pad has none
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('line-unpriced-1')), findsNothing);
+
+      await payWith(tester, '');
+      await pressCtrlS(tester);
+      await tester.tap(find.text('حفظ الفاتورة').last);
+      await settle(tester);
+      if (find.text('متابعة').evaluate().isNotEmpty) {
+        await tester.tap(find.text('متابعة'));
+        await settle(tester);
+      }
+      final prices = [for (final i in (api.added.single['items'] as List).cast<Map>()) (i['price'] as num).toDouble()];
+      expect(prices, [1000.0, 2333.5], reason: 'the hand\'s stays; the rest, its fraction on the heaviest');
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('a line with an amount and no weight is taken', (tester) async {
       await open(tester, api: FakeSalesApi(categories: categories));
 

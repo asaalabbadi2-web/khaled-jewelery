@@ -652,6 +652,77 @@ void main() {
       );
     });
 
+    // The owner, 10 Nov 2026: a line was its cost until the asked amount was
+    // spread -- with Enter, which an iPhone's number pad has none of -- and
+    // sales were saved at cost.
+    testWidgets('a line typed without its amount is without its price, and not saved', (tester) async {
+      final api = FakeSalesApi(categories: categories);
+      await open(tester, api: api);
+      await pick(tester, 'سل', 'سلاسل');
+      await weigh(tester, '5.25');
+      expect(find.byKey(const ValueKey('line-unpriced-0')), findsOneWidget);
+      expect(find.textContaining('السطر 1 بلا سعر'), findsWidgets);
+      await tester.tap(saveButton(), warnIfMissed: false);
+      await settle(tester);
+      expect(api.added, isEmpty);
+    });
+
+    testWidgets('on an iPhone the asked amount is spread as it is typed, in whole riyals', (tester) async {
+      final api = FakeSalesApi(categories: categories);
+      await open(tester, api: api);
+      await pick(tester, 'سل', 'سلاسل');
+      await weigh(tester, '5.25');
+      await pick(tester, 'بن', 'بناجر');
+      await weigh(tester, '3.4');
+      tester.view.physicalSize = const Size(390, 844);
+      await tester.pumpAndSettle();
+
+      final target = find.byKey(const Key('target-amount'));
+      await tester.ensureVisible(target);
+      await tester.enterText(target, '٣٣٣٣');   // no Enter: the pad has none
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('line-unpriced-0')), findsNothing);
+      expect(find.byKey(const ValueKey('line-unpriced-1')), findsNothing);
+
+      await tester.ensureVisible(addPaymentButton());
+      await tester.tap(addPaymentButton());
+      await tester.pumpAndSettle();
+      await tester.tap(saveButton());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('حفظ الفاتورة').last);
+      await settle(tester);
+      final prices = [for (final i in (api.added.single['items'] as List).cast<Map>()) (i['price'] as num).toDouble()];
+      expect(prices.fold<double>(0, (a, b) => a + b), closeTo(3333, 0.001));
+      for (final p in prices) {
+        expect(p, p.roundToDouble(), reason: 'whole riyals: $prices');
+      }
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a line added while an amount is asked is spread over again', (tester) async {
+      await open(tester, api: FakeSalesApi(categories: categories));
+      await pick(tester, 'سل', 'سلاسل');
+      await weigh(tester, '5');
+      await tester.enterText(find.byKey(const Key('target-amount')), '2000');
+      await tester.pumpAndSettle();
+      await pick(tester, 'بن', 'بناجر');
+      await weigh(tester, '5');
+      expect(find.byKey(const ValueKey('line-unpriced-1')), findsNothing, reason: 'spread over it too');
+      expect(find.textContaining('السطر 2 بلا سعر'), findsNothing);
+    });
+
+    testWidgets('the asked amount wiped, the lines are without their price again', (tester) async {
+      await open(tester, api: FakeSalesApi(categories: categories));
+      await pick(tester, 'سل', 'سلاسل');
+      await weigh(tester, '5');
+      await tester.enterText(find.byKey(const Key('target-amount')), '2000');
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('line-unpriced-0')), findsNothing);
+      await tester.enterText(find.byKey(const Key('target-amount')), '');
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('line-unpriced-0')), findsOneWidget);
+    });
+
     testWidgets('Enter on the weight goes on to the amount, not past it', (
       tester,
     ) async {

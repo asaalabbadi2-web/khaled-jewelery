@@ -133,6 +133,15 @@ ScrapPurchaseReadiness scrapPurchaseReadiness(
         );
       }
     }
+    // A line is never bought at the buy price unwritten (the owner, 10 Nov
+    // 2026): its total is written, or the asked amount spread.
+    if (l.total <= 0) {
+      return notReady(
+        'السطر $n بلا سعر: اكتب إجماليه أو المبلغ المطلوب',
+        ScrapPurchaseTarget.items,
+        i,
+      );
+    }
   }
 
   if (facts.total <= kScrapCashTolerance) {

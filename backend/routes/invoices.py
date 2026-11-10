@@ -3582,6 +3582,14 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             if _sign_of(_item.get(_field), 0.0) < 0:
                 return jsonify({'error': 'negative_weight',
                                 'message': f'السطر {_n}: الوزن لا يكون سالبًا'}), 400
+    # A sale's and a scrap purchase's every line has its price (the owner,
+    # 10 Nov 2026): the screens filled a line at its cost until the asked
+    # amount was spread, and sales were saved at cost.
+    if invoice_type in ('بيع', 'شراء من عميل'):
+        for _n, _item in enumerate(data.get('items') or [], start=1):
+            if isinstance(_item, dict) and _sign_of(_item.get('price'), 0.0) <= 0:
+                return jsonify({'error': 'line_unpriced',
+                                'message': f'السطر {_n}: بلا سعر — اكتب إجماليه أو المبلغ المطلوب'}), 400
     for _n, _line in enumerate(data.get('karat_lines') or [], start=1):
         if isinstance(_line, dict) and _sign_of(
                 _line.get('weight_grams', _line.get('weight', _line.get('total_weight'))), 0.0) < 0:

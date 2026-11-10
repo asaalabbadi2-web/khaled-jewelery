@@ -36,6 +36,7 @@ import '../models/gold_prices.dart';
 import '../utils/live_gold_prices.dart';
 import '../utils/payment_fee.dart';
 import '../utils/sales_readiness.dart';
+import '../utils/spread_amount.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/app_shortcuts.dart';
 
@@ -100,6 +101,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
   final _smartInputController = TextEditingController();
   final _smartInputFocus = FocusNode();
   final _customAmountController = TextEditingController(); // 🆕 للمبلغ المخصص
+  /// «المبلغ المطلوب»: while it holds an amount, it is the invoice's total,
+  /// spread over the lines as it is typed (the owner, 10 Nov 2026).
+  final _targetAmountController = TextEditingController();
 
   bool _checkedLocalDraft = false;
 
@@ -214,6 +218,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
       _showAdvancedPaymentOptions = false;
       _smartInputController.clear();
       _customAmountController.clear();
+      _targetAmountController.clear();
 
       _enableBarter = false;
       for (final line in _barterLines) {
@@ -235,6 +240,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
       'customer_id': _selectedCustomerId,
       'branch_id': _selectedBranchId,
       'custom_amount': _customAmountController.text,
+      'target_amount': _targetAmountController.text,
       'ui_lock_price_edits': _uiLockPriceEdits,
       'ui_auto_print': _uiAutoOpenPrintAfterSave,
       'ui_paper_size': _uiPaperSize,
@@ -412,6 +418,11 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
         if (hasManual && manualTotal != null) {
           final mt = toDouble(manualTotal);
           if (mt > 0) item.setManualTotal(mt);
+        } else if (item.profit != 0) {
+          // A draft kept before 10 Nov 2026: a line spread then kept its
+          // profit, not its total -- priced as it was shown.
+          final was = (item.cost + item.profit + item.stonesValue) * (1 + item.taxRate);
+          if (was > 0) item.setManualTotal(was);
         }
         restoredItems.add(item);
       }
@@ -452,6 +463,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
         _selectedCustomerId = toInt(decoded?['customer_id']);
         _selectedBranchId = toInt(decoded?['branch_id']);
         _customAmountController.text = (decoded?['custom_amount'] ?? '')
+            .toString();
+        _targetAmountController.text = (decoded?['target_amount'] ?? '')
             .toString();
         _uiLockPriceEdits = decoded?['ui_lock_price_edits'] == true;
         _uiAutoOpenPrintAfterSave = decoded?['ui_auto_print'] == true;
@@ -634,12 +647,11 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
           // Restore profit so the totals match the original invoice
           final cost = item.cost;
           item.profit = net - cost - item.stonesValue;
-          // A scrap sale is priced by hand: each line keeps the total it was
-          // saved with, whatever the gold price is by the time it loads.
-          if (widget.scrap) {
-            final saved = net > 0 ? net + tax : _parseDouble(m['price']);
-            if (saved > 0) item.setManualTotal(saved);
-          }
+          // Each line keeps the total it was saved with, whatever the gold
+          // price is by the time it loads -- a line has its price only when
+          // its total is written (10 Nov 2026; a scrap sale was so before).
+          final saved = net > 0 ? net + tax : _parseDouble(m['price']);
+          if (saved > 0) item.setManualTotal(saved);
           _items.add(item);
         }
       }
@@ -715,6 +727,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
     _smartInputController.dispose();
     _smartInputFocus.dispose();
     _customAmountController.dispose(); // 🆕
+    _targetAmountController.dispose();
     for (final line in _barterLines) {
       line.dispose();
     }
@@ -1575,6 +1588,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
           avgManufacturingCostPerMainGram: _avgManufacturingCostPerMainGram,
         ),
       );
+      _respreadIfAsked();
     });
 
     return true;
@@ -1888,6 +1902,11 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
 
     setState(() {
       _items.add(manualItem);
+      if (manualItem.priced) {
+        _targetAmountController.clear();
+      } else {
+        _respreadIfAsked();
+      }
     });
 
 
@@ -2008,6 +2027,11 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
       );
       if (amount > 0) item.setManualTotal(amount);
       _items.add(item);
+      if (item.priced) {
+        _targetAmountController.clear();
+      } else {
+        _respreadIfAsked();
+      }
     });
 
   }
@@ -2107,11 +2131,14 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
           break;
         case 'total':
           item.setManualTotal(value);
+          // Written by hand, the lines no longer come to the asked amount.
+          _targetAmountController.clear();
           break;
       }
 
       if (requiresManualTargetRecalculation) {
         _recalculateManualTargetIfNeeded(item);
+        _respreadIfAsked();
       }
     });
 
@@ -2153,6 +2180,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
       // A fixed total stays fixed: the stones' value comes out of the gold's
       // profit. Otherwise the price grows by it.
       if (manual != null) item.setManualTotal(manual);
+      _respreadIfAsked();
     });
   }
 
@@ -2160,6 +2188,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
     final removed = _items[index];
     setState(() {
       _items.removeAt(index);
+      _respreadIfAsked();
     });
 
     AppFeedback.info(
@@ -2171,53 +2200,55 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
           if (!mounted) return;
           setState(() {
             _items.insert(math.min(index, _items.length), removed);
+            _respreadIfAsked();
           });
         },
       ),
     );
   }
 
+  /// A line's figure, or «—» while the line is without its price.
+  String _linePrice(InvoiceItem item, double v) => item.priced ? cu.formatAmount(v) : '—';
+
   // ==================== Auto Distribution ====================
-  void _distributeAmount(double targetTotal) {
-    if (_items.isEmpty) return;
+  /// The asked amount, while one is written.
+  double? get _targetAmount {
+    final v = readTypedNumber(_targetAmountController.text);
+    return v != null && v > 0 ? v : null;
+  }
 
-    // الخطوة 1: حساب إجمالي التكاليف
-    final totalCosts = _items.fold<double>(0.0, (sum, item) => sum + item.cost);
-
-    // الخطوة 2: حساب المبلغ بدون ضريبة
-    final amountWithoutTax = _effectiveVatRate <= 0
-        ? targetTotal
-        : targetTotal / (1 + _effectiveVatRate);
-
-    // الخطوة 3: حساب الربح المتاح للتوزيع -- the stones' value is theirs
-    // (ADR-050 ت6ج), not the gold's profit.
-    final stonesValues = _items.fold<double>(0.0, (s, i) => s + i.stonesValue);
-    final profitPool = amountWithoutTax - totalCosts - stonesValues;
-
-    // الخطوة 4: حساب إجمالي الأوزان
-    final totalWeight = _items.fold<double>(
-      0.0,
-      (sum, item) => sum + item.weight,
-    );
-
-    if (totalWeight == 0) return;
-
-    // الخطوة 5: توزيع الربح حسب نسبة الوزن
-    setState(() {
-      for (var item in _items) {
-        // 🔥 إزالة حالة التعديل اليدوي قبل التوزيع التلقائي
+  /// The asked amount spread over the lines as it is typed -- an iPhone's
+  /// number pad has no Enter, and a sale was saved at cost when it was not
+  /// pressed (the owner, 10 Nov 2026). As before, the cost each line and the
+  /// profit by weight; then whole riyals, the rest on the heaviest line
+  /// (spreadAmount). No amount: the lines are without their price. Called
+  /// inside a setState, after the lines change too.
+  void _applyTargetAmount() {
+    final target = _targetAmount;
+    if (target == null) {
+      for (final item in _items) {
         item.clearManualTotal();
-
-        // توزيع الربح بناءً على نسبة وزن الصنف من الوزن الكلي
-        item.profit = (item.weight / totalWeight) * profitPool;
       }
-    });
-
-    AppFeedback.success(
-      context,
-      'تم توزيع $targetTotal ${_settingsProvider.currencySymbolText} على ${_items.length} صنف\n'
-      'التكاليف: ${cu.formatAmount(totalCosts)} • الربح الموزع: ${cu.formatAmount(profitPool)}',
+      return;
+    }
+    final totals = spreadAmount(
+      target: target,
+      vatRate: _effectiveVatRate,
+      lines: [
+        for (final i in _items)
+          SpreadLine(cost: i.cost, extra: i.stonesValue, weight: i.weight),
+      ],
     );
+    if (totals == null) return;
+    for (var n = 0; n < _items.length; n++) {
+      _items[n].setManualTotal(totals[n]);
+    }
+  }
+
+  /// After a line is added, removed or changed: while an amount is asked, it
+  /// is spread again over the lines as they are now.
+  void _respreadIfAsked() {
+    if (_targetAmount != null) _applyTargetAmount();
   }
 
   // ==================== Submit Invoice ====================
@@ -3317,7 +3348,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
         branchChosen: _selectedBranchId != null,
         lines: [
           for (final i in _items)
-            SalesLineFacts(weight: i.weight, karat: i.karat),
+            SalesLineFacts(weight: i.weight, karat: i.karat, priced: i.priced),
         ],
         total: _calculateGrandTotal(),
         paid: _totalPayments,
@@ -4201,15 +4232,15 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
               DataCell(_saleWageCell(index, item, cellStyle)),
               DataCell(
                 Text(
-                  cu.formatAmount(item.calculateSellingPricePerGram()),
+                  _linePrice(item, item.calculateSellingPricePerGram()),
                   style: cellStyle,
                 ),
               ),
               if (_seesCost)
                 DataCell(Text(cu.formatAmount(item.cost), style: cellStyle)),
               if (!_uiDisableVat) ...[
-                DataCell(Text(cu.formatAmount(item.net), style: cellStyle)),
-                DataCell(Text(cu.formatAmount(item.tax), style: cellStyle)),
+                DataCell(Text(_linePrice(item, item.net), style: cellStyle)),
+                DataCell(Text(_linePrice(item, item.tax), style: cellStyle)),
               ],
               DataCell(_saleTotalCell(index, item, cellStyle)),
               DataCell(_saleLineActions(index, item)),
@@ -4300,16 +4331,20 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
                       vertical: 6,
                     ),
                     decoration: BoxDecoration(
-                      color: _tone.karat24.fg.withValues(alpha: 0.15),
+                      color: (item.priced ? _tone.karat24 : _tone.blocked).fg.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(6),
                       border: Border.all(
-                        color: _tone.karat24.fg.withValues(alpha: 0.3),
+                        color: (item.priced ? _tone.karat24 : _tone.blocked).fg.withValues(alpha: 0.3),
                       ),
                     ),
-                    child: _settingsProvider.buildText(
-                      '${cu.formatAmount(item.totalWithTax)} ${_settingsProvider.currencySymbolText}',
-                      style: cellStyle,
-                    ),
+                    // Without its price, said so -- never its cost (10 Nov 2026).
+                    child: item.priced
+                        ? _settingsProvider.buildText(
+                            '${cu.formatAmount(item.totalWithTax)} ${_settingsProvider.currencySymbolText}',
+                            style: cellStyle,
+                          )
+                        : Text('— بلا سعر', key: ValueKey('line-unpriced-$index'),
+                            style: cellStyle?.copyWith(color: _tone.blocked.fg)),
                   ),
                 );
 
@@ -4378,9 +4413,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
             Text(
               [
                 'العدد ${item.count}',
-                'السعر/جم ${cu.formatAmount(item.calculateSellingPricePerGram())}',
+                'السعر/جم ${_linePrice(item, item.calculateSellingPricePerGram())}',
                 if (_seesCost) 'التكلفة ${cu.formatAmount(item.cost)}',
-                if (!_uiDisableVat) 'الضريبة ${cu.formatAmount(item.tax)}',
+                if (!_uiDisableVat) 'الضريبة ${_linePrice(item, item.tax)}',
               ].join(' · '),
               style: theme.textTheme.bodySmall,
             ),
@@ -4612,6 +4647,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
             const SizedBox(height: 12),
             TextField(
               key: const Key('target-amount'),
+              controller: _targetAmountController,
               enabled: _items.isNotEmpty,
               inputFormatters: [NormalizeNumberFormatter()],
               keyboardType: const TextInputType.numberWithOptions(
@@ -4620,19 +4656,15 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
               textInputAction: TextInputAction.done,
               decoration: InputDecoration(
                 labelText: 'المبلغ المطلوب',
-                helperText: 'يُوزَّع على الأسطر',
+                // Said as it is typed: no Enter to press (10 Nov 2026).
+                helperText: _targetAmount != null
+                    ? 'وُزِّع على ${_items.length} ${_items.length == 1 ? 'سطر' : 'أسطر'} بريالات كاملة'
+                    : 'يُوزَّع على الأسطر أثناء الكتابة',
                 suffixText: currency,
                 border: const OutlineInputBorder(),
                 isDense: true,
               ),
-              onSubmitted: (value) {
-                final target = readTypedNumber(value);
-                if (target == null || target <= 0) {
-                  _showError('اكتب المبلغ المطلوب أرقامًا');
-                  return;
-                }
-                _distributeAmount(target);
-              },
+              onChanged: (_) => setState(_applyTargetAmount),
             ),
           ],
         ),
@@ -5407,7 +5439,7 @@ class InvoiceItem {
   double _avgGoldCostPerMainGram;
   double _avgManufacturingCostPerMainGram;
 
-  // الربح الموزع (يتم حسابه في _distributeAmount)
+  // الربح الموزع (يتم حسابه من الإجمالي المكتوب أو الموزَّع)
   double profit = 0.0;
 
   /// Stones sold by their value (ADR-050 ت6ج): on the showroom's counter,
@@ -5423,6 +5455,12 @@ class InvoiceItem {
 
   bool get hasManualTotal => _hasManualTotal && _targetTotal != null;
   double? get manualTargetTotal => _targetTotal;
+
+  /// A line has its price when its total was written -- by hand or by the
+  /// asked amount spread. Until then it comes to nothing and the invoice is
+  /// not saved: it was its cost, and sales were saved at cost when the
+  /// amount was not spread (the owner, 10 Nov 2026).
+  bool get priced => hasManualTotal;
 
   InvoiceItem({
     this.id,
@@ -5463,13 +5501,10 @@ class InvoiceItem {
     return goldCost + weight * wage;
   }
 
-  // الصافي = التكلفة + الربح الموزع
+  // الصافي = الإجمالي المكتوب بلا ضريبته؛ لا شيء قبل أن يُكتب
   double get net {
-    if (_hasManualTotal && _targetTotal != null) {
-      // إذا تم تحديد إجمالي يدوي، احسب الصافي من الإجمالي
-      return _targetTotal! / (1 + taxRate);
-    }
-    return cost + profit + stonesValue;
+    if (!priced) return 0.0;
+    return _targetTotal! / (1 + taxRate);
   }
 
   // الضريبة 15% على الصافي
@@ -5478,12 +5513,7 @@ class InvoiceItem {
   }
 
   // الإجمالي مع الضريبة
-  double get totalWithTax {
-    if (_hasManualTotal && _targetTotal != null) {
-      return _targetTotal!;
-    }
-    return net + tax;
-  }
+  double get totalWithTax => priced ? _targetTotal! : 0.0;
 
   // حساب سعر البيع للجرام (للعرض فقط)
   double calculateSellingPricePerGram() {

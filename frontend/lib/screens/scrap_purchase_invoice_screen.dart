@@ -22,6 +22,7 @@ import '../models/gold_prices.dart';
 import '../utils/live_gold_prices.dart';
 import '../utils/payment_fee.dart';
 import '../utils/scrap_purchase_readiness.dart';
+import '../utils/spread_amount.dart';
 import '../widgets/invoice_review_dialog.dart';
 import '../widgets/invoice_saved_dialog.dart';
 import 'invoices_list_screen.dart';
@@ -166,6 +167,10 @@ class _ScrapPurchaseInvoiceScreenState
   ];
   String _goldCondition = _goldConditionOptions[1];
 
+  /// «المبلغ المطلوب»: while it holds an amount, spread over the lines not
+  /// written by hand as it is typed (the owner, 10 Nov 2026).
+  final _targetAmountController = TextEditingController();
+
   void _resetAfterSave() {
     setState(() {
       _selectedCustomerId = null;
@@ -175,6 +180,7 @@ class _ScrapPurchaseInvoiceScreenState
       _selectedSafeBoxId = null;
       _smartInputController.clear();
       _customAmountController.clear();
+      _targetAmountController.clear();
       _goldImages.clear();
       _purchaseNotesController.clear();
       _goldCondition = _goldConditionOptions[1];
@@ -370,6 +376,7 @@ class _ScrapPurchaseInvoiceScreenState
         item.setManualTotal(amount);
       }
       _items.add(item);
+      _respreadIfAsked();
     });
   }
 
@@ -487,6 +494,7 @@ class _ScrapPurchaseInvoiceScreenState
     _smartInputController.dispose();
     _smartInputFocus.dispose();
     _customAmountController.dispose(); // 🆕
+    _targetAmountController.dispose();
     _purchaseNotesController.dispose(); // 🆕
     super.dispose();
   }
@@ -835,6 +843,7 @@ class _ScrapPurchaseInvoiceScreenState
           mainKarat: _settingsProvider.mainKarat,
         ),
       );
+      _respreadIfAsked();
       debugPrint('📋 عدد الأصناف الآن: ${_items.length}');
     });
   }
@@ -870,10 +879,11 @@ class _ScrapPurchaseInvoiceScreenState
           item.quantity = value.round().clamp(1, 999999);
           break;
         case 'total':
-          // تحديد الإجمالي المستهدف
+          // Written by hand: it stays, the asked amount goes over the others.
           item.setManualTotal(value);
           break;
       }
+      _respreadIfAsked();
     });
   }
 
@@ -896,60 +906,45 @@ class _ScrapPurchaseInvoiceScreenState
   void _removeItem(int index) {
     setState(() {
       _items.removeAt(index);
+      _respreadIfAsked();
     });
   }
 
-  void _distributeAmount(double targetTotal) {
-    if (_items.isEmpty) return;
+  /// The asked amount, while one is written.
+  double? get _targetAmount {
+    final v = readTypedNumber(_targetAmountController.text);
+    return v != null && v > 0 ? v : null;
+  }
 
-    final fixedTotal = _items
-        .where((i) => i._hasManualTotal && i._targetTotal != null)
-        .fold<double>(0.0, (sum, item) => sum + item.totalWithTax);
-
-    final adjustableItems = _items
-        .where(
-          (i) => i.weight > 0 && !(i._hasManualTotal && i._targetTotal != null),
-        )
-        .toList();
-
-    if (adjustableItems.isEmpty) {
-      _showError('لا توجد أصناف وزن قابلة للتوزيع');
-      return;
-    }
-
-    // الخطوة 1: حساب إجمالي التكاليف
-    final totalCosts = adjustableItems.fold<double>(
-      0.0,
-      (sum, item) => sum + item.cost,
-    );
-
-    // الخطوة 2: المبلغ المستهدف (لا توجد ضريبة على شراء الكسر)
-    final amountWithoutTax = targetTotal;
-
-    // الخطوة 3: حساب الربح المتاح للتوزيع
-    final profitPool = (amountWithoutTax - fixedTotal) - totalCosts;
-
-    // الخطوة 4: حساب إجمالي الأوزان
-    final totalWeight = adjustableItems.fold<double>(
-      0.0,
-      (sum, item) => sum + item.weight,
-    );
-
-    if (totalWeight == 0) return;
-
-    // الخطوة 5: توزيع الربح حسب نسبة الوزن
-    setState(() {
-      for (final item in adjustableItems) {
-        item.clearManualTotal();
-        item.profit = (item.weight / totalWeight) * profitPool;
+  /// The asked amount spread as it is typed -- an iPhone's number pad has no
+  /// Enter (the owner, 10 Nov 2026). As before: the lines written by hand
+  /// stay, the rest of the amount goes over the others, each its cost and
+  /// the profit by weight; then whole riyals, the rest on the heaviest
+  /// (spreadAmount). No amount: the spread lines are without their price.
+  /// Called inside a setState, after the lines change too.
+  void _applyTargetAmount() {
+    final spreadable = [for (final i in _items) if (!i.fixedByHand && i.weight > 0) i];
+    final target = _targetAmount;
+    final byHand = _items.where((i) => i.fixedByHand).fold<double>(0.0, (s, i) => s + i.totalWithTax);
+    final totals = target == null
+        ? null
+        : spreadAmount(
+            target: target - byHand,
+            lines: [for (final i in spreadable) SpreadLine(cost: i.cost, weight: i.weight)],
+          );
+    for (var n = 0; n < spreadable.length; n++) {
+      if (totals == null) {
+        spreadable[n].clearManualTotal();
+      } else {
+        spreadable[n].setManualTotal(totals[n], spread: true);
       }
-    });
+    }
+  }
 
-    AppFeedback.success(
-      context,
-      'تم توزيع $targetTotal ${_settingsProvider.currencySymbolText} على ${adjustableItems.length} صنف\n'
-      'التكاليف: ${formatAmount(totalCosts)} • الربح الموزع: ${formatAmount(profitPool)}',
-    );
+  /// After a line is added, removed or changed: while an amount is asked, it
+  /// is spread again over the lines as they are now.
+  void _respreadIfAsked() {
+    if (_targetAmount != null) _applyTargetAmount();
   }
 
   // ==================== Image Picking Methods ====================
@@ -2966,16 +2961,20 @@ class _ScrapPurchaseInvoiceScreenState
                       vertical: 6,
                     ),
                     decoration: BoxDecoration(
-                      color: _tone.karat24.fg.withValues(alpha: 0.15),
+                      color: (item.priced ? _tone.karat24 : _tone.blocked).fg.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(6),
                       border: Border.all(
-                        color: _tone.karat24.fg.withValues(alpha: 0.3),
+                        color: (item.priced ? _tone.karat24 : _tone.blocked).fg.withValues(alpha: 0.3),
                       ),
                     ),
-                    child: _settingsProvider.buildText(
-                      '${formatAmount(item.totalWithTax)} ${_settingsProvider.currencySymbolText}',
-                      style: cellStyle,
-                    ),
+                    // Without its price, said so -- never the buy price (10 Nov 2026).
+                    child: item.priced
+                        ? _settingsProvider.buildText(
+                            '${formatAmount(item.totalWithTax)} ${_settingsProvider.currencySymbolText}',
+                            style: cellStyle,
+                          )
+                        : Text('— بلا سعر', key: ValueKey('line-unpriced-$index'),
+                            style: cellStyle?.copyWith(color: _tone.blocked.fg)),
                   ),
                 );
 
@@ -3449,6 +3448,7 @@ class _ScrapPurchaseInvoiceScreenState
             const SizedBox(height: 12),
             TextField(
               key: const Key('target-amount'),
+              controller: _targetAmountController,
               enabled: _items.isNotEmpty,
               inputFormatters: [NormalizeNumberFormatter()],
               keyboardType: const TextInputType.numberWithOptions(
@@ -3457,19 +3457,15 @@ class _ScrapPurchaseInvoiceScreenState
               textInputAction: TextInputAction.done,
               decoration: InputDecoration(
                 labelText: 'المبلغ المطلوب',
-                helperText: 'يُوزَّع على الأسطر',
+                // Said as it is typed: no Enter to press (10 Nov 2026).
+                helperText: _targetAmount != null
+                    ? 'وُزِّع على الأسطر بريالات كاملة'
+                    : 'يُوزَّع على الأسطر أثناء الكتابة',
                 suffixText: currency,
                 border: const OutlineInputBorder(),
                 isDense: true,
               ),
-              onSubmitted: (value) {
-                final target = readTypedNumber(value);
-                if (target == null || target <= 0) {
-                  _showError('اكتب المبلغ المطلوب أرقامًا');
-                  return;
-                }
-                _distributeAmount(target);
-              },
+              onChanged: (_) => setState(_applyTargetAmount),
             ),
           ],
         ),
@@ -4421,12 +4417,24 @@ class InvoiceItem {
   final int mainKarat;
   final bool isCategoryLine;
 
-  // الربح الموزع (يتم حسابه في _distributeAmount)
+  // الربح الموزع (يتم حسابه من الإجمالي المكتوب أو الموزَّع)
   double profit = 0.0;
 
   // علامة لتتبع إذا تم تحديد الإجمالي يدوياً
   bool _hasManualTotal = false;
   double? _targetTotal;
+
+  /// Its total came from the asked amount spread, not from a hand: spread
+  /// again when the amount or the lines change, a hand's stays.
+  bool _spread = false;
+
+  /// A line has its price when its total was written -- by hand or by the
+  /// asked amount spread. Until then it comes to nothing and the purchase is
+  /// not saved (the owner, 10 Nov 2026: «بلا سعر كالبيع»).
+  bool get priced => _hasManualTotal && _targetTotal != null;
+
+  /// Written by hand: the asked amount is spread over the others.
+  bool get fixedByHand => priced && !_spread;
 
   InvoiceItem({
     required this.itemId,
@@ -4479,14 +4487,8 @@ class InvoiceItem {
     return weight * calculateDirectPurchaseCostPerGram();
   }
 
-  // الصافي = التكلفة + الربح الموزع
-  double get net {
-    if (_hasManualTotal && _targetTotal != null) {
-      // إذا تم تحديد إجمالي يدوي، استخدمه مباشرة (لا توجد ضريبة على شراء الكسر)
-      return _targetTotal!;
-    }
-    return cost + profit;
-  }
+  // الصافي = الإجمالي المكتوب (لا ضريبة على شراء الكسر)؛ لا شيء قبل أن يُكتب
+  double get net => priced ? _targetTotal! : 0.0;
 
   // الإجمالي (نفس الصافي لأنه لا توجد ضريبة على شراء الكسر)
   double get totalWithTax {
@@ -4499,10 +4501,11 @@ class InvoiceItem {
     return net / weight;
   }
 
-  // تحديد إجمالي يدوي
-  void setManualTotal(double total) {
+  // تحديد إجمالي يدوي -- أو من المبلغ المطلوب الموزَّع ([spread])
+  void setManualTotal(double total, {bool spread = false}) {
     _hasManualTotal = true;
     _targetTotal = total;
+    _spread = spread;
     applyTargetTotalCalculations(total);
   }
 
@@ -4510,6 +4513,7 @@ class InvoiceItem {
   void clearManualTotal() {
     _hasManualTotal = false;
     _targetTotal = null;
+    _spread = false;
   }
 
   Map<String, dynamic> toJson() {

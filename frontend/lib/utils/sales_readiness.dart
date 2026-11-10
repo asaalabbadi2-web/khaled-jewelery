@@ -14,7 +14,10 @@ enum SalesReadinessTarget { none, branch, customer, items, payment, goldPrice }
 class SalesLineFacts {
   final double weight;
   final double karat;
-  const SalesLineFacts({required this.weight, required this.karat});
+
+  /// Its total written, by hand or by the asked amount spread (10 Nov 2026).
+  final bool priced;
+  const SalesLineFacts({required this.weight, required this.karat, this.priced = true});
 }
 
 class SalesReadinessFacts {
@@ -100,6 +103,18 @@ SalesReadiness salesReadiness(
     if (!_sellableKarats.contains(line.karat)) {
       return notReady(
         'عيار السطر ${i + 1} يجب أن يكون 18 أو 21 أو 22 أو 24',
+        SalesReadinessTarget.items,
+        i,
+      );
+    }
+  }
+
+  // A line without its price is never saved at its cost (the owner, 10 Nov
+  // 2026): it is written, or the asked amount spread.
+  for (var i = 0; i < facts.lines.length; i++) {
+    if (!facts.lines[i].priced) {
+      return notReady(
+        'السطر ${i + 1} بلا سعر: اكتب إجماليه أو المبلغ المطلوب',
         SalesReadinessTarget.items,
         i,
       );
