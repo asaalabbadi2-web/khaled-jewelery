@@ -12,6 +12,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/fake_sales_api.dart';
+import 'support/shots.dart';
 
 /// RETURN-LIMIT-1 (the owner, 8 Oct 2026): a return gives back what was sold
 /// and no more. All nine customer returns on the 6 Oct copy were whole returns
@@ -146,6 +147,28 @@ void main() {
     return ((api.added.single['payments'] as List).single as Map)['amount']
         as double;
   }
+
+  // The return drawn on an iPhone, for looking at (SHOT_DIR; nothing without it).
+  testWidgets('the return draws on an iPhone (SHOT_DIR)', (tester) async {
+    if (shotDir.isEmpty) return;
+    await open(tester);
+    tester.view.physicalSize = const Size(390, 1700);
+    await tester.pumpAndSettle();
+    await shot(tester, 'return_whole_phone');
+    await partial(tester);
+    await shot(tester, 'return_step_items_phone');
+    await next(tester);
+    await shot(tester, 'return_step_reason_phone');
+    await tester.enterText(find.byType(TextFormField).at(1), 'عيب في الصنع');
+    await next(tester);
+    await shot(tester, 'return_step_payment_phone');
+    await tester.tap(find.text('وسيلة الدفع').hitTestable());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('نقداً').last);
+    await tester.pumpAndSettle();
+    await next(tester);
+    await shot(tester, 'return_step_review_phone');
+  });
 
   testWidgets('a refund typed with a thousands comma is a thousand', (
     tester,

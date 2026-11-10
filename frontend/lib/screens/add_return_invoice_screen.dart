@@ -1801,14 +1801,17 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
         ),
       );
     } else {
-      content = SizedBox(
-        height: 320,
-        child: ListView.separated(
-          itemCount: _returnItems.length,
-          separatorBuilder: (context, index) => const SizedBox(height: 12),
-          itemBuilder: (context, index) {
+      // The lines one under the other, scrolled with the page: in a box of
+      // 320 px an iPhone showed a line's first figure and cut the rest
+      // (the owner, 10 Nov 2026).
+      content = Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var index = 0; index < _returnItems.length; index++)
+            Builder(builder: (context) {
             final item = _returnItems[index];
             return Card(
+              margin: const EdgeInsets.only(bottom: 12),
               elevation: 2,
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -1896,25 +1899,25 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                           _buildItemSummaryChip(
                             icon: Icons.scale,
                             label: 'الوزن',
-                            value: '${item.weight.toStringAsFixed(3)} جم',
+                            value: '${cu.formatGrams(item.weight)} جم',
                           ),
                           _buildItemSummaryChip(
                             icon: Icons.attach_money,
                             label: 'الصافي',
                             value:
-                                '${item.net.toStringAsFixed(2)} $currencySymbol',
+                                '${cu.formatAmount(item.net)} $currencySymbol',
                           ),
                           _buildItemSummaryChip(
                             icon: Icons.percent,
                             label: 'الضريبة',
                             value:
-                                '${item.tax.toStringAsFixed(2)} $currencySymbol',
+                                '${cu.formatAmount(item.tax)} $currencySymbol',
                           ),
                           _buildItemSummaryChip(
                             icon: Icons.summarize,
                             label: 'الإجمالي',
                             value:
-                                '${item.total.toStringAsFixed(2)} $currencySymbol',
+                                '${cu.formatAmount(item.total)} $currencySymbol',
                           ),
                         ],
                       ),
@@ -1923,8 +1926,8 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                 ),
               ),
             );
-          },
-        ),
+            }),
+        ],
       );
     }
 
@@ -1992,8 +1995,13 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
           const SizedBox(height: 16),
 
           // ── Totals chip ──────────────────────────────────────────────
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          // A Wrap: on an iPhone the chip goes under the title -- in a Row it
+          // ran 54 px past the screen (the owner, 10 Nov 2026).
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 12,
+            runSpacing: 8,
             children: [
               Text('وسائل الدفع', style: theme.textTheme.titleLarge),
               Container(
@@ -2007,7 +2015,7 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                   border: Border.all(color: cs.primary.withValues(alpha: 0.4)),
                 ),
                 child: cu.SarAwareText(
-                  'القيمة المرجعية حسب الوزن: ${_suggestedTotal.toStringAsFixed(2)} $currencySymbol',
+                  'القيمة المرجعية حسب الوزن: ${cu.formatAmount(_suggestedTotal)} $currencySymbol',
                   isNewSar: _isNewSar,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     fontWeight: FontWeight.bold,

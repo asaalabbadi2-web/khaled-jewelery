@@ -16,6 +16,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/sales_race_refresh_provider.dart';
 import 'package:frontend/providers/settings_provider.dart';
+import 'package:frontend/screens/add_return_invoice_screen.dart';
 import 'package:frontend/screens/purchase_invoice_screen.dart';
 import 'package:frontend/screens/sales_invoice_screen_v2.dart';
 import 'package:frontend/screens/scrap_purchase_invoice_screen.dart';
@@ -73,6 +74,22 @@ final _purchaseDraft = {
 
 typedef _Screen = Widget Function();
 
+/// A sale returned (the owner, 10 Nov 2026: «المرتجع في الأخير»).
+final _returned = <String, dynamic>{
+  'id': 10, 'invoice_type': 'بيع', 'customer_id': 8, 'branch_id': 1, 'total': 1000.0, 'total_weight': 2.0,
+  'total_tax': 0.0,
+  'items': [
+    {'id': 100, 'name': 'سلسال', 'karat': 21, 'weight': 2.0, 'quantity': 1, 'price': 1000.0, 'net': 1000.0,
+     'tax': 0.0, 'wage': 0.0},
+  ],
+};
+
+Widget _returnScreen() => AddReturnInvoiceScreen(
+      api: FakeSalesApi(invoices: {10: _returned}),
+      returnType: 'مرتجع بيع',
+      prefilledOriginalInvoice: _returned,
+    );
+
 final screens = <String, (Map<String, Object>, _Screen)>{
   'sale': (
     {'yasargold_sales_invoice_complete_later_v2': jsonEncode(_saleDraft)},
@@ -90,6 +107,7 @@ final screens = <String, (Map<String, Object>, _Screen)>{
     {'yasargold_purchase_invoice_complete_later': jsonEncode(_purchaseDraft)},
     () => PurchaseInvoiceScreen(apiService: FakePurchaseApi()),
   ),
+  'whole return': (const {}, _returnScreen),
 };
 
 /// What did not fit, said by the framework -- one line each.
@@ -177,5 +195,49 @@ void main() {
         expect(overflows, isEmpty, reason: '${screen.key} on ${device.key}');
       });
     }
+  }
+
+  // A return of part of a sale is a wizard: every step, as the employee
+  // walks it. Its payment step ran 54 px off an iPhone, and its lines sat in
+  // a box of 320 px that cut them (10 Nov 2026).
+  for (final device in devices.entries) {
+    testWidgets('a partial return fits an ${device.key}, every step', (tester) async {
+      final found = await _open(tester, device.value, const {}, _returnScreen);
+      Future<void> step(Future<void> Function() act) async {
+        await act();
+        await tester.pumpAndSettle();
+        found.addAll(_overflows(tester));
+        final scrollable = find.byType(Scrollable).first;
+        for (var page = 0; page < 6; page++) {
+          await tester.drag(scrollable, const Offset(0, -500), warnIfMissed: false);
+          await tester.pump(const Duration(milliseconds: 100));
+          found.addAll(_overflows(tester));
+        }
+      }
+
+      Future<void> tapText(String text) async {
+        await tester.ensureVisible(find.text(text).last);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(text).hitTestable().last);
+      }
+
+      await step(() => tapText('إرجاع جزء فقط'));
+      expect(find.text('اختر الأصناف المرتجعة'), findsOneWidget);
+      expect(find.textContaining('الإجمالي', findRichText: true), findsWidgets, reason: 'the line\'s figures, not cut');
+      await step(() => tapText('التالي'));
+      await step(() async {
+        await tester.enterText(find.byType(TextFormField).at(1), 'عيب في الصنع');
+        await tapText('التالي');
+      });
+      expect(find.textContaining('القيمة المرجعية'), findsOneWidget, reason: 'at the payment step');
+      await step(() async {
+        await tapText('وسيلة الدفع');
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('نقداً').last);
+        await tester.pumpAndSettle();
+        await tapText('التالي');
+      });
+      expect(found, isEmpty, reason: device.key);
+    });
   }
 }
