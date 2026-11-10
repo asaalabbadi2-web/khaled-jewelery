@@ -380,5 +380,6 @@
             ".github/workflows/*.yml",
             ".github/workflows/*.yaml"
         ]
-    }
+    },
+    "python.terminal.useEnvFile": true
 }
