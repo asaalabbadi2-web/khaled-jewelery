@@ -52,6 +52,7 @@ dependencies:
   barcode: any
   web: ^1.1.1
   flutter_staggered_animations: ^1.1.1
+  flutter_svg: ^2.3.0
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -67,6 +68,7 @@ flutter:
     - assets/KHWL.png
     - assets/sar_new_symbol.svg
     - assets/sar_new_symbol.png
+    - assets/icons/
   fonts:
     - family: Cairo
       fonts:

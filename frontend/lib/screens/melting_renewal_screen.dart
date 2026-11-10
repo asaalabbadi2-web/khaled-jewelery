@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../widgets/gold_operation_icon.dart';
 import '../api_service.dart';
 import '../models/safe_box_model.dart';
 import '../utils.dart';
@@ -64,8 +65,14 @@ class _MeltingRenewalScreenState extends State<MeltingRenewalScreen>
         bottom: AppBarTabBar(
           controller: _tabController,
           tabs: const [
-            Tab(icon: Icon(Icons.recycling), text: 'تكسير المخزون'),
-            Tab(icon: Icon(Icons.auto_fix_high), text: 'تجديد القطع'),
+            Tab(
+              icon: GoldOperationIcon(GoldOperation.breaking),
+              text: 'تكسير المخزون',
+            ),
+            Tab(
+              icon: GoldOperationIcon(GoldOperation.renewal),
+              text: 'تجديد القطع',
+            ),
           ],
         ),
       ),
@@ -850,8 +857,10 @@ class _OperationFormState extends State<_OperationForm> {
                           height: 18,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : Icon(
-                          _isMelting ? Icons.recycling : Icons.auto_fix_high,
+                      : GoldOperationIcon(
+                          _isMelting
+                              ? GoldOperation.breaking
+                              : GoldOperation.renewal,
                         ),
                   label: Text(_isMelting ? 'تنفيذ التكسير' : 'تنفيذ التجديد'),
                 ),
@@ -1459,8 +1468,8 @@ class _InfoBanner extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(
-            isMelting ? Icons.recycling : Icons.auto_fix_high,
+          GoldOperationIcon(
+            isMelting ? GoldOperation.breaking : GoldOperation.renewal,
             color: tone.onContainer,
             size: 18,
           ),
