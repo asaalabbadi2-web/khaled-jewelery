@@ -1,16 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-  <!-- تكسير الذهب (المالك، 10 نوفمبر 2026): مطرقة فوق سبيكة متصدّعة، قبل الضربة بقليل.
-       لون واحد هو لون موضعه (currentColor)، والصدع محفور بقناع لا بلون خلفية. -->
+  <!-- تكسير الذهب (المالك، 10 نوفمبر 2026): مطرقة فوق ماسة مشروخة.
+       الماسة بشكل ماسة Material، وحزامها والشرخ محفوران بقناع؛ لون واحد هو لون موضعه. -->
   <defs>
-    <mask id="crack" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
-      <rect width="24" height="24" fill="white"/>
-      <path d="M11.6 13.6L12.6 16.2L11.2 18L12.3 21.6M12.6 16.2L14.4 17.3" fill="none" stroke="black" stroke-width="1.4" stroke-linejoin="miter"/>
+    <mask id="cut" maskUnits="userSpaceOnUse" x="-40" y="-40" width="100" height="100">
+      <rect x="-40" y="-40" width="100" height="100" fill="white"/>
+      <path d="M2 9H22" fill="none" stroke="black" stroke-width="1.7"/>
+      <path d="M12 1.5L13.8 6.8L10.6 11.6L12.9 15.6L12 22" fill="none" stroke="black" stroke-width="2.5" stroke-linejoin="miter"/>
     </mask>
   </defs>
-  <!-- السبيكة -->
-  <path fill="currentColor" mask="url(#crack)" d="M3.5 21H20.5L17.5 14H6.5Z"/>
-  <!-- المطرقة: رأسها ومقبضها -->
-  <g transform="translate(10.2 8.6) rotate(-25)">
+  <g transform="translate(4.8 9.8) scale(0.6)">
+    <path data-part="gem" fill="currentColor" mask="url(#cut)" d="M12 21L2 9L5 3H19L22 9Z"/>
+  </g>
+  <g transform="translate(10.2 7.2) rotate(-25)">
     <rect x="-1.8" y="-3.5" width="3.6" height="7" rx="0.8" fill="currentColor"/>
     <path d="M1.8 0H11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
   </g>

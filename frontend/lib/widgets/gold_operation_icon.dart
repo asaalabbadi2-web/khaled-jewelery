@@ -3,11 +3,10 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 /// العمليتان اللتان تنقلان الذهب بين المعروض والكسر، ولكل منهما أيقونتها.
 enum GoldOperation {
-  /// تكسير: قطعة من المعروض تصير كسرًا -- مطرقة فوق سبيكة متصدّعة.
+  /// تكسير: قطعة من المعروض تصير كسرًا -- مطرقة فوق ماسة مشروخة.
   breaking('assets/icons/gold_breaking.svg'),
 
-  /// تجديد: القطعة نفسها بالية تعود جديدة -- الخاتم الباهت المخدوش يعود
-  /// يلمع. لا سبيكة فيها: السبيكة التي تصير خاتمًا «تصنيع» (المالك).
+  /// تجديد: القطعة نفسها تعود جديدة -- الماسة بين سهمي التدوير.
   renewal('assets/icons/gold_renewal.svg');
 
   const GoldOperation(this.asset);
@@ -19,13 +18,12 @@ enum GoldOperation {
 /// أيقونة عملية الذهب بلغة أيقونات التطبيق (Material): لون واحد هو لون
 /// موضعها كأي `Icon` -- لون نوعها حيث يُعطى، وإلا لون `IconTheme` (التبويب
 /// المختار، والزر المعطَّل، والوضع الداكن). الملفان مرسومان بـ
-/// `currentColor` وخطّ 2 كأيقونات Material، وما يُفصل (صدع السبيكة، خدوش
-/// الخاتم البالي) محفور بقناع لا بلون خلفية، فيصحّ على كل خلفية. اختارهما
-/// المالك (10 نوفمبر 2026) بعد صيغ عدة: الخاتم والزرادية لم يُقرآ «تكسيرًا»
-/// على المقاس الصغير.
+/// `currentColor` وخطّ 2 كأيقونات Material، والماسة بشكل ماسة Material في
+/// الاثنتين، وما يُفصل (أوجهها، حزامها، الشرخ) محفور بقناع لا بلون خلفية،
+/// فيصحّ على كل خلفية. اختارهما المالك (10 نوفمبر 2026).
 ///
-/// التجديد اتجاهه من القديم إلى الجديد، فيُعكس في الواجهة العربية ليُقرأ من
-/// اليمين إلى اليسار؛ التكسير لا اتجاه له فلا يُعكس.
+/// لا تُعكسان في الواجهة العربية: التدوير كـ`autorenew` في Material لا يُعكس،
+/// والتكسير لا اتجاه له.
 class GoldOperationIcon extends StatelessWidget {
   const GoldOperationIcon(
     this.operation, {
@@ -56,7 +54,6 @@ class GoldOperationIcon extends StatelessWidget {
       operation.asset,
       width: side,
       height: side,
-      matchTextDirection: operation == GoldOperation.renewal,
       theme: SvgTheme(currentColor: paint),
       semanticsLabel: semanticLabel,
       excludeFromSemantics: semanticLabel == null,

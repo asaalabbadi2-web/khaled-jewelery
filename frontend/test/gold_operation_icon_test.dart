@@ -1,6 +1,6 @@
 // أيقونتا التكسير والتجديد (المالك، 10 نوفمبر 2026): بلغة أيقونات التطبيق --
-// Material، لون واحد هو لون موضعها كأي Icon، وخطّ 2. التكسير مطرقة فوق
-// سبيكة متصدّعة، والتجديد الخاتم نفسه بالٍ ثم جديد. ملفّا الـ SVG هما المرجع.
+// Material، لون واحد هو لون موضعها كأي Icon، وخطّ 2. التكسير مطرقة فوق ماسة
+// مشروخة، والتجديد الماسة نفسها بين سهمي التدوير. ملفّا الـ SVG هما المرجع.
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -11,16 +11,6 @@ import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/widgets/gold_operation_icon.dart';
 
 import 'support/shots.dart';
-
-/// A path's points, moved so that its first point is at the origin.
-List<String> _shape(String d) {
-  final nums = RegExp(r'-?[\d.]+').allMatches(d).map((m) => double.parse(m.group(0)!)).toList();
-  final out = <String>[];
-  for (var i = 0; i + 1 < nums.length; i += 2) {
-    out.add('${(nums[i] - nums[0]).toStringAsFixed(2)},${(nums[i + 1] - nums[1]).toStringAsFixed(2)}');
-  }
-  return out;
-}
 
 void main() {
   test('each icon is in one colour, its place\'s: currentColor and nothing else', () {
@@ -60,19 +50,15 @@ void main() {
     }
   });
 
-  // Renewal is the same piece, worn then new (the owner: a bar becoming a
-  // ring is making, not renewing): one ring twice, at one size, one stone.
-  test('renewal is one ring, worn and then new', () {
-    final svg = File(GoldOperation.renewal.asset).readAsStringSync();
-    final radii = RegExp(r'data-part="ring"[^>]*\sr="([\d.]+)"').allMatches(svg).map((m) => m.group(1)).toList();
-    expect(radii, hasLength(2));
-    expect(radii.toSet(), hasLength(1));
-    final stones = RegExp(r'data-part="stone"[^>]*\sd="([^"]+)"')
-        .allMatches(svg)
-        .map((m) => _shape(m.group(1)!).join(' '))
-        .toList();
-    expect(stones, hasLength(2));
-    expect(stones.toSet(), hasLength(1));
+  // The owner (10 Nov 2026): a diamond renewed between the two arrows of
+  // rotation, and a diamond cracked under a hammer -- the same diamond.
+  test('both carry the same diamond', () {
+    final gem = RegExp(r'data-part="gem"[^>]*\sd="([^"]+)"');
+    final shapes = [
+      for (final op in GoldOperation.values) gem.firstMatch(File(op.asset).readAsStringSync())?.group(1),
+    ];
+    expect(shapes, everyElement(isNotNull));
+    expect(shapes.toSet(), hasLength(1));
   });
 
   testWidgets('it takes its place\'s colour and size, as an Icon does', (tester) async {
@@ -99,14 +85,17 @@ void main() {
     expect(svgs[0].matchTextDirection, isFalse);
     expect(themeOf(svgs[1])?.currentColor, const Color(0xFF112233));
     expect(svgs[1].width, 18);
-    expect(svgs[1].matchTextDirection, isTrue, reason: 'renewal reads right to left in Arabic');
+    expect(svgs[1].matchTextDirection, isFalse, reason: 'a rotation, as autorenew: not mirrored');
   });
 
   test('«التجديد والتكسير» uses the two icons, not the generic ones', () {
     final screen = File('lib/screens/melting_renewal_screen.dart').readAsStringSync();
     expect(screen, isNot(contains('Icons.recycling')));
     expect(screen, isNot(contains('Icons.auto_fix_high')));
-    expect('GoldOperationIcon('.allMatches(screen).length, greaterThanOrEqualTo(4));
+    // The tabs, the run button and the banner: each operation's own icon.
+    expect('GoldOperationIcon('.allMatches(screen).length, greaterThanOrEqualTo(3));
+    expect(screen, contains('GoldOperation.renewal'));
+    expect(screen, contains('GoldOperation.breaking'));
   });
 
   // A sheet to look at: both icons at 24, 32 and 48 beside the app's own

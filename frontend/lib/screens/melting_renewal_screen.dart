@@ -12,7 +12,6 @@ import '../utils/bidi.dart';
 import '../utils/currency_utils.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/app_leave_guard.dart';
-import '../widgets/app_bar_tab_bar.dart';
 import '../widgets/app_shortcuts.dart';
 import '../widgets/app_state_views.dart';
 import 'safe_boxes_screen.dart' show SafeBoxesScreen, stockPlaceLabels;
@@ -59,28 +58,45 @@ class _MeltingRenewalScreenState extends State<MeltingRenewalScreen>
   Widget build(BuildContext context) {
     context.watch<SettingsProvider>();
 
+    Widget tab(GoldOperation op, String label) => Tab(
+          height: 52,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              GoldOperationIcon(op, size: 26),
+              const SizedBox(width: 8),
+              Text(label),
+            ],
+          ),
+        );
+
+    // The tabs on the page, under a bar of its own height: inside the bar
+    // they made it twice as tall, all gold (the owner, 10 Nov 2026). In the
+    // body the plain TabBar, in the app's primary (app_bar_tab_bar.dart).
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('التجديد والتكسير'),
-        bottom: AppBarTabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(
-              icon: GoldOperationIcon(GoldOperation.breaking),
-              text: 'تكسير المخزون',
-            ),
-            Tab(
-              icon: GoldOperationIcon(GoldOperation.renewal),
-              text: 'تجديد القطع',
-            ),
-          ],
-        ),
-      ),
-      body: TabBarView(
-        controller: _tabController,
+      appBar: AppBar(title: const Text('التجديد والتكسير')),
+      body: Column(
         children: [
-          _OperationForm(api: widget.api, opType: 'melting'),
-          _OperationForm(api: widget.api, opType: 'renewal'),
+          Material(
+            color: Theme.of(context).colorScheme.surface,
+            child: TabBar(
+              controller: _tabController,
+              // Renewal first: the screen opens on it (the owner, 10 Nov 2026).
+              tabs: [
+                tab(GoldOperation.renewal, 'تجديد القطع'),
+                tab(GoldOperation.breaking, 'تكسير المخزون'),
+              ],
+            ),
+          ),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _OperationForm(api: widget.api, opType: 'renewal'),
+                _OperationForm(api: widget.api, opType: 'melting'),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -646,8 +662,6 @@ class _OperationFormState extends State<_OperationForm> {
 
   Widget _buildForm(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final semantic = AppSemanticColors.of(context);
-    final tone = _isMelting ? semantic.warning : semantic.gold;
     final header = Theme.of(
       context,
     ).textTheme.labelSmall?.copyWith(color: cs.onSurfaceVariant);
@@ -659,7 +673,7 @@ class _OperationFormState extends State<_OperationForm> {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         children: [
           // ── بانر توضيحي ──────────────────────────────────────
-          _InfoBanner(isMelting: _isMelting, tone: tone),
+          _InfoBanner(isMelting: _isMelting),
           const SizedBox(height: 14),
 
           // ── الخزائن: جنبًا إلى جنب، وعلى الهاتف واحدة فوق الأخرى ──
@@ -668,7 +682,6 @@ class _OperationFormState extends State<_OperationForm> {
               final from = _VaultCard(
                 title: 'خزينة المصدر',
                 icon: Icons.output,
-                tone: tone,
                 safes: _sourceSafes,
                 value: _fromSafeId,
                 excludeId: _toSafeId,
@@ -683,7 +696,6 @@ class _OperationFormState extends State<_OperationForm> {
               final to = _VaultCard(
                 title: 'خزينة الوجهة',
                 icon: Icons.input,
-                tone: tone,
                 safes: _targetSafes,
                 value: _toSafeId,
                 excludeId: _fromSafeId,
@@ -712,7 +724,6 @@ class _OperationFormState extends State<_OperationForm> {
           _SectionCard(
             title: 'أسطر الأوزان',
             icon: Icons.scale,
-            tone: tone,
             child: Column(
               children: [
                 // رأس الجدول
@@ -764,7 +775,6 @@ class _OperationFormState extends State<_OperationForm> {
                       onPressed: _addLine,
                       icon: const Icon(Icons.add_circle_outline, size: 18),
                       label: const Text('إضافة سطر عيار'),
-                      style: TextButton.styleFrom(foregroundColor: tone.fg),
                     ),
                     const Spacer(),
                     _TotalBadge(
@@ -786,7 +796,6 @@ class _OperationFormState extends State<_OperationForm> {
             _SectionCard(
               title: 'مصنعية تالفة (اختياري)',
               icon: Icons.construction_outlined,
-              tone: semantic.warning,
               child: Column(
                 children: [
                   TextFormField(
@@ -848,9 +857,6 @@ class _OperationFormState extends State<_OperationForm> {
               Expanded(
                 child: FilledButton.icon(
                   onPressed: _submitting ? null : _submit,
-                  style: _isMelting
-                      ? AppButtonStyles.primary(context, semantic.warning)
-                      : null,
                   icon: _submitting
                       ? const SizedBox(
                           width: 18,
@@ -1169,7 +1175,6 @@ class _InlineBalance extends StatelessWidget {
 class _VaultCard extends StatelessWidget {
   final String title;
   final IconData icon;
-  final SemanticTone tone;
   final List<SafeBoxModel> safes;
   final int? value;
   final int? excludeId;
@@ -1182,7 +1187,6 @@ class _VaultCard extends StatelessWidget {
   const _VaultCard({
     required this.title,
     required this.icon,
-    required this.tone,
     required this.safes,
     required this.value,
     required this.onChanged,
@@ -1201,37 +1205,20 @@ class _VaultCard extends StatelessWidget {
     final cs = theme.colorScheme;
     final safe = _safe();
 
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: value != null ? tone.fg : cs.outlineVariant,
-          width: value != null ? 1.5 : 1,
-        ),
-      ),
+    // The app's card, its title as the raw gold reservation's (the owner,
+    // 10 Nov 2026: «الوانها بسيطه»).
+    return Card(
+      margin: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── رأس البطاقة ──────────────────────────────────
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: tone.container,
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(11),
-              ),
-            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
             child: Row(
               children: [
-                Icon(icon, size: 15, color: tone.onContainer),
-                const SizedBox(width: 6),
-                Text(
-                  title,
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: tone.onContainer,
-                  ),
-                ),
+                Icon(icon, size: 20, color: cs.primary),
+                const SizedBox(width: 8),
+                Text(title, style: theme.textTheme.titleMedium),
               ],
             ),
           ),
@@ -1454,92 +1441,70 @@ class _TotalBadge extends StatelessWidget {
 // ═══════════════════════════════════════════════════════════════════
 class _InfoBanner extends StatelessWidget {
   final bool isMelting;
-  final SemanticTone tone;
 
-  const _InfoBanner({required this.isMelting, required this.tone});
+  const _InfoBanner({required this.isMelting});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: tone.container,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          GoldOperationIcon(
-            isMelting ? GoldOperation.breaking : GoldOperation.renewal,
-            color: tone.onContainer,
-            size: 18,
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+    // Said plainly, as a hint under a title -- not a coloured band.
+    return Row(
+      children: [
+        GoldOperationIcon(
+          isMelting ? GoldOperation.breaking : GoldOperation.renewal,
+          color: muted,
+          size: 18,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            isMelting
+                ? 'نقل الذهب الصافي من خزينة المعروض إلى صندوق الكسر. '
+                      'غير الذهب (فصوص، حديد…) يخرج من المعروض ويُعدم.'
+                : 'نقل الذهب الصافي من المصدر إلى خزينة المعروض. '
+                      'غير الذهب (فصوص، حديد…) يدخل المعروض ذهبًا مقابل إيراد وزني.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: muted),
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              isMelting
-                  ? 'نقل الذهب الصافي من خزينة المعروض إلى صندوق الكسر. '
-                        'غير الذهب (فصوص، حديد…) يخرج من المعروض ويُعدم.'
-                  : 'نقل الذهب الصافي من المصدر إلى خزينة المعروض. '
-                        'غير الذهب (فصوص، حديد…) يدخل المعروض ذهبًا مقابل إيراد وزني.',
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: tone.onContainer),
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
 
+/// A section as the raw gold reservation draws one: the app's card, its
+/// title an icon in the primary colour and a word (the owner, 10 Nov 2026).
 class _SectionCard extends StatelessWidget {
   final String title;
   final IconData icon;
-  final SemanticTone tone;
   final Widget child;
 
   const _SectionCard({
     required this.title,
     required this.icon,
-    required this.tone,
     required this.child,
   });
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: cs.outlineVariant),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-            decoration: BoxDecoration(
-              color: tone.container,
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(11),
-              ),
-            ),
-            child: Row(
+    final theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
               children: [
-                Icon(icon, size: 16, color: tone.onContainer),
+                Icon(icon, size: 20, color: theme.colorScheme.primary),
                 const SizedBox(width: 8),
-                Text(
-                  title,
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: tone.onContainer,
-                  ),
-                ),
+                Text(title, style: theme.textTheme.titleMedium),
               ],
             ),
-          ),
-          Padding(padding: const EdgeInsets.all(14), child: child),
-        ],
+            const SizedBox(height: 12),
+            child,
+          ],
+        ),
       ),
     );
   }

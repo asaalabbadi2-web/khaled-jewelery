@@ -13,6 +13,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/payload_witness.dart';
+import 'support/shots.dart';
 
 /// The reservation's price follows its karat (the owner, 19 Oct 2026): it
 /// opened at karat 24 with the 24k price, and choosing 21 kept 503.94 -- 20 g
@@ -127,6 +128,14 @@ String _field(WidgetTester tester, String label) => tester
 void main() {
   payloadTests();
   layoutTests();
+  testWidgets('the screen draws (SHOT_DIR)', (tester) async {
+    if (shotDir.isEmpty) return;
+    await _open(tester);
+    tester.view.physicalSize = const Size(1200, 1300);
+    await tester.pumpAndSettle();
+    await shot(tester, 'reservation_desktop');
+  });
+
   testWidgets('it opens at the main karat with its price', (tester) async {
     await _open(tester);
     expect(find.text('عيار 21'), findsWidgets);

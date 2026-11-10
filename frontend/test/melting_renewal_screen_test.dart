@@ -109,6 +109,8 @@ void main() {
     bool overAPage = false,
     int mainKarat = 21,
     int failingLoads = 0,
+    // The screen opens on renewal (10 Nov 2026); most steps are a breaking's.
+    String? tab = 'تكسير المخزون',
   }) async {
     SharedPreferences.setMockInitialValues({
       'jwt_token': 'token',
@@ -154,6 +156,10 @@ void main() {
         await tester.pumpAndSettle();
         if (overAPage) {
           await tester.tap(find.text('open'));
+          await tester.pumpAndSettle();
+        }
+        if (tab != null) {
+          await tester.tap(find.text(tab));
           await tester.pumpAndSettle();
         }
         await steps();
@@ -448,6 +454,51 @@ void main() {
     expect(find.textContaining(warning), findsOneWidget);
   });
 
+  // The owner, 10 Nov 2026: «اجعل شاشة البدء هي شاشة التجديد».
+  testWidgets('it opens on renewal, its tab first', (tester) async {
+    await run(tab: null, tester, () async {
+      expect(find.text('تنفيذ التجديد'), findsOneWidget);
+      expect(find.text('تنفيذ التكسير'), findsNothing);
+      final renewal = tester.getCenter(find.text('تجديد القطع'));
+      final breaking = tester.getCenter(find.text('تكسير المخزون'));
+      expect(renewal.dx, greaterThan(breaking.dx), reason: 'renewal first, on the right in Arabic');
+    });
+  });
+
+  // «الوانها بسيطه كالوان شاشة حجز ذهب خام»: one colour for both tabs --
+  // the button the app's primary, the sections the app's cards.
+  testWidgets('both tabs wear the app\'s colours, not a tone of their own', (tester) async {
+    await run(tab: null, tester, () async {
+      Color? buttonColour() => tester
+          .widget<FilledButton>(find.ancestor(of: find.textContaining('تنفيذ'), matching: find.byWidgetPredicate((w) => w is FilledButton)))
+          .style
+          ?.backgroundColor
+          ?.resolve({});
+      final renewal = buttonColour();
+      expect(find.byType(Card), findsWidgets);
+      await tester.tap(find.text('تكسير المخزون'));
+      await tester.pumpAndSettle();
+      expect(buttonColour(), renewal, reason: 'the same button on both tabs');
+    });
+  });
+
+  // The two tabs drawn, for looking at (SHOT_DIR; nothing without it).
+  testWidgets('both tabs draw (SHOT_DIR)', (tester) async {
+    if (shotDir.isEmpty) return;
+    await run(size: const Size(1200, 1300), tab: null, tester, () async {
+      await shot(tester, 'mr_first_desktop');
+      await tester.tap(find.text('تجديد القطع'));
+      await tester.pumpAndSettle();
+      await shot(tester, 'mr_renewal_desktop');
+      await tester.tap(find.text('تكسير المخزون'));
+      await tester.pumpAndSettle();
+      await shot(tester, 'mr_breaking_desktop');
+      tester.view.physicalSize = const Size(390, 1500);
+      await tester.pumpAndSettle();
+      await shot(tester, 'mr_breaking_phone');
+    });
+  });
+
   // خ٣ (ADR-050): the screen reads in the dark theme; its numbers are the
   // app's (thousands, a minus kept whole).
   for (final (name, size) in [
@@ -525,7 +576,7 @@ void main() {
   });
 
   testWidgets('Esc on an untouched form leaves at once', (tester) async {
-    await run(overAPage: true, tester, () async {
+    await run(overAPage: true, tab: null, tester, () async {
       await press(tester, LogicalKeyboardKey.escape);
       expect(find.text('الخروج دون حفظ؟'), findsNothing);
       expect(find.byType(MeltingRenewalScreen), findsNothing);
@@ -533,27 +584,32 @@ void main() {
   });
 
   // ر٥ (ADR-057): the owner, 23 Oct 2026 -- the header's text did not read.
-  // The chosen tab was the light bar's own gold; the screen was witnessed
-  // only in the dark.
-  testWidgets('the chosen tab reads on the light theme\'s bar', (tester) async {
+  // Since 10 Nov 2026 the tabs are on the page, not on the bar (the bar was
+  // twice as tall, all gold): a plain TabBar, on the page's surface, under a
+  // bar of the bar's own height -- its chosen tab the scheme's primary there.
+  testWidgets('the tabs are on the page, under a bar of its own height', (tester) async {
     await run(tester, () async {
-      final bar = LightTheme.theme.appBarTheme;
+      final appBar = tester.widget<AppBar>(find.byType(AppBar));
+      expect(appBar.bottom, isNull, reason: 'no tabs in the gold bar');
+      expect(tester.getSize(find.byType(AppBar)).height, lessThan(70));
+      expect(find.descendant(of: find.byType(AppBar), matching: find.byType(TabBar)), findsNothing);
+      final page = LightTheme.theme.colorScheme;
       final tabs = tester.widget<TabBar>(find.byType(TabBar));
-      expect(tabs.labelColor, bar.foregroundColor);
-      expect(tabs.labelColor, isNot(bar.backgroundColor));
+      expect(tabs.labelColor ?? page.primary, isNot(page.surface), reason: 'the chosen tab reads on the page');
     });
   });
 
   testWidgets('a load that fails says so, with a retry, and no form', (
     tester,
   ) async {
-    await run(failingLoads: 1, tester, () async {
+    // On the tab it opens on -- renewal, the first to load (10 Nov 2026).
+    await run(failingLoads: 1, tab: null, tester, () async {
       expect(find.text('إعادة المحاولة'), findsOneWidget);
-      expect(find.text('تنفيذ التكسير'), findsNothing);
+      expect(find.text('تنفيذ التجديد'), findsNothing);
       expect(find.text('0.000'), findsNothing);
       await tester.tap(find.text('إعادة المحاولة'));
       await tester.pumpAndSettle();
-      expect(find.text('تنفيذ التكسير'), findsOneWidget);
+      expect(find.text('تنفيذ التجديد'), findsOneWidget);
     });
   });
 
