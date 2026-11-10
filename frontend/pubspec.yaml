@@ -53,6 +53,7 @@ dependencies:
   web: ^1.1.1
   flutter_staggered_animations: ^1.1.1
   flutter_svg: ^2.3.0
+  lucide_icons_flutter: ^4.0.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
