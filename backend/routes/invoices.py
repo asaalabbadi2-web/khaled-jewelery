@@ -9091,12 +9091,17 @@ def check_can_return(invoice_id):
 @invoices_bp.route('/invoices/returnable', methods=['GET'])
 @require_permission('invoices.view')
 def get_returnable_invoices():
+    """The invoices a return may be of -- posted, not rejected -- found on the
+    server, a page at a time, each with what remains of it (the return audit,
+    M3, 11 Nov 2026). It fetched every one at each opening (1,878 sales), the
+    rejected among them, named by its row id and «remaining» by money alone.
+
+    search: the number as seen (SELL-2026-1982, or 1982), the party's name, or
+    the amount or the weight. page (1), per_page (20, at most 50). A user
+    without invoices.edit_others sees what they posted.
     """
-    الحصول على جميع الفواتير القابلة للإرجاع.
-    - إذا كان المستخدم لا يملك مطلق الصلاحية (admin أو invoices.edit_others)،
-      يتم إرجاع الفواتير التي أنشأها هو فقط (posted_by == username).
-    - يدعم البحث النصي (search) والفلترة بالتاريخ (date_from / date_to).
-    """
+    from sqlalchemy.orm import joinedload
+    from services.return_lines import return_lines_of
     returnable_types = ['بيع', 'شراء من عميل', 'شراء']
 
     invoice_type_filter = request.args.get('invoice_type')
@@ -9105,8 +9110,14 @@ def get_returnable_invoices():
     search = (request.args.get('search') or '').strip()
     date_from_str = (request.args.get('date_from') or '').strip()
     date_to_str = (request.args.get('date_to') or '').strip()
+    page = max(request.args.get('page', 1, type=int) or 1, 1)
+    per_page = min(max(request.args.get('per_page', 20, type=int) or 20, 1), 50)
 
-    query = Invoice.query.filter(Invoice.invoice_type.in_(returnable_types))
+    query = Invoice.query.filter(
+        Invoice.invoice_type.in_(returnable_types),
+        Invoice.is_posted.is_(True),
+        or_(Invoice.status.is_(None), Invoice.status != 'rejected'),
+    )
 
     # --- User-based scoping ---
     _current_user = getattr(g, 'current_user', None)
@@ -9122,75 +9133,74 @@ def get_returnable_invoices():
             query = query.filter(
                 func.lower(func.coalesce(Invoice.posted_by, '')) == _username.strip().lower()
             )
-    # ---
 
     if invoice_type_filter:
         query = query.filter(Invoice.invoice_type == invoice_type_filter)
-
     if customer_id:
         query = query.filter(Invoice.customer_id == customer_id)
-
     if supplier_id:
         query = query.filter(Invoice.supplier_id == supplier_id)
 
     if search:
         like = f'%{search}%'
-        search_clauses = []
-        query = query.outerjoin(Customer, Invoice.customer_id == Customer.id)
-        query = query.outerjoin(Supplier, Invoice.supplier_id == Supplier.id)
-        search_clauses.extend([
-            Customer.name.ilike(like),
-            Supplier.name.ilike(like),
-        ])
-        try:
-            search_clauses.append(Invoice.id == int(search))
-        except (ValueError, TypeError):
-            pass
-        # البحث بالمبلغ أو الوزن
+        query = (query.outerjoin(Customer, Invoice.customer_id == Customer.id)
+                 .outerjoin(Supplier, Invoice.supplier_id == Supplier.id))
+        clauses = [Customer.name.ilike(like), Supplier.name.ilike(like)]
+        # The number as seen: its last run of digits is the type's own count.
+        import re as _re
+        digits = _re.findall(r'\d+', search)
+        if digits:
+            clauses.append(Invoice.invoice_type_id == int(digits[-1]))
         try:
             numeric_val = float(search.replace(',', ''))
-            search_clauses.append(func.abs(func.coalesce(Invoice.total, 0) - numeric_val) < 0.01)
-            search_clauses.append(func.abs(func.coalesce(Invoice.total_weight, 0) - numeric_val) < 0.001)
+            clauses.append(func.abs(func.coalesce(Invoice.total, 0) - numeric_val) < 0.01)
+            clauses.append(func.abs(func.coalesce(Invoice.total_weight, 0) - numeric_val) < 0.001)
         except (ValueError, TypeError):
             pass
-        query = query.filter(or_(*search_clauses))
+        query = query.filter(or_(*clauses))
 
     if date_from_str:
         try:
-            _date_from = datetime.fromisoformat(date_from_str.replace('Z', '+00:00'))
-            query = query.filter(Invoice.date >= _date_from)
+            query = query.filter(Invoice.date >= datetime.fromisoformat(date_from_str.replace('Z', '+00:00')))
         except Exception:
             pass
-
     if date_to_str:
         try:
-            _date_to = datetime.fromisoformat(date_to_str.replace('Z', '+00:00'))
-            query = query.filter(Invoice.date <= _date_to)
+            query = query.filter(Invoice.date <= datetime.fromisoformat(date_to_str.replace('Z', '+00:00')))
         except Exception:
             pass
 
-    invoices = query.order_by(Invoice.date.desc()).all()
+    total_count = query.count()
+    invoices = (query.options(joinedload(Invoice.customer), joinedload(Invoice.supplier))
+                .order_by(Invoice.date.desc(), Invoice.id.desc())
+                .offset((page - 1) * per_page).limit(per_page).all())
 
     result = []
     for inv in invoices:
-        existing_returns = Invoice.query.filter_by(original_invoice_id=inv.id).all()
-        total_returned = sum(r.total for r in existing_returns)
-
+        left = return_lines_of(inv)
+        grams = round(sum(l['remaining_grams'] for l in left['lines']), 3)
+        amount = round(sum(l['remaining_amount'] for l in left['lines']), 2)
         result.append({
             'id': inv.id,
+            'invoice_number': inv.invoice_number,
             'invoice_type_id': inv.invoice_type_id,
             'invoice_type': inv.invoice_type,
-            'date': inv.date.isoformat(),
+            'date': inv.date.isoformat() if inv.date else None,
             'total': inv.total,
-            'total_returned': total_returned,
-            'remaining_amount': inv.total - total_returned,
-            'can_return': (inv.total - total_returned) > 0,
+            'total_weight': inv.total_weight,
+            'remaining_grams': grams,
+            'remaining_amount': amount,
+            'can_return': grams > 0.001,
+            'returned_before': left['returned_before'],
             'customer_name': inv.customer.name if inv.customer else None,
             'supplier_name': inv.supplier.name if inv.supplier else None,
-            'items_count': len(inv.items),
+            'items_count': len(left['lines']),
         })
 
     return jsonify({
         'invoices': result,
-        'total_count': len(result),
+        'total_count': total_count,
+        'page': page,
+        'per_page': per_page,
+        'has_more': page * per_page < total_count,
     })

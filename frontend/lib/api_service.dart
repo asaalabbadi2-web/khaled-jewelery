@@ -3248,15 +3248,24 @@ class ApiService {
   // Return Invoice Methods (New)
 
   /// Get returnable invoices with optional filters
+  /// The invoices a return may be of, found on the server a page at a time
+  /// (the return audit, M3): posted, each with what remains of it.
   Future<Map<String, dynamic>> getReturnableInvoices({
     String? invoiceType,
     int? customerId,
     int? supplierId,
+    String? search,
+    int page = 1,
+    int perPage = 20,
   }) async {
-    final Map<String, String> queryParams = {};
+    final Map<String, String> queryParams = {
+      'page': '$page',
+      'per_page': '$perPage',
+    };
     if (invoiceType != null) queryParams['invoice_type'] = invoiceType;
     if (customerId != null) queryParams['customer_id'] = customerId.toString();
     if (supplierId != null) queryParams['supplier_id'] = supplierId.toString();
+    if (search != null && search.trim().isNotEmpty) queryParams['search'] = search.trim();
 
     final uri = Uri.parse(
       '$_baseUrl/invoices/returnable',
