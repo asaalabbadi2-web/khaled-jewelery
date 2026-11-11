@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/settings_provider.dart';
 import 'package:frontend/screens/add_return_invoice_screen.dart';
+import 'package:frontend/widgets/return_reason_input.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -108,6 +109,9 @@ void main() {
   Future<void> partial(WidgetTester tester) async {
     await tester.tap(find.text('إرجاع جزء فقط'));
     await tester.pumpAndSettle();
+    // Its amount typed, with its weight (the owner, 11 Nov 2026).
+    await tester.enterText(find.byKey(const ValueKey('amount-100-0')), '1000');
+    await tester.pumpAndSettle();
   }
 
   Future<void> next(WidgetTester tester) async {
@@ -118,7 +122,7 @@ void main() {
   /// To the payment step: items (all of them), a reason, then the method.
   Future<void> toPayment(WidgetTester tester) async {
     await next(tester); // the items are already chosen
-    await tester.enterText(find.byType(TextFormField).at(1), 'عيب في الصنع');
+    await tester.enterText(find.descendant(of: find.byType(ReturnReasonInput), matching: find.byType(TextFormField)), 'عيب في الصنع');
     await next(tester);
     await tester.tap(find.text('وسيلة الدفع').hitTestable());
     await tester.pumpAndSettle();
@@ -159,7 +163,7 @@ void main() {
     await shot(tester, 'return_step_items_phone');
     await next(tester);
     await shot(tester, 'return_step_reason_phone');
-    await tester.enterText(find.byType(TextFormField).at(1), 'عيب في الصنع');
+    await tester.enterText(find.descendant(of: find.byType(ReturnReasonInput), matching: find.byType(TextFormField)), 'عيب في الصنع');
     await next(tester);
     await shot(tester, 'return_step_payment_phone');
     await tester.tap(find.text('وسيلة الدفع').hitTestable());
@@ -192,10 +196,7 @@ void main() {
     await refund(tester, '1500');
     await next(tester);
 
-    expect(
-      find.text('مبلغ المرتجع أكبر من إجمالي الفاتورة الأصلية'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('لا يُردّ نقدًا أكثر من 1,000.00'), findsOneWidget);
     expect(find.text('حفظ').hitTestable(), findsNothing);
   });
 
@@ -225,7 +226,7 @@ void main() {
     await open(tester);
     await partial(tester);
     await next(tester);
-    await tester.enterText(find.byType(TextFormField).at(1), 'عيب');
+    await tester.enterText(find.descendant(of: find.byType(ReturnReasonInput), matching: find.byType(TextFormField)), 'عيب');
     await next(tester);
 
     await tester.tap(find.byType(BackButton));
@@ -447,6 +448,93 @@ void main() {
 
       expect(find.textContaining('تعذّر تحميل الفاتورة'), findsWidgets);
       expect(find.textContaining('جارٍ تحميل الفاتورة'), findsNothing);
+    });
+  });
+
+  // The owner, 11 Nov 2026: «الوزن والمبلغ المرتجع يكتب يدويا فلا يحكم مبلغ
+  // السطر الاصلي سعر المرتجع» -- a line comes back for what is typed, within
+  // what remains of it; what remains is the server's.
+  group('a line comes back for what is typed (the owner, 11 Nov 2026)', () {
+    Future<void> toReview(WidgetTester tester, {bool pay = true}) async {
+      await next(tester);
+      await tester.enterText(
+        find.descendant(of: find.byType(ReturnReasonInput), matching: find.byType(TextFormField)),
+        'عيب في الصنع',
+      );
+      await next(tester);
+      if (pay) {
+        await tester.tap(find.text('وسيلة الدفع').hitTestable());
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('نقداً').last);
+        await tester.pumpAndSettle();
+      }
+      await next(tester);
+    }
+
+    Future<Map<String, dynamic>> save(WidgetTester tester, FakeSalesApi api) async {
+      await tester.tap(find.text('حفظ').hitTestable());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('اعتماد وحفظ'));
+      await tester.pumpAndSettle();
+      return api.added.single;
+    }
+
+    testWidgets('a line without its amount does not go on, and says so', (tester) async {
+      await open(tester);
+      await tester.tap(find.text('إرجاع جزء فقط'));
+      await tester.pumpAndSettle();
+      await next(tester);
+      expect(find.text('اكتب المبلغ المرتجع عن «سلسال»'), findsOneWidget);
+      expect(find.text('اختر الأصناف المرتجعة'), findsOneWidget, reason: 'still at the lines');
+    });
+
+    testWidgets('it is saved for the amount typed, less than the line sold for', (tester) async {
+      final api = await open(tester);
+      await tester.tap(find.text('إرجاع جزء فقط'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const ValueKey('amount-100-0')), '700');
+      await tester.pumpAndSettle();
+      await toReview(tester);
+      final sent = await save(tester, api);
+      expect(sent['total'], 700.0, reason: 'its lines, not the weight\'s share of 1,000');
+      expect(((sent['items'] as List).single as Map)['price'], 700.0);
+      expect(((sent['items'] as List).single as Map)['weight'], 2.0);
+      expect(sent['amount_paid'], 700.0);
+    });
+
+    testWidgets('a sale never paid comes back paying nothing back, no method asked', (tester) async {
+      final api = await open(tester, api: FakeSalesApi(invoices: {10: {...original, 'amount_paid': 0.0}}));
+      await tester.tap(find.text('إرجاع جزء فقط'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const ValueKey('amount-100-0')), '1000');
+      await tester.pumpAndSettle();
+      await next(tester);
+      await tester.enterText(
+        find.descendant(of: find.byType(ReturnReasonInput), matching: find.byType(TextFormField)),
+        'عيب في الصنع',
+      );
+      await next(tester);
+      expect(find.byKey(const Key('return-nothing-to-refund')), findsOneWidget);
+      await next(tester);
+      final sent = await save(tester, api);
+      expect(sent['payments'], isEmpty);
+      expect(sent['amount_paid'], 0.0);
+      expect(sent['total'], 1000.0);
+    });
+
+    testWidgets('a sale returned before opens on what remains of it', (tester) async {
+      await open(tester, api: FakeSalesApi(invoices: {10: original}, returnLines: {
+        10: {
+          'invoice_id': 10, 'returned_before': true, 'refundable': 500.0,
+          'lines': [
+            {'id': 100, 'name': 'سلسال', 'karat': 21, 'sold_grams': 2.0, 'remaining_grams': 1.0,
+             'sold_pieces': 1, 'remaining_pieces': 1, 'sold_amount': 1000.0, 'remaining_amount': 500.0},
+          ],
+        },
+      }));
+      expect(find.text('عكس الفاتورة #10 كاملة'), findsNothing, reason: 'no whole reversal of what was returned');
+      expect(find.text('اختر الأصناف المرتجعة'), findsOneWidget);
+      expect(find.textContaining('يبقى منه 1.000 جم'), findsOneWidget);
     });
   });
 }

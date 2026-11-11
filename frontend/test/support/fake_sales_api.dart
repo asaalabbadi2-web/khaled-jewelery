@@ -17,7 +17,12 @@ class FakeSalesApi extends ApiService {
     this.scrapSafe,
     this.goldSafe,
     this.invoices = const {},
+    this.returnLines = const {},
   });
+
+  /// What remains of an original, by its id, where a test says it (a return
+  /// before); else read from [invoices]: every line whole, what was paid refundable.
+  final Map<int, Map<String, dynamic>> returnLines;
 
   /// Invoices by id, for the screens that open one (a return's original).
   final Map<int, Map<String, dynamic>> invoices;
@@ -107,6 +112,27 @@ class FakeSalesApi extends ApiService {
   @override
   Future<Map<String, dynamic>> getInvoiceById(int invoiceId) async =>
       invoices[invoiceId]!;
+
+  @override
+  Future<Map<String, dynamic>> getReturnLines(int invoiceId) async {
+    if (returnLines.containsKey(invoiceId)) return returnLines[invoiceId]!;
+    final invoice = invoices[invoiceId]!;
+    double num0(Object? v) => v is num ? v.toDouble() : 0.0;
+    return {
+      'invoice_id': invoiceId,
+      'returned_before': false,
+      'refundable': num0(invoice['amount_paid'] ?? invoice['total']),
+      'lines': [
+        for (final item in (invoice['items'] as List? ?? const []).cast<Map>())
+          {
+            'id': item['id'], 'name': item['name'], 'karat': item['karat'],
+            'sold_grams': num0(item['weight']), 'remaining_grams': num0(item['weight']),
+            'sold_pieces': item['quantity'] ?? 1, 'remaining_pieces': item['quantity'] ?? 1,
+            'sold_amount': num0(item['price']), 'remaining_amount': num0(item['price']),
+          },
+      ],
+    };
+  }
 
   @override
   Future<List<dynamic>> getPaymentMethods() async => methods;

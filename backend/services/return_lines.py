@@ -160,8 +160,8 @@ def line_grams(line, piece_weights: bool) -> float:
 
 
 def returned_of_lines(original, *, but=None) -> dict:
-    """{original line id: (grams, pieces)} its returns gave back -- every return
-    of it not rejected, by the lines that keep their line."""
+    """{original line id: (grams, pieces, amount)} its returns gave back --
+    every return of it not rejected, by the lines that keep their line."""
     from models import Invoice
     returns = Invoice.query.filter(Invoice.original_invoice_id == original.id,
                                    Invoice.invoice_type.in_(RETURN_TYPES))
@@ -172,9 +172,10 @@ def returned_of_lines(original, *, but=None) -> dict:
         for line in ret.items or []:
             if line.original_invoice_item_id is None:
                 continue
-            grams, pieces = out.get(line.original_invoice_item_id, (0.0, 0))
+            grams, pieces, amount = out.get(line.original_invoice_item_id, (0.0, 0, 0.0))
             out[line.original_invoice_item_id] = (grams + _f(line.weight),
-                                                  pieces + max(int(line.quantity or 1), 1))
+                                                  pieces + max(int(line.quantity or 1), 1),
+                                                  amount + _f(line.price))
     return out
 
 
@@ -227,7 +228,7 @@ def refuse_return_lines(original, invoice_type: str, items: list) -> None:
     before = returned_of_lines(original)
     for line_id, (grams, pieces) in asked.items():
         line = originals[line_id]
-        given_grams, given_pieces = before.get(line_id, (0.0, 0))
+        given_grams, given_pieces, _ = before.get(line_id, (0.0, 0, 0.0))
         sold_grams = line_grams(line, piece_weights)
         sold_pieces = max(int(line.quantity or 1), 1)
         left_grams = round(max(sold_grams - given_grams, 0.0), 3)
@@ -251,3 +252,113 @@ def refuse_return_lines(original, invoice_type: str, items: list) -> None:
                 sold_grams=round(sold_grams, 3), returned_grams=round(given_grams, 3), remaining_grams=left_grams,
                 sold_pieces=sold_pieces, remaining_pieces=left_pieces,
                 requested_grams=round(grams, 3), requested_pieces=pieces)
+
+
+
+# ── What a line comes back for (the owner, 11 Nov 2026) ─────────────────────
+#
+# «الوزن والمبلغ المرتجع يكتب يدويا فلا يحكم مبلغ السطر الاصلي سعر المرتجع»:
+# a returned line's amount is typed with its weight. Of a line, across its
+# returns, no more than it sold for («نعم»); a return's total is its lines';
+# what is paid back no more than the return is worth (and than was paid,
+# add_invoice's RETURN-OWED-1). Its cost and points follow its weight, its VAT
+# its original's as posted (ADR-043).
+
+
+def _line_base(line) -> float:
+    net, tax = _f(line.net), _f(line.tax)
+    return (net + tax) if (net or tax) else _f(line.price)
+
+
+def line_values(original) -> dict:
+    """{line id: what it sold for}: its net and VAT (else its price) -- in its
+    share of its invoice's total where its lines do not add up to it (110
+    sales of Jan-Mar 2026 by price or by net, e.g. 424: lines of 2,540 on 12,700)."""
+    lines = list(original.items or [])
+    bases = {l.id: _line_base(l) for l in lines}
+    summed = sum(bases.values())
+    total = _f(original.total)
+    scale = total / summed if summed > 0 and total > 0 and abs(total - summed) > 0.01 else 1.0
+    return {i: round(b * scale, 2) for i, b in bases.items()}
+
+
+def line_scale(original) -> float:
+    """By how much its lines' own figures are scaled to their values (1 where they add up)."""
+    summed = sum(_line_base(l) for l in (original.items or []))
+    total = _f(original.total)
+    return total / summed if summed > 0 and total > 0 and abs(total - summed) > 0.01 else 1.0
+
+
+def refuse_return_amounts(original, invoice_type: str, items: list, total, refund: list) -> None:
+    """A customer's return's amounts, or ReturnRefused: every line its amount;
+    of a line no more than it sold for across its returns; the total its lines';
+    what is paid back no more than the return is worth."""
+    if invoice_type not in CUSTOMER_RETURNS:
+        return
+    values = line_values(original)
+    before = returned_of_lines(original)
+    asked: dict = {}
+    names = {l.id: l.name for l in (original.items or [])}
+    lines_total = 0.0
+    for n, item in enumerate(items or [], start=1):
+        if not isinstance(item, dict):
+            continue
+        line_id = int(item.get('original_invoice_item_id'))
+        price = _f(item.get('price'))
+        if price <= 0.005:
+            raise ReturnRefused('return_line_unpriced',
+                                f'السطر {n} بلا مبلغ: اكتب ما يُردّ عنه', line_index=n)
+        asked[line_id] = asked.get(line_id, 0.0) + price
+        lines_total += price
+    for line_id, amount in asked.items():
+        given = before.get(line_id, (0.0, 0, 0.0))[2]
+        left = round(max(values.get(line_id, 0.0) - given, 0.0), 2)
+        if amount > left + 0.01:
+            raise ReturnRefused(
+                'return_line_amount_exceeds_original',
+                f'«{names.get(line_id)}»: بيع بـ{values.get(line_id, 0.0):,.2f}، والباقي منه {left:,.2f}، '
+                f'والمطلوب {amount:,.2f}',
+                line=names.get(line_id), original_invoice_item_id=line_id, sold_amount=values.get(line_id, 0.0),
+                returned_amount=round(given, 2), remaining_amount=left, requested_amount=round(amount, 2))
+    total = _f(total)
+    if abs(total - lines_total) > 0.01:
+        raise ReturnRefused('return_total_not_its_lines',
+                            f'إجمالي المرتجع {total:,.2f} وأسطره {lines_total:,.2f}: الإجمالي مجموع أسطره',
+                            total=round(total, 2), lines_total=round(lines_total, 2))
+    refund = sum(abs(_f(p.get('amount'))) for p in (refund or []) if isinstance(p, dict))
+    if refund > lines_total + 0.01:
+        raise ReturnRefused('return_refund_exceeds_return',
+                            f'ما يُردّ نقدًا {refund:,.2f} أكثر من قيمة المرتجع {lines_total:,.2f}',
+                            refund=round(refund, 2), total=round(lines_total, 2))
+
+
+def return_lines_of(original) -> dict:
+    """What a return of *original* may still give back, for the screen to build
+    its lines from -- the same reading the save is checked by: each line's
+    grams, pieces and amount sold, returned and remaining; and what may still
+    be paid back in cash (what was paid, less what its returns paid back)."""
+    from models import Invoice
+    piece_weights = keeps_a_piece_s_weight(original)
+    values = line_values(original)
+    before = returned_of_lines(original)
+    lines = []
+    for line in original.items or []:
+        sold_grams = round(line_grams(line, piece_weights), 3)
+        sold_pieces = max(int(line.quantity or 1), 1)
+        grams, pieces, amount = before.get(line.id, (0.0, 0, 0.0))
+        lines.append({
+            'id': line.id, 'name': line.name, 'karat': line.karat, 'category_id': line.category_id,
+            'sold_grams': sold_grams, 'sold_pieces': sold_pieces, 'sold_amount': values.get(line.id, 0.0),
+            'returned_grams': round(grams, 3), 'returned_amount': round(amount, 2),
+            'remaining_grams': round(max(sold_grams - grams, 0.0), 3),
+            'remaining_pieces': max(sold_pieces - pieces, 0) if sold_grams <= GRAM else sold_pieces,
+            'remaining_amount': round(max(values.get(line.id, 0.0) - amount, 0.0), 2),
+        })
+    returns = [r for r in Invoice.query.filter(Invoice.original_invoice_id == original.id,
+                                               Invoice.invoice_type.in_(RETURN_TYPES)).all()
+               if (r.status or '') != 'rejected']
+    paid_back = sum(_f(r.amount_paid) for r in returns)
+    return {
+        'invoice_id': original.id, 'lines': lines, 'returned_before': bool(returns),
+        'refundable': round(max(_f(original.amount_paid) - paid_back, 0.0), 2),
+    }

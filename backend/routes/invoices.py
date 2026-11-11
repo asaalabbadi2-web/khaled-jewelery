@@ -3199,11 +3199,16 @@ def reverse_invoice(invoice_id):
     if not reason:
         return jsonify({'error': 'reason_required', 'message': 'سبب الإرجاع مطلوب'}), 400
 
+    # Each line at what it sold for -- its share of the total where the lines
+    # do not add up to it (110 sales of Jan-Mar 2026): a return's total is its
+    # lines' (services/return_lines.py, the owner 11 Nov 2026).
+    from services.return_lines import line_scale, line_values
+    _values, _scale = line_values(original), line_scale(original)
     items, total_cost, total_net_tax = [], 0.0, 0.0
     for it in original.items:
-        net = float(it.net or 0.0)
-        tax = float(it.tax or 0.0)
-        line_total = (net + tax) if (net or tax) else float(it.price or 0.0)
+        net = round(float(it.net or 0.0) * _scale, 2)
+        tax = round(float(it.tax or 0.0) * _scale, 2)
+        line_total = _values[it.id]
         total_cost += net
         total_net_tax += tax
         items.append({
@@ -3826,6 +3831,9 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             from services import return_lines as _return_lines
             try:
                 _return_lines.refuse_return_lines(original_invoice, invoice_type, data.get('items') or [])
+                _return_lines.refuse_return_amounts(
+                    original_invoice, invoice_type, data.get('items') or [], data.get('total'),
+                    data.get('payments') or [])
             except _return_lines.ReturnRefused as refused:
                 return jsonify({'error': refused.code, 'message': refused.message, **refused.detail}), 400
             except Exception as fault:  # noqa: BLE001 -- refused, never let through
@@ -8999,6 +9007,18 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 _release_pos_claims_best_effort(_pos_claims)
             except Exception:
                 pass
+
+
+@invoices_bp.route('/invoices/<int:invoice_id>/return-lines', methods=['GET'])
+@require_permission('invoices.return')
+def get_return_lines(invoice_id):
+    """What a return of the invoice may still give back, line by line, and in
+    cash -- the screen builds its lines from it (the owner, 11 Nov 2026)."""
+    from services.return_lines import return_lines_of
+    original = db.session.get(Invoice, invoice_id)
+    if original is None:
+        return jsonify({'error': 'invoice_not_found'}), 404
+    return jsonify(return_lines_of(original))
 
 
 # 🆕 Endpoints للمرتجعات

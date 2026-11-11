@@ -3283,6 +3283,19 @@ class ApiService {
   }
 
   /// Get all returns for a specific invoice
+  /// What a return of the invoice may still give back, line by line and in
+  /// cash (GET /invoices/{id}/return-lines; the owner, 11 Nov 2026).
+  Future<Map<String, dynamic>> getReturnLines(int invoiceId) async {
+    final response = await _authedGet(
+      Uri.parse('$_baseUrl/invoices/$invoiceId/return-lines'),
+    );
+    if (response.statusCode == 200) {
+      return json.decode(utf8.decode(response.bodyBytes));
+    } else {
+      throw _apiError(response);
+    }
+  }
+
   Future<Map<String, dynamic>> getInvoiceReturns(int invoiceId) async {
     final response = await _authedGet(
       Uri.parse('$_baseUrl/invoices/$invoiceId/returns'),

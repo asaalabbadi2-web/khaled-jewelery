@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:math' as math;
 import '../widgets/inline_number_cell.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -69,29 +68,33 @@ class AddReturnInvoiceScreen extends StatefulWidget {
 }
 
 // Data model for return item rows with proportional calculations
+/// A line of the original coming back (the owner, 11 Nov 2026): its weight and
+/// its amount typed -- «الوزن والمبلغ المرتجع يكتب يدويا فلا يحكم مبلغ السطر
+/// الاصلي سعر المرتجع». What remains of the line (grams, pieces, what it sold
+/// for) is the server's (GET /invoices/{id}/return-lines), as is the law that
+/// holds it; the line's amount is never derived from its weight or its count.
 class ReturnItemRow {
   final int? originalItemId; // Reference to original invoice item
   final int? itemId; // Inventory item ID (if available)
   final String itemName;
   final double karat;
+
+  /// What remains of the line: its grams, its pieces, what it sold for.
   final double originalWeight;
   final int originalQuantity;
-  final double originalWage;
-  final double originalNet;
-  final double originalTax;
   final double originalTotal;
+
+  /// What the whole line sold for, before any return.
+  final double soldTotal;
+  final double originalWage;
 
   bool isSelected;
   double weight;
   int quantity;
   double wage;
-  double net;
-  double tax;
-  double total;
-  double cost;
 
-  /// إذا أدخل المستخدم مبلغاً يدوياً يُخزَّن هنا ويُلغي الحساب التلقائي
-  double? manualTotal;
+  /// What comes back for it, typed; nothing until it is.
+  double? amount;
 
   ReturnItemRow({
     this.originalItemId,
@@ -100,78 +103,41 @@ class ReturnItemRow {
     required this.karat,
     required this.originalWeight,
     required this.originalQuantity,
-    required this.originalWage,
-    required this.originalNet,
-    required this.originalTax,
     required this.originalTotal,
+    double? soldTotal,
+    this.originalWage = 0,
     this.isSelected = true,
-  }) : weight = originalWeight,
+  }) : soldTotal = soldTotal ?? originalTotal,
+       weight = originalWeight,
        quantity = originalQuantity,
-       wage = originalWage,
-       net = originalNet,
-       tax = originalTax,
-       total = originalTotal,
-       cost = originalNet;
+       wage = originalWage;
+
+  double get total => amount ?? 0.0;
+  double get net => total;
+  double get cost => total;
+
+  /// The weight's share of what remains -- shown beside the amount, never put in it.
+  double get referenceAmount => originalWeight > 0
+      ? originalTotal * (weight / originalWeight).clamp(0.0, 1.0)
+      : originalTotal;
 
   void updateWeight(double newWeight) {
     weight = newWeight.clamp(0, originalWeight);
-    // إعادة الحساب التلقائي — يُلغي المبلغ اليدوي عند تغيير الوزن
-    manualTotal = null;
-    recalculateTotals();
   }
 
   void updateQuantity(int newQuantity) {
-    final clamped = newQuantity.clamp(0, originalQuantity);
-    quantity = clamped.toInt();
-    // إعادة الحساب التلقائي — يُلغي المبلغ اليدوي عند تغيير الكمية
-    manualTotal = null;
-    recalculateTotals();
+    quantity = newQuantity.clamp(0, originalQuantity).toInt();
   }
 
   void updateWage(double newWage) {
     wage = newWage;
   }
 
-  /// تعيين مبلغ يدوي — يُلغي الحساب التلقائي
-  void setManualTotal(double? value) {
-    if (value == null || value <= 0) {
-      manualTotal = null;
-      recalculateTotals(); // استرجاع الحساب التلقائي
-    } else {
-      manualTotal = value.clamp(0, originalTotal);
-      // حساب net و tax بنسبة المبلغ اليدوي من الأصلي
-      final ratio = originalTotal > 0 ? manualTotal! / originalTotal : 1.0;
-      net = double.parse((originalNet * ratio).toStringAsFixed(2));
-      tax = double.parse((originalTax * ratio).toStringAsFixed(2));
-      total = manualTotal!;
-      cost = net;
-    }
-  }
-
-  void recalculateTotals() {
-    // إذا كان هناك مبلغ يدوي → لا تُطبَّق نسبة الوزن
-    if (manualTotal != null) return;
-
-    final ratios = <double>[];
-    if (originalWeight > 0) {
-      ratios.add((weight / originalWeight).clamp(0.0, 1.0));
-    }
-    if (originalQuantity > 0) {
-      ratios.add((quantity / originalQuantity).clamp(0.0, 1.0));
-    }
-
-    final ratio = ratios.isEmpty
-        ? 1.0
-        : ratios.reduce((value, element) => element < value ? element : value);
-
-    net = originalNet * ratio;
-    tax = originalTax * ratio;
-    total = originalTotal * ratio;
-    cost = net;
+  void setAmount(double? value) {
+    amount = (value == null || value <= 0) ? null : value;
   }
 
   Map<String, dynamic> toPayload() {
-    if (manualTotal == null) recalculateTotals();
     return {
       'item_id': itemId,
       'original_invoice_item_id': originalItemId,
@@ -180,10 +146,12 @@ class ReturnItemRow {
       'weight': weight,
       'wage': wage,
       'quantity': quantity,
-      'cost': cost,
-      'net': net,
-      'tax': tax,
-      'tax_amount': tax,
+      // Its VAT is its original's as posted, read by the server (ADR-043);
+      // its cost, its sale's by its weight.
+      'cost': total,
+      'net': total,
+      'tax': 0.0,
+      'tax_amount': 0.0,
       'price': total,
     };
   }
@@ -265,8 +233,7 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
       _selectedItems.fold(0.0, (sum, item) => sum + item.weight);
   double get totalCost =>
       _selectedItems.fold(0.0, (sum, item) => sum + item.cost);
-  double get totalTax =>
-      _selectedItems.fold(0.0, (sum, item) => sum + item.tax);
+  /// What the return is worth: its lines' amounts, as typed.
   double get grandTotal =>
       _selectedItems.fold(0.0, (sum, item) => sum + item.total);
   double get _totalPayments => _payments.fold(0.0, (s, p) => s + p.amount);
@@ -276,8 +243,6 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
         selectedOriginalInvoice?['total_amount'],
   );
 
-  double get _originalInvoiceWeight =>
-      _parseDouble(selectedOriginalInvoice?['total_weight']);
 
 
   double? get _enteredPaymentAmount {
@@ -288,38 +253,13 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
     return parsed;
   }
 
-  bool get _isFullReturnSelection {
-    if (_returnItems.isEmpty || _selectedItems.length != _returnItems.length) {
-      return false;
-    }
+  /// What is paid back by default: what the return is worth, no more than
+  /// may still be paid back (RETURN-OWED-1).
+  double get _suggestedTotal => grandTotal < _refundable ? grandTotal : _refundable;
 
-    for (final item in _returnItems) {
-      if (!item.isSelected) return false;
-      if ((item.weight - item.originalWeight).abs() > 0.005) return false;
-      if (item.quantity != item.originalQuantity) return false;
-    }
-
-    return true;
-  }
-
-  /// Suggested total: full-weight return → original invoice total, partial → proportional.
-  double get _suggestedTotal {
-    if (_isFullReturnSelection && _originalInvoiceTotal > 0) {
-      return _originalInvoiceTotal;
-    }
-
-    if (_originalInvoiceTotal > 0 &&
-        _originalInvoiceWeight > 0 &&
-        totalWeight > 0) {
-      final proportional =
-          (_originalInvoiceTotal * (totalWeight / _originalInvoiceWeight));
-      return proportional.clamp(0.0, _originalInvoiceTotal).toDouble();
-    }
-
-    return grandTotal;
-  }
-
-  double get _effectiveReturnTotal => _totalPayments > 0
+  /// What is paid back in cash: the payments added, else the amount typed,
+  /// else the default.
+  double get _refund => _totalPayments > 0
       ? _totalPayments
       : (_enteredPaymentAmount ?? _suggestedTotal);
 
@@ -343,6 +283,8 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
 
   bool _capturePayment({bool showErrors = true}) {
     if (_payments.isNotEmpty) return true;
+    // Never paid: nothing goes back in cash (RETURN-OWED-1).
+    if (_refundable <= 0.005) return true;
 
     if (_selectedPaymentMethodId == null) {
       if (showErrors) {
@@ -375,11 +317,13 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
       }
       return false;
     }
-    if (_originalInvoiceTotal > 0 && amount > _originalInvoiceTotal + 0.01) {
+    // No more back in cash than the return is worth, nor than may be paid back.
+    final cap = grandTotal < _refundable ? grandTotal : _refundable;
+    if (amount > cap + 0.01) {
       if (showErrors) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('مبلغ المرتجع أكبر من إجمالي الفاتورة الأصلية'),
+          SnackBar(
+            content: Text('لا يُردّ نقدًا أكثر من ${cu.formatAmount(cap)} $currencySymbol'),
           ),
         );
       }
@@ -420,91 +364,37 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
     return null;
   }
 
-  bool _shouldInterpretReturnItemAmountsAsPerGram(
-    Map<String, dynamic> invoiceDetails,
-  ) {
-    final invoiceTotal = _parseDouble(
-      invoiceDetails['total'] ?? invoiceDetails['total_amount'],
-    );
-    final rawItems = (invoiceDetails['items'] as List<dynamic>? ?? [])
-        .whereType<Map<String, dynamic>>()
-        .toList();
-    if (invoiceTotal <= 0 || rawItems.isEmpty) return false;
+  /// A line of the original as the server reads what remains of it
+  /// (GET /invoices/{id}/return-lines) -- the reading its save is held by.
+  ReturnItemRow _rowFromReturnLine(Map<String, dynamic> line) => ReturnItemRow(
+    originalItemId: _parseOptionalInt(line['id']),
+    itemName: (line['name'] as String?)?.trim().isNotEmpty == true ? line['name'] : 'صنف بدون اسم',
+    karat: _parseDouble(line['karat'], 21),
+    originalWeight: _parseDouble(line['remaining_grams']),
+    originalQuantity: _parseInt(line['remaining_pieces'], 1),
+    originalTotal: _parseDouble(line['remaining_amount']),
+    soldTotal: _parseDouble(line['sold_amount']),
+  );
 
-    double baseSum = 0.0;
-    double weightedSum = 0.0;
-
-    for (final item in rawItems) {
-      final weight = _parseDouble(item['weight']);
-      double lineTotal = _parseDouble(item['total']);
-      if (lineTotal <= 0) {
-        final net = _parseDouble(item['net']);
-        final tax = _parseDouble(item['tax']);
-        lineTotal = (net > 0 || tax > 0)
-            ? (net + tax)
-            : _parseDouble(item['price']);
-      }
-      if (lineTotal <= 0) continue;
-      baseSum += lineTotal;
-      weightedSum += lineTotal * (weight > 0 ? weight : 1.0);
-    }
-
-    if (baseSum <= 0 || weightedSum <= 0) return false;
-
-    final baseDelta = (invoiceTotal - baseSum).abs();
-    final weightedDelta = (invoiceTotal - weightedSum).abs();
-    final tolerance = math.max(5.0, invoiceTotal * 0.02);
-
-    return weightedDelta <= tolerance &&
-        (weightedDelta + tolerance) < baseDelta;
-  }
-
-  ReturnItemRow _mapInvoiceItemToReturnRow(
-    Map<String, dynamic> item, {
-    bool assumePerGramAmounts = false,
-  }) {
-    final originalWeight = _parseDouble(item['weight']);
-    final lineMultiplier = assumePerGramAmounts && originalWeight > 0
-        ? originalWeight
-        : 1.0;
-    final originalTax = _parseDouble(item['tax']) * lineMultiplier;
-    double originalNet = _parseDouble(item['net']) * lineMultiplier;
-    final originalPriceField = _parseDouble(item['price']) * lineMultiplier;
-    double originalTotal = _parseDouble(item['total']) * lineMultiplier;
-    final parsedQuantity = _parseInt(item['quantity'], 1);
-    final normalizedQuantity = parsedQuantity > 0 ? parsedQuantity : 1;
-
-    // Some historical invoices expose `price` as a price-per-gram-ish value,
-    // while `net + tax` carries the real line amount. Prefer explicit total,
-    // then net+tax, then fall back to price.
-    if (originalTotal <= 0 && (originalNet > 0 || originalTax > 0)) {
-      originalTotal = originalNet + originalTax;
-    }
-    if (originalTotal <= 0) {
-      originalTotal = originalPriceField;
-    }
-
-    if (originalNet == 0 && originalTotal > 0) {
-      originalNet = (originalTotal - originalTax).clamp(0, originalTotal);
-    }
-
+  /// A line of the return being edited: what it gave back, and the line of
+  /// the original it keeps (original_invoice_item_id, 11 Nov 2026).
+  ReturnItemRow _rowFromEditedLine(Map<String, dynamic> line) {
+    final amount = _parseDouble(line['price']);
     return ReturnItemRow(
-      originalItemId: _parseOptionalInt(item['id']),
-      itemId: _parseOptionalInt(item['item_id']),
-      itemName: (item['name'] as String?)?.trim().isNotEmpty == true
-          ? item['name']
-          : 'صنف بدون اسم',
-      karat: _parseDouble(item['karat'], 21),
-      originalWeight: originalWeight,
-      originalQuantity: normalizedQuantity,
-      originalWage: _parseDouble(item['wage']),
-      originalNet: originalNet,
-      originalTax: originalTax,
-      originalTotal: originalTotal > 0
-          ? originalTotal
-          : originalNet + originalTax,
-    );
+      originalItemId: _parseOptionalInt(line['original_invoice_item_id']),
+      itemId: _parseOptionalInt(line['item_id']),
+      itemName: (line['name'] as String?)?.trim().isNotEmpty == true ? line['name'] : 'صنف بدون اسم',
+      karat: _parseDouble(line['karat'], 21),
+      originalWeight: _parseDouble(line['weight']),
+      originalQuantity: _parseInt(line['quantity'], 1),
+      originalTotal: amount,
+      originalWage: _parseDouble(line['wage']),
+    )..setAmount(amount);
   }
+
+  /// What may still be paid back in cash -- the server's (what was paid, less
+  /// what its returns paid back, RETURN-OWED-1).
+  double _refundable = 0.0;
 
   /// A supplier's return is not this form's: it is the purchase screen's,
   /// which posts it as its purchase reversed (25 Oct 2026). This form, made
@@ -549,7 +439,7 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
       _returnItems =
           (editData['items'] as List?)
               ?.whereType<Map<String, dynamic>>()
-              .map(_mapInvoiceItemToReturnRow)
+              .map(_rowFromEditedLine)
               .toList() ??
           [];
       returnReason = (editData['return_reason'] ?? '').toString();
@@ -659,13 +549,9 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
         break;
 
       case 1: // Select Return Items
-        if (_selectedItems.isEmpty) {
-          final message = _isLoadingInvoiceDetails
-              ? 'جاري تحميل أصناف الفاتورة الأصلية...'
-              : 'الرجاء اختيار صنف واحد على الأقل للإرجاع';
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text(message)));
+        final problem = _itemsProblem();
+        if (problem != null) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(problem)));
           isStepValid = false;
         } else {
           isStepValid = true;
@@ -701,6 +587,24 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
     }
   }
 
+  /// What stops the chosen lines, said; null when each has its weight and its
+  /// amount, within what remains of it (the owner, 11 Nov 2026).
+  String? _itemsProblem() {
+    if (_selectedItems.isEmpty) {
+      return _isLoadingInvoiceDetails
+          ? 'جاري تحميل أصناف الفاتورة الأصلية...'
+          : 'الرجاء اختيار صنف واحد على الأقل للإرجاع';
+    }
+    for (final item in _selectedItems) {
+      if (item.weight <= 0) return 'اكتب الوزن المرتجع من «${item.itemName}»';
+      if (item.amount == null) return 'اكتب المبلغ المرتجع عن «${item.itemName}»';
+      if (item.amount! > item.originalTotal + 0.01) {
+        return '«${item.itemName}»: الباقي منه ${cu.formatAmount(item.originalTotal)} $currencySymbol';
+      }
+    }
+    return null;
+  }
+
   void _onStepCancel() {
     if (_currentStep > 0) {
       setState(() {
@@ -721,27 +625,26 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
 
     try {
       final invoiceDetails = await widget.api.getInvoiceById(invoiceId);
+      // What remains of each line, and in cash: the server's, the same reading
+      // the save is held by (the owner, 11 Nov 2026).
+      final remaining = await widget.api.getReturnLines(invoiceId);
 
       if (!mounted) return;
 
       final mergedInvoice = {...?selectedOriginalInvoice, ...invoiceDetails};
-      final assumePerGramAmounts = _shouldInterpretReturnItemAmountsAsPerGram(
-        mergedInvoice,
-      );
-
-      final items = (invoiceDetails['items'] as List<dynamic>? ?? [])
+      final items = (remaining['lines'] as List<dynamic>? ?? [])
           .whereType<Map<String, dynamic>>()
-          .map(
-            (item) => _mapInvoiceItemToReturnRow(
-              item,
-              assumePerGramAmounts: assumePerGramAmounts,
-            ),
-          )
+          .map(_rowFromReturnLine)
+          .where((row) => row.originalWeight > 0.0005 && row.originalTotal > 0.005)
           .toList();
 
       setState(() {
         selectedOriginalInvoice = mergedInvoice;
         _returnItems = items;
+        _refundable = _parseDouble(remaining['refundable']);
+        // Returned before: what is left comes back in part (a whole reversal is refused).
+        if (remaining['returned_before'] == true) _partial = true;
+        if (items.isEmpty) _invoiceDetailsError = 'رُدّت أسطر هذه الفاتورة كلها؛ لا يبقى منها ما يُرجَع';
       });
     } catch (e) {
       if (!mounted) return;
@@ -956,11 +859,14 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
       'invoice_type': widget.returnType,
       'original_invoice_id': selectedOriginalInvoice!['id'],
       'return_reason': returnReason,
-      'total': _effectiveReturnTotal,
+      // What the return is worth is its lines'; what is paid back, the
+      // refund -- no more than may be (the owner, 11 Nov 2026). Its VAT is the
+      // server's, from its original (ADR-043).
+      'total': grandTotal,
       'total_weight': totalWeight,
-      'total_tax': totalTax,
+      'total_tax': 0.0,
       'total_cost': totalCost,
-      'amount_paid': _effectiveReturnTotal,
+      'amount_paid': _payments.isEmpty ? 0.0 : _refund,
       'payments': _payments.map((p) => p.toJson()).toList(),
       'items': returnItems,
     };
@@ -1100,12 +1006,11 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
               .toString();
     }
 
-    final returnTotal = _effectiveReturnTotal;
-    final returnTax = totalTax;
+    final returnTotal = grandTotal;
+    final returnRefund = _payments.isEmpty ? 0.0 : _refund;
     final returnWeight = totalWeight;
 
     final deltaTotal = -returnTotal;
-    final deltaTax = -returnTax;
     final deltaWeight = -returnWeight;
 
     String fmt2(num v) => v.toStringAsFixed(2);
@@ -1167,12 +1072,12 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                   const SizedBox(height: 6),
                   _buildInfoRow('عدد الأصناف', selected.length.toString()),
                   _buildInfoRow(
-                    'إجمالي المرتجع',
+                    'قيمة المرتجع',
                     '${fmt2(returnTotal)} $currencySymbol',
                   ),
                   _buildInfoRow(
-                    'ضريبة المرتجع',
-                    '${fmt2(returnTax)} $currencySymbol',
+                    'يُردّ نقدًا',
+                    '${fmt2(returnRefund)} $currencySymbol',
                   ),
                   _buildInfoRow('وزن المرتجع', '${fmt3(returnWeight)} جم'),
 
@@ -1188,10 +1093,6 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                   _buildInfoRow(
                     'تغيير الإجمالي',
                     '${fmt2(deltaTotal)} $currencySymbol',
-                  ),
-                  _buildInfoRow(
-                    'تغيير الضريبة',
-                    '${fmt2(deltaTax)} $currencySymbol',
                   ),
                   _buildInfoRow('تغيير الوزن', '${fmt3(deltaWeight)} جم'),
 
@@ -1754,19 +1655,6 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
     );
   }
 
-  Widget _buildItemSummaryChip({
-    required IconData icon,
-    required String label,
-    required String value,
-  }) {
-    return Chip(
-      avatar: Icon(icon, size: 18, color: Colors.black87),
-      label: cu.SarAwareText('$label: $value', isNewSar: _isNewSar),
-      backgroundColor: Colors.grey.shade200,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-    );
-  }
-
   Widget _buildSelectItemsStep() {
     Widget content;
 
@@ -1822,14 +1710,14 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                       value: item.isSelected,
                       contentPadding: EdgeInsets.zero,
                       title: Text(item.itemName),
+                      // What remains of it, the server's (the owner, 11 Nov 2026).
                       subtitle: Text(
-                        'عيار ${item.karat} • وزن أصلي ${item.originalWeight.toStringAsFixed(3)} جم',
+                        'عيار ${cu.formatGrams(item.karat, decimals: 0)} • يبقى منه '
+                        '${cu.formatGrams(item.originalWeight)} جم بـ'
+                        '${cu.formatAmount(item.originalTotal)} $currencySymbol',
                       ),
                       onChanged: (value) {
-                        setState(() {
-                          item.isSelected = value ?? false;
-                          item.recalculateTotals();
-                        });
+                        setState(() => item.isSelected = value ?? false);
                       },
                     ),
                     if (item.isSelected) ...[
@@ -1892,34 +1780,23 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                         ],
                       ),
                       const SizedBox(height: 12),
-                      Wrap(
-                        spacing: 12,
-                        runSpacing: 8,
-                        children: [
-                          _buildItemSummaryChip(
-                            icon: Icons.scale,
-                            label: 'الوزن',
-                            value: '${cu.formatGrams(item.weight)} جم',
-                          ),
-                          _buildItemSummaryChip(
-                            icon: Icons.attach_money,
-                            label: 'الصافي',
-                            value:
-                                '${cu.formatAmount(item.net)} $currencySymbol',
-                          ),
-                          _buildItemSummaryChip(
-                            icon: Icons.percent,
-                            label: 'الضريبة',
-                            value:
-                                '${cu.formatAmount(item.tax)} $currencySymbol',
-                          ),
-                          _buildItemSummaryChip(
-                            icon: Icons.summarize,
-                            label: 'الإجمالي',
-                            value:
-                                '${cu.formatAmount(item.total)} $currencySymbol',
-                          ),
-                        ],
+                      // What comes back for it is typed (the owner, 11 Nov
+                      // 2026: «الوزن والمبلغ المرتجع يكتب يدويا»); the weight's
+                      // share of what remains is said beside it, never put in it.
+                      TextFormField(
+                        key: ValueKey('amount-${item.originalItemId}-$index'),
+                        initialValue: item.amount == null ? '' : cu.formatAmount(item.amount!),
+                        decoration: InputDecoration(
+                          labelText: 'المبلغ المرتجع ($currencySymbol)',
+                          helperText:
+                              'القيمة المرجعية حسب الوزن ${cu.formatAmount(item.referenceAmount)} • '
+                              'الباقي من السطر ${cu.formatAmount(item.originalTotal)}',
+                          helperMaxLines: 2,
+                          border: const OutlineInputBorder(),
+                        ),
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        inputFormatters: [NormalizeNumberFormatter()],
+                        onChanged: (value) => setState(() => item.setAmount(readTypedNumber(value))),
                       ),
                     ],
                   ],
@@ -2015,7 +1892,7 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                   border: Border.all(color: cs.primary.withValues(alpha: 0.4)),
                 ),
                 child: cu.SarAwareText(
-                  'القيمة المرجعية حسب الوزن: ${cu.formatAmount(_suggestedTotal)} $currencySymbol',
+                  'قيمة المرتجع: ${cu.formatAmount(grandTotal)} $currencySymbol',
                   isNewSar: _isNewSar,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     fontWeight: FontWeight.bold,
@@ -2023,8 +1900,24 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                   ),
                 ),
               ),
+              if (_refundable > 0.005 && _refundable + 0.005 < grandTotal)
+                cu.SarAwareText(
+                  'يُردّ نقدًا حتى ${cu.formatAmount(_refundable)} $currencySymbol',
+                  isNewSar: _isNewSar,
+                  style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+                ),
             ],
           ),
+          // Never paid: nothing goes back in cash; the return comes off what is owed
+          // (RETURN-OWED-1) -- no method asked.
+          if (_refundable <= 0.005) ...[
+            const SizedBox(height: 12),
+            Text(
+              'لم يُدفع من الفاتورة شيء: لا يُردّ نقدًا، ويُخصم المرتجع من دين العميل.',
+              key: const Key('return-nothing-to-refund'),
+              style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+            ),
+          ],
           const SizedBox(height: 16),
 
           // ── Added payments table ─────────────────────────────────────
@@ -2273,7 +2166,7 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                   ),
                 ),
                 cu.SarAwareText(
-                  '${_effectiveReturnTotal.toStringAsFixed(2)} $currencySymbol',
+                  '${cu.formatAmount(_refund)} $currencySymbol',
                   isNewSar: _isNewSar,
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.bold,
@@ -2496,20 +2389,16 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                 children: [
                   _buildTotalRow(
                     'الوزن الإجمالي',
-                    '${totalWeight.toStringAsFixed(2)} جم',
+                    '${cu.formatGrams(totalWeight)} جم',
                   ),
                   _buildTotalRow(
-                    'صافي الأصناف',
-                    '${totalCost.toStringAsFixed(2)} $currencySymbol',
-                  ),
-                  _buildTotalRow(
-                    'ضريبة الأصناف',
-                    '${totalTax.toStringAsFixed(2)} $currencySymbol',
+                    'يُردّ نقدًا',
+                    '${cu.formatAmount(_payments.isEmpty ? 0.0 : _refund)} $currencySymbol',
                   ),
                   const Divider(),
                   _buildTotalRow(
-                    'الإجمالي المعتمد',
-                    '${_effectiveReturnTotal.toStringAsFixed(2)} $currencySymbol',
+                    'قيمة المرتجع',
+                    '${cu.formatAmount(grandTotal)} $currencySymbol',
                     isTotal: true,
                   ),
                 ],

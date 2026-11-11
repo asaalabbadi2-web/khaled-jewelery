@@ -17,6 +17,7 @@ import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/sales_race_refresh_provider.dart';
 import 'package:frontend/providers/settings_provider.dart';
 import 'package:frontend/screens/add_return_invoice_screen.dart';
+import 'package:frontend/widgets/return_reason_input.dart';
 import 'package:frontend/screens/purchase_invoice_screen.dart';
 import 'package:frontend/screens/sales_invoice_screen_v2.dart';
 import 'package:frontend/screens/scrap_purchase_invoice_screen.dart';
@@ -222,11 +223,12 @@ void main() {
       }
 
       await step(() => tapText('إرجاع جزء فقط'));
+      await step(() => tester.enterText(find.byKey(const ValueKey('amount-100-0')), '1000'));
       expect(find.text('اختر الأصناف المرتجعة'), findsOneWidget);
       expect(find.textContaining('الإجمالي', findRichText: true), findsWidgets, reason: 'the line\'s figures, not cut');
       await step(() => tapText('التالي'));
       await step(() async {
-        await tester.enterText(find.byType(TextFormField).at(1), 'عيب في الصنع');
+        await tester.enterText(find.descendant(of: find.byType(ReturnReasonInput), matching: find.byType(TextFormField)), 'عيب في الصنع');
         await tapText('التالي');
       });
       expect(find.textContaining('القيمة المرجعية'), findsOneWidget, reason: 'at the payment step');

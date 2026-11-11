@@ -71,7 +71,8 @@ def test_a_refund_larger_than_the_sale_is_refused(auth_headers, world):
     sale = _paid_sale(auth_headers, world)
     resp = _post(auth_headers, _return_of(world, sale, total=1500.0))
     assert resp.status_code == 400
-    assert resp.get_json()['error'] == 'return_refund_exceeds_original'
+    # Refused at its line since 11 Nov 2026: of a line no more than it sold for.
+    assert resp.get_json()['error'] in ('return_line_amount_exceeds_original', 'return_refund_exceeds_original')
 
 
 def test_a_second_whole_return_of_the_same_sale_is_refused(auth_headers, world):
