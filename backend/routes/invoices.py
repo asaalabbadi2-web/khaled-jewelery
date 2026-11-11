@@ -1093,6 +1093,17 @@ def get_invoice_by_id(invoice_id: int):
 
     invoice_dict['customer_name'] = customer_name
     invoice_dict['supplier_name'] = supplier_name
+    # Its returns, and a return its original -- said where the invoice is read
+    # (the return audit, 11 Nov 2026: no screen said either).
+    invoice_dict['returns'] = [
+        {'id': r.id, 'invoice_number': r.invoice_number, 'invoice_type': r.invoice_type,
+         'date': r.date.isoformat() if r.date else None, 'total': r.total, 'total_weight': r.total_weight,
+         'amount_paid': r.amount_paid, 'status': r.status, 'is_posted': bool(r.is_posted)}
+        for r in Invoice.query.filter(Invoice.original_invoice_id == invoice.id).order_by(Invoice.id).all()
+    ]
+    _original = db.session.get(Invoice, invoice.original_invoice_id) if invoice.original_invoice_id else None
+    invoice_dict['original_invoice'] = (
+        {'id': _original.id, 'invoice_number': _original.invoice_number} if _original else None)
     from services.supplier_running_account import is_supplier_purchase, purchase_states
     if is_supplier_purchase(invoice):
         # its running account's state (REPORTS ت3-2ج)

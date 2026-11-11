@@ -1818,16 +1818,6 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
         ),
         const SizedBox(height: 16),
         content,
-        const SizedBox(height: 16),
-        ElevatedButton.icon(
-          icon: const Icon(Icons.add),
-          label: const Text('إضافة صنف يدوياً'),
-          onPressed: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('سيتم إضافة هذه الميزة قريباً')),
-            );
-          },
-        ),
       ],
     );
   }

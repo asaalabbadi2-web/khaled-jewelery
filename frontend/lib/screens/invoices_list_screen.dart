@@ -4327,6 +4327,52 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                       ),
                     ],
 
+                    // A return says its original, a sale its returns (the
+                    // return audit, 11 Nov 2026: no screen said either).
+                    if (invoice['original_invoice'] is Map) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        'مرتجع للفاتورة ${(invoice['original_invoice'] as Map)['invoice_number'] ?? '#${(invoice['original_invoice'] as Map)['id']}'}',
+                        key: const Key('return-of-original'),
+                        style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                    ],
+                    if ((invoice['returns'] as List?)?.isNotEmpty == true) ...[
+                      const SizedBox(height: 12),
+                      Card(
+                        key: const Key('invoice-returns'),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Text('مرتجعاتها', style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800)),
+                              for (final r in (invoice['returns'] as List).whereType<Map>())
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          '${r['invoice_number'] ?? '#${r['id']}'}'
+                                          '${(r['date'] ?? '').toString().length >= 10 ? ' · ${(r['date'] as String).substring(0, 10)}' : ''}'
+                                          '${r['status'] == 'rejected' ? ' · مرفوض' : ''}',
+                                        ),
+                                      ),
+                                      Text(
+                                        '${formatGrams(_tryParseDouble(r['total_weight']))} جم · '
+                                        '${formatAmount(_tryParseDouble(r['total']))}',
+                                        style: textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+
                     if (canReturn) ...[
                       const SizedBox(height: 12),
                       Card(
