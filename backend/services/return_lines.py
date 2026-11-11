@@ -206,10 +206,24 @@ def refuse_return_lines(original, invoice_type: str, items: list) -> None:
             raise ReturnRefused('original_invoice_item_not_found',
                                 'أحد أصناف المرتجع غير موجود ضمن الفاتورة الأصلية',
                                 original_invoice_item_id=line_id, original_invoice_id=original.id)
+        weight = abs(_f(item.get('weight', item.get('total_weight'))))
+        price = abs(_f(item.get('price', item.get('net'))))
+        # A line of no weight and no price says nothing came back (3395 carried
+        # one beside its real line; the owner, 11 Nov 2026: «يرفض»).
+        if weight <= GRAM and price <= 0.005:
+            raise ReturnRefused('return_line_empty',
+                                f'السطر {n} بلا وزن ولا قيمة: يُحذف من المرتجع', line_index=n)
         grams, pieces = asked.get(line_id, (0.0, 0))
-        asked[line_id] = (grams + abs(_f(item.get('weight', item.get('total_weight')))),
-                          pieces + abs(int(_f(item.get('quantity', 1)) or 1)))
+        asked[line_id] = (grams + weight, pieces + abs(int(_f(item.get('quantity', 1)) or 1)))
     piece_weights = keeps_a_piece_s_weight(original)
+    # A customer's return gives gold back: money back with none is a correction
+    # -- «تصحيح فاتورة» (3399, 3442; the owner, 11 Nov 2026: «يرفض»). Where the
+    # lines it names weighed nothing themselves, none is asked.
+    if invoice_type in CUSTOMER_RETURNS and asked:
+        weighed_lines = [i for i in asked if line_grams(originals[i], piece_weights) > GRAM]
+        if weighed_lines and sum(asked[i][0] for i in weighed_lines) <= GRAM:
+            raise ReturnRefused('return_without_gold',
+                                'مرتجع بلا ذهب: تصحيح المبلغ أو العيار أو الوزن يكون بـ«تصحيح فاتورة» لا بالمرتجع')
     before = returned_of_lines(original)
     for line_id, (grams, pieces) in asked.items():
         line = originals[line_id]
