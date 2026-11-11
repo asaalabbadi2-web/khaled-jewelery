@@ -80,6 +80,7 @@ REFERENCES = {
     ('bonus_invoice_link', 'invoice_id'): ('invoice', EVIDENCE),
     ('invoice_correction', 'invoice_id'): ('invoice', EVIDENCE),            # «تصحيح فاتورة» (ت-1)
     ('invoice_correction', 'invoice_item_id'): ('invoice_item', EVIDENCE),
+    ('invoice_item', 'original_invoice_item_id'): ('invoice_item', EVIDENCE),  # a return of the line
     # a piece born under a receipt's line (ADR-087 R3): its registration, not
     # the invoice, wrote it -- the receipt is not deleted under its pieces
     ('item', 'receipt_item_id'): ('invoice_item', EVIDENCE),
@@ -115,6 +116,7 @@ _EVIDENCE_NAMES = {
     ('bonus_invoice_link', 'invoice_id'): 'مكافأة موظف',
     ('invoice_correction', 'invoice_id'): 'تصحيح فاتورة',
     ('invoice_correction', 'invoice_item_id'): 'تصحيح فاتورة',
+    ('invoice_item', 'original_invoice_item_id'): 'سطر مرتجع',
     ('bonus_clawback_candidate', 'original_invoice_id'): 'استرداد مكافأة',
     ('bonus_clawback_candidate', 'return_invoice_id'): 'استرداد مكافأة',
     ('supplier_gold_transaction', 'invoice_id'): 'حركة ذهب مورد',
@@ -282,6 +284,8 @@ def financial_history_of(invoice_id: int, skip_payment_ids=frozenset()) -> list[
             query = sa.select(key).where(child.c[column] == invoice_id)
         else:
             owner = meta.tables[parent]
+            if owner is child:          # a line of a return pointing at a line of it
+                owner = owner.alias('its_line')
             query = (sa.select(key)
                      .select_from(child.join(owner, owner.c.id == child.c[column]))
                      .where(owner.c[owners[parent]] == invoice_id))

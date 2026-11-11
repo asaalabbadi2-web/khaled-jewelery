@@ -79,7 +79,8 @@ def test_a_second_whole_return_of_the_same_sale_is_refused(auth_headers, world):
     assert _post(auth_headers, _return_of(world, sale, total=1000.0)).status_code == 201
     resp = _post(auth_headers, _return_of(world, sale, total=1000.0))
     assert resp.status_code == 400
-    assert resp.get_json()['error'] in ('return_weight_exceeds_original',
+    # Refused at its line since 11 Nov 2026: nothing remains of it (the return audit).
+    assert resp.get_json()['error'] in ('return_line_exceeds_remaining', 'return_weight_exceeds_original',
                                         'return_refund_exceeds_original')
 
 

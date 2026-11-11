@@ -3713,7 +3713,10 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
     final canDirectEdit = auth.isManager || withinEditWindow;
 
     final returnType = _returnTypeForInvoice(invoiceType);
-    final canReturn = returnType != null;
+    // A customer's return is the accountant's and the manager's, never the
+    // seller's (the owner, 11 Nov 2026); a supplier's, ADR-036's.
+    final canReturn = returnType != null &&
+        auth.hasPermission(returnType == 'مرتجع شراء (مورد)' ? 'invoices.supplier' : 'invoices.return');
 
     return DraggableScrollableSheet(
       initialChildSize: 0.92,
@@ -5272,14 +5275,14 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
             'title': isAr ? 'شراء' : 'Supplier Purchase',
             'subtitle': isAr ? 'توريدات من التجار' : 'Bulk supplier orders',
           },
-          {
+          if (context.read<AuthProvider>().hasPermission('invoices.return')) {
             'target': _InvoiceCreationTarget.salesReturn,
             'icon': Icons.keyboard_return,
             'color': _tone.invoice(InvoiceKind.returned).fg,
             'title': isAr ? 'مرتجع بيع' : 'Sales Return',
             'subtitle': isAr ? 'استرجاع مبيعات' : 'Return sold items',
           },
-          {
+          if (context.read<AuthProvider>().hasPermission('invoices.return')) {
             'target': _InvoiceCreationTarget.scrapReturn,
             'icon': Icons.undo,
             'color': _tone.invoice(InvoiceKind.returned).fg,

@@ -79,7 +79,9 @@ from accounting.invoice_payment_voucher import (
     PaymentPartyMissing, approve_invoice_payment_voucher, build_invoice_payment_voucher, invoice_payment_party,
 )
 from services.read_scope import is_approver, scope_invoices_to_reader, without_cost
-from services.record_ownership import refuse_supplier_invoice_without_permission, refuse_unless_theirs
+from services.record_ownership import (
+    refuse_customer_return_without_permission, refuse_supplier_invoice_without_permission, refuse_unless_theirs,
+)
 from services.invoice_payment_state_service import InvoicePaymentStateService
 from services.gold_allocation_service import (
     is_gold_obligation_eligible,
@@ -3158,7 +3160,7 @@ _REVERSAL_OF = {'بيع': 'مرتجع بيع', 'شراء من عميل': 'مرت
 
 
 @invoices_bp.route('/invoices/<int:invoice_id>/reverse', methods=['POST'])
-@require_permission('invoices.create')
+@require_permission('invoices.return')   # the accountant's and the manager's (the owner, 11 Nov 2026)
 def reverse_invoice(invoice_id):
     """A sale, or a scrap purchase from a customer, reversed in full (RETURN-FULL-1).
 
@@ -3765,6 +3767,10 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
     requested_date = datetime.fromisoformat(data['date']) if data.get('date') else datetime.now()
 
     return_types = ['مرتجع بيع', 'مرتجع شراء', 'مرتجع شراء (مورد)']
+    # A customer's return is the accountant's and the manager's (the owner, 11 Nov 2026).
+    _refused_return = refuse_customer_return_without_permission(invoice_type)
+    if _refused_return:
+        return _refused_return
     if invoice_type in return_types:
         original_invoice = None
 
@@ -3812,115 +3818,20 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 if is_supplier_purchase and original_invoice.supplier_id != data.get('supplier_id'):
                     return jsonify({'error': 'Supplier ID must match original invoice'}), 400
 
-        # 🛡️ Server-side validation (when original invoice exists): return items must reference
-        # original invoice items and cannot exceed the original quantities/weights.
+        # A return gives back of each line no more than remains of it, a
+        # customer's of a posted original (services/return_lines.py; the return
+        # audit, 11 Nov 2026). It refuses on a fault in the check too: it was in
+        # a try/except that let the return through.
         if original_invoice is not None:
+            from services import return_lines as _return_lines
             try:
-                def _to_float_local(value, default=0.0):
-                    if value in (None, '', False):
-                        return default
-                    try:
-                        normalized = normalize_number(str(value))
-                        return float(normalized)
-                    except Exception:
-                            try:
-                                return float(value)
-                            except Exception:
-                                return default
-
-                items_payload = data.get('items', [])
-                if items_payload in (None, '', False):
-                    items_payload = []
-                if not isinstance(items_payload, list):
-                    return jsonify({'error': 'items must be a list'}), 400
-
-                # Aggregate by original_invoice_item_id to prevent splitting to bypass limits.
-                aggregated = {}  # id -> {'qty': float, 'total_weight': float}
-                for idx, it in enumerate(items_payload, start=1):
-                    if not isinstance(it, dict):
-                        continue
-                    raw_orig_item_id = it.get('original_invoice_item_id')
-                    if raw_orig_item_id in (None, '', False):
-                        return jsonify({
-                            'error': 'missing_original_invoice_item_id',
-                            'message': 'يجب ربط كل صنف مرتجع بصنف من الفاتورة الأصلية (original_invoice_item_id).',
-                            'line_index': idx,
-                        }), 400
-                    try:
-                        orig_item_id = int(raw_orig_item_id)
-                    except Exception:
-                        return jsonify({
-                            'error': 'invalid_original_invoice_item_id',
-                            'message': 'original_invoice_item_id غير صحيح',
-                            'line_index': idx,
-                            'value': raw_orig_item_id,
-                        }), 400
-
-                    req_qty = _to_float_local(it.get('quantity', 1), 1.0) or 0.0
-                    if req_qty < 0:
-                        req_qty = abs(req_qty)
-                    # Return payload uses per-unit weight.
-                    req_weight_per_unit = _to_float_local(it.get('weight', it.get('total_weight', 0.0)), 0.0)
-                    if req_weight_per_unit < 0:
-                        req_weight_per_unit = abs(req_weight_per_unit)
-
-                    req_total_weight = float(req_weight_per_unit) * float(req_qty if req_qty > 0 else 0.0)
-                    current = aggregated.get(orig_item_id) or {'qty': 0.0, 'total_weight': 0.0}
-                    current['qty'] = float(current.get('qty', 0.0) or 0.0) + float(req_qty)
-                    current['total_weight'] = float(current.get('total_weight', 0.0) or 0.0) + float(req_total_weight)
-                    aggregated[orig_item_id] = current
-
-                # Validate aggregated quantities/weights against DB original items.
-                eps_qty = 1e-6
-                eps_weight = 1e-3
-                for orig_item_id, agg in aggregated.items():
-                    orig_item = InvoiceItem.query.get(orig_item_id)
-                    if not orig_item or int(getattr(orig_item, 'invoice_id', 0) or 0) != int(original_invoice.id):
-                        return jsonify({
-                            'error': 'original_invoice_item_not_found',
-                            'message': 'أحد أصناف المرتجع غير موجود ضمن الفاتورة الأصلية',
-                            'original_invoice_item_id': orig_item_id,
-                            'original_invoice_id': int(original_invoice.id),
-                        }), 400
-
-                    try:
-                        orig_qty = int(getattr(orig_item, 'quantity', 1) or 1)
-                    except Exception:
-                        orig_qty = 1
-                    if orig_qty < 0:
-                        orig_qty = abs(orig_qty)
-
-                    try:
-                        orig_weight_per_unit = float(getattr(orig_item, 'weight', 0.0) or 0.0)
-                    except Exception:
-                        orig_weight_per_unit = 0.0
-
-                    orig_total_weight = float(orig_weight_per_unit) * float(orig_qty if orig_qty > 0 else 0.0)
-
-                    req_qty_sum = float(agg.get('qty', 0.0) or 0.0)
-                    req_weight_sum = float(agg.get('total_weight', 0.0) or 0.0)
-
-                    if req_qty_sum > float(orig_qty) + eps_qty:
-                        return jsonify({
-                            'error': 'return_quantity_exceeds_original',
-                            'message': 'كمية المرتجع أكبر من كمية الفاتورة الأصلية',
-                            'original_invoice_item_id': orig_item_id,
-                            'original_quantity': int(orig_qty),
-                            'returned_quantity': float(req_qty_sum),
-                        }), 400
-
-                    # Only enforce weight if the original invoice item has a meaningful weight.
-                    if orig_total_weight > eps_weight and req_weight_sum > orig_total_weight + eps_weight:
-                        return jsonify({
-                            'error': 'return_weight_exceeds_original',
-                            'message': 'وزن المرتجع أكبر من وزن الفاتورة الأصلية',
-                            'original_invoice_item_id': orig_item_id,
-                            'original_total_weight': round(float(orig_total_weight), 3),
-                            'returned_total_weight': round(float(req_weight_sum), 3),
-                        }), 400
-            except Exception:
-                # Do not crash invoice creation on validation failures; fall back to existing behavior.
-                pass
+                _return_lines.refuse_return_lines(original_invoice, invoice_type, data.get('items') or [])
+            except _return_lines.ReturnRefused as refused:
+                return jsonify({'error': refused.code, 'message': refused.message, **refused.detail}), 400
+            except Exception as fault:  # noqa: BLE001 -- refused, never let through
+                current_app.logger.exception('return check failed')
+                return jsonify({'error': 'return_check_failed',
+                                'message': 'تعذّر فحص المرتجع؛ لم يُحفظ', 'detail': str(fault)}), 500
     
     # 🆕 Validation لنوع الذهب
     gold_type = data.get('gold_type', 'new')
@@ -4913,10 +4824,14 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 _line = _receipt_lines.pop(0)
                 _line.wage, _line.net, _line.tax, _line.price = item_wage_val, net_price, tax_amount_val, total_price
                 continue
+            _orig_line = item_data.get('original_invoice_item_id') if invoice_type in (
+                'مرتجع بيع', 'مرتجع شراء', 'مرتجع شراء (مورد)') else None
             db.session.add(InvoiceItem(
                 invoice_id=new_invoice.id,
                 item_id=item.id if item else None,
                 category_id=item_data.get('category_id'),
+                # A return's line keeps the line it returns (the return audit).
+                original_invoice_item_id=(int(_orig_line) if str(_orig_line or '').strip().isdigit() else None),
                 supplier_weight=(_to_float(item_data.get('supplier_weight'), None)
                                  if item_data.get('supplier_weight') not in (None, '') else None),
                 name=item_name,

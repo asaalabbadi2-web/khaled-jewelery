@@ -38,6 +38,25 @@ def refuse_supplier_invoice_without_permission(invoice_type):
     }), 403
 
 
+CUSTOMER_RETURN_TYPES = frozenset({'مرتجع بيع', 'مرتجع شراء'})
+
+
+def refuse_customer_return_without_permission(invoice_type):
+    """A customer's return -- of a sale or of a scrap purchase, in part or whole --
+    is the accountant's and the manager's, never the seller's, not even of
+    their own sale (the owner, 11 Nov 2026): `invoices.return`. None when allowed."""
+    if (invoice_type or '').strip() not in CUSTOMER_RETURN_TYPES:
+        return None
+    user = getattr(g, 'current_user', None)
+    if user is None or getattr(user, 'is_admin', False) or user.has_permission('invoices.return'):
+        return None
+    return jsonify({
+        'error': 'permission_denied',
+        'message': 'المرتجع للمحاسب والمدير.',
+        'required_permission': 'invoices.return',
+    }), 403
+
+
 def refuse_unless_self(employee_id, others_code: str = 'employees.bonuses'):
     """An employee acts on their own goals and achievements; another's needs
     *others_code* (ADR-036). None when allowed."""

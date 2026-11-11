@@ -1572,38 +1572,44 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     // ════════════════════════════════════════════════════════════════════════
     addDivider();
     addSection(isAr ? 'المرتجعات' : 'Returns', _tone.sectionRed.fg);
-    addDestination(
-      icon: Icons.keyboard_return,
-      title: isAr ? 'مرتجع بيع' : 'Sales Return',
-      keywords: const ['فاتورة مرتجع'],
-      color: _tone.invoice(InvoiceKind.returned).fg,
-      onSelected: () async {
-        final result = await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) =>
-                AddReturnInvoiceScreen(api: api, returnType: 'مرتجع بيع'),
-          ),
-        );
-        if (result == true) await _loadAllData();
-      },
-    );
-    addDestination(
-      icon: Icons.undo,
-      title: isAr ? 'مرتجع شراء كسر' : 'Scrap Purchase Return',
-      keywords: const ['فاتورة مرتجع'],
-      color: _tone.invoice(InvoiceKind.returned).fg,
-      onSelected: () async {
-        final result = await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) =>
-                AddReturnInvoiceScreen(api: api, returnType: 'مرتجع شراء'),
-          ),
-        );
-        if (result == true) await _loadAllData();
-      },
-    );
+    // A customer's return is the accountant's and the manager's (11 Nov 2026).
+    final returnsAllowed = context.read<AuthProvider>().hasPermission('invoices.return');
+    if (returnsAllowed) {
+      addDestination(
+        icon: Icons.keyboard_return,
+        title: isAr ? 'مرتجع بيع' : 'Sales Return',
+        keywords: const ['فاتورة مرتجع'],
+        color: _tone.invoice(InvoiceKind.returned).fg,
+        onSelected: () async {
+          final result = await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) =>
+                  AddReturnInvoiceScreen(api: api, returnType: 'مرتجع بيع'),
+            ),
+          );
+          if (result == true) await _loadAllData();
+        },
+      );
+    }
+    if (returnsAllowed) {
+      addDestination(
+        icon: Icons.undo,
+        title: isAr ? 'مرتجع شراء كسر' : 'Scrap Purchase Return',
+        keywords: const ['فاتورة مرتجع'],
+        color: _tone.invoice(InvoiceKind.returned).fg,
+        onSelected: () async {
+          final result = await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) =>
+                  AddReturnInvoiceScreen(api: api, returnType: 'مرتجع شراء'),
+            ),
+          );
+          if (result == true) await _loadAllData();
+        },
+      );
+    }
     addDestination(
       icon: Icons.assignment_return,
       title: isAr ? 'مرتجع شراء جديد' : 'Supplier Return',
@@ -4306,7 +4312,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           );
         }
 
-        final activeActions = provider.activeActions;
+        final activeActions =
+            provider.activeActions.where((a) => _routeAllowed(a.route)).toList();
 
         if (activeActions.isEmpty) {
           return Container(
@@ -4729,9 +4736,11 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     // فواتير
     'invoices_list':           'invoices.view',
     'return_invoice':          'invoices.view',
-    'return_sales':            'invoices.view',
-    'return_purchase':         'invoices.view',
-    'return_purchase_supplier':'invoices.view',
+    // A customer's return is the accountant's and the manager's, never the
+    // seller's (the owner, 11 Nov 2026); a supplier's, ADR-036's.
+    'return_sales':            'invoices.return',
+    'return_purchase':         'invoices.return',
+    'return_purchase_supplier':'invoices.supplier',
     'posting_management':      'invoices.approve',
     // محاسبة
     'accounts':                'accounts.view',
@@ -4786,18 +4795,25 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       ].any(auth.hasPermission);
 
   /// يتحقق من صلاحية الوصول — يعرض رسالة واضحة ويعيد false إن لم يكن مسموحاً
-  bool _checkRoutePermission(String route) {
+  /// Whether the signed-in user may open [route] -- one answer for showing a
+  /// quick action and for tapping it: a tile the user may not open is not
+  /// shown (11 Nov 2026), it was shown and refused.
+  bool _routeAllowed(String route) {
     final auth = context.read<AuthProvider>();
     final required = _routePermissions[route];
     // المسارات غير المدرجة أو التي لا تحتاج صلاحية خاصة → مسموح
     if (required == null) return true;
-    final allowed = required == 'ADMIN_ONLY'
+    return required == 'ADMIN_ONLY'
         ? auth.isSystemAdmin
         : required == 'MANAGER_ONLY'
             ? auth.isManager
             : required == 'ANY_REPORT'
                 ? _holdsAnyReport(auth)
                 : auth.hasPermission(required);
+  }
+
+  bool _checkRoutePermission(String route) {
+    final allowed = _routeAllowed(route);
     if (!allowed) {
       AppFeedback.warning(
         context,

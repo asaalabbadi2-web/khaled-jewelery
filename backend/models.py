@@ -1565,6 +1565,10 @@ class InvoiceItem(db.Model):
     invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id'), nullable=False)
     item_id = db.Column(db.Integer, db.ForeignKey('item.id'))
     category_id = db.Column(db.Integer, db.ForeignKey('category.id'), nullable=True)
+    # A return's line: the line it returns (the return audit, 11 Nov 2026) --
+    # what remains of a line after its returns is read from it.
+    original_invoice_item_id = db.Column(
+        db.Integer, db.ForeignKey('invoice_item.id', ondelete='SET NULL'), nullable=True, index=True)
     name = db.Column(db.String(100))
     quantity = db.Column(db.Integer, nullable=False)
     price = db.Column(db.Float, nullable=False)
