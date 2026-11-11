@@ -194,15 +194,22 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
   Set<String> _openDrawerSections = {};
   /// The fixed menu. The manager's dashboard is in it for whoever holds it
   /// (DASH-3, the owner 30 Oct 2026: the manager's alone).
-  List<String> get _bottomNavItems => [
-        'home',
-        if (Provider.of<AuthProvider>(context, listen: false).hasPermission('dashboard.admin'))
-          'dashboard',
-        'invoices',
-        'customers',
-        'items',
-        'settings',
-      ];
+  /// The bottom bar's tabs: five at most on a phone -- six for the manager
+  /// crowded its words; their settings then open from the account menu
+  /// (the owner, 11 Nov 2026).
+  List<String> get _bottomNavItems {
+    final dashboard =
+        Provider.of<AuthProvider>(context, listen: false).hasPermission('dashboard.admin');
+    final phone = MediaQuery.sizeOf(context).width < 700;
+    return [
+      'home',
+      if (dashboard) 'dashboard',
+      'invoices',
+      'customers',
+      'items',
+      if (!(phone && dashboard)) 'settings',
+    ];
+  }
 
   bool isLoading = true;
 
@@ -651,7 +658,33 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
   }
 
   /// One chip in the app bar; every chip opens the pending-actions dialog.
-  Widget _pendingChip({required bool isAr, required Widget leading, required String label}) {
+  Widget _pendingChip({required bool isAr, required Widget leading, required String label, bool compact = false}) {
+    // On a phone the circle alone, its words its tooltip: with them the bar ran
+    // 19 px past an iPhone and pushed the menu and the search off it (the
+    // owner, 11 Nov 2026).
+    if (compact) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2),
+        child: Tooltip(
+          message: label,
+          child: InkResponse(
+            radius: 20,
+            onTap: () => PendingApprovalsDialog.show(
+              context: context,
+              api: api,
+              isArabic: isAr,
+              onCountChanged: _loadPendingApprovalsCount,
+            ),
+            child: Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(color: _tone.blocked.fg, shape: BoxShape.circle),
+              child: Center(child: leading),
+            ),
+          ),
+        ),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
       child: InkWell(
@@ -2303,6 +2336,10 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     // The header's search (ADR-057 ق٠): a field on a wide screen, an icon on
     // a phone; Ctrl/⌘+K opens it from anywhere on the home screen.
     final wideHeader = MediaQuery.sizeOf(context).width >= 700;
+    // The signs say their words only where the bar has room for them; below
+    // that a dot that says them on a long press (an iPad mini's bar ran 52 px
+    // over with both up).
+    final roomyHeader = MediaQuery.sizeOf(context).width >= 1000;
     final search = ScreenSearchBar(
       key: _screenSearch,
       destinations: () => _screenDestinations(isAr),
@@ -2351,9 +2388,13 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
               // On a phone the logo alone: the icons leave the name «مج…».
               if (wideHeader) ...[
               const SizedBox(width: 10),
-              Text(
+              // Shrinks before it overflows: on an iPad mini with both signs
+              // up it had 121 px (11 Nov 2026).
+              Flexible(
+                child: Text(
                   isAr ? 'مجوهرات خالد' : 'Khaled Jewelery',
                   overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
                   style: TextStyle(
                     color: _onBar,
                     fontWeight: FontWeight.w700,
@@ -2361,6 +2402,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                     fontSize: _type.titleLarge?.fontSize,
                   ),
                 ),
+              ),
                 const SizedBox(width: AppSpace.lg),
                 Expanded(child: Center(child: search)),
                 const SizedBox(width: AppSpace.lg),
@@ -2374,6 +2416,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                 isAr: isAr,
                 leading: Icon(Icons.power_off_rounded, size: 18, color: _onBar),
                 label: isAr ? 'المجدول متوقف' : 'Scheduler down',
+                compact: !roomyHeader,
               ),
             if (_pendingApprovalsCount > 0)
               _pendingChip(
@@ -2388,8 +2431,11 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                   ),
                 ),
                 label: isAr ? 'بانتظار الإجراء' : 'Pending Actions',
+                compact: !roomyHeader,
               ),
-            IconButton(
+            // On a phone the theme and the language are in the account menu:
+            // rarely used, they took a third of its bar (11 Nov 2026).
+            if (wideHeader) IconButton(
               icon: Icon(
                 Provider.of<ThemeProvider>(context).isDarkMode
                     ? Icons.light_mode
@@ -2398,7 +2444,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
               tooltip: isAr ? 'تبديل الوضع' : 'Toggle Theme',
               onPressed: () => Provider.of<ThemeProvider>(context, listen: false).toggleTheme(),
             ),
-            IconButton(
+            if (wideHeader) IconButton(
               icon: const Icon(Icons.language),
               tooltip: isAr ? 'English' : 'العربية',
               onPressed: widget.onToggleLocale,
@@ -2561,6 +2607,46 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                           ],
                         ),
                       ),
+                    if (!wideHeader) ...[
+                      const PopupMenuDivider(),
+                      PopupMenuItem<String>(
+                        key: const Key('user-menu-theme'),
+                        value: 'theme',
+                        child: Row(
+                          children: [
+                            Icon(isDark ? Icons.light_mode : Icons.dark_mode, size: 18),
+                            const SizedBox(width: 8),
+                            Text(isDark
+                                ? (isAr ? 'الوضع الفاتح' : 'Light mode')
+                                : (isAr ? 'الوضع الليلي' : 'Dark mode')),
+                          ],
+                        ),
+                      ),
+                      if (widget.onToggleLocale != null)
+                        PopupMenuItem<String>(
+                          key: const Key('user-menu-locale'),
+                          value: 'locale',
+                          child: Row(
+                            children: [
+                              const Icon(Icons.language, size: 18),
+                              const SizedBox(width: 8),
+                              Text(isAr ? 'English' : 'العربية'),
+                            ],
+                          ),
+                        ),
+                      if (!_bottomNavItems.contains('settings'))
+                        PopupMenuItem<String>(
+                          key: const Key('user-menu-settings'),
+                          value: 'settings',
+                          child: Row(
+                            children: [
+                              const Icon(Icons.settings, size: 18),
+                              const SizedBox(width: 8),
+                              Text(isAr ? 'الإعدادات' : 'Settings'),
+                            ],
+                          ),
+                        ),
+                    ],
                     const PopupMenuDivider(),
                     PopupMenuItem<String>(
                       value: 'logout',
@@ -2574,6 +2660,21 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                     ),
                   ],
                   onSelected: (value) async {
+                    if (value == 'theme') {
+                      Provider.of<ThemeProvider>(context, listen: false).toggleTheme();
+                      return;
+                    }
+                    if (value == 'locale') {
+                      widget.onToggleLocale?.call();
+                      return;
+                    }
+                    if (value == 'settings') {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => SettingsScreenEnhanced()),
+                      );
+                      return;
+                    }
                     if (value == 'logout') {
                       // Asks first: one slip of the menu closed the session
                       // and what the user was doing (ADR-057 ق١).
@@ -4151,7 +4252,9 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
             final tile = _buildQuickActionTile(
               action: items[index],
               theme: theme,
-              compact: tileWidth < 100,
+              // A phone's tile (~102 px) has no room for a subtitle under a
+              // two-line name.
+              compact: tileWidth < 120,
             );
             if (!animated) return tile;
             return AnimationConfiguration.staggeredGrid(
@@ -4357,8 +4460,9 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
             .where((a) => a.group == QuickActionGroup.admin)
             .toList();
 
-        final compact = MediaQuery.sizeOf(context).width < 640;
-        final defaultVisible = compact ? 2 : 3;
+        // Three a row on a phone too (the owner, 11 Nov 2026): it showed two,
+        // the grid's third column empty.
+        const defaultVisible = 3;
 
         final salesExpanded    = _expandedGroups.contains(QuickActionGroup.sales);
         final accountingExpanded = _expandedGroups.contains(QuickActionGroup.accounting);
