@@ -1,0 +1,182 @@
+{
+  "about": "The owner's figures for the 2026 opening reorganized (ADR-088; docs/plans/opening-2026-reorganization.md). Policy, not code: each account by its number and its name -- the tool refuses a number that names another account.",
+  "reference_type": "opening_2026",
+  "count_price": 440,
+  "opening_entry": "JE-2026-00001",
+  "count": {"18k": 18262.80, "21k": 12229.40},
+  "accounts": {
+    "display": {"number": "71300", "name": "مخزون الذهب المعروض للبيع وزني"},
+    "main_scrap": {"number": "71310000", "name": "صندوق الكسر الرئيسي وزني"},
+    "temp_scrap": {"number": "71310002", "name": "صندوق الكسر الرئيسي احتياطي"},
+    "capital_w": {"number": "7310", "name": "رأس المال وزني"},
+    "capital_c": {"number": "310", "name": "رأس المال"},
+    "opening_adjust_w": {"number": "7360", "name": "تسوية الارصدة الافتتاحية وزني"},
+    "gold_clearing_c": {"number": "1720", "name": "حساب وسيط تسوية الذهب"},
+    "gold_clearing_w": {"number": "71720", "name": "حساب وسيط تسوية الذهب وزني"},
+    "rakhi_deposit": {"number": "713301", "name": "ذهب مودع لدى مكتب الراقي"},
+    "dealings_w": {"number": "71600", "name": "دفتر التعامل الوزني"},
+    "safes_shortage": {"number": "370", "name": "عجز /فائض الخزائن"},
+    "sundry_creditors": {"number": "250", "name": "أرصدة دائنة متنوعة"},
+    "supplier_settlement_income": {"number": "4120", "name": "إيراد فروقات تسوية الموردين"},
+    "saleh_w": {"number": "71700000", "name": "ح/حساب الموظف صالح العبادي وزني"},
+    "p_abdulaziz": {"number": "71740000", "name": "حساب الشريك عبدالعزيز وزني"},
+    "p_khaled": {"number": "71740001", "name": "حساب الشريك خالد العجبي وزني"},
+    "p_badr": {"number": "71740002", "name": "حساب الشريك بدر العبادي وزني"},
+    "p_abdulrahman": {"number": "71740003", "name": "حساب الشريك عبدالرحمن العبادي وزني"},
+    "p_khaled_c": {"number": "1740001", "name": "حساب الشريك خالد العجبي"}
+  },
+  "made_account": {
+    "key": "earrings_stock",
+    "name": "مخزون الحلق الطبي",
+    "parent_role": "gold_inventory_root"
+  },
+  "protected_allowed": ["gold_clearing_c", "gold_clearing_w"],
+  "riyadh_shares": {"p_abdulaziz": "17/30", "p_badr": "17/60", "p_abdulrahman": "3/20"},
+  "expect_before": {
+    "dealings_w": {"21k": 974.10},
+    "gold_clearing_c": {"cash": -21181.00},
+    "gold_clearing_w": {"21k": 48.14},
+    "rakhi_deposit": {"21k": 396.60},
+    "temp_scrap": {"18k": 479.57, "21k": -870.49, "22k": -8.00, "24k": 18.497},
+    "safes_shortage": {"cash": 150142.57}
+  },
+  "expect_opening_lines": {
+    "display": {"18k": 14070.0, "21k": 9486.326},
+    "main_scrap": {"18k": 240.1, "21k": 148.9}
+  },
+  "entries": [
+    {"key": "T1", "date": "2026-01-01", "type": "افتتاحي",
+     "description": "الذهب الافتتاحي إلى الموجود في جرد ديسمبر 2025 (18 = 18,262.80، 21 = 12,229.40): الفرق للمعروض، وما يصفّر صندوق الكسر المؤقت إليه (ADR-088)",
+     "lines": [
+       {"account": "display", "dr": {"18k": 3870.67, "21k": 1722.242}, "note": "فرق الجرد إلى المعروض"},
+       {"account": "temp_scrap", "dr": {"18k": 82.03, "21k": 884.69, "22k": 8.0}, "cr": {"24k": 18.497}, "note": "ما كان في الكسر يوم الجرد ولم يدخل الافتتاح، وعيارا 22 و24 إلى 21"},
+       {"account": "capital_w", "cr": {"18k": 3952.70, "21k": 2606.932, "22k": 8.0}, "dr": {"24k": 18.497}, "note": "رأس المال: الموجود كما في الجرد"}
+     ]},
+    {"key": "T2", "date": "2026-01-01", "type": "افتتاحي",
+     "description": "فكّ مقابلات سُلف الموظفين ومستحقاتهم ودَين أسطورة البلد عن المعروض ووسيط التسوية (JE-2026-00094/95/119): كلٌّ على صاحبه بوحدته (ADR-088)",
+     "lines": [
+       {"account": "display", "dr": {"21k": 133.18}, "note": "ما خُصم من المعروض دفتريًّا ولم يخرج"},
+       {"account": "gold_clearing_w", "cr": {"21k": 48.14}, "note": "تصفير وسيط التسوية الوزني"},
+       {"account": "capital_w", "cr": {"21k": 85.04}, "note": "سُلف الموظفين الذهبية"},
+       {"account": "gold_clearing_c", "dr": {"cash": 21181.00}, "note": "تصفير وسيط التسوية النقدي"},
+       {"account": "capital_c", "cr": {"cash": 21181.00}, "note": "سُلف الموظفين النقدية ودَين أسطورة البلد ناقص مستحقات الموظفين"}
+     ]},
+    {"key": "T3", "date": "2026-01-01", "type": "افتتاحي",
+     "description": "ذهب مكتب الراقي 396.60: يُفكّ عن المعروض ويُشطب، ويُتابَع خارج النظام (JE-2026-00120، ADR-088)",
+     "lines": [
+       {"account": "display", "dr": {"21k": 396.6}, "note": "ما خُصم من المعروض دفتريًّا ولم يخرج"},
+       {"account": "rakhi_deposit", "cr": {"21k": 396.6}, "note": "شطب ذهب الراقي"}
+     ]},
+    {"key": "T4", "date": "2026-01-01", "type": "افتتاحي",
+     "description": "دَين خالد العجبي من 2025: 682.35 جم (الـ 4,860 سُكِّرت يوم الجرد)، يُسوّى من نصيبه في السحب (ADR-088)",
+     "lines": [
+       {"account": "p_khaled", "dr": {"21k": 682.35}, "note": "دَين 2025"},
+       {"account": "capital_w", "cr": {"21k": 682.35}, "note": "دَين خالد في الجرد"}
+     ]},
+    {"key": "T5", "date": "2026-01-01", "type": "افتتاحي",
+     "description": "ديون قائمة يوم الافتتاح: بافيل وغالب وديوان العلب، والمستحقات الإدارية، والزكاة القديمة (ADR-088)",
+     "lines": [
+       {"account": "capital_c", "dr": {"cash": 56000.00}, "note": "ديون نقدية قائمة يوم الجرد"},
+       {"account": "sundry_creditors", "cr": {"cash": 38800.00}, "note": "بافيل (الجرد كتبها 38,000 خطأ)"},
+       {"account": "sundry_creditors", "cr": {"cash": 15500.00}, "note": "غالب"},
+       {"account": "sundry_creditors", "cr": {"cash": 1700.00}, "note": "ديوان العلب"},
+       {"account": "capital_w", "dr": {"21k": 207.24}, "note": "ديون ذهبية قائمة يوم الجرد"},
+       {"account": "saleh_w", "cr": {"21k": 123.54}, "note": "المستحقات الإدارية"},
+       {"account": "p_badr", "cr": {"21k": 54.70}, "note": "باقي زكاة قديمة"},
+       {"account": "p_abdulrahman", "cr": {"21k": 29.00}, "note": "باقي زكاة قديمة"}
+     ]},
+    {"key": "T6", "date": "2026-01-01", "type": "افتتاحي",
+     "description": "الحلق الطبي في جرد ديسمبر 2025: 33,500 ريال، أصناف تُشترى نقدًا (ADR-088)",
+     "lines": [
+       {"account": "earrings_stock", "dr": {"cash": 33500.00}, "note": "الحلق الطبي"},
+       {"account": "capital_c", "cr": {"cash": 33500.00}, "note": "الحلق الطبي في الجرد"}
+     ]},
+    {"key": "T7", "date": "2026-01-01", "type": "افتتاحي",
+     "description": "نصيب الشركاء من سحب 2026: 6,582 جم، خالد الثلث وشركاء الرياض الثلثان (ADR-088)",
+     "lines": [
+       {"account": "capital_w", "dr": {"21k": 6582.0}, "note": "سحب 2026"},
+       {"account": "p_khaled", "cr": {"21k": 2194.0}, "note": "نصيب السحب"},
+       {"account": "riyadh", "cr": {"21k": 4388.0}, "note": "نصيب السحب"}
+     ]},
+    {"key": "T8", "date": "2026-01-01", "type": "افتتاحي",
+     "description": "تقبيل محل المواقف: 612 جم من نصيب خالد لشركاء الرياض (ADR-088)",
+     "lines": [
+       {"account": "p_khaled", "dr": {"21k": 612.0}, "note": "تقبيل محل المواقف"},
+       {"account": "riyadh", "cr": {"21k": 612.0}, "note": "تقبيل محل المواقف"}
+     ]},
+    {"key": "T9", "date": "2026-02-02", "type": "تصحيح",
+     "description": "سحب شركاء الرياض من المعروض في 2 فبراير 2026: 2,904.47 جم عيار 18 و188.50 جم عيار 21 (ADR-088)",
+     "lines": [
+       {"account": "riyadh", "dr": {"18k": 2904.47, "21k": 188.5}, "note": "سحب من المعروض"},
+       {"account": "display", "cr": {"18k": 2904.47, "21k": 188.5}, "note": "سحب شركاء الرياض"}
+     ]},
+    {"key": "T10", "date": "2026-06-24", "type": "تصحيح",
+     "description": "ذهب خالد العجبي عبر مكاتب التسكير (PV-2026-00622): من دفتر التعامل إلى حسابه (ADR-088)",
+     "lines": [
+       {"account": "p_khaled", "dr": {"21k": 200.0}, "note": "مناولة خالد"},
+       {"account": "dealings_w", "cr": {"21k": 200.0}, "note": "PV-2026-00622"}
+     ]},
+    {"key": "T11a", "date": "2026-07-02", "type": "تصحيح",
+     "description": "لازوردي لشركاء الرياض: ذهب عبر مكاتب التسكير (PV-2026-00673)، من دفتر التعامل (ADR-088)",
+     "lines": [
+       {"account": "riyadh", "dr": {"21k": 416.0}, "note": "لازوردي"},
+       {"account": "dealings_w", "cr": {"21k": 416.0}, "note": "PV-2026-00673"}
+     ]},
+    {"key": "T11b", "date": "2026-07-31", "type": "تصحيح",
+     "description": "لازوردي لشركاء الرياض (الفاتورتان 20275 و20276): الذهب والأجور بلا ضريبتها، من دفتر التعامل والمعروض والكسر المؤقت (ADR-088)",
+     "lines": [
+       {"account": "riyadh", "dr": {"21k": 737.32, "18k": 561.6}, "note": "لازوردي: ذهب وأجور"},
+       {"account": "dealings_w", "cr": {"21k": 336.82}, "note": "PV-2026-00848 (195) والأجور من PV-2026-00847 (141.82)؛ ضريبتها 21.28 تبقى حتى مشروع الضريبة"},
+       {"account": "display", "cr": {"21k": 386.3}, "note": "قطع قديمة أُرجعت للازوردي"},
+       {"account": "temp_scrap", "cr": {"21k": 14.2, "18k": 561.6}, "note": "كسر للازوردي"}
+     ]},
+    {"key": "T12", "date": "2026-06-01", "type": "تصحيح",
+     "description": "حلق خالد العجبي من المعروض: 3.50 جم (ADR-088)",
+     "lines": [
+       {"account": "p_khaled", "dr": {"21k": 3.5}, "note": "حلق"},
+       {"account": "display", "cr": {"21k": 3.5}, "note": "حلق خالد"}
+     ]},
+    {"key": "T13", "date": "2026-03-10", "type": "تصحيح",
+     "description": "نقد خالد العجبي 13,755 من صندوق النقدية على دفعات 1 يناير – 10 مارس، ولم تُسجَّل؛ كان في عجز الخزائن (ADR-088)",
+     "lines": [
+       {"account": "p_khaled_c", "dr": {"cash": 13755.00}, "note": "نقد خالد (= 32 جم في جدول السحب)"},
+       {"account": "safes_shortage", "cr": {"cash": 13755.00}, "note": "من عجز الخزائن"}
+     ]},
+    {"key": "T14a", "date": "2026-01-01", "type": "تصحيح",
+     "description": "سداد ديوان العلب في 6 ديسمبر 2025: 1,600، والـ 100 خصم لنا؛ كان في عجز الخزائن (ADR-088)",
+     "lines": [
+       {"account": "sundry_creditors", "dr": {"cash": 1700.00}, "note": "ديوان العلب"},
+       {"account": "safes_shortage", "cr": {"cash": 1600.00}, "note": "من عجز الخزائن"},
+       {"account": "supplier_settlement_income", "cr": {"cash": 100.00}, "note": "خصم ديوان العلب"}
+     ]},
+    {"key": "T14b", "date": "2026-01-01", "type": "تصحيح",
+     "description": "سداد غالب من صندوق النقدية في 3 ديسمبر 2025: 15,500؛ كان في عجز الخزائن (ADR-088)",
+     "lines": [
+       {"account": "sundry_creditors", "dr": {"cash": 15500.00}, "note": "غالب"},
+       {"account": "safes_shortage", "cr": {"cash": 15500.00}, "note": "من عجز الخزائن"}
+     ]},
+    {"key": "T14c", "date": "2026-01-10", "type": "تصحيح",
+     "description": "سداد بافيل تحويلًا من البنك في 10 يناير 2026: 38,800؛ كان في عجز الخزائن (ADR-088)",
+     "lines": [
+       {"account": "sundry_creditors", "dr": {"cash": 38800.00}, "note": "بافيل"},
+       {"account": "safes_shortage", "cr": {"cash": 38800.00}, "note": "من عجز الخزائن"}
+     ]}
+  ],
+  "expect_after": {
+    "dealings_w": {"21k": 21.28},
+    "gold_clearing_c": {"cash": 0.0},
+    "gold_clearing_w": {"21k": 0.0},
+    "rakhi_deposit": {"21k": 0.0},
+    "temp_scrap": {"18k": 0.0, "21k": 0.0, "22k": 0.0, "24k": 0.0},
+    "safes_shortage": {"cash": 80487.57},
+    "sundry_creditors": {"cash": 0.0},
+    "p_khaled_c": {"cash": 13755.00}
+  },
+  "expect_partners_main": {
+    "p_khaled": -824.38,
+    "p_abdulaziz": -389.45,
+    "p_badr": -322.13,
+    "p_abdulrahman": -170.56
+  },
+  "expect_opening_main": 21725.26
+}
