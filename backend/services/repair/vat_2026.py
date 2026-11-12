@@ -76,7 +76,7 @@ def apply(*, by: str, now: dt.datetime, figures: dict | None = None) -> dict:
 
     entries = [{k: e[k] for k in ('key', 'entry', 'date')} for e in done['entries']]
     result = {'entries': entries, 'made': done['made'], 'after': after}
-    AuditLog.log_action(user_name=by, action='repair_vat_2026', entity_type='JournalEntry',
+    AuditLog.log_action(user_name=by, action=figures.get('audit_action', 'repair_vat_2026'), entity_type='JournalEntry',
                         entity_id=done['entries'][0]['id'], entity_number=figures['reference_type'],
                         details=json.dumps(result, ensure_ascii=False, default=str))
     return result

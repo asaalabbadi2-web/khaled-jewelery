@@ -156,3 +156,51 @@ def test_a_made_account_is_of_its_type_under_its_role_with_a_twin(world):
     made = done['accounts']['recovered']
     assert made.parent_id == world['parent'].id and made.type == 'Expense' and made.memo_account_id
     assert done['made']['recovered']['made'] is True
+
+
+# ── the amendment: the net VAT as an expense the weight profit reads ──
+
+def _expense_figures():
+    import os
+    from services.repair.vat_2026 import load as load_figures
+    return load_figures(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                     'services', 'repair', 'vat_2026_expense.json'))
+
+
+def test_each_quarters_net_vat_becomes_the_expense_and_the_profit_does_not_move():
+    vat, reclass = load(), _expense_figures()
+    r = vat['returns']
+    by_key = {e['key']: e for e in reclass['entries']}
+    for quarter, key in (('Q1-2026', 'XQ1-2026'), ('Q2-2026', 'XQ2-2026'), ('Q3-2026', 'XQ3-2026')):
+        q = r[quarter]
+        net = round((q['sales_vat'] - q['returns_vat']) - (q['input_vat'] - q['recorded_input'] - q['recorded_pos']), 2)
+        assert _cash(by_key[key], 'vat_expense', 'dr') == net, quarter
+    q4 = r['Q4-2025']
+    assert _cash(by_key['XQ4-2025'], 'vat_refund', 'cr') == round(-q4['due'], 2) == 23159.96
+    # the four quarters' net VAT, as the cash profit took it: the owner's 29,244.45
+    total = sum(_cash(e, 'vat_expense', 'dr') for e in reclass['entries']) - _cash(by_key['XQ4-2025'], 'vat_refund', 'cr')
+    assert round(total, 2) == 29244.45
+    profit = 0.0
+    for e in reclass['entries']:
+        dr = sum(float((l.get('dr') or {}).get('cash', 0)) for l in e['lines'])
+        cr = sum(float((l.get('cr') or {}).get('cash', 0)) for l in e['lines'])
+        assert abs(dr - cr) < 0.005, e['key']
+        for line in e['lines']:
+            if line['account'] in reclass['profit_accounts']:
+                profit -= float((line.get('dr') or {}).get('cash', 0)) - float((line.get('cr') or {}).get('cash', 0))
+    assert round(profit, 2) == reclass['expect_profit_change'] == 0.0
+    # each reclass is dated as its quarter's return: the weight profit nets a day's marked lines
+    return_dates = {e['quarter']: e['date'] for e in vat['entries'] if e.get('kind') == 'return'}
+    assert [by_key[k]['date'] for k in ('XQ4-2025', 'XQ1-2026', 'XQ2-2026', 'XQ3-2026')] == \
+        [return_dates[q] for q in ('Q4-2025', 'Q1-2026', 'Q2-2026', 'Q3-2026')]
+
+
+def test_a_made_account_is_marked_in_the_gram_profit_when_the_owner_says_so(world):
+    figures = copy.deepcopy(world['figures'])
+    parent = world['parent']
+    figures['made_accounts'] = [{'key': 'recovered', 'name': f'refund {uuid.uuid4().hex[:6]}', 'type': 'Revenue',
+                                 'parent': {'number': parent.account_number, 'name': parent.name},
+                                 'include_in_gram_profit': True}]
+    figures['reference_type'] += '_m'
+    made = write_plan(figures, by='t', now=NOW)['accounts']['recovered']
+    assert made.parent_id == parent.id and made.type == 'Revenue' and made.include_in_gram_profit is True

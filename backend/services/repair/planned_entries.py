@@ -172,17 +172,23 @@ def written(reference_type: str, key: str):
 
 
 def make_account(spec: dict, *, by: str) -> tuple:
-    """(the made account, made now?) -- under its parent role's account, with its weight twin."""
+    """(the made account, made now?) -- under its parent (its role, or its
+    number and name where it has none), of its type, with its weight twin;
+    marked in the gram profit when the owner says so (ADR-048's policy)."""
     from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, require_account
     from account_number_generator import get_next_account_number
     from employee_account_helpers import ensure_memo_for_account
 
-    parent = db.session.get(Account, require_account(DEFAULT_MAPPING_OPERATION_TYPE, spec['parent_role']))
+    if 'parent_role' in spec:
+        parent = db.session.get(Account, require_account(DEFAULT_MAPPING_OPERATION_TYPE, spec['parent_role']))
+    else:
+        parent = resolve({'parent': spec['parent']})['parent']
     found = Account.query.filter_by(parent_id=parent.id).filter(Account.name == spec['name']).one_or_none()
     if found is not None:
         return found, False
     account = Account(account_number=str(get_next_account_number(str(parent.account_number))), name=spec['name'],
-                      type=spec.get('type', 'Asset'), transaction_type='cash', tracks_weight=False, parent_id=parent.id)
+                      type=spec.get('type', 'Asset'), transaction_type='cash', tracks_weight=False, parent_id=parent.id,
+                      include_in_gram_profit=bool(spec.get('include_in_gram_profit', False)))
     db.session.add(account)
     db.session.flush()
     ensure_memo_for_account(account)

@@ -1,0 +1,61 @@
+{
+  "about": "The 2026 VAT burden as a non-recoverable VAT expense, so the weight profit reads it with no change to its engine (ADR-089 amendment, the owner 12 Nov 2026). Runs after tools/repair/vat_2026.py. Policy, not code.",
+  "reference_type": "vat_2026_expense",
+  "audit_action": "repair_vat_2026_expense",
+  "accounts": {
+    "sales_old": {"role": "operating_revenue_root"},
+    "sales": {"role": "revenue", "operation": "بيع"},
+    "scrap_purchases": {"role": "purchases_gold_scrap", "operation": "شراء من عميل"},
+    "vat_net": {"role": "vat_settlement"},
+    "vat_recovered": {"number": "5405", "name": "ضريبة مدخلات مستردة من الإقرار"},
+    "vat_expense": {"number": "5402", "name": "ضريبة القيمة المضافة الغير قابلة للاسترداد"}
+  },
+  "made_accounts": [
+    {"key": "vat_refund", "name": "ضريبة مستردة من الهيئة", "parent": {"number": "42", "name": "إيرادات أخرى"},
+     "type": "Revenue", "include_in_gram_profit": true}
+  ],
+  "profit_accounts": ["sales_old", "sales", "scrap_purchases", "vat_recovered", "vat_expense", "vat_refund"],
+  "expect_before": {
+    "vat_recovered": {"cash": -41675.57},
+    "vat_expense": {"cash": 0.0},
+    "vat_net": {"cash": -1.12}
+  },
+  "entries": [
+    {"key": "XQ4-2025", "date": "2026-01-01", "type": "تصحيح",
+     "description": "ضريبة الربع الرابع 2025: الصافي استرداد من الهيئة إيرادًا يقرؤه الربح الوزني، والمبيعات بضريبتها (المالك، 12 نوفمبر) (ADR-089)",
+     "lines": [
+       {"account": "vat_recovered", "dr": {"cash": 31441.27}, "note": "فرق المدخلات إلى الصافي"},
+       {"account": "sales_old", "cr": {"cash": 8281.31}, "note": "ضريبة المبيعات تعود إلى المبيعات"},
+       {"account": "vat_refund", "cr": {"cash": 23159.96}, "note": "الصافي: استرداد من الهيئة"}
+     ]},
+    {"key": "XQ1-2026", "date": "2026-03-31", "type": "تصحيح",
+     "description": "ضريبة الربع الأول 2026: الصافي مصروف ضريبة غير مستردة، والمبيعات بضريبتها (المالك، 12 نوفمبر) (ADR-089)",
+     "lines": [
+       {"account": "vat_expense", "dr": {"cash": 28080.33}, "note": "صافي الضريبة: المخرجات 28,716.01 − فرق المدخلات 635.68"},
+       {"account": "vat_recovered", "dr": {"cash": 635.68}, "note": "فرق المدخلات إلى الصافي"},
+       {"account": "sales_old", "cr": {"cash": 28716.01}, "note": "ضريبة المبيعات تعود إلى المبيعات"}
+     ]},
+    {"key": "XQ2-2026", "date": "2026-06-30", "type": "تصحيح",
+     "description": "ضريبة الربع الثاني 2026: الصافي مصروف ضريبة غير مستردة، والمبيعات بضريبتها (المالك، 12 نوفمبر) (ADR-089)",
+     "lines": [
+       {"account": "vat_expense", "dr": {"cash": 11902.71}, "note": "صافي الضريبة: المخرجات 20,782.05 − فرق المدخلات 8,879.34"},
+       {"account": "vat_recovered", "dr": {"cash": 8879.34}, "note": "فرق المدخلات إلى الصافي"},
+       {"account": "sales", "cr": {"cash": 20782.05}, "note": "ضريبة المبيعات تعود إلى المبيعات"}
+     ]},
+    {"key": "XQ3-2026", "date": "2026-09-30", "type": "تصحيح",
+     "description": "ضريبة الربع الثالث 2026: الصافي مصروف ضريبة غير مستردة، والمبيعات بضريبتها، وضريبة لازوردي إلى مشتريات الكسر (المالك، 12 نوفمبر) (ADR-089)",
+     "lines": [
+       {"account": "vat_expense", "dr": {"cash": 12421.37}, "note": "صافي الضريبة: المخرجات 22,286.79 − فرق المدخلات 9,865.42"},
+       {"account": "vat_recovered", "dr": {"cash": 719.28}, "note": "فرق المدخلات إلى الصافي"},
+       {"account": "scrap_purchases", "dr": {"cash": 9146.14}, "note": "ضريبة لازوردي إلى الصافي"},
+       {"account": "sales", "cr": {"cash": 22286.79}, "note": "ضريبة المبيعات تعود إلى المبيعات"}
+     ]}
+  ],
+  "expect_after": {
+    "vat_recovered": {"cash": 0.0},
+    "vat_expense": {"cash": 52404.41},
+    "vat_refund": {"cash": -23159.96},
+    "vat_net": {"cash": -1.12}
+  },
+  "expect_profit_change": 0.0
+}
