@@ -54,7 +54,11 @@ def profit_change(figures: dict, accounts: dict) -> float:
 
 
 def report(figures: dict, accounts: dict) -> dict:
-    return {'accounts': {k: round(balance(accounts[k].id)['cash'], 2) for k in figures['expect_after']},
+    def shown(bal):        # riyals alone, or every column where grams move
+        if all(abs(bal[k]) < 0.0005 for k in ('18k', '21k', '22k', '24k')):
+            return round(bal['cash'], 2)
+        return {k: round(v, 3) for k, v in bal.items()}
+    return {'accounts': {k: shown(balance(accounts[k].id)) for k in figures['expect_after']},
             'profit_change': profit_change(figures, accounts)}
 
 

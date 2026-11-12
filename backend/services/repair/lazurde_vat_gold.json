@@ -1,0 +1,25 @@
+{
+  "about": "Lazurde's VAT paid in gold: the 21.28 g left in the dealings ledger by ADR-088 until the VAT work (ADR-089), to the scrap purchases' weight twin where its riyals are (the owner, 12 Nov 2026). Runs after the VAT tools. Policy, not code.",
+  "reference_type": "lazurde_vat_gold",
+  "audit_action": "repair_lazurde_vat_gold",
+  "accounts": {
+    "dealings_w": {"number": "71600", "name": "دفتر التعامل الوزني"},
+    "scrap_purchases_w": {"number": "7512", "name": "مشتريات ذهب كسر من العملاء وزني"}
+  },
+  "profit_accounts": [],
+  "expect_before": {
+    "dealings_w": {"18k": 0.0, "21k": 21.28, "22k": 0.0, "24k": 0.0}
+  },
+  "entries": [
+    {"key": "LZ-VAT-GOLD", "date": "2026-07-31", "type": "تصحيح",
+     "description": "ضريبة أجور لازوردي دُفعت ذهبًا: 21.28 جم من الـ 163.1 (PV-2026-00847) من دفتر التعامل إلى مشتريات الكسر وزنًا، حيث نقدها 9,146.14 (ADR-089)",
+     "lines": [
+       {"account": "scrap_purchases_w", "dr": {"21k": 21.28}, "note": "ضريبة أجور لازوردي، الفاتورتان 20275 و20276"},
+       {"account": "dealings_w", "cr": {"21k": 21.28}, "note": "آخر ما بقي في دفتر التعامل"}
+     ]}
+  ],
+  "expect_after": {
+    "dealings_w": {"cash": 0.0, "18k": 0.0, "21k": 0.0, "22k": 0.0, "24k": 0.0}
+  },
+  "expect_profit_change": 0.0
+}
