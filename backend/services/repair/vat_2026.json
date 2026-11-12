@@ -1,0 +1,176 @@
+{
+  "about": "The owner's figures for VAT in the 2026 books, from the filed returns (ADR-089; docs/plans/vat-2026-returns.md). Policy, not code. Accounts by role where they have one (ADR-046), else by number and name.",
+  "reference_type": "vat_2026",
+  "returns": {
+    "Q4-2025": {"sales_vat": 8281.308, "returns_vat": 0, "input_vat": 31441.2675, "due": -23159.9595, "recorded_input": 0, "recorded_pos": 0},
+    "Q1-2026": {"sales_vat": 28813.8375, "returns_vat": 97.8255, "input_vat": 8436.573, "due": 20279.439, "recorded_input": 6775.94, "recorded_pos": 1024.95},
+    "Q2-2026": {"sales_vat": 20782.05, "returns_vat": 0, "input_vat": 19662.2385, "due": 1119.8115, "recorded_input": 9415.60, "recorded_pos": 1367.30},
+    "Q3-2026": {"sales_vat": 23643.315, "returns_vat": 1356.522, "input_vat": 18149.1105, "due": 4137.6825, "recorded_input": 5739.67, "recorded_pos": 2544.02}
+  },
+  "accounts": {
+    "sales_old": {"role": "operating_revenue_root"},
+    "sales": {"role": "revenue", "operation": "بيع"},
+    "vat_out": {"role": "vat_payable"},
+    "vat_in": {"role": "vat_receivable"},
+    "vat_pos": {"role": "commission_vat"},
+    "vat_net": {"role": "vat_settlement"},
+    "scrap_purchases": {"role": "purchases_gold_scrap", "operation": "شراء من عميل"},
+    "safes_shortage": {"number": "370", "name": "عجز /فائض الخزائن"},
+    "admin_salaries": {"number": "5470", "name": "رواتب المحاسبين والأداريين"},
+    "gosi": {"number": "5480", "name": "تأمينات إجتماعية"},
+    "ostourat": {"number": "1730000", "name": "حساب شركة اسطورة البلد الرئيسي"},
+    "temp_bank": {"number": "1110001", "name": "حساب بنكي مؤقت"}
+  },
+  "made_accounts": [
+    {"key": "vat_recovered", "name": "ضريبة مدخلات مستردة من الإقرار", "parent_role": "vat_non_recoverable_parent", "type": "Expense"}
+  ],
+  "profit_accounts": ["sales_old", "sales", "vat_recovered", "scrap_purchases", "admin_salaries", "gosi"],
+  "expect_before": {
+    "vat_out": {"cash": 0.0},
+    "vat_net": {"cash": 0.0},
+    "ostourat": {"cash": 12970.00},
+    "temp_bank": {"cash": 4137.00},
+    "safes_shortage": {"cash": 80487.57}
+  },
+  "expect_period": [
+    {"account": "vat_in", "from": "2025-12-01", "to": "2026-03-31", "cash": 6775.94},
+    {"account": "vat_in", "from": "2026-04-01", "to": "2026-06-30", "cash": 9415.60},
+    {"account": "vat_in", "from": "2026-07-01", "to": "2026-09-30", "cash": 5739.67},
+    {"account": "vat_pos", "from": "2025-12-01", "to": "2026-03-31", "cash": 1024.95},
+    {"account": "vat_pos", "from": "2026-04-01", "to": "2026-06-30", "cash": 1367.30},
+    {"account": "vat_pos", "from": "2026-07-01", "to": "2026-09-30", "cash": 2544.02},
+    {"account": "admin_salaries", "from": "2025-12-01", "to": "2026-03-31", "cash": 0.0},
+    {"account": "gosi", "from": "2025-12-01", "to": "2026-03-31", "cash": 0.0}
+  ],
+  "entries": [
+    {"key": "VQ4-2025", "quarter": "Q4-2025", "kind": "return", "date": "2026-01-01", "type": "تصحيح",
+     "description": "ضريبة الربع الرابع 2025 من الإقرار، مع 2026 كاملة (المالك): المخرجات من المبيعات، وفرق المدخلات عن كشف المحاسب (ADR-089)",
+     "lines": [
+       {"account": "sales_old", "dr": {"cash": 8281.31}, "note": "ضريبة مبيعات الربع الرابع 2025"},
+       {"account": "vat_out", "cr": {"cash": 8281.31}, "note": "ضريبة المخرجات"},
+       {"account": "vat_in", "dr": {"cash": 31441.27}, "note": "ضريبة المدخلات في الإقرار، ولا شيء منها مسجّل"},
+       {"account": "vat_recovered", "cr": {"cash": 31441.27}, "note": "فرق المدخلات"}
+     ]},
+    {"key": "VQ4-2025-close", "quarter": "Q4-2025", "kind": "close", "date": "2026-01-01", "type": "تصحيح",
+     "description": "إقفال ضريبة الربع الرابع 2025 في صافي الضريبة: لنا 23,159.96 (ADR-089)",
+     "lines": [
+       {"account": "vat_out", "dr": {"cash": 8281.31}, "note": "إقفال المخرجات"},
+       {"account": "vat_net", "dr": {"cash": 23159.96}, "note": "مستحق لنا من الهيئة"},
+       {"account": "vat_in", "cr": {"cash": 31441.27}, "note": "إقفال المدخلات"}
+     ]},
+    {"key": "VDEC-GOSI", "kind": "expense", "date": "2026-01-01", "type": "تصحيح",
+     "description": "تأمينات ديسمبر 2025: 2,120، منها 1,525 في مقاصة يناير والباقي من عجز الصناديق (المالك) (ADR-089)",
+     "lines": [
+       {"account": "gosi", "dr": {"cash": 595.00}, "note": "تأمينات ديسمبر فوق المقاصة"},
+       {"account": "safes_shortage", "cr": {"cash": 595.00}, "note": "دُفعت ولم تُسجَّل"}
+     ]},
+    {"key": "VQ4-2025-offset", "quarter": "Q4-2025", "kind": "settle", "date": "2026-01-31", "type": "تصحيح",
+     "description": "استرداد الربع الرابع 2025 ودَين أسطورة البلد: مقاصة رواتب يناير ورواتب الإداريين وتأمينات ديسمبر، والباقي نقدًا في الصندوق (المالك) (ADR-089)",
+     "lines": [
+       {"account": "safes_shortage", "dr": {"cash": 25500.00}, "note": "رواتب العمال: مسجّلة مدفوعة من الصندوق، دفعتها المقاصة"},
+       {"account": "admin_salaries", "dr": {"cash": 3500.00}, "note": "رواتب المحاسبين والإداريين، ديسمبر — لم تُسجَّل"},
+       {"account": "gosi", "dr": {"cash": 1525.00}, "note": "تأمينات ديسمبر — من المقاصة"},
+       {"account": "safes_shortage", "dr": {"cash": 5604.96}, "note": "باقي الاسترداد نقدًا في الصندوق، ولم يُسجَّل"},
+       {"account": "vat_net", "cr": {"cash": 23159.96}, "note": "استرداد الربع الرابع 2025"},
+       {"account": "ostourat", "cr": {"cash": 12970.00}, "note": "دَين أسطورة البلد في المقاصة"}
+     ]},
+    {"key": "VJAN-PAYROLL", "kind": "expense", "date": "2026-01-31", "type": "تصحيح",
+     "description": "رواتب المحاسبين والإداريين وتأمينات يناير 2026: دُفعت ولم تُسجَّل (المالك) (ADR-089)",
+     "lines": [
+       {"account": "admin_salaries", "dr": {"cash": 3000.00}, "note": "يناير"},
+       {"account": "gosi", "dr": {"cash": 2120.00}, "note": "يناير"},
+       {"account": "safes_shortage", "cr": {"cash": 5120.00}, "note": "دُفعت ولم تُسجَّل"}
+     ]},
+    {"key": "VFEB-PAYROLL", "kind": "expense", "date": "2026-02-28", "type": "تصحيح",
+     "description": "رواتب المحاسبين والإداريين وتأمينات فبراير 2026: دُفعت ولم تُسجَّل (المالك) (ADR-089)",
+     "lines": [
+       {"account": "admin_salaries", "dr": {"cash": 3000.00}, "note": "فبراير"},
+       {"account": "gosi", "dr": {"cash": 2120.00}, "note": "فبراير"},
+       {"account": "safes_shortage", "cr": {"cash": 5120.00}, "note": "دُفعت ولم تُسجَّل"}
+     ]},
+    {"key": "VMAR-PAYROLL", "kind": "expense", "date": "2026-03-31", "type": "تصحيح",
+     "description": "رواتب المحاسبين والإداريين وتأمينات مارس 2026: دُفعت ولم تُسجَّل (المالك) (ADR-089)",
+     "lines": [
+       {"account": "admin_salaries", "dr": {"cash": 3000.00}, "note": "مارس"},
+       {"account": "gosi", "dr": {"cash": 2120.00}, "note": "مارس"},
+       {"account": "safes_shortage", "cr": {"cash": 5120.00}, "note": "دُفعت ولم تُسجَّل"}
+     ]},
+    {"key": "VQ1-2026", "quarter": "Q1-2026", "kind": "return", "date": "2026-03-31", "type": "تصحيح",
+     "description": "ضريبة الربع الأول 2026 من الإقرار: المخرجات صافية من المردود، وفرق المدخلات عن كشف المحاسب (ADR-089)",
+     "lines": [
+       {"account": "sales_old", "dr": {"cash": 28716.01}, "note": "ضريبة المبيعات 28,813.84 ناقص ضريبة المردود 97.83"},
+       {"account": "vat_out", "cr": {"cash": 28716.01}, "note": "ضريبة المخرجات"},
+       {"account": "vat_in", "dr": {"cash": 635.68}, "note": "فرق المدخلات"},
+       {"account": "vat_recovered", "cr": {"cash": 635.68}, "note": "فرق المدخلات"}
+     ]},
+    {"key": "VQ1-2026-close", "quarter": "Q1-2026", "kind": "close", "date": "2026-03-31", "type": "تصحيح",
+     "description": "إقفال ضريبة الربع الأول 2026 في صافي الضريبة: علينا 20,279.44 (ADR-089)",
+     "lines": [
+       {"account": "vat_out", "dr": {"cash": 28716.01}, "note": "إقفال المخرجات"},
+       {"account": "vat_in", "cr": {"cash": 7411.62}, "note": "إقفال المدخلات"},
+       {"account": "vat_pos", "cr": {"cash": 1024.95}, "note": "إقفال ضريبة عمولات نقاط البيع"},
+       {"account": "vat_net", "cr": {"cash": 20279.44}, "note": "مستحق للهيئة"}
+     ]},
+    {"key": "VQ1-2026-paid", "quarter": "Q1-2026", "kind": "settle", "date": "2026-04-30", "type": "تصحيح",
+     "description": "سداد ضريبة الربع الأول 2026 من البنك: 16,700 + 3,579؛ لم يُسجَّل، فكان في عجز الخزائن (ADR-089)",
+     "lines": [
+       {"account": "vat_net", "dr": {"cash": 20279.00}, "note": "سداد الربع الأول"},
+       {"account": "safes_shortage", "cr": {"cash": 20279.00}, "note": "دُفع ولم يُسجَّل"}
+     ]},
+    {"key": "VQ2-2026", "quarter": "Q2-2026", "kind": "return", "date": "2026-06-30", "type": "تصحيح",
+     "description": "ضريبة الربع الثاني 2026 من الإقرار: المخرجات، وفرق المدخلات عن كشف المحاسب (ADR-089)",
+     "lines": [
+       {"account": "sales", "dr": {"cash": 20782.05}, "note": "ضريبة المبيعات"},
+       {"account": "vat_out", "cr": {"cash": 20782.05}, "note": "ضريبة المخرجات"},
+       {"account": "vat_in", "dr": {"cash": 8879.34}, "note": "فرق المدخلات"},
+       {"account": "vat_recovered", "cr": {"cash": 8879.34}, "note": "فرق المدخلات"}
+     ]},
+    {"key": "VQ2-2026-close", "quarter": "Q2-2026", "kind": "close", "date": "2026-06-30", "type": "تصحيح",
+     "description": "إقفال ضريبة الربع الثاني 2026 في صافي الضريبة: علينا 1,119.81 (ADR-089)",
+     "lines": [
+       {"account": "vat_out", "dr": {"cash": 20782.05}, "note": "إقفال المخرجات"},
+       {"account": "vat_in", "cr": {"cash": 18294.94}, "note": "إقفال المدخلات"},
+       {"account": "vat_pos", "cr": {"cash": 1367.30}, "note": "إقفال ضريبة عمولات نقاط البيع"},
+       {"account": "vat_net", "cr": {"cash": 1119.81}, "note": "مستحق للهيئة"}
+     ]},
+    {"key": "VQ2-2026-paid", "quarter": "Q2-2026", "kind": "settle", "date": "2026-07-31", "type": "تصحيح",
+     "description": "سداد ضريبة الربع الثاني 2026 نقدًا من الصندوق؛ لم يُسجَّل، فكان في عجز الخزائن (ADR-089)",
+     "lines": [
+       {"account": "vat_net", "dr": {"cash": 1119.81}, "note": "سداد الربع الثاني"},
+       {"account": "safes_shortage", "cr": {"cash": 1119.81}, "note": "دُفع ولم يُسجَّل"}
+     ]},
+    {"key": "VQ3-2026", "quarter": "Q3-2026", "kind": "return", "date": "2026-09-30", "type": "تصحيح",
+     "description": "ضريبة الربع الثالث 2026 من الإقرار: المخرجات صافية من المردود، وفرق المدخلات — منه ضريبة لازوردي من مشتريات الكسر (ADR-089)",
+     "lines": [
+       {"account": "sales", "dr": {"cash": 22286.79}, "note": "ضريبة المبيعات 23,643.32 ناقص ضريبة المردود 1,356.52"},
+       {"account": "vat_out", "cr": {"cash": 22286.79}, "note": "ضريبة المخرجات"},
+       {"account": "vat_in", "dr": {"cash": 9865.42}, "note": "فرق المدخلات"},
+       {"account": "scrap_purchases", "cr": {"cash": 9146.14}, "note": "ضريبة أجور لازوردي (الفاتورتان 20275 و20276) كانت في حجز 70,119"},
+       {"account": "vat_recovered", "cr": {"cash": 719.28}, "note": "باقي فرق المدخلات"}
+     ]},
+    {"key": "VQ3-2026-close", "quarter": "Q3-2026", "kind": "close", "date": "2026-09-30", "type": "تصحيح",
+     "description": "إقفال ضريبة الربع الثالث 2026 في صافي الضريبة: علينا 4,137.68 (ADR-089)",
+     "lines": [
+       {"account": "vat_out", "dr": {"cash": 22286.79}, "note": "إقفال المخرجات"},
+       {"account": "vat_in", "cr": {"cash": 15605.09}, "note": "إقفال المدخلات"},
+       {"account": "vat_pos", "cr": {"cash": 2544.02}, "note": "إقفال ضريبة عمولات نقاط البيع"},
+       {"account": "vat_net", "cr": {"cash": 4137.68}, "note": "مستحق للهيئة"}
+     ]},
+    {"key": "VQ3-2026-paid", "quarter": "Q3-2026", "kind": "settle", "date": "2026-10-31", "type": "تصحيح",
+     "description": "سداد ضريبة الربع الثالث 2026، المعلّق في «حساب بنكي مؤقت» (ADR-089)",
+     "lines": [
+       {"account": "vat_net", "dr": {"cash": 4137.00}, "note": "سداد الربع الثالث"},
+       {"account": "temp_bank", "cr": {"cash": 4137.00}, "note": "المعلّق في الحساب المؤقت"}
+     ]}
+  ],
+  "expect_after": {
+    "vat_out": {"cash": 0.0},
+    "vat_net": {"cash": -1.12},
+    "vat_in": {"cash": 3720.35},
+    "vat_pos": {"cash": 1964.83},
+    "ostourat": {"cash": 0.0},
+    "temp_bank": {"cash": 0.0},
+    "safes_shortage": {"cash": 74238.72}
+  },
+  "expect_profit_change": -50224.45
+}
