@@ -10,6 +10,19 @@ receipt): it extinguishes a liability, no expense -- the VAT was never revenue.
 Refused: a period not over, a period overlapping one filed. A nil return is
 recorded with no entry -- its period is filed all the same. A filing's own
 entry never counts in a later period.
+
+As filed (ADR-089, the owner 12 Nov 2026): while sales carry no VAT (the
+policy's sales_vat_charged off) the books hold no output VAT, and the input
+VAT the books hold may fall short of the accountant's statement. The return
+is then filed with its own two figures -- the output VAT it declares (its
+sales' less its returns') and its input VAT -- and what the books lack of
+them goes on «ضريبة القيمة المضافة غير القابلة للاسترداد» in the same entry:
+the output VAT that stayed in revenue, less the input VAT that stayed in
+costs. It is an expense under the marked operating expenses, so the weight
+profit reads the riyals that left. The net on 2301 is the return's. Refused:
+a period whose sales were untaxed filed without its output VAT, and a filing
+whose missing input exceeds its missing output -- the input VAT is recorded
+on its vouchers first.
 """
 from __future__ import annotations
 
@@ -90,7 +103,23 @@ def period_vat(start: date, end: date) -> tuple[dict, dict]:
             _moved(_input_vat_account_ids(), start, end))
 
 
-def file_vat_return(*, start: date, end: date, by: str, now, dry_run: bool = False) -> dict:
+def _filed_figure(value, name: str):
+    if value is None or value == '':
+        return None
+    try:
+        v = round(float(value), 2)
+    except (TypeError, ValueError):
+        raise VatReturnRefused('INVALID_FIGURE', f'{name}: رقم')
+    if v < 0:
+        raise VatReturnRefused('INVALID_FIGURE', f'{name}: لا يكون سالبًا')
+    return v
+
+
+def file_vat_return(*, start: date, end: date, by: str, now, dry_run: bool = False,
+                    filed_output_vat=None, filed_input_vat=None) -> dict:
+    from services.vat_policy import non_recoverable_account_id, policy_on
+    filed_output = _filed_figure(filed_output_vat, 'ضريبة المخرجات المُقرّة')
+    filed_input = _filed_figure(filed_input_vat, 'ضريبة المدخلات المُقرّة')
     if start > end:
         raise VatReturnRefused('INVALID_PERIOD', 'بداية الفترة بعد نهايتها')
     if end >= now.date():
@@ -106,10 +135,24 @@ def file_vat_return(*, start: date, end: date, by: str, now, dry_run: bool = Fal
         lines[i] += v                     # debit what the period credited
     for i, v in input_.items():
         lines[i] -= v                     # credit what the period debited
-    output_vat, input_vat = round(sum(output.values()), 2), round(sum(input_.values()), 2)
+    books_output, books_input = round(sum(output.values()), 2), round(sum(input_.values()), 2)
+    if filed_output is None and not policy_on(end).sales_vat_charged:
+        raise VatReturnRefused('OUTPUT_VAT_REQUIRED', 'المبيعات بلا ضريبة في هذه الفترة، فلا ضريبة مخرجات في '
+                                                      'الدفاتر: اكتب ضريبة المخرجات كما في الإقرار')
+    output_vat = books_output if filed_output is None else filed_output
+    input_vat = books_input if filed_input is None else filed_input
+    # What the books lack of the return: output VAT left in revenue, less input VAT left in costs.
+    lacking = round((output_vat - books_output) - (input_vat - books_input), 2)
+    if lacking < -CENT:
+        raise VatReturnRefused('INPUT_VAT_MISSING', f'ضريبة المدخلات في الإقرار تزيد على الدفاتر بأكثر مما تزيد '
+                                                    f'المخرجات ({-lacking:,.2f}): سجّلها في سنداتها أولًا')
+    if abs(lacking) > CENT:
+        lines[non_recoverable_account_id()] += lacking            # an expense: the riyals that left
     net = round(output_vat - input_vat, 2)
     out = {'start': start.isoformat(), 'end': end.isoformat(), 'output_vat': output_vat, 'input_vat': input_vat,
-           'net': net, 'lines': {number[i]: round(v, 2) for i, v in lines.items() if abs(v) > CENT},
+           'net': net, 'books_output_vat': books_output, 'books_input_vat': books_input,
+           'non_recoverable': lacking if abs(lacking) > CENT else 0.0,
+           'lines': {number.get(i) or str(i): round(v, 2) for i, v in lines.items() if abs(v) > CENT},
            'entry_number': None}
     if dry_run:
         return out

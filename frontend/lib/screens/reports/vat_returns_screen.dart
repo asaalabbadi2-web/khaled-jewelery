@@ -2,12 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 
 import '../../api_service.dart';
+import '../../utils.dart' show normalizeNumber;
+import '../../utils/arabic_number_formatter.dart';
 
 /// «إقرارات ضريبة القيمة المضافة» (ADR-043 rule 5). A period's preview, then
 /// filing it: one entry at its last day closes output VAT against input VAT
 /// into 2301 -- owed to the authority, or due back. The figures are the
 /// server's; this screen computes none. Paying is a payment voucher on 2301
 /// from the bank (a refund, a receipt): no expense.
+///
+/// As filed (ADR-089): the return's own output and input VAT may be typed --
+/// required by the server while sales carry no VAT. What the books lack of
+/// them the server books as «ضريبة القيمة المضافة غير القابلة للاسترداد»; the
+/// preview shows it beside the books' own figures. What is filed is what was
+/// previewed: a change to either figure asks for the preview again.
 class VatReturnsScreen extends StatefulWidget {
   final ApiService api;
   final bool isArabic;
@@ -25,7 +33,10 @@ class _VatReturnsScreenState extends State<VatReturnsScreen> {
   late DateTimeRange _period = _lastQuarter(DateTime.now());
   late Future<List<Map<String, dynamic>>> _filed;
   Map<String, dynamic>? _preview;
+  (num?, num?) _previewed = (null, null);
   bool _busy = false;
+  final _filedOutput = TextEditingController();
+  final _filedInput = TextEditingController();
 
   /// The last whole quarter before [today]: a return is filed for a period that is over.
   static DateTimeRange _lastQuarter(DateTime today) {
@@ -38,6 +49,24 @@ class _VatReturnsScreenState extends State<VatReturnsScreen> {
   void initState() {
     super.initState();
     _filed = widget.api.getVatReturns();
+    for (final c in [_filedOutput, _filedInput]) {
+      c.addListener(() {
+        if (_preview != null) setState(() => _preview = null);   // what is filed is what was previewed
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _filedOutput.dispose();
+    _filedInput.dispose();
+    super.dispose();
+  }
+
+  /// The typed figure, or null when left empty (the books' then).
+  static num? _typed(TextEditingController c) {
+    final t = normalizeNumber(c.text.trim()).replaceAll(',', '');
+    return t.isEmpty ? null : num.tryParse(t);
   }
 
   String _amount(dynamic v) => _money.format(v is num ? v : 0);
@@ -64,8 +93,10 @@ class _VatReturnsScreenState extends State<VatReturnsScreen> {
   Future<void> _runPreview() async {
     setState(() => _busy = true);
     try {
-      final out = await widget.api.previewVatReturn(_day.format(_period.start), _day.format(_period.end));
-      if (mounted) setState(() => _preview = out);
+      final figures = (_typed(_filedOutput), _typed(_filedInput));
+      final out = await widget.api.previewVatReturn(_day.format(_period.start), _day.format(_period.end),
+          filedOutputVat: figures.$1, filedInputVat: figures.$2);
+      if (mounted) setState(() => (_preview = out, _previewed = figures));
     } catch (e) {
       if (mounted) _say(e.toString().replaceFirst('Exception: ', ''));
     } finally {
@@ -96,13 +127,16 @@ class _VatReturnsScreenState extends State<VatReturnsScreen> {
     if (confirmed != true || !mounted) return;
     setState(() => _busy = true);
     try {
-      final out = await widget.api.fileVatReturn(_day.format(_period.start), _day.format(_period.end));
+      final out = await widget.api.fileVatReturn(_day.format(_period.start), _day.format(_period.end),
+          filedOutputVat: _previewed.$1, filedInputVat: _previewed.$2);
       if (!mounted) return;
       _say(out['entry_number'] != null ? 'قُدّم الإقرار: ${out['entry_number']}' : 'قُدّم الإقرار (صفري)');
       setState(() {
         _preview = null;
         _filed = widget.api.getVatReturns();
       });
+      _filedOutput.clear();
+      _filedInput.clear();
     } catch (e) {
       if (mounted) _say(e.toString().replaceFirst('Exception: ', ''));
     } finally {
@@ -124,6 +158,23 @@ class _VatReturnsScreenState extends State<VatReturnsScreen> {
     );
   }
 
+  static bool _differs(Map<String, dynamic> p) {
+    num at(String k) => (p[k] as num?) ?? 0;
+    return (at('books_output_vat') - at('output_vat')).abs() > 0.005 ||
+        (at('books_input_vat') - at('input_vat')).abs() > 0.005;
+  }
+
+  Widget _filedField(TextEditingController c, String label, Key key) => TextField(
+        key: key,
+        controller: c,
+        enabled: !_busy,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        inputFormatters: const [ArabicNumberTextInputFormatter()],
+        textDirection: TextDirection.ltr,
+        decoration: InputDecoration(labelText: label, hintText: 'اتركه فارغًا لأرقام الدفاتر', isDense: true,
+            border: const OutlineInputBorder()),
+      );
+
   Widget _previewCard(Map<String, dynamic> p) {
     final net = (p['net'] as num?) ?? 0;
     final lines = Map<String, dynamic>.from(p['lines'] as Map? ?? const {});
@@ -138,6 +189,17 @@ class _VatReturnsScreenState extends State<VatReturnsScreen> {
               _figure('ضريبة المدخلات', _amount(p['input_vat'])),
               _figure('الصافي — ${_netLabel(net)}', _amount(net.abs()), key: const Key('vat-return-net')),
             ]),
+            if (_differs(p)) ...[
+              const SizedBox(height: 12),
+              Text('في الدفاتر: مخرجات ${_amount(p['books_output_vat'])} · مدخلات ${_amount(p['books_input_vat'])}',
+                  key: const Key('vat-return-books'), style: Theme.of(context).textTheme.bodySmall),
+            ],
+            if (((p['non_recoverable'] as num?) ?? 0) > 0.005) ...[
+              const SizedBox(height: 4),
+              Text('ضريبة غير قابلة للاسترداد (مصروف): ${_amount(p['non_recoverable'])}',
+                  key: const Key('vat-return-non-recoverable'),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
+            ],
             if (lines.isNotEmpty) ...[
               const Divider(height: 24),
               for (final e in lines.entries)
@@ -185,6 +247,14 @@ class _VatReturnsScreenState extends State<VatReturnsScreen> {
                 onPressed: _busy ? null : _runPreview,
                 child: const Text('عرض'),
               ),
+            ]),
+            const SizedBox(height: 12),
+            Wrap(spacing: 12, runSpacing: 12, children: [
+              for (final (c, label, key) in [
+                (_filedOutput, 'ضريبة المخرجات كما في الإقرار', const Key('vat-return-filed-output')),
+                (_filedInput, 'ضريبة المدخلات كما في الإقرار', const Key('vat-return-filed-input')),
+              ])
+                ConstrainedBox(constraints: const BoxConstraints(maxWidth: 320), child: _filedField(c, label, key)),
             ]),
             const SizedBox(height: 12),
             if (_preview != null) _previewCard(_preview!),

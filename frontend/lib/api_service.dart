@@ -2780,17 +2780,27 @@ class ApiService {
         .toList();
   }
 
-  Future<Map<String, dynamic>> previewVatReturn(String start, String end) =>
-      _vatReturn('$_baseUrl/vat-returns/preview', start, end);
+  /// [filedOutputVat]/[filedInputVat]: the return's own figures, as the accountant filed it
+  /// (ADR-089) -- required by the server while sales carry no VAT; null leaves the books'.
+  Future<Map<String, dynamic>> previewVatReturn(String start, String end,
+          {num? filedOutputVat, num? filedInputVat}) =>
+      _vatReturn('$_baseUrl/vat-returns/preview', start, end, filedOutputVat, filedInputVat);
 
-  Future<Map<String, dynamic>> fileVatReturn(String start, String end) =>
-      _vatReturn('$_baseUrl/vat-returns', start, end);
+  Future<Map<String, dynamic>> fileVatReturn(String start, String end,
+          {num? filedOutputVat, num? filedInputVat}) =>
+      _vatReturn('$_baseUrl/vat-returns', start, end, filedOutputVat, filedInputVat);
 
-  Future<Map<String, dynamic>> _vatReturn(String url, String start, String end) async {
+  Future<Map<String, dynamic>> _vatReturn(
+      String url, String start, String end, num? filedOutputVat, num? filedInputVat) async {
     final response = await _authedPost(
       Uri.parse(url),
       headers: {'Content-Type': 'application/json; charset=UTF-8'},
-      body: json.encode({'start': start, 'end': end}),
+      body: json.encode({
+        'start': start,
+        'end': end,
+        if (filedOutputVat != null) 'filed_output_vat': filedOutputVat,
+        if (filedInputVat != null) 'filed_input_vat': filedInputVat,
+      }),
     );
     if (response.statusCode != 200 && response.statusCode != 201) {
       throw _apiError(response);

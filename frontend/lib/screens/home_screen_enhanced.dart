@@ -2000,6 +2000,18 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           );
         },
       );
+      // ADR-043 rule 5 / ADR-089: the return as filed; filing itself needs journal.post (the server's)
+      addDestination(
+        icon: Icons.receipt_long_outlined,
+        title: isAr ? 'إقرار الضريبة' : 'VAT Return',
+        keywords: const ['ضريبة القيمة المضافة', 'الإقرار الضريبي', 'إقرارات الضريبة'],
+        onSelected: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => reportDestination('vat_returns', api, isAr)!),
+          );
+        },
+      );
     }
     if (auth.hasPermission('accounts.view')) {
       addDestination(

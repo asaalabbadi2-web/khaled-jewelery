@@ -157,3 +157,86 @@ def test_a_nil_return_files_its_period(books):
     assert VatReturn.query.filter_by(period_start=date(2034, 1, 1)).count() == 1
     with pytest.raises(VatReturnRefused):
         file_vat_return(start=date(2034, 1, 1), end=date(2034, 1, 31), by='t', now=NOW)
+
+
+# ── as filed, while sales carry no VAT (ADR-089, the owner 12 Nov 2026) ──
+
+@pytest.fixture
+def untaxed(books):
+    """Sales untaxed from 2034 on, and «ضريبة القيمة المضافة الغير قابلة للاسترداد» as production
+    spells it, under the mapped parent -- the account the filing must find, not make again."""
+    from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, get_account_id_for_mapping
+    from models import VatPolicyPeriod
+    db.session.add(VatPolicyPeriod(effective_from=date(2034, 1, 1), input_vat_recoverable=True,
+                                   sales_vat_charged=False, created_by='t'))
+    AccountingMapping.query.filter_by(account_type='vat_non_recoverable').update({'is_active': False})
+    parent_id = get_account_id_for_mapping(DEFAULT_MAPPING_OPERATION_TYPE, 'vat_non_recoverable_parent')
+    if not parent_id:
+        parent = Account(account_number=f'9{uuid.uuid4().int % 10**7}', name='مصاريف اختبار', type='Expense')
+        db.session.add(parent)
+        db.session.flush()
+        db.session.add(AccountingMapping(operation_type=DEFAULT_MAPPING_OPERATION_TYPE,
+                                         account_type='vat_non_recoverable_parent', account_id=parent.id,
+                                         is_active=True))
+        parent_id = parent.id
+    for a in Account.query.filter(Account.name.in_(['ضريبة القيمة المضافة غير القابلة للاسترداد',
+                                                    'ضريبة القيمة المضافة الغير قابلة للاسترداد'])).all():
+        a.name = a.name + ' (قديم)'            # this test's own: the one it makes below
+    expense = Account(account_number=f'9{uuid.uuid4().int % 10**7}', name='ضريبة القيمة المضافة الغير قابلة للاسترداد',
+                      type='Expense', parent_id=parent_id)
+    db.session.add(expense)
+    db.session.flush()
+    return {**books, 'expense': expense}
+
+
+def test_untaxed_sales_are_filed_with_the_returns_output_and_what_the_books_lack_is_the_expense(untaxed):
+    from models import VatReturn
+    from services.vat_return import VatReturnRefused, file_vat_return, settlement_account_id
+    b = untaxed
+    _january(b, output=0.0, input_=300.0, commission=20.0)          # the books: no output, 320 of input
+    with pytest.raises(VatReturnRefused) as refused:
+        file_vat_return(start=date(2034, 1, 1), end=date(2034, 1, 31), by='t', now=NOW)
+    assert refused.value.code == 'OUTPUT_VAT_REQUIRED'
+
+    filed = file_vat_return(start=date(2034, 1, 1), end=date(2034, 1, 31), by='t', now=NOW,
+                            filed_output_vat=1500, filed_input_vat=400)
+    # the return's own: 1500 out, 400 in, 1100 owed; the books lacked 1500 of output and 80 of input
+    assert (filed['output_vat'], filed['input_vat'], filed['net']) == (1500.0, 400.0, 1100.0)
+    assert (filed['books_output_vat'], filed['books_input_vat'], filed['non_recoverable']) == (0.0, 320.0, 1420.0)
+    assert _moved(b['expense']) == 1420.0, 'what the books lacked: an expense the weight profit reads'
+    from services.vat_policy import NON_RECOVERABLE_NAMES
+    assert Account.query.filter(Account.name.in_(NON_RECOVERABLE_NAMES)).count() == 1, \
+        'production\'s «الغير» account found, none made'
+    feb = datetime(2034, 2, 1)
+    assert _moved(b['input'], feb) == 0 and _moved(b['commission'], feb) == 0
+    assert _moved(db.session.get(Account, settlement_account_id())) == -1100.0
+    record = VatReturn.query.filter_by(period_start=date(2034, 1, 1)).one()
+    assert (record.output_vat, record.input_vat, record.net) == (1500.0, 400.0, 1100.0)
+
+
+def test_input_the_books_lack_beyond_the_output_they_lack_is_refused(untaxed):
+    from services.vat_return import VatReturnRefused, file_vat_return
+    _january(untaxed, output=0.0, input_=300.0, commission=20.0)
+    with pytest.raises(VatReturnRefused) as refused:            # lacking: 100 out, 180 in -- record it first
+        file_vat_return(start=date(2034, 1, 1), end=date(2034, 1, 31), by='t', now=NOW,
+                        filed_output_vat=100, filed_input_vat=500)
+    assert refused.value.code == 'INPUT_VAT_MISSING'
+    with pytest.raises(VatReturnRefused) as refused:
+        file_vat_return(start=date(2034, 1, 1), end=date(2034, 1, 31), by='t', now=NOW,
+                        filed_output_vat=-1, filed_input_vat=0)
+    assert refused.value.code == 'INVALID_FIGURE'
+
+
+def test_the_routes_carry_the_returns_figures(untaxed, auth_headers):
+    from models import VatPolicyPeriod
+    db.session.add(VatPolicyPeriod(effective_from=date(2001, 1, 1), input_vat_recoverable=True,
+                                   sales_vat_charged=False, created_by='t'))
+    _january(untaxed, output=0.0, input_=300.0, commission=20.0, year=2001)
+    client = flask_app.test_client()
+    body = {'start': '2001-01-01', 'end': '2001-01-31'}
+    preview = client.post('/api/vat-returns/preview', headers=auth_headers,
+                          json={**body, 'filed_output_vat': 1500, 'filed_input_vat': 400}).get_json()
+    assert (preview['net'], preview['non_recoverable']) == (1100.0, 1420.0)
+    # last: a refusal rolls the request back, and the test fence does not hold (Flask-SQLAlchemy 3.1)
+    refused = client.post('/api/vat-returns/preview', headers=auth_headers, json=body)
+    assert refused.status_code == 400 and refused.get_json()['error'] == 'OUTPUT_VAT_REQUIRED'

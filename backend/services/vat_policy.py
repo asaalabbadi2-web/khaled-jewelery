@@ -62,6 +62,8 @@ def add_period(*, effective_from: date, input_vat_recoverable: bool, sales_vat_c
 # ── where input VAT goes (rule 1) ─────────────────────────────────────────────
 NON_RECOVERABLE_ROLE = 'vat_non_recoverable'
 NON_RECOVERABLE_NAME = 'ضريبة القيمة المضافة غير القابلة للاسترداد'
+# Production's own spelling (5402, «الغير قابلة»): found as it is, never made twice (ADR-089).
+NON_RECOVERABLE_NAMES = (NON_RECOVERABLE_NAME, 'ضريبة القيمة المضافة الغير قابلة للاسترداد')
 NON_RECOVERABLE_PARENT_ROLE = 'vat_non_recoverable_parent'   # 540 «المصاريف الإدارية والعمومية» on production
 
 
@@ -75,7 +77,7 @@ def non_recoverable_account_id() -> int:
     mapped = get_account_id_for_mapping(DEFAULT_MAPPING_OPERATION_TYPE, NON_RECOVERABLE_ROLE)
     if mapped:
         return mapped
-    account = Account.query.filter_by(name=NON_RECOVERABLE_NAME).first()
+    account = Account.query.filter(Account.name.in_(NON_RECOVERABLE_NAMES)).order_by(Account.id).first()
     if account is None:
         parent_id = get_account_id_for_mapping(DEFAULT_MAPPING_OPERATION_TYPE, NON_RECOVERABLE_PARENT_ROLE)
         if not parent_id:

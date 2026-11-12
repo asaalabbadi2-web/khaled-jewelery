@@ -22,7 +22,9 @@ def _file(dry_run):
         return jsonify({'error': 'INVALID_DATE', 'message': 'بداية الفترة ونهايتها تاريخان'}), 400
     by = getattr(getattr(g, 'current_user', None), 'username', None) or 'system'
     try:
-        out = file_vat_return(start=start, end=end, by=by, now=datetime.now(), dry_run=dry_run)
+        out = file_vat_return(start=start, end=end, by=by, now=datetime.now(), dry_run=dry_run,
+                              filed_output_vat=data.get('filed_output_vat'),
+                              filed_input_vat=data.get('filed_input_vat'))
         if not dry_run:                     # a preview writes nothing: nothing to undo
             db.session.commit()
     except VatReturnRefused as refused:
