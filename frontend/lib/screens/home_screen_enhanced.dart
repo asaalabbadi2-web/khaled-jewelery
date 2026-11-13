@@ -372,14 +372,21 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     final newDecimals = settings.decimalPlaces;
     final newMainKarat = settings.mainKarat;
 
+    final karatChanged = newMainKarat != mainKarat;
     if (newSymbol != currencySymbol ||
         newDecimals != currencyDecimalPlaces ||
-        newMainKarat != mainKarat) {
+        karatChanged) {
       setState(() {
         currencySymbol = newSymbol;
         currencyDecimalPlaces = newDecimals;
         mainKarat = newMainKarat;
       });
+    }
+    // A new main karat: its price and its chart now, not at the next refresh
+    // (the owner, 13 Nov 2026: the chart stayed 21's after the karat became 24).
+    if (karatChanged && context.read<AuthProvider>().isAuthenticated) {
+      _loadGoldPrice();
+      _loadSparklineData();
     }
 
     _syncGoldPriceAutoRefresh(settings);
@@ -2934,6 +2941,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
               _chart24h,
               openingPricesPerGram: goldOpeningPricesPerGram,
               openingOunce: goldPriceOpening,
+              mainKarat: mainKarat,
             ),
             isArabic: widget.isArabic,
             onSparklineTap: () {

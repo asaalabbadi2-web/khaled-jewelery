@@ -67,6 +67,9 @@ void main() {
     expect([for (final s in GoldChartSeries.fromResponse(_answer(withKarat: false))) s.label], ['الأونصة'],
         reason: 'an answer without the main karat: the ounce alone');
     expect(GoldChartSeries.fromResponse(const {}), isEmpty);
+    expect([for (final s in GoldChartSeries.fromResponse(_answer(), mainKarat: 24)) s.label], ['الأونصة'],
+        reason: "an answer for 21 while the main karat is 24: no karat line -- never another karat's");
+    expect([for (final s in GoldChartSeries.fromResponse(_answer(), mainKarat: 21)) s.label], ['عيار 21', 'الأونصة']);
   });
 
   testWidgets('the main karat by default; the toggle shows the ounce, in dollars', (tester) async {

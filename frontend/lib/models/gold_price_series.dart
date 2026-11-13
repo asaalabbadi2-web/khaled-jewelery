@@ -35,10 +35,16 @@ class GoldChartSeries {
   /// The main karat's opening is read from [openingPricesPerGram] (GET
   /// /gold_price's `opening_prices_per_gram`) by the karat this answer names --
   /// the line and its opening are one karat's, whatever the settings say now.
+  ///
+  /// [mainKarat], the one the screen shows: an answer for another karat -- made
+  /// before the settings changed it -- gives no karat line, the ounce's alone,
+  /// until the answer for this one comes (the owner, 13 Nov 2026: the chart
+  /// stayed 21's after the main karat became 24).
   static List<GoldChartSeries> fromResponse(
     Map<String, dynamic>? answer, {
     Map<String, dynamic>? openingPricesPerGram,
     double? openingOunce,
+    int? mainKarat,
   }) {
     final raw = answer?['points'];
     final rows = raw is List ? raw.whereType<Map>().toList() : const <Map>[];
@@ -51,7 +57,7 @@ class GoldChartSeries {
     final karatLine = line('price_main_karat');
     final ounceLine = line('price_usd_per_oz');
     return [
-      if (karat != null && karatLine.isNotEmpty)
+      if (karat != null && karatLine.isNotEmpty && (mainKarat == null || karat == mainKarat))
         GoldChartSeries(
           label: 'عيار $karat',
           unit: 'ر.س',
