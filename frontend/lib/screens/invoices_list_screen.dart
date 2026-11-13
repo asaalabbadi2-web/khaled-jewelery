@@ -33,6 +33,7 @@ import '../utils/invoice_type_label.dart';
 import '../theme/app_breakpoints.dart';
 import '../widgets/karat_weights.dart';
 import '../providers/settings_provider.dart';
+import '../widgets/summary_strip.dart';
 
 /// A sale of scrap gold is saved as «بيع» with gold_type 'scrap'. It is
 /// edited on the screen that made it: the ordinary sale screen sends no
@@ -2983,6 +2984,22 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
 
     // Get statistics for current tab
     final tabStats = _getTabStatistics();
+
+    // On a phone one panel, two a row, no icon -- the names were cut and the
+    // weight broke across lines (the owner, 13 Nov 2026).
+    if (AppBreakpoints.isPhone(context)) {
+      final settings = context.read<SettingsProvider>();
+      return SummaryStrip(items: [
+        SummaryItem(isAr ? 'الفواتير' : 'Invoices', '${tabStats['total_invoices']}',
+            key: const Key('summary-count')),
+        SummaryItem(isAr ? 'المبلغ' : 'Amount',
+            '${formatAmount((tabStats['total_amount'] as num?) ?? 0, decimals: 0)} ${settings.currencySymbolText}',
+            key: const Key('summary-amount')),
+        SummaryItem(isAr ? 'الوزن' : 'Weight',
+            '${formatGrams((tabStats['sold_weight_total'] as num?) ?? 0)} ${isAr ? 'جم بعيار' : 'g of'} ${settings.mainKarat}',
+            key: const Key('summary-weight')),
+      ]);
+    }
 
     return Container(
       padding: const EdgeInsetsDirectional.fromSTEB(8, 6, 8, 6),

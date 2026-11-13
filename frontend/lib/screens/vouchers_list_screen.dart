@@ -30,6 +30,7 @@ import '../widgets/app_table.dart';
 import '../widgets/app_shortcuts.dart';
 import '../theme/app_breakpoints.dart';
 import '../widgets/karat_weights.dart';
+import '../widgets/summary_strip.dart';
 
 class VouchersListScreen extends StatefulWidget {
   /// The server; a test hands its own.
@@ -1057,6 +1058,21 @@ class _VouchersListScreenState extends State<VouchersListScreen>
         color: _tone.info.fg,
       ),
     ];
+
+    // On a phone one panel: what it counts, what waits, the cash, the gold --
+    // the cards slid off the screen's edge (the owner, 13 Nov 2026).
+    if (AppBreakpoints.isPhone(context)) {
+      final settings = context.read<SettingsProvider>();
+      return SummaryStrip(items: [
+        SummaryItem('السندات', '$totalVouchers', key: const Key('summary-count')),
+        SummaryItem('معلقة', '$pendingCount',
+            valueColor: pendingCount > 0 ? _tone.warning.fg : null, key: const Key('summary-pending')),
+        SummaryItem('النقد', '${_currencyFormat.format(totalCash)} ${settings.currencySymbolText}',
+            key: const Key('summary-cash')),
+        SummaryItem('الذهب', '${_goldFormat.format(totalGold)} جم بعيار ${settings.mainKarat}',
+            key: const Key('summary-gold')),
+      ]);
+    }
 
     final isCompact = MediaQuery.sizeOf(context).width < 700;
     if (!isCompact) {

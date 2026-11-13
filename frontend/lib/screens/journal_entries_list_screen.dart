@@ -22,6 +22,7 @@ import '../widgets/app_state_views.dart';
 import '../widgets/app_shortcuts.dart';
 import '../utils/bidi.dart';
 import '../theme/app_breakpoints.dart';
+import '../widgets/summary_strip.dart';
 
 enum _JournalEntriesListView { table, cards }
 
@@ -1065,6 +1066,20 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
         emphasize: true,
       ),
     ];
+
+    // On a phone one panel: how many, how many wait, the cash, the gold -- the
+    // posted are the rest; the cards slid off the screen's edge (13 Nov 2026).
+    if (AppBreakpoints.isPhone(context)) {
+      final ar = widget.isArabic;
+      return SummaryStrip(items: [
+        SummaryItem(ar ? 'القيود' : 'Entries', '$totalEntries', key: const Key('summary-count')),
+        SummaryItem(ar ? 'غير مرحلة' : 'Unposted', '$unpostedCount',
+            valueColor: unpostedCount > 0 ? _tone.warning.fg : null, key: const Key('summary-unposted')),
+        SummaryItem(ar ? 'النقد' : 'Cash', _formatCash(totalCash), key: const Key('summary-cash')),
+        SummaryItem(ar ? 'الذهب' : 'Gold', '${_formatGold(totalGold)} ${ar ? 'بعيار' : 'of'} $_mainKarat',
+            key: const Key('summary-gold')),
+      ]);
+    }
 
     final isCompact = MediaQuery.sizeOf(context).width < 700;
     if (!isCompact) {

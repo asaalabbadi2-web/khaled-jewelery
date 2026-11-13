@@ -10,6 +10,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/api_service.dart';
@@ -26,6 +27,8 @@ import 'package:http/testing.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'support/sign_order.dart';
 
 const _sizes = <String, Size>{
   'iPhone SE': Size(375, 667),
@@ -189,6 +192,22 @@ void main() {
         expect(find.byIcon(Icons.table_rows_outlined), phone ? findsWidgets : findsNothing,
             reason: phone ? 'a phone draws cards (the toggle offers the table)' : 'a tablet keeps the table');
         expect(find.textContaining(_firstRow[name]!), findsWidgets, reason: 'its rows are drawn, not a refusal');
+        // its summary: one panel on a phone, its names whole, a sum's sign after
+        // its number (the owner, 13 Nov 2026); the iPad's as it was
+        if (name != 'كشف الحساب') {
+          final strip = find.byKey(const Key('summary-strip'));
+          expect(strip, phone ? findsOneWidget : findsNothing);
+          if (phone) {
+            for (final p in tester.renderObjectList<RenderParagraph>(
+                find.descendant(of: strip, matching: find.byType(RichText)))) {
+              expect(p.didExceedMaxLines, isFalse, reason: '«${p.text.toPlainText()}» whole, not cut');
+            }
+            final cash = find.descendant(of: strip, matching: find.textContaining('ر.س'));
+            if (cash.evaluate().isNotEmpty) {
+              expect(signFollowsTheNumber(tester, cash.first, 'ر.س'), isTrue, reason: 'the sign after the number');
+            }
+          }
+        }
       });
     }
   }
