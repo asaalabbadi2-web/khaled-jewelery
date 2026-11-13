@@ -7,6 +7,7 @@ import 'package:frontend/screens/payroll_runs_screen.dart';
 import 'package:frontend/screens/prepare_run_screen.dart';
 import 'package:frontend/services/payroll_service.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/widgets/record_card.dart';
 
 /// HR-UX ط4 (the owner, 2 Nov 2026, «اعتمد»): the month by its name, the first
 /// without a run offered; its run seen before it is made -- who is in, who is
@@ -186,6 +187,17 @@ void main() {
     );
     await _settle(tester);
     expect(tester.takeException(), isNull);
+    // each employee a card, not a table slid sideways (the owner, 13 Nov 2026)
+    expect(find.byType(DataTable), findsNothing);
+    expect(
+      find.descendant(of: find.byKey(const ValueKey('prepare-lines')), matching: find.byType(RecordCard)),
+      findsWidgets,
+    );
+    expect(
+      find.descendant(of: find.byKey(const ValueKey('prepare-line-20')), matching: find.text('لا طريقة صرف')),
+      findsOneWidget,
+      reason: 'who would stop the pay is said on his card',
+    );
   });
 
   testWidgets('in Arabic each figure stands under its column\'s title', (

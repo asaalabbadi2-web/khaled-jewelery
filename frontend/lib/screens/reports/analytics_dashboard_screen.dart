@@ -7,6 +7,8 @@ import '../../api_service.dart';
 import '../../providers/settings_provider.dart';
 import '../../utils/currency_utils.dart' as cu;
 import '../../utils/invoice_type_label.dart';
+import '../../theme/app_breakpoints.dart';
+import '../../widgets/record_card.dart';
 
 class AnalyticsDashboardScreen extends StatefulWidget {
   final ApiService api;
@@ -417,6 +419,14 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
       }
     }
 
+    final cashTile = _buildSummaryTile(
+                    title: isArabic
+                        ? 'إجمالي التدفق النقدي'
+                        : 'Total Cash Flow',
+                    value: _formatCurrency(totalCash),
+                    icon: Icons.payments,
+                    color: Colors.green.shade600,
+                  );
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -453,19 +463,18 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                     color: Colors.amber.shade700,
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _buildSummaryTile(
-                    title: isArabic
-                        ? 'إجمالي التدفق النقدي'
-                        : 'Total Cash Flow',
-                    value: _formatCurrency(totalCash),
-                    icon: Icons.payments,
-                    color: Colors.green.shade600,
-                  ),
-                ),
+                if (!AppBreakpoints.isPhone(context)) ...[
+                  const SizedBox(width: 12),
+                  Expanded(child: cashTile),
+                ],
               ],
             ),
+            // On a phone three to a row broke the figures a digit a line (the
+            // owner, 13 Nov 2026): the cash flow takes its own line.
+            if (AppBreakpoints.isPhone(context)) ...[
+              const SizedBox(height: 12),
+              cashTile,
+            ],
             const SizedBox(height: 12),
             Row(
               children: [
@@ -706,19 +715,24 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
               ? CrossAxisAlignment.end
               : CrossAxisAlignment.start,
           children: [
-            Row(
+            // The title, then its six measures beside it where they fit and under
+            // it, sliding sideways, where they do not (489 px past a phone, 13 Nov 2026).
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
               children: [
-                Expanded(
-                  child: Text(
-                    isArabic ? 'الرسم التحليلي' : 'Analytical Chart',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
+                Text(
+                  isArabic ? 'الرسم التحليلي' : 'Analytical Chart',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
                   ),
                 ),
-                const SizedBox(width: 8),
-                ToggleButtons(
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: ToggleButtons(
                   isSelected: [
                     _chartMetric == 'weight_main',
                     _chartMetric == 'weight_out_main',
@@ -784,6 +798,7 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                       child: Text(isArabic ? 'صافي الكاش' : 'Net Cash'),
                     ),
                   ],
+                  ),
                 ),
               ],
             ),
@@ -1030,6 +1045,35 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
             const SizedBox(height: 12),
+            // On a phone each group is a card, its figures by name, a zero left
+            // out (the owner, 13 Nov 2026): eleven columns slid sideways.
+            if (AppBreakpoints.isPhone(context))
+              for (final (i, raw) in items.whereType<Map<String, dynamic>>().indexed)
+                RecordCard(
+                  key: ValueKey('analytics-row-$i'),
+                  title: invoiceTypeLabelOf(raw['group']),
+                  subtitle: isArabic ? '${raw['line_count'] ?? 0} سطر' : '${raw['line_count'] ?? 0} lines',
+                  fields: [
+                    for (final (key, ar, en, cash) in const [
+                      ('weight_24k', 'الوزن 24k', '24k weight', false),
+                      ('weight_main', 'الوزن بالعيار الرئيسي', 'Main-karat weight', false),
+                      ('weight_out_24k', 'الخارج 24k', 'Outbound 24k', false),
+                      ('weight_out_main', 'الخارج (عيار رئيسي)', 'Outbound (main)', false),
+                      ('weight_in_24k', 'الداخل 24k', 'Inbound 24k', false),
+                      ('weight_in_main', 'الداخل (عيار رئيسي)', 'Inbound (main)', false),
+                      ('cash_in', 'الكاش الداخل', 'Cash in', true),
+                      ('cash_out', 'الكاش الخارج', 'Cash out', true),
+                      ('amount_cash', 'صافي التدفق النقدي', 'Net cash flow', true),
+                    ])
+                      if (_asDouble(raw[key]).abs() >= 0.0005)
+                        RecordField(
+                          isArabic ? ar : en,
+                          cash ? _formatCurrency(_asDouble(raw[key])) : _formatWeight(_asDouble(raw[key])),
+                          negative: _asDouble(raw[key]) < 0,
+                        ),
+                  ],
+                )
+            else
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: DataTable(

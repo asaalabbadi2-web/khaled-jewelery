@@ -5,6 +5,9 @@ import '../api_service.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_bar_tab_bar.dart';
+import '../theme/app_breakpoints.dart';
+import '../utils/currency_utils.dart' show formatAmount;
+import '../widgets/record_card.dart';
 
 class ShiftClosingScreen extends StatefulWidget {
   final ApiService api;
@@ -447,102 +450,17 @@ class _ShiftClosingScreenState extends State<ShiftClosingScreen> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final currencySymbol =
-        context.watch<SettingsProvider>().currencySymbolText.isNotEmpty
-        ? context.watch<SettingsProvider>().currencySymbolText
-        : _currencySymbol;
-
-    double totalExpected = 0.0;
-    double totalActual = 0.0;
-    for (final row in _rows) {
-      final pmId = row['payment_method_id'] as int;
-      final expected = (row['expected_amount'] as num?)?.toDouble() ?? 0.0;
-      totalExpected += expected;
-      totalActual += _parseAmount(_actualControllers[pmId]?.text ?? '');
-    }
-    final totalDiff = totalActual - totalExpected;
-    final diffColor = totalDiff < 0
-        ? Theme.of(context).colorScheme.error
-        : AppColors.success;
-
-    Widget buildCashTab() {
-      if (_loading) {
-        return const Center(child: CircularProgressIndicator());
-      }
-      if (_rows.isEmpty) {
-        return Center(
-          child: Text(
-            widget.isArabic
-                ? 'لا توجد بيانات للوردية الحالية'
-                : 'No data for current shift',
-            style: const TextStyle(color: Colors.grey),
-          ),
-        );
-      }
-
-      return Column(
-        children: [
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(12),
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: DataTable(
-                  columns: [
-                    DataColumn(
-                      label: Text(
-                        widget.isArabic ? 'وسيلة الدفع' : 'Payment Method',
-                      ),
-                    ),
-                    DataColumn(
-                      numeric: true,
-                      label: Text(
-                        widget.isArabic ? 'المبلغ المتوقع' : 'Expected',
-                      ),
-                    ),
-                    DataColumn(
-                      numeric: true,
-                      label: Text(widget.isArabic ? 'المبلغ الفعلي' : 'Actual'),
-                    ),
-                    DataColumn(
-                      numeric: true,
-                      label: Text(widget.isArabic ? 'الفرق' : 'Difference'),
-                    ),
-                  ],
-                  rows: _rows.map((row) {
-                    final pmId = row['payment_method_id'] as int;
-                    final name = (row['payment_method_name'] ?? '').toString();
-                    final expected =
-                        (row['expected_amount'] as num?)?.toDouble() ?? 0.0;
-                    final ctrl = _actualControllers[pmId]!;
-
-                    final actual = _parseAmount(ctrl.text);
-                    final diff = actual - expected;
-                    final isCash = row['is_cash'] == true;
-                    final editable = _actualEditable[pmId] ?? isCash;
-
-                    return DataRow(
-                      cells: [
-                        DataCell(
-                          Text(
-                            name.isEmpty
-                                ? (widget.isArabic
-                                      ? 'وسيلة #$pmId'
-                                      : 'Method #$pmId')
-                                : name,
-                          ),
-                        ),
-                        DataCell(
-                          context.watch<SettingsProvider>().buildText(
-                            '${expected.toStringAsFixed(2)} $currencySymbol',
-                          ),
-                        ),
-                        DataCell(
-                          SizedBox(
-                            width: 240,
-                            child: Row(
+  /// What was counted for a payment method: cash by its denominations, the
+  /// others typed once unlocked -- one field for the table and the phone's card.
+  Widget _actualField(
+    BuildContext context, {
+    required int pmId,
+    required String name,
+    required TextEditingController ctrl,
+    required bool isCash,
+    required bool editable,
+  }) {
+    return Row(
                               children: [
                                 Expanded(
                                   child: TextField(
@@ -608,6 +526,155 @@ class _ShiftClosingScreenState extends State<ShiftClosingScreen> {
                                     icon: const Icon(Icons.calculate, size: 18),
                                   ),
                               ],
+                            );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final currencySymbol =
+        context.watch<SettingsProvider>().currencySymbolText.isNotEmpty
+        ? context.watch<SettingsProvider>().currencySymbolText
+        : _currencySymbol;
+
+    double totalExpected = 0.0;
+    double totalActual = 0.0;
+    for (final row in _rows) {
+      final pmId = row['payment_method_id'] as int;
+      final expected = (row['expected_amount'] as num?)?.toDouble() ?? 0.0;
+      totalExpected += expected;
+      totalActual += _parseAmount(_actualControllers[pmId]?.text ?? '');
+    }
+    final totalDiff = totalActual - totalExpected;
+    final diffColor = totalDiff < 0
+        ? Theme.of(context).colorScheme.error
+        : AppColors.success;
+
+    Widget buildCashTab() {
+      if (_loading) {
+        return const Center(child: CircularProgressIndicator());
+      }
+      if (_rows.isEmpty) {
+        return Center(
+          child: Text(
+            widget.isArabic
+                ? 'لا توجد بيانات للوردية الحالية'
+                : 'No data for current shift',
+            style: const TextStyle(color: Colors.grey),
+          ),
+        );
+      }
+
+      return Column(
+        children: [
+          Expanded(
+            // On a phone each payment method is a card, its count under its
+            // figures (the owner, 13 Nov 2026): a form slid sideways.
+            child: AppBreakpoints.isPhone(context)
+                ? ListView(
+                    padding: const EdgeInsets.all(12),
+                    children: [
+                      for (final row in _rows)
+                        () {
+                          final pmId = row['payment_method_id'] as int;
+                          final name = (row['payment_method_name'] ?? '').toString();
+                          final expected = (row['expected_amount'] as num?)?.toDouble() ?? 0.0;
+                          final ctrl = _actualControllers[pmId]!;
+                          final diff = _parseAmount(ctrl.text) - expected;
+                          final isCash = row['is_cash'] == true;
+                          final editable = _actualEditable[pmId] ?? isCash;
+                          return RecordCard(
+                            key: ValueKey('shift-method-$pmId'),
+                            title: name.isEmpty
+                                ? (widget.isArabic ? 'وسيلة #$pmId' : 'Method #$pmId')
+                                : name,
+                            fields: [
+                              RecordField(
+                                widget.isArabic ? 'المبلغ المتوقع' : 'Expected',
+                                '${formatAmount(expected)} $currencySymbol',
+                              ),
+                              RecordField(
+                                widget.isArabic ? 'الفرق' : 'Difference',
+                                formatAmount(diff),
+                                negative: diff < 0,
+                                color: AppSemanticColors.of(context).ready.fg,
+                              ),
+                            ],
+                            child: _actualField(
+                              context,
+                              pmId: pmId,
+                              name: name,
+                              ctrl: ctrl,
+                              isCash: isCash,
+                              editable: editable,
+                            ),
+                          );
+                        }(),
+                    ],
+                  )
+                : SingleChildScrollView(
+              padding: const EdgeInsets.all(12),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: DataTable(
+                  columns: [
+                    DataColumn(
+                      label: Text(
+                        widget.isArabic ? 'وسيلة الدفع' : 'Payment Method',
+                      ),
+                    ),
+                    DataColumn(
+                      numeric: true,
+                      label: Text(
+                        widget.isArabic ? 'المبلغ المتوقع' : 'Expected',
+                      ),
+                    ),
+                    DataColumn(
+                      numeric: true,
+                      label: Text(widget.isArabic ? 'المبلغ الفعلي' : 'Actual'),
+                    ),
+                    DataColumn(
+                      numeric: true,
+                      label: Text(widget.isArabic ? 'الفرق' : 'Difference'),
+                    ),
+                  ],
+                  rows: _rows.map((row) {
+                    final pmId = row['payment_method_id'] as int;
+                    final name = (row['payment_method_name'] ?? '').toString();
+                    final expected =
+                        (row['expected_amount'] as num?)?.toDouble() ?? 0.0;
+                    final ctrl = _actualControllers[pmId]!;
+
+                    final actual = _parseAmount(ctrl.text);
+                    final diff = actual - expected;
+                    final isCash = row['is_cash'] == true;
+                    final editable = _actualEditable[pmId] ?? isCash;
+
+                    return DataRow(
+                      cells: [
+                        DataCell(
+                          Text(
+                            name.isEmpty
+                                ? (widget.isArabic
+                                      ? 'وسيلة #$pmId'
+                                      : 'Method #$pmId')
+                                : name,
+                          ),
+                        ),
+                        DataCell(
+                          context.watch<SettingsProvider>().buildText(
+                            '${expected.toStringAsFixed(2)} $currencySymbol',
+                          ),
+                        ),
+                        DataCell(
+                          SizedBox(
+                            width: 240,
+                            child: _actualField(
+                              context,
+                              pmId: pmId,
+                              name: name,
+                              ctrl: ctrl,
+                              isCash: isCash,
+                              editable: editable,
                             ),
                           ),
                         ),

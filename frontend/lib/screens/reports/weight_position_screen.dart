@@ -4,6 +4,8 @@ import 'package:intl/intl.dart' hide TextDirection;
 import '../../api_service.dart';
 import '../../theme/app_semantic_colors.dart';
 import '../../widgets/sale_closing_card.dart';
+import '../../theme/app_breakpoints.dart';
+import '../../widgets/record_card.dart';
 
 /// «مركز التسكير» (ADR-048): المحل يقيس نفسه بالذهب، والنقد حالة مؤقتة. هنا
 /// ريالات المبيعات التي تنتظر أن تعود ذهبًا، وما تشتريه الآن بسعر شراء المحل،
@@ -146,10 +148,15 @@ class _WeightPositionScreenState extends State<WeightPositionScreen> {
     final text = Theme.of(context).textTheme;
     Widget row(String label, String value, {Key? key, TextStyle? style}) => Padding(
           padding: const EdgeInsets.symmetric(vertical: 3),
-          child: Row(children: [
+          // the label and its value share the line; a long value wraps (247 px
+          // past a phone, 13 Nov 2026)
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Expanded(child: Text(label, style: text.bodyMedium?.copyWith(color: tone.onContainer))),
-            Text(value, key: key,
-                style: (style ?? text.bodyMedium)?.copyWith(color: tone.onContainer)),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(value, key: key, textAlign: TextAlign.end,
+                  style: (style ?? text.bodyMedium)?.copyWith(color: tone.onContainer)),
+            ),
           ]),
         );
     return Card(
@@ -259,9 +266,16 @@ class _WeightPositionScreenState extends State<WeightPositionScreen> {
     final months = ((_performance['months'] as List?) ?? const []).cast<Map<String, dynamic>>();
     final five = _five((period['layers'] as Map?)?.cast<String, dynamic>());
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(children: [
-        Expanded(child: Text('الربح الوزني', style: text.titleMedium)),
-        SegmentedButton<_Period>(
+      // the periods under the title where they do not fit beside it, smaller if
+      // they must (354 px past a phone, 13 Nov 2026)
+      Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+        Text('الربح الوزني', style: text.titleMedium),
+        FittedBox(fit: BoxFit.scaleDown, child: SegmentedButton<_Period>(
           segments: const [
             ButtonSegment(value: _Period.thisMonth, label: Text('هذا الشهر')),
             ButtonSegment(value: _Period.threeMonths, label: Text('3 أشهر')),
@@ -272,7 +286,7 @@ class _WeightPositionScreenState extends State<WeightPositionScreen> {
             setState(() => _period = s.first);
             _load();
           },
-        ),
+        )),
       ]),
       const SizedBox(height: 8),
       Card(
@@ -297,7 +311,22 @@ class _WeightPositionScreenState extends State<WeightPositionScreen> {
           ]),
         ),
       ),
-      if (months.length > 1) ...[
+      if (months.length > 1 && AppBreakpoints.isPhone(context)) ...[
+        // On a phone each month is a card, its layers by their names (the owner,
+        // 13 Nov 2026): seven columns slid sideways.
+        const SizedBox(height: 8),
+        for (final m in months)
+          RecordCard(
+            key: ValueKey('wp-month-${m['month']}'),
+            title: '${m['month']}',
+            fields: [
+              for (final e in _five((m['layers'] as Map?)?.cast<String, dynamic>()).entries)
+                RecordField(_layerNames[e.key] ?? e.key, _g(e.value, signed: true), negative: e.value < 0),
+              RecordField('الصافي', _g(m['weight_profit'], signed: true),
+                  negative: ((m['weight_profit'] as num?) ?? 0) < 0),
+            ],
+          ),
+      ] else if (months.length > 1) ...[
         const SizedBox(height: 8),
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,

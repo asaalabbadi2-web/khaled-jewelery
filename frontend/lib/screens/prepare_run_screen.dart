@@ -11,6 +11,8 @@ import '../utils/month_names.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/app_state_views.dart';
 import 'payroll_runs_screen.dart';
+import '../theme/app_breakpoints.dart';
+import '../widgets/record_card.dart';
 
 /// A month's run prepared before it is made (HR-UX ط4; the owner, 2 Nov 2026,
 /// «اعتمد»): the month by its name, the first without a run offered (the
@@ -399,6 +401,33 @@ class _PrepareRunScreenState extends State<PrepareRunScreen> {
               style: theme.textTheme.titleSmall,
             ),
           ),
+          // On a phone each employee is a card (the owner, 13 Nov 2026).
+          if (AppBreakpoints.isPhone(context))
+            Padding(
+              padding: const EdgeInsets.fromLTRB(AppSpace.md, 0, AppSpace.md, AppSpace.sm),
+              child: Column(
+                children: [
+                  for (final (l, bonuses) in cells)
+                    RecordCard(
+                      key: ValueKey('prepare-line-${l.employeeId}'),
+                      title: l.employeeName,
+                      trailing: wontPay.contains(l.employeeId)
+                          ? Text(
+                              _isAr ? 'لا طريقة صرف' : 'No way to be paid',
+                              style: theme.textTheme.bodySmall?.copyWith(color: tones.blocked.fg),
+                            )
+                          : null,
+                      fields: [
+                        RecordField(_isAr ? 'الراتب' : 'Salary', money(l.basic + l.allowances)),
+                        if (bonuses != 0) RecordField(_isAr ? 'المكافآت' : 'Bonuses', money(bonuses)),
+                        if (l.deductions != 0) RecordField(_isAr ? 'الخصومات' : 'Deductions', money(l.deductions)),
+                        RecordField(_isAr ? 'الصافي' : 'Net', money(l.net)),
+                      ],
+                    ),
+                ],
+              ),
+            )
+          else
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: DataTable(

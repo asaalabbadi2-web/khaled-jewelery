@@ -7,6 +7,8 @@ import '../../theme/app_theme.dart';
 import '../../theme/app_semantic_colors.dart';
 import '../../widgets/app_bar_tab_bar.dart';
 import '../../utils/invoice_type_label.dart';
+import '../../theme/app_breakpoints.dart';
+import '../../widgets/record_card.dart';
 
 /// The theme's colours (ADR-038): the scheme and the semantic tones.
 ColorScheme _cs(BuildContext context) => Theme.of(context).colorScheme;
@@ -545,6 +547,28 @@ class _CategoryWeightAuditReportScreenState
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
             const SizedBox(height: 10),
+            // On a phone each category is a card (the owner, 13 Nov 2026).
+            if (AppBreakpoints.isPhone(context))
+              for (final (i, row) in rows.indexed)
+                () {
+                  final safeName = _asString(row['safe_box_name']);
+                  final catName = _asString(row['category_name']);
+                  final main = _asDouble(row['weight_main_karat']);
+                  final grams = _asDouble(row['weight_grams_signed']);
+                  return RecordCard(
+                    key: ValueKey('cwa-row-$i'),
+                    title: catName.isEmpty ? '-' : catName,
+                    subtitle: safeName.isEmpty ? null : safeName,
+                    fields: [
+                      // zero or below in the error tone, as the note under them says
+                      RecordField(_t('بالعيار الرئيسي', 'Main karat'), _fmtNum(main, decimals: 3),
+                          negative: main <= 0, color: _tn(context).ready.fg),
+                      RecordField(_t('بالجرام (مُوقّع)', 'Grams (signed)'), _fmtNum(grams, decimals: 3),
+                          negative: grams <= 0, color: _tn(context).ready.fg),
+                    ],
+                  );
+                }()
+            else
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: DataTable(

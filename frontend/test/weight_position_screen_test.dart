@@ -54,8 +54,8 @@ class _FakeApi extends ApiService {
   }
 }
 
-Future<_FakeApi> _pump(WidgetTester tester) async {
-  tester.view.physicalSize = const Size(1200, 2600);
+Future<_FakeApi> _pump(WidgetTester tester, {Size size = const Size(1200, 2600)}) async {
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   final api = _FakeApi();
@@ -65,6 +65,18 @@ Future<_FakeApi> _pump(WidgetTester tester) async {
 }
 
 void main() {
+  // On a phone the months are cards, their layers by name (the owner, 13 Nov
+  // 2026): the table of seven columns slid sideways.
+  testWidgets('on a phone each month is a card, and nothing overflows', (tester) async {
+    await _pump(tester, size: const Size(390, 3200));
+    expect(tester.takeException(), isNull);
+    expect(find.byType(DataTable), findsNothing);
+    final october = find.byKey(const ValueKey('wp-month-2026-10'));
+    expect(october, findsOneWidget);
+    expect(find.descendant(of: october, matching: find.text('③ مصاريف وزنية')), findsOneWidget);
+    expect(find.descendant(of: october, matching: find.text('الصافي')), findsOneWidget);
+  });
+
   // The owner (23 Oct 2026): what waits is measured against its closing price
   // -- its sales' scrap prices, weighted by their grams -- and the scrap
   // price now; what the shop paid is shown beside, no longer the value.
