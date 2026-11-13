@@ -21,6 +21,7 @@ import '../widgets/confirm_financial_action.dart';
 import '../widgets/app_state_views.dart';
 import '../widgets/app_shortcuts.dart';
 import '../utils/bidi.dart';
+import '../theme/app_breakpoints.dart';
 
 enum _JournalEntriesListView { table, cards }
 
@@ -84,7 +85,11 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
   double? _maxCash;
   DateTimeRange? _dateRange;
 
-  _JournalEntriesListView _viewMode = _JournalEntriesListView.table;
+  // The toggle's choice; until it is made, cards on a phone and a table from a
+  // tablet up (AppBreakpoints.listsAsCards).
+  _JournalEntriesListView? _chosenView;
+  _JournalEntriesListView get _viewMode =>
+      _chosenView ?? (AppBreakpoints.listsAsCards(context) ? _JournalEntriesListView.cards : _JournalEntriesListView.table);
   Timer? _searchDebounce;
 
   String get _currencySymbol =>
@@ -2667,7 +2672,7 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
               ),
               onPressed: () {
                 setState(() {
-                  _viewMode = _viewMode == _JournalEntriesListView.table
+                  _chosenView = _viewMode == _JournalEntriesListView.table
                       ? _JournalEntriesListView.cards
                       : _JournalEntriesListView.table;
                 });

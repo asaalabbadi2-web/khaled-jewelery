@@ -30,6 +30,7 @@ import '../widgets/app_table.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_shortcuts.dart';
 import '../utils/invoice_type_label.dart';
+import '../theme/app_breakpoints.dart';
 
 /// A sale of scrap gold is saved as «بيع» with gold_type 'scrap'. It is
 /// edited on the screen that made it: the ordinary sale screen sends no
@@ -219,7 +220,11 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
     'date',
   ];
   final List<bool> _tabSortAsc = [false, false, false, false, false, false];
-  _InvoiceListView _viewMode = _InvoiceListView.table;
+  // The toggle's choice; until it is made, cards on a phone and a table from a
+  // tablet up (AppBreakpoints.listsAsCards).
+  _InvoiceListView? _chosenView;
+  _InvoiceListView get _viewMode =>
+      _chosenView ?? (AppBreakpoints.listsAsCards(context) ? _InvoiceListView.cards : _InvoiceListView.table);
   int _currentPage = 1;
   int _totalPages = 1;
   int _totalInvoices = 0;
@@ -1444,7 +1449,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
         ),
         onPressed: () {
           setState(() {
-            _viewMode = _viewMode == _InvoiceListView.table
+            _chosenView = _viewMode == _InvoiceListView.table
                 ? _InvoiceListView.cards
                 : _InvoiceListView.table;
           });
@@ -3198,9 +3203,16 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header
+                // Header: its labels wrap on a phone, the menu keeps its place
+                // (the owner, 13 Nov 2026: 6 px past an iPhone).
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Expanded(
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: [
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 12,
@@ -3218,7 +3230,6 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 12,
@@ -3236,7 +3247,6 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                         ),
                       ),
                     ),
-                    const Spacer(),
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 12,
@@ -3261,6 +3271,9 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                               color: statusColor,
                             ),
                           ),
+                        ],
+                      ),
+                    ),
                         ],
                       ),
                     ),

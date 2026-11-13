@@ -19,4 +19,9 @@ abstract final class AppBreakpoints {
       width >= wide ? DeviceClass.wide : (width >= tablet ? DeviceClass.tablet : DeviceClass.phone);
 
   static bool isPhone(BuildContext context) => of(context) == DeviceClass.phone;
+
+  /// A list's rows as cards on a phone, as a table from a tablet up (the owner,
+  /// 13 Nov 2026: «في الشاشات الصغيره اجعل العرض كبطاقات»): the default of
+  /// every list that has both; its own toggle still changes it.
+  static bool listsAsCards(BuildContext context) => isPhone(context);
 }

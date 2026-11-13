@@ -28,6 +28,7 @@ import '../widgets/app_feedback.dart';
 import '../widgets/app_period_picker.dart';
 import '../widgets/app_table.dart';
 import '../widgets/app_shortcuts.dart';
+import '../theme/app_breakpoints.dart';
 
 class VouchersListScreen extends StatefulWidget {
   /// The server; a test hands its own.
@@ -82,7 +83,11 @@ class _VouchersListScreenState extends State<VouchersListScreen>
   String? _selectedParty;
   String _sortBy = 'date';
   bool _sortAscending = false;
-  _VoucherListView _viewMode = _VoucherListView.table;
+  // The toggle's choice; until it is made, cards on a phone and a table from a
+  // tablet up (AppBreakpoints.listsAsCards).
+  _VoucherListView? _chosenView;
+  _VoucherListView get _viewMode =>
+      _chosenView ?? (AppBreakpoints.listsAsCards(context) ? _VoucherListView.cards : _VoucherListView.table);
   double _toolbarHeight = 104; // +8 safety margin, see _measureToolbarHeight
 
   final NumberFormat _currencyFormat = NumberFormat('#,##0.00', 'ar');
@@ -270,15 +275,20 @@ class _VouchersListScreenState extends State<VouchersListScreen>
   };
 
   /// A type tab: its icon beside its name, readable at a glance.
+  /// On a phone the four do not fit at their size: each shrinks to its quarter
+  /// (the owner, 13 Nov 2026: 13 px past an iPhone SE).
   Widget _typeTab(IconData icon, String label) => Tab(
     height: 40,
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 18),
-        const SizedBox(width: AppSpace.sm),
-        Text(label),
-      ],
+    child: FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18),
+          const SizedBox(width: AppSpace.sm),
+          Text(label),
+        ],
+      ),
     ),
   );
 
@@ -582,7 +592,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
           ),
           onPressed: () {
             setState(() {
-              _viewMode = _viewMode == _VoucherListView.table
+              _chosenView = _viewMode == _VoucherListView.table
                   ? _VoucherListView.cards
                   : _VoucherListView.table;
             });
@@ -2221,6 +2231,61 @@ class _VouchersListScreenState extends State<VouchersListScreen>
     final Color titleColor = _cs.onSurface;
     final Color secondaryTextColor = _cs.onSurfaceVariant;
 
+    final bool phone = AppBreakpoints.isPhone(context);
+    final Widget amounts = Column(
+                        crossAxisAlignment: phone ? CrossAxisAlignment.start : CrossAxisAlignment.end,
+                        children: [
+                          if (cashAmount != null)
+                            Text(
+                              'نقداً: $cashAmount ر.س',
+                              style: themeData.textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                color: _tone.info.fg,
+                              ),
+                            ),
+                          if (goldPrimary != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Text(
+                                goldPrimary,
+                                style: themeData.textTheme.bodyMedium?.copyWith(
+                                  color: _tone.gold.fg,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          if (goldEquivalent != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Text(
+                                goldEquivalent,
+                                style: themeData.textTheme.bodySmall?.copyWith(
+                                  color: secondaryTextColor,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          if (goldBreakdown != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: SizedBox(
+                                width: 220,
+                                child: Text(
+                                  goldBreakdown,
+                                  textAlign: TextAlign.end,
+                                  maxLines: 3,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: themeData.textTheme.bodySmall
+                                      ?.copyWith(
+                                        color: secondaryTextColor,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      );
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: DecoratedBox(
@@ -2376,62 +2441,12 @@ class _VouchersListScreenState extends State<VouchersListScreen>
                           ],
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          if (cashAmount != null)
-                            Text(
-                              'نقداً: $cashAmount ر.س',
-                              style: themeData.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                color: _tone.info.fg,
-                              ),
-                            ),
-                          if (goldPrimary != null)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 6),
-                              child: Text(
-                                goldPrimary,
-                                style: themeData.textTheme.bodyMedium?.copyWith(
-                                  color: _tone.gold.fg,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ),
-                          if (goldEquivalent != null)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 4),
-                              child: Text(
-                                goldEquivalent,
-                                style: themeData.textTheme.bodySmall?.copyWith(
-                                  color: secondaryTextColor,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          if (goldBreakdown != null)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 4),
-                              child: SizedBox(
-                                width: 220,
-                                child: Text(
-                                  goldBreakdown,
-                                  textAlign: TextAlign.end,
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: themeData.textTheme.bodySmall
-                                      ?.copyWith(
-                                        color: secondaryTextColor,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
+                      if (!phone) ...[const SizedBox(width: 12), amounts],
                     ],
                   ),
+                  // On a phone the amounts take their own line: beside the number they
+                  // squeezed it past the card (the owner, 13 Nov 2026: 25 px on an SE).
+                  if (phone) ...[const SizedBox(height: 12), amounts],
                   if (partyName.isNotEmpty) ...[
                     const SizedBox(height: 16),
                     Row(

@@ -33,6 +33,7 @@ import '../widgets/app_period_picker.dart';
 import '../widgets/app_table.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/app_shortcuts.dart';
+import '../theme/app_breakpoints.dart';
 
 enum _StatementDisplayMode { table, cards }
 
@@ -89,7 +90,11 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
   final ScrollController _horizontalController = ScrollController();
 
   int _viewMode = 0; // 0: dual, 1: gold, 2: cash
-  _StatementDisplayMode _displayMode = _StatementDisplayMode.table;
+  // The toggle's choice; until it is made, cards on a phone and a table from a
+  // tablet up (AppBreakpoints.listsAsCards).
+  _StatementDisplayMode? _chosenDisplay;
+  _StatementDisplayMode get _displayMode =>
+      _chosenDisplay ?? (AppBreakpoints.listsAsCards(context) ? _StatementDisplayMode.cards : _StatementDisplayMode.table);
   bool _showOnlyMovement = false;
   bool _includeBreakdown = true;
   bool _isExporting = false;
@@ -1062,7 +1067,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
             ),
             onPressed: () {
               setState(() {
-                _displayMode = _displayMode == _StatementDisplayMode.table
+                _chosenDisplay = _displayMode == _StatementDisplayMode.table
                     ? _StatementDisplayMode.cards
                     : _StatementDisplayMode.table;
               });
