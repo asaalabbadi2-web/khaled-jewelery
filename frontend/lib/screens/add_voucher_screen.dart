@@ -287,6 +287,11 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
   bool _loadingInvoiceCandidates = false;
   int? _candidatesSupplierId; // whose open invoices are loaded
   final Set<int> _chosenInvoiceIds = {};
+
+  /// Which invoices it pays is no longer needed for most payments (the owner,
+  /// 13 Nov 2026): folded, and the supplier's invoices asked only when pulled
+  /// down. A payment with none chosen stays on the supplier's account.
+  bool _invoicesOpen = false;
   Map<String, dynamic>? _paymentPlan;
   String? _planKey;
 
@@ -1148,7 +1153,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       _planKey = null;
       _smartFillDescriptionAndReceiver();
     });
-    if (_showInvoicePicker) _loadInvoiceCandidates();
+    if (_showInvoicePicker && _invoicesOpen) _loadInvoiceCandidates();
   }
 
   /// A customer or supplier typed for in its own field: by name, code or
@@ -2561,6 +2566,46 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       showAdvance: _hasGoldLines,
       advance: _goldAdvance,
       onAdvance: (v) => setState(() => _goldAdvance = v),
+      onCollapse: () => setState(() => _invoicesOpen = false),
+    );
+  }
+
+  /// Folded: what the payment pays said in a line; a tap pulls the invoices down.
+  Widget _buildInvoicesFolded() {
+    final theme = Theme.of(context);
+    final n = _chosenInvoiceIds.length;
+    return Card(
+      key: const Key('invoice-picker-folded'),
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => setState(() => _invoicesOpen = true),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            children: [
+              Icon(Icons.receipt_long, color: theme.colorScheme.primary, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'لأي فواتير هذه الدفعة؟',
+                      style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      n == 0 ? 'على حساب المورد — اضغط لاختيار فواتير' : 'مختار $n — اضغط للتعديل',
+                      style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.expand_more_rounded, color: theme.colorScheme.onSurfaceVariant),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -4213,7 +4258,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       // Which invoices it pays -- under what is paid, read from it (the owner,
       // 20 Oct 2026; it was above the lines, chosen before the amount).
       if (_showInvoicePicker) ...[
-        _buildInvoicePicker(),
+        _invoicesOpen ? _buildInvoicePicker() : _buildInvoicesFolded(),
         const SizedBox(height: 12),
       ],
       _buildDetailsCard(),

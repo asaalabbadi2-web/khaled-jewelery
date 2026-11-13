@@ -14,6 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/fake_voucher_api.dart';
 import 'support/payload_witness.dart';
+import 'support/voucher_screen_harness.dart' show openInvoices;
 
 /// VOUCHER-UX-1 (the owner, 9 Oct 2026): a manual voucher -- about two a day
 /// on the 6 Oct copy, 443 payments, 40 receipts -- is read as typed, says what
@@ -88,6 +89,13 @@ void main() {
       await tester.pumpAndSettle();
     }
     return api;
+  }
+
+  // Which invoices it pays, pulled down: folded until then (the owner, 13 Nov 2026).
+  Future<FakeVoucherApi> openPulled(WidgetTester tester, {FakeVoucherApi? api}) async {
+    final opened = await open(tester, api: api);
+    await openInvoices(tester);
+    return opened;
   }
 
   Finder cashAmount() =>
@@ -366,7 +374,7 @@ void main() {
 
     testWidgets('the supplier\'s open invoices are listed oldest first, by '
         'number, with what each owes', (tester) async {
-      await open(tester, api: FakeVoucherApi(openCash: openCash));
+      await openPulled(tester, api: FakeVoucherApi(openCash: openCash));
 
       final first = tester.getTopLeft(find.byKey(const Key('invoice-pick-11')));
       final second = tester.getTopLeft(
@@ -380,7 +388,7 @@ void main() {
     testWidgets('choosing invoices asks the server how the payment spreads, '
         'and shows each its share', (tester) async {
       final api = FakeVoucherApi(openCash: openCash);
-      await open(tester, api: api);
+      await openPulled(tester, api: api);
       await ready(tester);
 
       await choose(tester, 12);
@@ -418,7 +426,7 @@ void main() {
           'cash_on_account': 300.0,
         },
       );
-      await open(tester, api: api);
+      await openPulled(tester, api: api);
       await ready(tester);
       await choose(tester, 11);
 
@@ -434,7 +442,7 @@ void main() {
     testWidgets('the description names the invoices, and a hand-written one '
         'is kept', (tester) async {
       final api = FakeVoucherApi(openCash: openCash);
-      await open(tester, api: api);
+      await openPulled(tester, api: api);
       await ready(tester);
 
       await choose(tester, 11);
@@ -458,7 +466,7 @@ void main() {
       'it is saved with the chosen invoices, the server spreading it',
       (tester) async {
         final api = FakeVoucherApi(openCash: openCash);
-        await open(tester, api: api);
+        await openPulled(tester, api: api);
         await ready(tester);
         await choose(tester, 12);
         await choose(tester, 11);
@@ -482,7 +490,7 @@ void main() {
           'cash_on_account': 300.0,
         },
       );
-      await open(tester, api: api);
+      await openPulled(tester, api: api);
       await ready(tester);
       await choose(tester, 11);
       await tester.tap(find.text('حفظ السند').last);
@@ -505,7 +513,7 @@ void main() {
     testWidgets('with no invoice chosen it is saved on the supplier\'s '
         'account', (tester) async {
       final api = FakeVoucherApi(openCash: openCash, plan: plan);
-      await open(tester, api: api);
+      await openPulled(tester, api: api);
       await ready(tester);
       await save(tester);
 
@@ -532,7 +540,7 @@ void main() {
         'since 20 Oct 2026; beside the party card it was no taller than it)', (
       tester,
     ) async {
-      await open(tester, api: FakeVoucherApi(openCash: many));
+      await openPulled(tester, api: FakeVoucherApi(openCash: many));
       await tester.pumpAndSettle();
 
       final invoices = card(tester, const Key('invoice-count'));
@@ -549,7 +557,7 @@ void main() {
     testWidgets(
       'the list can be searched by number, and the count follows the choice',
       (tester) async {
-        await open(tester, api: FakeVoucherApi(openCash: many));
+        await openPulled(tester, api: FakeVoucherApi(openCash: many));
         await pickSafe(tester);
         await tester.enterText(cashAmount(), '5000');
         await tester.pumpAndSettle();
@@ -567,7 +575,7 @@ void main() {
     );
 
     testWidgets('the save button is wide enough to be found', (tester) async {
-      await open(tester);
+      await openPulled(tester);
       final size = tester.getSize(
         find
             .ancestor(

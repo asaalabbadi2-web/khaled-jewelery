@@ -76,12 +76,17 @@ class _InvoiceTabConfig {
   final IconData icon;
   final bool supplierParty;
 
+  /// Every kind together (the owner, 13 Nov 2026: «اضف تبويب الكل»): no type
+  /// asked of the server; its party either a customer or a supplier.
+  final bool allTypes;
+
   const _InvoiceTabConfig({
     required this.labelAr,
     required this.labelEn,
     required this.apiInvoiceTypes,
     required this.icon,
     this.supplierParty = false,
+    this.allTypes = false,
   });
 }
 
@@ -149,6 +154,13 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
   late TabController _tabController;
   static const List<_InvoiceTabConfig> _invoiceTabs = [
     _InvoiceTabConfig(
+      labelAr: 'الكل',
+      labelEn: 'All',
+      apiInvoiceTypes: [],
+      icon: Icons.receipt_long,
+      allTypes: true,
+    ),
+    _InvoiceTabConfig(
       labelAr: 'بيع',
       labelEn: 'Sales',
       apiInvoiceTypes: ['بيع'],
@@ -190,36 +202,16 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
 
   // Per-tab filter state
   late final List<TextEditingController> _searchControllers;
-  final List<String> _tabSearchType = [
-    'all',
-    'all',
-    'all',
-    'all',
-    'all',
-    'all',
-  ];
-  final List<String> _tabStatus = ['all', 'all', 'all', 'all', 'all', 'all'];
-  final List<String> _tabGoldType = ['all', 'all', 'all', 'all', 'all', 'all'];
-  final List<String?> _tabKarat = [null, null, null, null, null, null];
-  final List<String?> _tabParty = [null, null, null, null, null, null];
-  final List<String?> _tabCreator = [null, null, null, null, null, null];
-  final List<DateTimeRange?> _tabDateRange = [
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-  ];
-  final List<String> _tabSort = [
-    'date',
-    'date',
-    'date',
-    'date',
-    'date',
-    'date',
-  ];
-  final List<bool> _tabSortAsc = [false, false, false, false, false, false];
+  // one of each per tab, as many as the tabs
+  final List<String> _tabSearchType = List.filled(_invoiceTabs.length, 'all');
+  final List<String> _tabStatus = List.filled(_invoiceTabs.length, 'all');
+  final List<String> _tabGoldType = List.filled(_invoiceTabs.length, 'all');
+  final List<String?> _tabKarat = List.filled(_invoiceTabs.length, null);
+  final List<String?> _tabParty = List.filled(_invoiceTabs.length, null);
+  final List<String?> _tabCreator = List.filled(_invoiceTabs.length, null);
+  final List<DateTimeRange?> _tabDateRange = List.filled(_invoiceTabs.length, null);
+  final List<String> _tabSort = List.filled(_invoiceTabs.length, 'date');
+  final List<bool> _tabSortAsc = List.filled(_invoiceTabs.length, false);
   // The toggle's choice; until it is made, cards on a phone and a table from a
   // tablet up (AppBreakpoints.listsAsCards).
   _InvoiceListView? _chosenView;
@@ -528,7 +520,10 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
       }
     }
 
-    if (isSupplierTab) {
+    if (_invoiceTabs[idx].allTypes) {
+      collect(_cachedCustomers);
+      collect(_cachedSuppliers);
+    } else if (isSupplierTab) {
       collect(_cachedSuppliers);
     } else {
       collect(_cachedCustomers);
@@ -539,7 +534,9 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
   }
 
   String _partyFilterLabel(bool isAr) {
-    final isSupplier = _invoiceTabs[_tabController.index].supplierParty;
+    final tab = _invoiceTabs[_tabController.index];
+    if (tab.allTypes) return isAr ? 'العميل / المورد' : 'Customer / supplier';
+    final isSupplier = tab.supplierParty;
     return isSupplier
         ? (isAr ? 'المورد' : 'Supplier')
         : (isAr ? 'العميل' : 'Customer');

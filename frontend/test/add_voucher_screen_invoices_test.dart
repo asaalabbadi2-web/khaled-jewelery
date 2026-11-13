@@ -56,8 +56,36 @@ void main() {
   bool enabled(WidgetTester tester, int id) =>
       tester.widget<CheckboxListTile>(find.byKey(Key('invoice-pick-$id'))).onChanged != null;
 
+  // The owner, 13 Nov 2026: «لم نعد بحاجة قائمة الفواتير لنسب السند لها لذا
+  // يفضل ان تكون مطويه ولا تستدعى الا عند تسدل».
+  testWidgets('folded, the supplier\'s invoices are not asked; pulled down, they are', (tester) async {
+    final api = await openVoucher(tester, api: FakeVoucherApi(openCash: invoices, plan: plan()));
+    expect(find.byKey(const Key('invoice-picker-folded')), findsOneWidget);
+    expect(find.text('على حساب المورد — اضغط لاختيار فواتير'), findsOneWidget);
+    expect(find.byKey(const Key('invoice-count')), findsNothing);
+    expect(api.invoicesAsked, 0, reason: 'folded: nothing asked');
+
+    await openInvoices(tester);
+    expect(api.invoicesAsked, 1);
+    expect(find.byKey(const Key('invoice-pick-11')), findsOneWidget);
+  });
+
+  testWidgets('folded again, what was chosen stays chosen and is said', (tester) async {
+    final api = await openVoucher(tester, api: FakeVoucherApi(openCash: invoices, plan: plan()));
+    await openInvoices(tester);
+    await pickSafe(tester, 'الصندوق');
+    await amount(tester, '1000');
+    await choose(tester, 11);
+    await tester.tap(find.byKey(const Key('invoice-picker-fold')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('invoice-picker-folded')), findsOneWidget);
+    expect(find.text('مختار 1 — اضغط للتعديل'), findsOneWidget);
+    expect(api.invoicesAsked, 1);
+  });
+
   testWidgets('the invoices come under the lines', (tester) async {
     await openVoucher(tester, api: FakeVoucherApi(openCash: invoices));
+    await openInvoices(tester);
     final lines = tester.getRect(find.byKey(const Key('voucher-line-account-0')));
     final list = tester.getRect(find.byKey(const Key('invoice-count')));
     expect(list.top, greaterThan(lines.bottom));
@@ -68,6 +96,7 @@ void main() {
 
   testWidgets('before an amount, they wait for it', (tester) async {
     await openVoucher(tester, api: FakeVoucherApi(openCash: invoices));
+    await openInvoices(tester);
     expect(find.text('أدخل المبلغ أولًا، ثم اختر ما يسدده'), findsOneWidget);
     expect(enabled(tester, 11), isFalse);
 
@@ -78,6 +107,7 @@ void main() {
 
   testWidgets('once the payment is used up, the others are locked', (tester) async {
     await openVoucher(tester, api: FakeVoucherApi(openCash: invoices, plan: plan()));
+    await openInvoices(tester);
     await pickSafe(tester, 'الصندوق');
     await amount(tester, '700');
     await choose(tester, 11);
@@ -92,6 +122,7 @@ void main() {
       tester,
       api: FakeVoucherApi(openCash: invoices, plan: plan(left: 100, unreached: [12])),
     );
+    await openInvoices(tester);
     await pickSafe(tester, 'الصندوق');
     await amount(tester, '700');
     await choose(tester, 11);
@@ -107,6 +138,7 @@ void main() {
     tester,
   ) async {
     await openVoucher(tester, api: FakeVoucherApi(openCash: invoices, plan: plan()));
+    await openInvoices(tester);
     await pickSafe(tester, 'الصندوق');
     await amount(tester, '700');
     await choose(tester, 11);

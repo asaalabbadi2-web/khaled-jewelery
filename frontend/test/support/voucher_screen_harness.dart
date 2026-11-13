@@ -120,3 +120,12 @@ Future<void> save(WidgetTester tester) async {
   await tester.tap(find.byKey(const Key('voucher-review-save')));
   await tester.pumpAndSettle();
 }
+
+/// Pulls down «لأي فواتير هذه الدفعة؟» -- folded until then (the owner, 13 Nov 2026).
+Future<void> openInvoices(WidgetTester tester) async {
+  final folded = find.byKey(const Key('invoice-picker-folded'));
+  if (folded.evaluate().isEmpty) return;
+  await tester.ensureVisible(folded);
+  await tester.tap(folded);
+  await tester.pumpAndSettle();
+}

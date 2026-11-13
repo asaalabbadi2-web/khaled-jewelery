@@ -141,7 +141,13 @@ class FakeVoucherApi extends ApiService {
   @override
   Future<List<Map<String, dynamic>>> getSupplierOpenCashObligations(
     int supplierId,
-  ) async => openCash;
+  ) async {
+    invoicesAsked++;
+    return openCash;
+  }
+
+  /// How often the supplier's open invoices were asked: folded, never.
+  int invoicesAsked = 0;
 
   @override
   Future<List<Map<String, dynamic>>> getSupplierOpenGoldObligations(

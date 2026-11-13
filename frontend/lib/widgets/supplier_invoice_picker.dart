@@ -29,6 +29,10 @@ class SupplierInvoicePicker extends StatefulWidget {
   /// list scrolls inside the card instead of stretching the page.
   final double? maxHeight;
 
+  /// Folds it away again: the payment stays on what was chosen (the owner,
+  /// 13 Nov 2026: folded until pulled down).
+  final VoidCallback? onCollapse;
+
   const SupplierInvoicePicker({
     super.key,
     required this.invoices,
@@ -42,6 +46,7 @@ class SupplierInvoicePicker extends StatefulWidget {
     this.advance = false,
     this.onAdvance,
     this.maxHeight,
+    this.onCollapse,
   });
 
   /// Above this many invoices the list can be searched by number.
@@ -175,6 +180,14 @@ class _SupplierInvoicePickerState extends State<SupplierInvoicePicker> {
                       'مختار ${chosen.length} من ${all.length}',
                       key: const Key('invoice-count'),
                       style: theme.textTheme.bodySmall,
+                    ),
+                  if (widget.onCollapse != null)
+                    IconButton(
+                      key: const Key('invoice-picker-fold'),
+                      tooltip: 'طيّ',
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.expand_less_rounded),
+                      onPressed: widget.onCollapse,
                     ),
                 ],
               ),

@@ -356,6 +356,7 @@ void main() {
         ],
       ),
     );
+    await openInvoices(tester);
     expect(
       find.text('SUPP-2026-005'),
       findsOneWidget,

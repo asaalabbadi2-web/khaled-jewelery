@@ -47,6 +47,7 @@ void main() {
       );
       await toGold(tester);
       await grams(tester, '10');
+      await openInvoices(tester);
       await tester.tap(find.byKey(const Key('invoice-pick-11')));
       await tester.pumpAndSettle();
       await save(tester);
@@ -126,6 +127,7 @@ void main() {
       await open(tester, api: FakeVoucherApi(openCash: cashInvoice));
       await toGold(tester);
       await grams(tester, '10');
+      await openInvoices(tester);
       await tester.tap(find.byKey(const Key('invoice-pick-12')));
       await tester.pumpAndSettle();
 
