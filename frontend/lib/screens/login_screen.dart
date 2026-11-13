@@ -283,7 +283,17 @@ class _LoginScreenState extends State<LoginScreen>
     final settings = context.watch<SettingsProvider>();
     // The background: the theme's gold deepening toward the corner it is lit
     // from; the card and the words on it are the theme's surface and text.
-    final backgroundEnd = Color.lerp(scheme.primary, scheme.scrim, 0.35)!;
+    // Dark, the gold is bright: a sheet of it glared (the owner, 13 Nov 2026:
+    // «في الوضع الداكن الوانها مزعجه») -- the night's own surface instead, a
+    // breath of the gold in its lit corner.
+    final dark = theme.brightness == Brightness.dark;
+    final backgroundStart = dark
+        ? Color.alphaBlend(scheme.primary.withValues(alpha: 0.10), scheme.surface)
+        : scheme.primary;
+    final backgroundEnd = dark
+        ? scheme.surfaceContainerLowest
+        : Color.lerp(scheme.primary, scheme.scrim, 0.35)!;
+    final lines = dark ? scheme.primary : scheme.onPrimary;
 
     return KeyboardListener(
       focusNode: _kbFocusNode,
@@ -300,9 +310,10 @@ class _LoginScreenState extends State<LoginScreen>
             children: [
               // ── خلفية ─────────────────────────────────────────────
               Container(
+                key: const Key('login-background'),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [scheme.primary, backgroundEnd],
+                    colors: [backgroundStart, backgroundEnd],
                     begin: Alignment.topRight,
                     end: Alignment.bottomLeft,
                   ),
@@ -320,7 +331,7 @@ class _LoginScreenState extends State<LoginScreen>
                     height: 300,
                     decoration: BoxDecoration(
                       border: Border.all(
-                          color: scheme.onPrimary.withValues(alpha: 0.10),
+                          color: lines.withValues(alpha: dark ? 0.14 : 0.10),
                           width: 1.5),
                     ),
                   ),
@@ -336,7 +347,7 @@ class _LoginScreenState extends State<LoginScreen>
                     height: 170,
                     decoration: BoxDecoration(
                       border: Border.all(
-                          color: scheme.onPrimary.withValues(alpha: 0.06),
+                          color: lines.withValues(alpha: dark ? 0.08 : 0.06),
                           width: 1),
                     ),
                   ),
@@ -384,13 +395,14 @@ class _LoginScreenState extends State<LoginScreen>
     return AnimatedBuilder(
       animation: Listenable.merge([_shakeCtrl, _shimmerCtrl]),
       builder: (context, _) {
+        final dark = theme.brightness == Brightness.dark;
         return Card(
-          elevation: 6,
+          elevation: dark ? 2 : 6,
           shadowColor: scheme.shadow.withValues(alpha: 0.22),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
             side: BorderSide(
-                color: scheme.primary.withValues(alpha: 0.18), width: 1),
+                color: dark ? scheme.outlineVariant : scheme.primary.withValues(alpha: 0.18), width: 1),
           ),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 560),
@@ -670,8 +682,11 @@ class _LoginScreenState extends State<LoginScreen>
         const SizedBox(height: 6),
         Text(
           'Version 1.0.0  ·  © 2026 Khaled Jewellery ERP',
+          key: const Key('login-version'),
           style: TextStyle(
-              fontSize: 11, color: scheme.onPrimary.withValues(alpha: 0.75)),
+              fontSize: 11,
+              color: (theme.brightness == Brightness.dark ? scheme.onSurfaceVariant : scheme.onPrimary)
+                  .withValues(alpha: 0.75)),
         ),
       ],
     );
