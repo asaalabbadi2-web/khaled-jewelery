@@ -40,8 +40,9 @@ void main() {
     expect(find.byKey(const Key('gold-market-tag')), findsNothing);
   });
 
-  testWidgets('the home bar says the market closed instead of the price\'s age', (tester) async {
-    tester.view.physicalSize = const Size(1440, 400);
+  for (final width in [1440.0, 390.0]) {
+  testWidgets('the home bar says the market closed and its last quote, at $width', (tester) async {
+    tester.view.physicalSize = Size(width, 400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     await pump(
@@ -54,7 +55,11 @@ void main() {
         market: GoldMarket(open: false, lastQuoteAt: DateTime(2026, 10, 30, 0, 55)),
       ),
     );
-    expect(find.text('السوق مغلق\nالجمعة 00:55'), findsOneWidget);
-    expect(tester.takeException(), isNull, reason: 'it fits under the refresh button');
+    // The owner, 13 Nov 2026: said in every size -- a phone hid it.
+    expect(find.descendant(of: find.byKey(const Key('gold-bar-status')), matching: find.text('السوق مغلق')),
+        findsOneWidget);
+    expect(find.text('آخر عرض: الجمعة 00:55'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
+  }
 }

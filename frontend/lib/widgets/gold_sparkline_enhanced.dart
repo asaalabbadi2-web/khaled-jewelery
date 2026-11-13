@@ -1,673 +1,415 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' hide TextDirection;
+
+import '../models/gold_price_series.dart';
 import '../theme/app_semantic_colors.dart';
 
-/// نقطة في الـ sparkline
-class SparklinePoint {
-  final DateTime time;
-  final double price;
-  const SparklinePoint({required this.time, required this.price});
-}
+export '../models/gold_price_series.dart' show GoldChartSeries, SparklinePoint;
 
+/// The home bar's price chart (the owner, 13 Nov 2026): the main karat's price
+/// a gram by default, the ounce at a small toggle -- each line the server's.
+///
+/// What it kept: the opening's dashed line, the high's and the low's dots, the
+/// last price's pulse, a crosshair with the point's time and price on hover or
+/// a finger's drag, a tap opening the history. What it took from the manager's
+/// card: a smooth line, it and the area under it green above the opening and
+/// red below. What is new: a line of times under it, and the high and low --
+/// the server's, over every row -- over it, where the hovered point says its
+/// time and price instead, so nothing covers the line.
 class GoldSparklineEnhanced extends StatefulWidget {
-  /// نقاط البيانات (24 ساعة الماضية مثلاً)
-  final List<SparklinePoint> points;
-
-  /// سعر الفتح (لرسم خط الأساس)
-  final double? openingPrice;
-
-  /// عملة العرض
-  final String currencySymbol;
-
-  /// عند الضغط
+  final List<GoldChartSeries> series;
   final VoidCallback? onTap;
-
-  /// لغة العرض
   final bool isArabic;
 
-  /// عرض المؤشر
-  final double? width;
-
-  /// ارتفاع منطقة الرسم
+  /// The plot's height; the header and the times add about 36.
   final double height;
 
   const GoldSparklineEnhanced({
     super.key,
-    required this.points,
-    this.openingPrice,
-    this.currencySymbol = 'ر.س',
+    required this.series,
     this.onTap,
     this.isArabic = true,
-    this.width,
-    this.height = 60,
+    this.height = 44,
   });
 
   @override
   State<GoldSparklineEnhanced> createState() => _GoldSparklineEnhancedState();
 }
 
-class _GoldSparklineEnhancedState extends State<GoldSparklineEnhanced>
-    with SingleTickerProviderStateMixin {
-  /// ألوان المنحنى من الثيم (ثيم-٠).
-  _SparkPalette get _c => _SparkPalette.of(context);
+class _GoldSparklineEnhancedState extends State<GoldSparklineEnhanced> with SingleTickerProviderStateMixin {
+  static final _price = NumberFormat('#,##0.00', 'en');
 
-  late final AnimationController _pulseController;
-  late final Animation<double> _pulseAnimation;
+  late final AnimationController _pulse =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 1500))..repeat(reverse: true);
+  late final Animation<double> _pulseScale =
+      Tween<double>(begin: 0.7, end: 1.0).animate(CurvedAnimation(parent: _pulse, curve: Curves.easeInOut));
 
-  int _hoveredIndex = -1;
-
-  @override
-  void initState() {
-    super.initState();
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1500),
-    )..repeat(reverse: true);
-
-    _pulseAnimation = Tween<double>(begin: 0.7, end: 1.0).animate(
-      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
-    );
-  }
+  int _selected = 0;
+  int _hovered = -1;
 
   @override
   void dispose() {
-    _pulseController.dispose();
+    _pulse.dispose();
     super.dispose();
   }
 
-  ({double min, double max, int minIdx, int maxIdx}) _getMinMax() {
-    if (widget.points.isEmpty) {
-      return (min: 0, max: 0, minIdx: -1, maxIdx: -1);
-    }
-    var min = widget.points.first.price;
-    var max = widget.points.first.price;
-    var minIdx = 0;
-    var maxIdx = 0;
-    for (var i = 1; i < widget.points.length; i++) {
-      final p = widget.points[i].price;
-      if (p < min) {
-        min = p;
-        minIdx = i;
-      }
-      if (p > max) {
-        max = p;
-        maxIdx = i;
-      }
-    }
-    return (min: min, max: max, minIdx: minIdx, maxIdx: maxIdx);
+  GoldChartSeries? get _series =>
+      widget.series.isEmpty ? null : widget.series[_selected.clamp(0, widget.series.length - 1)];
+
+  void _hoverAt(double dx, double width) {
+    final points = _series?.points ?? const [];
+    if (points.length < 2) return;
+    final i = _ChartGeometry.indexAt(dx, width, points.length);
+    if (i != _hovered) setState(() => _hovered = i);
   }
 
-  double get _percentChange {
-    if (widget.points.length < 2) return 0;
-    final first = widget.openingPrice ?? widget.points.first.price;
-    final last = widget.points.last.price;
-    if (first == 0) return 0;
-    return ((last - first) / first) * 100;
+  void _endHover() {
+    if (_hovered != -1) setState(() => _hovered = -1);
   }
-
-  String _formatPrice(double price) =>
-      NumberFormat('#,##0.00', 'en').format(price);
 
   @override
   Widget build(BuildContext context) {
-    if (widget.points.isEmpty) {
-      return _buildEmptyState(context);
-    }
+    final c = _SparkPalette.of(context);
+    final series = _series;
+    final points = series?.points ?? const <SparklinePoint>[];
+    final up = series == null || points.isEmpty || points.last.price >= (series.opening ?? points.first.price);
+    final line = up ? c.up : c.down;
+    final small = TextStyle(fontSize: 10.5, fontFamily: 'Cairo', color: c.muted);
 
-    final isAr = widget.isArabic;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final stats = _getMinMax();
-    final change = _percentChange;
-    final isUp = change >= 0;
-    final firstPrice = widget.openingPrice ?? widget.points.first.price;
-    final lastPrice = widget.points.last.price;
-
-    return SizedBox(
-      width: widget.width,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: widget.onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _buildContextRow(
-                  isAr, isDark, change, isUp,
-                  firstPrice: firstPrice,
-                  lastPrice: lastPrice,
-                ),
-                const SizedBox(height: 4),
-                SizedBox(
-                  height: widget.height,
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      return MouseRegion(
-                        onHover: (event) =>
-                            _handleHover(event.localPosition, constraints),
-                        onExit: (_) => setState(() => _hoveredIndex = -1),
-                        child: GestureDetector(
-                          onTapDown: (details) =>
-                              _handleHover(details.localPosition, constraints),
-                          onTapUp: (_) {
-                            Future.delayed(const Duration(seconds: 2), () {
-                              if (mounted) setState(() => _hoveredIndex = -1);
-                            });
-                          },
-                          child: AnimatedBuilder(
-                            animation: _pulseAnimation,
-                            builder: (context, _) {
-                              return CustomPaint(
-                                size: Size(constraints.maxWidth, widget.height),
-                                painter: _SparklineEnhancedPainter(
-                                  points: widget.points,
-                                  openingPrice: widget.openingPrice,
-                                  minIdx: stats.minIdx,
-                                  maxIdx: stats.maxIdx,
-                                  pulseScale: _pulseAnimation.value,
-                                  hoveredIndex: _hoveredIndex,
-                                  colors: _c,
-                                  isUp: isUp,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        key: const Key('gold-chart'),
+        borderRadius: BorderRadius.circular(8),
+        onTap: widget.onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(height: 20, child: _header(c, series, small)),
+              const SizedBox(height: 2),
+              SizedBox(
+                height: widget.height,
+                child: points.length < 2
+                    ? Center(child: Text('لا أسعار لآخر 24 ساعة', style: small))
+                    : LayoutBuilder(
+                        builder: (context, box) => MouseRegion(
+                          onHover: (e) => _hoverAt(e.localPosition.dx, box.maxWidth),
+                          onExit: (_) => _endHover(),
+                          // A drag scrubs the line; a tap is left to the InkWell -- it opens the history.
+                          child: GestureDetector(
+                            onHorizontalDragStart: (d) => _hoverAt(d.localPosition.dx, box.maxWidth),
+                            onHorizontalDragUpdate: (d) => _hoverAt(d.localPosition.dx, box.maxWidth),
+                            onHorizontalDragEnd: (_) => _endHover(),
+                            onHorizontalDragCancel: _endHover,
+                            child: Semantics(
+                              label: '${series!.label}: ${up ? 'صاعد' : 'نازل'} منذ الافتتاح',
+                              child: AnimatedBuilder(
+                                animation: _pulseScale,
+                                builder: (context, _) => CustomPaint(
+                                  size: Size(box.maxWidth, widget.height),
+                                  painter: _SparklinePainter(
+                                    points: points,
+                                    opening: series.opening,
+                                    hovered: _hovered,
+                                    pulse: _pulseScale.value,
+                                    line: line,
+                                    up: c.up,
+                                    down: c.down,
+                                    openingLine: c.opening,
+                                    ring: c.ring,
+                                    crosshair: c.muted,
+                                  ),
                                 ),
-                              );
-                            },
+                              ),
+                            ),
                           ),
                         ),
-                      );
-                    },
-                  ),
-                ),
-                if (_hoveredIndex >= 0 && _hoveredIndex < widget.points.length)
-                  _buildTooltip(widget.points[_hoveredIndex], isAr, isDark)
-                else
-                  _buildBottomLabels(isAr, isDark, stats),
-              ],
-            ),
+                      ),
+              ),
+              const SizedBox(height: 2),
+              if (points.length >= 2) _times(points, small),
+            ],
           ),
         ),
       ),
     );
   }
 
-  Widget _buildContextRow(
-    bool isAr,
-    bool isDark,
-    double change,
-    bool isUp, {
-    required double firstPrice,
-    required double lastPrice,
-  }) {
+  Widget _header(_SparkPalette c, GoldChartSeries? series, TextStyle small) {
+    final hovering = series != null && _hovered >= 0 && _hovered < series.points.length;
+    final strong = small.copyWith(fontWeight: FontWeight.w700, color: c.ink);
     return Row(
       children: [
+        if (widget.series.length > 1)
+          _Toggle(
+            labels: [for (final s in widget.series) s.label],
+            selected: _selected,
+            palette: c,
+            onSelected: (i) => setState(() => (_selected = i, _hovered = -1)),
+          )
+        else if (series != null)
+          Text(series.label, style: small.copyWith(fontWeight: FontWeight.w600)),
+        const SizedBox(width: 6),
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                isAr ? 'آخر 24س' : '24h',
-                style: TextStyle(
-                  fontSize: 9.5,
-                  fontWeight: FontWeight.w600,
-                  fontFamily: 'Cairo',
-                  color: (isDark ? _c.muted : _c.line),
-                ),
-              ),
-              const SizedBox(height: 1),
-              Text(
-                isAr ? 'تحديث الآن' : 'Live',
-                style: TextStyle(
-                  fontSize: 8,
-                  fontFamily: 'Cairo',
-                  color: _c.muted,
-                ),
-              ),
-            ],
-          ),
-        ),
-        Flexible(
-          fit: FlexFit.loose,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                decoration: BoxDecoration(
-                  color: (isUp ? _c.up : _c.down)
-                      .withValues(alpha: 0.13),
-                  borderRadius: BorderRadius.circular(3),
-                ),
-                child: Text(
-                  '${isUp ? '▲' : '▼'} ${change.abs().toStringAsFixed(2)}%',
-                  style: TextStyle(
-                    fontSize: 9,
-                    fontWeight: FontWeight.w800,
-                    fontFamily: 'Cairo',
-                    color: isUp ? _c.up : _c.down,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 1),
-              Text(
-                '${_formatPrice(firstPrice)} → ${_formatPrice(lastPrice)}',
-                overflow: TextOverflow.ellipsis,
-                maxLines: 1,
-                style: TextStyle(
-                  fontSize: 8,
-                  fontFamily: 'Cairo',
-                  color: _c.muted,
-                ),
-              ),
-            ],
+          child: Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: AlignmentDirectional.centerEnd,
+              child: hovering
+                  ? Container(
+                      key: const Key('gold-chart-hovered'),
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      decoration: BoxDecoration(color: c.tip, borderRadius: BorderRadius.circular(4)),
+                      child: Text(
+                        '${_hhmm(series.points[_hovered].time)}  '
+                        '${_amount(series, series.points[_hovered].price)}',
+                        textDirection: TextDirection.ltr,
+                        style: strong,
+                      ),
+                    )
+                  : (series?.high != null && series?.low != null)
+                      ? Text.rich(
+                          key: const Key('gold-chart-range'),
+                          TextSpan(style: small, children: [
+                            TextSpan(text: '● ', style: TextStyle(color: c.up)),
+                            const TextSpan(text: 'أعلى '),
+                            TextSpan(text: _amount(series!, series.high!), style: strong),
+                            const TextSpan(text: '  ·  '),
+                            TextSpan(text: '● ', style: TextStyle(color: c.down)),
+                            const TextSpan(text: 'أدنى '),
+                            TextSpan(text: _amount(series, series.low!), style: strong),
+                          ]),
+                        )
+                      : const SizedBox.shrink(),
+            ),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildTooltip(SparklinePoint point, bool isAr, bool isDark) {
-    final timeStr = DateFormat('HH:mm', 'en').format(point.time);
-    final diff = DateTime.now().difference(point.time);
-    final ago = diff.inHours < 1
-        ? (isAr ? 'منذ ${diff.inMinutes}د' : '${diff.inMinutes}m ago')
-        : (isAr ? 'منذ ${diff.inHours}س' : '${diff.inHours}h ago');
+  /// «14:30»: a clock time needs no locale's data.
+  static String _hhmm(DateTime t) =>
+      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 150),
-      margin: const EdgeInsets.only(top: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-      decoration: BoxDecoration(
-        color: _c.gold.withValues(alpha: isDark ? 0.15 : 0.10),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(
-          color: _c.gold.withValues(alpha: 0.30),
-          width: 0.5,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
+  String _amount(GoldChartSeries s, double v) =>
+      s.unit == r'$' ? '\$${_price.format(v)}' : '${_price.format(v)} ${s.unit}';
+
+  /// Five times along the line, left to right as the line runs.
+  Widget _times(List<SparklinePoint> points, TextStyle small) {
+    final n = points.length;
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Row(
+        key: const Key('gold-chart-times'),
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            '\$${_formatPrice(point.price)}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
-              fontFamily: 'Cairo',
-              color: _c.line,
-            ),
-          ),
-          Text(
-            '$timeStr · $ago',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 8,
-              fontFamily: 'Cairo',
-              color: _c.muted,
-            ),
-          ),
+          for (final f in const [0.0, 0.25, 0.5, 0.75, 1.0])
+            Text(_hhmm(points[(f * (n - 1)).round()].time), style: small.copyWith(fontSize: 9.5)),
         ],
       ),
     );
   }
+}
 
-  Widget _buildBottomLabels(
-    bool isAr,
-    bool isDark,
-    ({double min, double max, int minIdx, int maxIdx}) stats,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 4),
+/// «عيار 21 | الأونصة»: the line the chart shows.
+class _Toggle extends StatelessWidget {
+  const _Toggle({required this.labels, required this.selected, required this.palette, required this.onSelected});
+
+  final List<String> labels;
+  final int selected;
+  final _SparkPalette palette;
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(1.5),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: palette.border),
+      ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            children: [
-              Container(
-                width: 5,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: _c.down,
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 3),
-              Text(
-                _formatPrice(stats.min),
-                style: TextStyle(
-                  fontSize: 9,
-                  fontFamily: 'Cairo',
-                  color: _c.muted,
-                ),
-              ),
-            ],
-          ),
-          if (widget.onTap != null)
-            Flexible(
-              fit: FlexFit.loose,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 2),
-                child: Text(
-                  isAr ? 'اضغط للتفاصيل' : 'Tap for details',
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 1,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 8,
-                    fontFamily: 'Cairo',
-                    fontStyle: FontStyle.italic,
-                    color: _c.muted,
+          for (final (i, label) in labels.indexed)
+            Semantics(
+              button: true,
+              selected: i == selected,
+              child: InkWell(
+                key: Key('gold-chart-series-$i'),
+                borderRadius: BorderRadius.circular(5),
+                onTap: () => onSelected(i),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7),
+                  decoration: BoxDecoration(
+                    color: i == selected ? palette.tip : Colors.transparent,
+                    borderRadius: BorderRadius.circular(5),
+                  ),
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      height: 1.5,
+                      fontFamily: 'Cairo',
+                      fontWeight: i == selected ? FontWeight.w800 : FontWeight.w600,
+                      color: i == selected ? palette.ink : palette.muted,
+                    ),
                   ),
                 ),
               ),
             ),
-          Row(
-            children: [
-              Text(
-                _formatPrice(stats.max),
-                style: TextStyle(
-                  fontSize: 9,
-                  fontFamily: 'Cairo',
-                  color: _c.muted,
-                ),
-              ),
-              const SizedBox(width: 3),
-              Container(
-                width: 5,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: _c.up,
-                  shape: BoxShape.circle,
-                ),
-              ),
-            ],
-          ),
         ],
       ),
     );
   }
-
-  Widget _buildEmptyState(BuildContext context) {
-    return SizedBox(
-      width: widget.width,
-      height: widget.height + 30,
-      child: Center(
-        child: Text(
-          widget.isArabic
-              ? 'لا توجد بيانات لآخر 24 ساعة'
-              : 'No 24h data available',
-          style: TextStyle(
-            fontSize: 11,
-            fontFamily: 'Cairo',
-            color: _c.muted,
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _handleHover(Offset position, BoxConstraints constraints) {
-    if (widget.points.isEmpty) return;
-    final stepX =
-        constraints.maxWidth / (widget.points.length - 1).clamp(1, 9999);
-    final nearestIdx =
-        (position.dx / stepX).round().clamp(0, widget.points.length - 1);
-    if (nearestIdx != _hoveredIndex) {
-      setState(() => _hoveredIndex = nearestIdx);
-    }
-  }
 }
 
-// ════════════════════════════════════════════════════════════════
-// CustomPainter
-// ════════════════════════════════════════════════════════════════
-class _SparklineEnhancedPainter extends CustomPainter {
-  final List<SparklinePoint> points;
-  final double? openingPrice;
-  final int minIdx;
-  final int maxIdx;
-  final double pulseScale;
-  final int hoveredIndex;
-  final _SparkPalette colors;
-  final bool isUp;
+/// Where a point falls, one rule for the painter and the hover.
+class _ChartGeometry {
+  static const padLeft = 6.0;
+  static const padRight = 10.0;     // the last price's pulse
 
-  _SparklineEnhancedPainter({
+  static double x(int i, int n, double width) => padLeft + i / (n - 1) * (width - padLeft - padRight);
+
+  static int indexAt(double dx, double width, int n) =>
+      ((dx - padLeft) / (width - padLeft - padRight) * (n - 1)).round().clamp(0, n - 1);
+}
+
+class _SparklinePainter extends CustomPainter {
+  _SparklinePainter({
     required this.points,
-    required this.openingPrice,
-    required this.minIdx,
-    required this.maxIdx,
-    required this.pulseScale,
-    required this.hoveredIndex,
-    required this.colors,
-    required this.isUp,
+    required this.opening,
+    required this.hovered,
+    required this.pulse,
+    required this.line,
+    required this.up,
+    required this.down,
+    required this.openingLine,
+    required this.ring,
+    required this.crosshair,
   });
 
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (points.length < 2) return;
-
-    // يمنع تجاوز النقطة النابضة حدود الـ canvas
-    canvas.clipRect(Offset.zero & size, doAntiAlias: false);
-
-    var minPrice = points.first.price;
-    var maxPrice = points.first.price;
-    for (final p in points) {
-      if (p.price < minPrice) minPrice = p.price;
-      if (p.price > maxPrice) maxPrice = p.price;
-    }
-    final range = (maxPrice - minPrice).abs();
-    final pad = range == 0 ? 1.0 : range * 0.15;
-    final yMin = minPrice - pad;
-    final yMax = maxPrice + pad;
-    final yRange = (yMax - yMin).clamp(0.0001, double.infinity);
-
-    // inset أفقي لحماية النقاط من الحواف (نصف قطر أكبر نقطة = 3.5 + stroke 1.5 = 5)
-    const hPad = 6.0;
-
-    double toY(double price) =>
-        size.height - ((price - yMin) / yRange * size.height);
-
-    double toX(int idx) =>
-        hPad + (idx / (points.length - 1)) * (size.width - 2 * hPad);
-
-    // 1. خط الأساس المتقطّع
-    if (openingPrice != null &&
-        openingPrice! >= yMin &&
-        openingPrice! <= yMax) {
-      final y = toY(openingPrice!);
-      _drawDashedLine(
-        canvas,
-        Offset(0, y),
-        Offset(size.width, y),
-        Paint()
-          ..color = colors.gold.withValues(alpha: 0.30)
-          ..strokeWidth = 0.7
-          ..style = PaintingStyle.stroke,
-      );
-    }
-
-    // 2. المسار + gradient
-    final linePath = Path();
-    final fillPath = Path();
-    for (var i = 0; i < points.length; i++) {
-      final x = toX(i);
-      final y = toY(points[i].price);
-      if (i == 0) {
-        linePath.moveTo(x, y);
-        fillPath.moveTo(x, size.height);
-        fillPath.lineTo(x, y);
-      } else {
-        linePath.lineTo(x, y);
-        fillPath.lineTo(x, y);
-      }
-    }
-    fillPath
-      ..lineTo(size.width, size.height)
-      ..close();
-
-    canvas.drawPath(
-      fillPath,
-      Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            colors.gold.withValues(alpha: 0.40),
-            colors.gold.withValues(alpha: 0.0),
-          ],
-        ).createShader(Rect.fromLTWH(0, 0, size.width, size.height)),
-    );
-
-    canvas.drawPath(
-      linePath,
-      Paint()
-        ..color = colors.line
-        ..strokeWidth = 2.0
-        ..style = PaintingStyle.stroke
-        ..strokeJoin = StrokeJoin.round
-        ..strokeCap = StrokeCap.round,
-    );
-
-    // 3. نقطة min (حمراء)
-    if (minIdx >= 0 && minIdx < points.length && minIdx != points.length - 1) {
-      _drawDot(canvas, Offset(toX(minIdx), toY(points[minIdx].price)),
-          colors.down, radius: 2.5);
-    }
-
-    // 4. نقطة max (خضراء)
-    if (maxIdx >= 0 && maxIdx < points.length && maxIdx != points.length - 1) {
-      _drawDot(canvas, Offset(toX(maxIdx), toY(points[maxIdx].price)),
-          colors.up, radius: 2.5);
-    }
-
-    // 5. crosshair عند hover
-    if (hoveredIndex >= 0 && hoveredIndex < points.length) {
-      final hx = toX(hoveredIndex);
-      final hy = toY(points[hoveredIndex].price);
-      _drawDashedLine(
-        canvas,
-        Offset(hx, 0),
-        Offset(hx, size.height),
-        Paint()
-          ..color = colors.line.withValues(alpha: 0.50)
-          ..strokeWidth = 0.8,
-      );
-      _drawDot(canvas, Offset(hx, hy), colors.line,
-          radius: 4, strokeWidth: 1.5, strokeColor: colors.ring);
-    }
-
-    // 6. النقطة النابضة على آخر سعر
-    final lastX = toX(points.length - 1);
-    final lastY = toY(points.last.price);
-
-    canvas.drawCircle(
-      Offset(lastX, lastY),
-      7 * pulseScale,
-      Paint()
-        ..color = colors.gold.withValues(alpha: 0.35)
-        ..style = PaintingStyle.fill,
-    );
-    _drawDot(canvas, Offset(lastX, lastY), colors.gold,
-        radius: 3.5, strokeWidth: 1.5, strokeColor: colors.ring);
-  }
-
-  void _drawDot(
-    Canvas canvas,
-    Offset center,
-    Color color, {
-    required double radius,
-    double strokeWidth = 0,
-    Color? strokeColor,
-  }) {
-    if (strokeWidth > 0 && strokeColor != null) {
-      canvas.drawCircle(
-        center,
-        radius + strokeWidth,
-        Paint()
-          ..color = strokeColor
-          ..style = PaintingStyle.fill,
-      );
-    }
-    canvas.drawCircle(
-      center,
-      radius,
-      Paint()
-        ..color = color
-        ..style = PaintingStyle.fill,
-    );
-  }
-
-  void _drawDashedLine(
-    Canvas canvas,
-    Offset start,
-    Offset end,
-    Paint paint, {
-    double dashLength = 3,
-    double gapLength = 3,
-  }) {
-    final dx = end.dx - start.dx;
-    final dy = end.dy - start.dy;
-    final length = (end - start).distance;
-    if (length == 0) return;
-
-    final stepSize = dashLength + gapLength;
-    final steps = (length / stepSize).floor();
-    for (var i = 0; i <= steps; i++) {
-      final s = Offset(
-          start.dx + (dx / length) * stepSize * i,
-          start.dy + (dy / length) * stepSize * i);
-      final e = Offset(
-          s.dx + (dx / length) * dashLength,
-          s.dy + (dy / length) * dashLength);
-      canvas.drawLine(s, e, paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _SparklineEnhancedPainter old) =>
-      old.pulseScale != pulseScale ||
-      old.colors != colors ||
-      old.hoveredIndex != hoveredIndex ||
-      old.points.length != points.length;
-}
-
-/// ألوان المنحنى: الذهب للمسار، والجاهز/المحظور للأعلى/الأدنى.
-@immutable
-class _SparkPalette {
-  _SparkPalette.of(BuildContext context)
-    : gold = Theme.of(context).colorScheme.primary,
-      line = AppSemanticColors.of(context).gold.fg,
-      up = AppSemanticColors.of(context).ready.fg,
-      down = AppSemanticColors.of(context).blocked.fg,
-      muted = Theme.of(context).colorScheme.onSurfaceVariant,
-      ring = Theme.of(context).colorScheme.surfaceContainerLowest;
-
-  final Color gold;
+  final List<SparklinePoint> points;
+  final double? opening;
+  final int hovered;
+  final double pulse;
   final Color line;
   final Color up;
   final Color down;
-  final Color muted;
+  final Color openingLine;
   final Color ring;
+  final Color crosshair;
 
   @override
-  bool operator ==(Object other) =>
-      other is _SparkPalette &&
-      other.gold == gold &&
-      other.line == line &&
-      other.up == up &&
-      other.down == down &&
-      other.muted == muted &&
-      other.ring == ring;
+  void paint(Canvas canvas, Size size) {
+    final n = points.length;
+    if (n < 2) return;
+    var lo = 0, hi = 0;
+    for (var i = 1; i < n; i++) {
+      if (points[i].price < points[lo].price) lo = i;
+      if (points[i].price > points[hi].price) hi = i;
+    }
+    // The opening is always in view: the line reads against it.
+    var yMin = points[lo].price, yMax = points[hi].price;
+    if (opening != null && opening! > 0) {
+      if (opening! < yMin) yMin = opening!;
+      if (opening! > yMax) yMax = opening!;
+    }
+    final pad = (yMax - yMin) == 0 ? 1.0 : (yMax - yMin) * 0.15;
+    yMin -= pad;
+    yMax += pad;
+    const top = 4.0, bottom = 3.0;
+    double y(double p) => top + (yMax - p) / (yMax - yMin) * (size.height - top - bottom);
+    final pts = [for (var i = 0; i < n; i++) Offset(_ChartGeometry.x(i, n, size.width), y(points[i].price))];
+
+    if (opening != null && opening! > 0) {
+      _dashed(canvas, Offset(0, y(opening!)), Offset(size.width, y(opening!)),
+          Paint()..color = openingLine..strokeWidth = 1);
+    }
+
+    // A smooth line through every point (Catmull-Rom as cubic Béziers).
+    final path = Path()..moveTo(pts[0].dx, pts[0].dy);
+    for (var i = 0; i < n - 1; i++) {
+      final p0 = pts[i == 0 ? 0 : i - 1], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2 < n ? i + 2 : n - 1];
+      path.cubicTo(p1.dx + (p2.dx - p0.dx) / 6, p1.dy + (p2.dy - p0.dy) / 6,
+          p2.dx - (p3.dx - p1.dx) / 6, p2.dy - (p3.dy - p1.dy) / 6, p2.dx, p2.dy);
+    }
+    final area = Path.from(path)
+      ..lineTo(pts.last.dx, size.height)
+      ..lineTo(pts.first.dx, size.height)
+      ..close();
+    canvas.drawPath(area, Paint()..color = line.withValues(alpha: 0.10));
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = line
+        ..strokeWidth = 2
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round,
+    );
+
+    if (hi != n - 1) canvas.drawCircle(pts[hi], 2.5, Paint()..color = up);
+    if (lo != n - 1) canvas.drawCircle(pts[lo], 2.5, Paint()..color = down);
+
+    if (hovered >= 0 && hovered < n) {
+      final h = pts[hovered];
+      _dashed(canvas, Offset(h.dx, 0), Offset(h.dx, size.height), Paint()..color = crosshair..strokeWidth = 1,
+          dash: 2, gap: 2);
+      canvas.drawCircle(h, 5.5, Paint()..color = ring);
+      canvas.drawCircle(h, 4, Paint()..color = line);
+    }
+
+    final last = pts.last;
+    canvas.drawCircle(last, 7 * pulse, Paint()..color = line.withValues(alpha: 0.25));
+    canvas.drawCircle(last, 5, Paint()..color = ring);
+    canvas.drawCircle(last, 3.5, Paint()..color = line);
+  }
+
+  void _dashed(Canvas canvas, Offset a, Offset b, Paint paint, {double dash = 3, double gap = 3}) {
+    final length = (b - a).distance;
+    if (length == 0) return;
+    final dir = (b - a) / length;
+    for (var s = 0.0; s < length; s += dash + gap) {
+      canvas.drawLine(a + dir * s, a + dir * (s + dash < length ? s + dash : length), paint);
+    }
+  }
 
   @override
-  int get hashCode => Object.hash(gold, line, up, down, muted, ring);
+  bool shouldRepaint(covariant _SparklinePainter old) =>
+      old.pulse != pulse ||
+      old.hovered != hovered ||
+      old.points != points ||
+      old.opening != opening ||
+      old.line != line ||
+      old.ring != ring;
+}
+
+/// The chart's colours, the theme's: green above the opening and red below
+/// (the manager's card), the opening's line in the gold.
+@immutable
+class _SparkPalette {
+  _SparkPalette.of(BuildContext context)
+      : up = AppSemanticColors.of(context).ready.fg,
+        down = AppSemanticColors.of(context).blocked.fg,
+        opening = Theme.of(context).colorScheme.primary.withValues(alpha: 0.50),
+        tip = Theme.of(context).colorScheme.primary.withValues(alpha: 0.14),
+        ink = Theme.of(context).colorScheme.onSurface,
+        muted = Theme.of(context).colorScheme.onSurfaceVariant,
+        border = Theme.of(context).colorScheme.outlineVariant,
+        ring = Theme.of(context).colorScheme.surfaceContainerLowest;
+
+  final Color up;
+  final Color down;
+  final Color opening;
+  final Color tip;
+  final Color ink;
+  final Color muted;
+  final Color border;
+  final Color ring;
 }

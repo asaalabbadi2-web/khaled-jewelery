@@ -30,9 +30,10 @@ pricing_bp = Blueprint('pricing', __name__)
 
 def _price_answer(row, opening, source: str) -> dict:
     """A saved price as the screens read it: the office's (OFFICE-PRICE-1), by its own terms."""
-    from pricing.buy_price import row_prices
+    from pricing.buy_price import ounce_move, price_moves, row_prices
     from pricing.office_price import row_gram_price
     main_karat = get_main_karat()
+    now_prices, opening_prices = row_prices(row), row_prices(opening or row)
     return {
         'price_24k': round(row_gram_price(row, 24), 2),
         'price_main_karat': round(row_gram_price(row, main_karat), 2),
@@ -44,9 +45,13 @@ def _price_answer(row, opening, source: str) -> dict:
         'date': price_clock.iso_utc(row.date),
         'source': source,
         'buy_price_ratio': buy_price_ratio(),
-        'prices_per_gram': row_prices(row),
-        # The day's opening, each karat by its own row's terms: a change is two of these.
-        'opening_prices_per_gram': row_prices(opening or row),
+        'prices_per_gram': now_prices,
+        # The day's opening, each karat by its own row's terms.
+        'opening_prices_per_gram': opening_prices,
+        # Each karat's move since it and its spread, and the ounce's own move: the
+        # server's -- the screens compute none (the owner, 13 Nov 2026).
+        'moves_per_gram': price_moves(now_prices, opening_prices),
+        'ounce_move': ounce_move(row.price, opening.price if opening else row.price),
         # Open or closed, as the source says (PRICE-MARKET-1): a closed market's
         # price is its last quote's, said so on the screens.
         'market': market_answer(_market_state()),
@@ -133,12 +138,15 @@ def get_gold_price_24h():
     """آخر 24 ساعة من أسعار الذهب (حد أقصى 48 نقطة).
 
     ?day=today: the day in Riyadh instead (DASH-11, the owner 30 Oct 2026: the
-    manager's gold price card says the day's move). Each point then carries
-    the main karat's selling price a gram -- the office's, by its row's own
-    terms (OFFICE-PRICE-1); the screen does not make it from the ounce -- and
-    the day's high and low are over every row, before the points are thinned.
+    manager's gold price card says the day's move). Either window, each point
+    carries the main karat's selling price a gram -- the office's, by its row's
+    own terms (OFFICE-PRICE-1); the screen does not make it from the ounce --
+    and each series its high and low, over every row, before the points are
+    thinned: the home bar's chart shows the main karat by default and the
+    ounce at a toggle (the owner, 13 Nov 2026).
     """
     try:
+        from pricing.office_price import row_gram_price
         today = (request.args.get('day') or '').strip().lower() == 'today'
         now = price_clock.utc_now()
         if today:
@@ -147,22 +155,22 @@ def get_gold_price_24h():
         else:
             query = GoldPrice.query.filter(GoldPrice.date >= now - timedelta(hours=24))
         rows = query.order_by(GoldPrice.date.asc()).all()
-        out = {}
-        if today:
-            from pricing.office_price import row_gram_price
-            main_karat = int(get_main_karat())
-            grams = [row_gram_price(r, main_karat) for r in rows]
-            out = {'main_karat': main_karat,
-                   'high_main_karat': round(max(grams), 2) if grams else None,
-                   'low_main_karat': round(min(grams), 2) if grams else None}
-            gram_of = dict(zip((r.id for r in rows), grams))
-        # At most 48 points spread over the whole day, ending at the latest --
+        main_karat = int(get_main_karat())
+        grams = [row_gram_price(r, main_karat) for r in rows]
+        ounces = [float(r.price or 0) for r in rows]
+        out = {'main_karat': main_karat,
+               'high_main_karat': round(max(grams), 2) if grams else None,
+               'low_main_karat': round(min(grams), 2) if grams else None,
+               'high_usd_per_oz': round(max(ounces), 2) if ounces else None,
+               'low_usd_per_oz': round(min(ounces), 2) if ounces else None}
+        gram_of = dict(zip((r.id for r in rows), grams))
+        # At most 48 points spread over the whole window, ending at the latest --
         # .limit(48) on the ascending rows showed only the day's first 48 minutes.
         if len(rows) > 48:
             step = (len(rows) - 1) / 47.0
             rows = [rows[round(i * step)] for i in range(48)]
         points = [{'timestamp': price_clock.iso_utc(r.date), 'price_usd_per_oz': float(r.price or 0),
-                   **({'price_main_karat': round(gram_of[r.id], 2)} if today else {})} for r in rows]
+                   'price_main_karat': round(gram_of[r.id], 2)} for r in rows]
         return jsonify({'points': points, 'count': len(points), **out}), 200
     except Exception as e:
         current_app.logger.error(f'Error fetching 24h gold price: {e}')

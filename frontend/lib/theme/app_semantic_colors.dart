@@ -228,10 +228,14 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
     ),
     gold: SemanticTone(Color(0xFF87600A), Color(0xFFF4E4C1), Color(0xFF3A2C00)),
     cash: SemanticTone(Color(0xFF2F5576), Color(0xFFE2EBF3), Color(0xFF0E2539)),
+    // The karats' colours (the owner, 13 Nov 2026): never red or green -- those
+    // say a price went down or up. 18 blue, 21 gold, 22 magenta, 24 graphite;
+    // 18 was the down red itself (ΔE 0.6) and 22 a green.
+    // Witness: test/karat_colours_are_not_up_or_down_test.dart.
     karat18: SemanticTone(
-      Color(0xFFB71C1C),
-      Color(0xFFFFF0F0),
-      Color(0xFFB71C1C),
+      Color(0xFF1F5FAD),
+      Color(0xFFE8F0FB),
+      Color(0xFF1F5FAD),
     ),
     karat21: SemanticTone(
       Color(0xFF795500),
@@ -239,21 +243,22 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
       Color(0xFF795500),
     ),
     karat22: SemanticTone(
-      Color(0xFF004D40),
-      Color(0xFFEAF9F9),
-      Color(0xFF004D40),
+      Color(0xFFA3236F),
+      Color(0xFFFBEAF3),
+      Color(0xFFA3236F),
     ),
     karat24: SemanticTone(
-      Color(0xFF4A148C),
-      Color(0xFFF3EEF8),
-      Color(0xFF4A148C),
+      Color(0xFF4A4A4A),
+      Color(0xFFF0F0F0),
+      Color(0xFF4A4A4A),
     ),
-    // أخضر زيتوني / تركواز / بنفسجي / برتقالي محمر / أحمر: كما كانت، وغُمِّقت
+    // كحلي (كان أخضر زيتونيًا) / تركواز / بنفسجي / برتقالي محمر / أحمر، وغُمِّقت
     // لتُقرأ على البطاقة وعلى السطح وبنص أبيض (٤٫٥:١).
+    // Sale navy (the owner, 13 Nov 2026): green says a price went up.
     invoiceSale: SemanticTone(
-      Color(0xFF25702E),
-      Color(0xFFDDF1DF),
-      Color(0xFF0B3D14),
+      Color(0xFF1A3E8C),
+      Color(0xFFE3E8F6),
+      Color(0xFF0D1F47),
     ),
     invoiceSaleScrap: SemanticTone(
       Color(0xFF00695C),
@@ -377,10 +382,14 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
     ),
     gold: SemanticTone(Color(0xFFE6C24F), Color(0xFF4A3C0E), Color(0xFFFFE08B)),
     cash: SemanticTone(Color(0xFFA9C7E6), Color(0xFF1F3347), Color(0xFFDDEBF8)),
+    // The karats' colours (the owner, 13 Nov 2026): never red or green -- those
+    // say a price went down or up. 18 blue, 21 gold, 22 magenta, 24 silver in the dark;
+    // 18 was the down red itself (ΔE 0.6) and 22 a green.
+    // Witness: test/karat_colours_are_not_up_or_down_test.dart.
     karat18: SemanticTone(
-      Color(0xFFFF9E9E),
-      Color(0xFF3D1A1A),
-      Color(0xFFFF9E9E),
+      Color(0xFF6CB4FF),
+      Color(0xFF13263F),
+      Color(0xFF6CB4FF),
     ),
     karat21: SemanticTone(
       Color(0xFFE6C24F),
@@ -388,19 +397,19 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
       Color(0xFFE6C24F),
     ),
     karat22: SemanticTone(
-      Color(0xFF6FD8CB),
-      Color(0xFF123733),
-      Color(0xFF6FD8CB),
+      Color(0xFFF27FC2),
+      Color(0xFF3D1530),
+      Color(0xFFF27FC2),
     ),
     karat24: SemanticTone(
-      Color(0xFFD1A8F0),
-      Color(0xFF2E1D3D),
-      Color(0xFFD1A8F0),
+      Color(0xFFB0B0B0),
+      Color(0xFF2E2E2E),
+      Color(0xFFB0B0B0),
     ),
     invoiceSale: SemanticTone(
-      Color(0xFF81C995),
-      Color(0xFF1B4D2B),
-      Color(0xFFD6F2DD),
+      Color(0xFFC3D5FF),
+      Color(0xFF1D2C4D),
+      Color(0xFFE6F4FF),
     ),
     invoiceSaleScrap: SemanticTone(
       Color(0xFF6FD8CB),

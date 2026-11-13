@@ -1733,20 +1733,18 @@ class ApiService {
     throw _apiError(response);
   }
 
-  Future<List<Map<String, dynamic>>> getGoldPrice24h() async {
+  /// The last 24 hours (the home bar's chart): each point the ounce and the main
+  /// karat's price a gram, each line's high and low -- the server's. Empty on failure.
+  Future<Map<String, dynamic>> getGoldPrice24h() async {
     try {
-      final response =
-          await _authedGet(Uri.parse('$_baseUrl/gold_price/24h'));
+      final response = await _authedGet(Uri.parse('$_baseUrl/gold_price/24h'));
       if (response.statusCode == 200) {
-        final raw =
-            (json.decode(utf8.decode(response.bodyBytes))['points'] as List?) ??
-                [];
-        return raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
       }
-      return [];
+      return const {};
     } catch (e) {
       debugPrint('⚠️ Error getting gold price 24h: $e');
-      return [];
+      return const {};
     }
   }
 

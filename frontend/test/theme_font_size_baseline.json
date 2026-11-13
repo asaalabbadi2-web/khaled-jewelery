@@ -45,8 +45,7 @@
   "lib/widgets/alerts_dialog.dart": 15,
   "lib/widgets/bonus_owed_from_books_card.dart": 1,
   "lib/widgets/goal_achievement_celebration.dart": 19,
-  "lib/widgets/gold_price_bar.dart": 15,
-  "lib/widgets/gold_sparkline_enhanced.dart": 10,
+  "lib/widgets/gold_sparkline_enhanced.dart": 3,
   "lib/widgets/original_invoice_selector.dart": 4,
   "lib/widgets/pending_approvals_dialog.dart": 38,
   "lib/widgets/supplier_invoice_picker.dart": 1

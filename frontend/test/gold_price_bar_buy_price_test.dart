@@ -19,7 +19,6 @@ void main() {
             body: GoldPriceBar(
               mainKarat: 21,
               goldPrice: 4161.86,
-              goldPriceOpening: 4160.01,
               pricesPerGram: {
                 '18': {'sell': 376.64, 'buy': 361.57},
                 '21': {'sell': 439.41, 'buy': 421.83},

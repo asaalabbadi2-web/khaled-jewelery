@@ -133,6 +133,9 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
   // day's opening -- the closing office's (OFFICE-PRICE-1).
   Map<String, dynamic>? goldPricesPerGram;
   Map<String, dynamic>? goldOpeningPricesPerGram;
+  // Each karat's move and spread, and the ounce's move: the server's (the owner, 13 Nov 2026).
+  Map<String, dynamic>? _goldMovesPerGram;
+  Map<String, dynamic>? _goldOunceMove;
   GoldPrices _tickerPrices = GoldPrices.none;
   GoldPrices _tickerOpening = GoldPrices.none;
   DateTime? goldPriceDate;
@@ -140,7 +143,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
   // Open, closed or unavailable, as the price's answer says (PRICE-MARKET-1).
   GoldMarket _goldMarket = GoldMarket.live;
   DateTime? goldPriceOpeningDate;
-  List<SparklinePoint> _sparklinePoints = [];
+  // The 24 hours' answer, the server's: the chart's two lines are read from it (GoldChartSeries).
+  Map<String, dynamic>? _chart24h;
   int _sparklineTickCounter = 0;
   List customers = [];
   List items = [];
@@ -743,6 +747,10 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           final openingPerGram = response['opening_prices_per_gram'];
           goldOpeningPricesPerGram =
               openingPerGram is Map ? Map<String, dynamic>.from(openingPerGram) : null;
+          final moves = response['moves_per_gram'];
+          _goldMovesPerGram = moves is Map ? Map<String, dynamic>.from(moves) : null;
+          final ounceMove = response['ounce_move'];
+          _goldOunceMove = ounceMove is Map ? Map<String, dynamic>.from(ounceMove) : null;
           _tickerPrices = GoldPrices.fromResponse(response);
           _goldMarket = GoldMarket.fromResponse(response);
           _tickerOpening = GoldPrices.openingFromResponse(response);
@@ -779,24 +787,9 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       final auth = context.read<AuthProvider>();
       if (!auth.isAuthenticated) return;
 
-      final raw = await api.getGoldPrice24h();
+      final answer = await api.getGoldPrice24h();
       if (!mounted) return;
-
-      final points = <SparklinePoint>[];
-      for (final row in raw) {
-        final ts = row['timestamp']?.toString();
-        final price = row['price_usd_per_oz'];
-        if (ts == null || price == null) continue;
-        // The server marks each time UTC ('Z'); no zone is guessed here.
-        final time = DateTime.tryParse(ts)?.toLocal();
-        final p = price is num
-            ? price.toDouble()
-            : double.tryParse(price.toString());
-        if (time == null || p == null) continue;
-        points.add(SparklinePoint(time: time, price: p));
-      }
-
-      setState(() => _sparklinePoints = points);
+      setState(() => _chart24h = answer);
     } catch (e) {
       debugPrint('⚠️ خطأ في تحميل بيانات الـ Sparkline: $e');
     }
@@ -2930,14 +2923,18 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           GoldPriceBar(
             goldPrice: goldPrice,
             pricesPerGram: goldPricesPerGram,
-            openingPricesPerGram: goldOpeningPricesPerGram,
-            goldPriceOpening: goldPriceOpening,
+            movesPerGram: _goldMovesPerGram,
+            ounceMove: _goldOunceMove,
             goldPriceDate: goldPriceDate,
             market: _goldMarket,
             mainKarat: mainKarat,
             isUpdating: _isGoldPriceUpdatingNow,
             onRefresh: _updateGoldPriceNow,
-            sparklinePoints: _sparklinePoints,
+            chartSeries: GoldChartSeries.fromResponse(
+              _chart24h,
+              openingPricesPerGram: goldOpeningPricesPerGram,
+              openingOunce: goldPriceOpening,
+            ),
             isArabic: widget.isArabic,
             onSparklineTap: () {
               Navigator.push(

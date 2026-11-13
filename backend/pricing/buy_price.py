@@ -35,3 +35,29 @@ def row_prices(row, ratio: float | None = None) -> dict:
     """gram_prices of a saved price, with its own terms."""
     from pricing.office_price import terms_of
     return gram_prices(getattr(row, 'price', 0.0), ratio, terms_of(row))
+
+
+def _move(now, opening) -> dict:
+    if now is None or not opening:
+        return {'change': None, 'change_percent': None}
+    change = float(now) - float(opening)
+    return {'change': round(change, 2), 'change_percent': round(change / float(opening) * 100, 2)}
+
+
+def price_moves(now: dict, opening: dict) -> dict:
+    """{'21': {'change', 'change_percent', 'spread'}}: each karat's selling price
+    since the day's opening -- its own, by its own terms (OFFICE-PRICE-1) -- and
+    its sell less its buy. The screens show these; they compute none (the owner,
+    13 Nov 2026)."""
+    out = {}
+    for karat, row in (now or {}).items():
+        opened = ((opening or {}).get(karat) or {}).get('sell')
+        sell, buy = row.get('sell'), row.get('buy')
+        out[karat] = {**_move(sell, opened),
+                      'spread': round(float(sell) - float(buy), 2) if sell is not None and buy is not None else None}
+    return out
+
+
+def ounce_move(now, opening) -> dict:
+    """The world ounce's own move since the day's opening, in dollars."""
+    return _move(now, opening)
