@@ -2942,6 +2942,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
               openingPricesPerGram: goldOpeningPricesPerGram,
               openingOunce: goldPriceOpening,
               mainKarat: mainKarat,
+              currency: context.read<SettingsProvider>().currencySymbolText,
             ),
             isArabic: widget.isArabic,
             onSparklineTap: () {

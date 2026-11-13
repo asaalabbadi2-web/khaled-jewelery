@@ -29,6 +29,7 @@ import '../widgets/app_period_picker.dart';
 import '../widgets/app_table.dart';
 import '../widgets/app_shortcuts.dart';
 import '../theme/app_breakpoints.dart';
+import '../widgets/karat_weights.dart';
 
 class VouchersListScreen extends StatefulWidget {
   /// The server; a test hands its own.
@@ -1041,7 +1042,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
       _buildSummaryCard(
         themeData,
         title: 'إجمالي الذهب',
-        value: '${_goldFormat.format(totalGold)} غ',
+        value: '${_goldFormat.format(totalGold)} جم',
         subtitle: 'بالمكافئ على العيار الرئيسي',
         icon: Icons.scale_outlined,
         color: _tone.gold.fg,
@@ -2222,9 +2223,9 @@ class _VouchersListScreenState extends State<VouchersListScreen>
     final String voucherNumber = (voucher['voucher_number'] ?? '—').toString();
     final String dateText = _formatDate(voucher['date']);
     final String? cashAmount = _formatCurrency(voucher['amount_cash']);
-    final String? goldPrimary = _formatPrimaryGoldDisplay(voucher);
-    final String? goldEquivalent = _formatEquivalentGold(voucher);
-    final String? goldBreakdown = _formatGoldBreakdown(voucher);
+    final settings = context.read<SettingsProvider>();
+    final int mainKarat = (_toDouble(voucher['main_karat']) ?? settings.mainKarat).round();
+    final List<KaratWeight> goldWeights = _goldWeights(voucher);
     final String partyName = _resolveVoucherPartyName(voucher);
     final String description = (voucher['description'] ?? '').toString();
     final text = themeData.textTheme;
@@ -2339,20 +2340,22 @@ class _VouchersListScreenState extends State<VouchersListScreen>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (cashAmount != null)
-                      Text('$cashAmount ر.س',
-                          textDirection: ui.TextDirection.ltr,
-                          style: text.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
-                    if (goldPrimary != null)
-                      Text(goldPrimary,
-                          style: (cashAmount == null ? text.headlineSmall : text.titleMedium)
-                              ?.copyWith(color: _tone.gold.fg, fontWeight: FontWeight.w800)),
-                    if (goldEquivalent != null)
-                      Text(goldEquivalent, style: text.bodySmall?.copyWith(color: muted)),
-                    if (goldBreakdown != null)
-                      Text(goldBreakdown,
-                          maxLines: 3,
-                          overflow: TextOverflow.ellipsis,
-                          style: text.bodySmall?.copyWith(color: muted)),
+                      // the number, then the settings' sign -- read as the invoices
+                      // say a sum; the new riyal sign drawn where chosen
+                      KeyedSubtree(
+                        key: ValueKey('voucher-cash-${voucher['id']}'),
+                        child: settings.buildText('$cashAmount ${settings.currencySymbolText}',
+                            style: text.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+                      ),
+                    if (goldWeights.isNotEmpty) ...[
+                      if (cashAmount != null) const SizedBox(height: 6),
+                      KaratWeights(
+                        weights: goldWeights,
+                        mainKarat: mainKarat,
+                        mainEquivalent: _toDouble(voucher['amount_gold_main_karat']),
+                        large: cashAmount == null,
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -2611,6 +2614,21 @@ class _VouchersListScreenState extends State<VouchersListScreen>
     return _goldFormat.format(amount);
   }
 
+  /// The voucher's gold by karat: its breakdown, else its one karat (none where
+  /// mixed or not said) -- as the server sends them.
+  List<KaratWeight> _goldWeights(Map<String, dynamic> voucher) {
+    final raw = voucher['gold_breakdown'];
+    if (raw is List && raw.isNotEmpty) {
+      return [
+        for (final e in raw.whereType<Map>())
+          KaratWeight(_toDouble(e['karat'])?.round(), _toDouble(e['weight']) ?? 0),
+      ];
+    }
+    final grams = _toDouble(voucher['amount_gold']) ?? 0;
+    if (grams == 0) return const [];
+    return [KaratWeight(_toDouble(voucher['gold_karat'])?.round(), grams)];
+  }
+
   String? _formatPrimaryGoldDisplay(Map<String, dynamic> voucher) {
     final String? gold = _formatGold(voucher['amount_gold']);
     if (gold == null) {
@@ -2619,46 +2637,9 @@ class _VouchersListScreenState extends State<VouchersListScreen>
 
     final karat = (voucher['gold_karat'] ?? '').toString().trim();
     if (karat.isEmpty || karat == 'متعدد') {
-      return '$gold غ';
+      return '$gold جم';
     }
-    return '$gold غ عيار $karat';
-  }
-
-  String? _formatEquivalentGold(Map<String, dynamic> voucher) {
-    final double? amount = _toDouble(voucher['amount_gold_main_karat']);
-    if (amount == null || amount == 0) {
-      return null;
-    }
-
-    final int mainKarat = (_toDouble(voucher['main_karat']) ??
-            context.read<SettingsProvider>().mainKarat)
-        .round();
-    return 'المكافئ عيار $mainKarat: ${_goldFormat.format(amount)} غ';
-  }
-
-  String? _formatGoldBreakdown(Map<String, dynamic> voucher) {
-    final raw = voucher['gold_breakdown'];
-    if (raw is List && raw.isNotEmpty) {
-      return raw
-          .whereType<Map>()
-          .map((entry) {
-            final weight = _formatGold(entry['weight']) ?? '0.000';
-            final karat = _toDouble(entry['karat'])?.round() ?? entry['karat'];
-            return '• عيار $karat: $weight غ';
-          })
-          .join('\n');
-    }
-
-    final rawGold = _formatGold(voucher['amount_gold']);
-    if (rawGold == null) {
-      return null;
-    }
-
-    final karat = voucher['gold_karat'];
-    if (karat == null || karat.toString().isEmpty || karat == 'متعدد') {
-      return '• إجمالي الذهب: $rawGold غ';
-    }
-    return '• عيار ${_toDouble(karat)?.round() ?? karat}: $rawGold غ';
+    return '$gold جم عيار $karat';
   }
 
   double? _toDouble(dynamic value) {

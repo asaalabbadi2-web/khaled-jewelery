@@ -325,9 +325,10 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
     return '$formatted $_currencySymbol';
   }
 
+  /// A weight as every card says it: formatGrams, «جم» (the owner, 13 Nov 2026).
   String _formatGold(dynamic raw) {
     final amount = _asDouble(raw);
-    return '${NumberFormat('#,##0.###', widget.isArabic ? 'ar' : 'en').format(amount)} ${widget.isArabic ? 'غ' : 'g'}';
+    return '${ltrIsolate(cu.formatGrams(amount))} ${widget.isArabic ? 'جم' : 'g'}';
   }
 
   String _searchTypeLabel(String value) {

@@ -31,6 +31,8 @@ import '../theme/app_theme.dart';
 import '../widgets/app_shortcuts.dart';
 import '../utils/invoice_type_label.dart';
 import '../theme/app_breakpoints.dart';
+import '../widgets/karat_weights.dart';
+import '../providers/settings_provider.dart';
 
 /// A sale of scrap gold is saved as «بيع» with gold_type 'scrap'. It is
 /// edited on the screen that made it: the ordinary sale screen sends no
@@ -638,31 +640,12 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
   }
 
   /// الوزن المعادل بالعيار الرئيسي — يُستخدم للعرض الرئيسي ويتطابق مع تقرير المبيعات.
-  double _extractInvoiceTotalWeight(Map<String, dynamic> invoice) {
-    // الأولوية: total_weight_main_karat الذي يُرسله الـ backend مباشرة
-    final mk = _tryParseDouble(invoice['total_weight_main_karat']);
-    if (mk > 0) return mk;
-
-    // احتياط: احسب يدوياً من karat_lines إن وُجدت (عيار رئيسي افتراضي 21)
-    final karatLines = invoice['karat_lines'];
-    if (karatLines is List && karatLines.isNotEmpty) {
-      var sum = 0.0;
-      const mainK = 21.0;
-      for (final kl in karatLines) {
-        if (kl is Map) {
-          final lw = _tryParseDouble(kl['weight_grams'] ?? kl['weight']);
-          final lk = _tryParseDouble(kl['karat']) > 0
-              ? _tryParseDouble(kl['karat'])
-              : mainK;
-          sum += lw * lk / mainK;
-        }
-      }
-      if (sum > 0) return sum;
-    }
-
-    // احتياط نهائي: الوزن الخام من البنود أو total_weight
-    return _extractInvoiceRawWeight(invoice);
-  }
+  /// The invoice's weight in the main karat -- the server's alone. The screen
+  /// made it from the karat lines with a main karat of its own (21) where the
+  /// server said none (the owner, 13 Nov 2026: no fixed main karat; the
+  /// server sends it with every invoice).
+  double _extractInvoiceTotalWeight(Map<String, dynamic> invoice) =>
+      _tryParseDouble(invoice['total_weight_main_karat']);
 
   /// الوزن الخام الفعلي بالجرام — يُعرض ثانوياً.
   double _extractInvoiceRawWeight(Map<String, dynamic> invoice) {
@@ -3185,6 +3168,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
       final karatLabel = _extractInvoiceKaratLabel(invoice);
       final goldTypeLabel = _extractInvoiceGoldTypeLabel(invoice);
       final totalWeight = _extractInvoiceTotalWeight(invoice);
+      final mainKarat = context.read<SettingsProvider>().mainKarat;
 
       return Card(
         margin: const EdgeInsets.only(bottom: 12),
@@ -3351,7 +3335,11 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                                 : 'Type: $goldTypeLabel',
                             colorScheme: colorScheme,
                           ),
-                        if (karatLabel != null)
+                        // Its weight said for what it is (the owner, 13 Nov 2026): the
+                        // server's weight is in the main karat -- «وزن» beside «عيار: 18»
+                        // read as 18's grams. One karat that is the main one: one chip.
+                        if (karatLabel != null &&
+                            !(totalWeight > 0 && int.tryParse(karatLabel) == mainKarat))
                           _buildInfoChip(
                             label: isAr
                                 ? 'عيار: $karatLabel'
@@ -3359,11 +3347,14 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                             colorScheme: colorScheme,
                           ),
                         if (totalWeight > 0)
-                          _buildInfoChip(
-                            label: isAr
-                                ? 'وزن: ${NumberFormat('#,##0.###', isAr ? 'ar' : 'en').format(totalWeight)} جم'
-                                : 'Weight: ${NumberFormat('#,##0.###', isAr ? 'ar' : 'en').format(totalWeight)} g',
-                            colorScheme: colorScheme,
+                          KaratWeights(
+                            key: ValueKey('invoice-weight-${invoice['id']}'),
+                            weights: [
+                              if (int.tryParse(karatLabel ?? '') == mainKarat)
+                                KaratWeight(mainKarat, totalWeight),
+                            ],
+                            mainKarat: mainKarat,
+                            mainEquivalent: totalWeight,
                           ),
                         if (isCancelled)
                           _buildInfoChip(

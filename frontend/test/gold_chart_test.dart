@@ -54,26 +54,26 @@ String _range(WidgetTester tester) =>
 
 void main() {
   test('the two lines from the answer: the main karat first, each with its own high and low', () {
-    final series = GoldChartSeries.fromResponse(_answer(), openingPricesPerGram: _openings, openingOunce: 4086.2);
+    final series = GoldChartSeries.fromResponse(currency: 'ر.س', _answer(), openingPricesPerGram: _openings, openingOunce: 4086.2);
     expect([for (final s in series) s.label], ['عيار 21', 'الأونصة']);
     expect([for (final s in series) s.unit], ['ر.س', r'$']);
     expect((series[0].high, series[0].low, series[0].opening), (412.47, 410.3, 410.5));
     expect((series[1].high, series[1].low, series[1].opening), (4106.9, 4084.1, 4086.2));
     expect(series[0].points.last.price, closeTo(412.35, 0.001));
-    final as22 = GoldChartSeries.fromResponse({..._answer(), 'main_karat': 22}, openingPricesPerGram: _openings);
+    final as22 = GoldChartSeries.fromResponse(currency: 'ر.س', {..._answer(), 'main_karat': 22}, openingPricesPerGram: _openings);
     expect((as22[0].label, as22[0].opening), ('عيار 22', 999.0),
         reason: "the line's karat is the answer's, and so is its opening -- no karat fixed here");
     expect(series[0].points.first.time, _t0.toLocal());
-    expect([for (final s in GoldChartSeries.fromResponse(_answer(withKarat: false))) s.label], ['الأونصة'],
+    expect([for (final s in GoldChartSeries.fromResponse(currency: 'ر.س', _answer(withKarat: false))) s.label], ['الأونصة'],
         reason: 'an answer without the main karat: the ounce alone');
-    expect(GoldChartSeries.fromResponse(const {}), isEmpty);
-    expect([for (final s in GoldChartSeries.fromResponse(_answer(), mainKarat: 24)) s.label], ['الأونصة'],
+    expect(GoldChartSeries.fromResponse(currency: 'ر.س', const {}), isEmpty);
+    expect([for (final s in GoldChartSeries.fromResponse(currency: 'ر.س', _answer(), mainKarat: 24)) s.label], ['الأونصة'],
         reason: "an answer for 21 while the main karat is 24: no karat line -- never another karat's");
-    expect([for (final s in GoldChartSeries.fromResponse(_answer(), mainKarat: 21)) s.label], ['عيار 21', 'الأونصة']);
+    expect([for (final s in GoldChartSeries.fromResponse(currency: 'ر.س', _answer(), mainKarat: 21)) s.label], ['عيار 21', 'الأونصة']);
   });
 
   testWidgets('the main karat by default; the toggle shows the ounce, in dollars', (tester) async {
-    await _pump(tester, GoldChartSeries.fromResponse(_answer(), openingPricesPerGram: _openings, openingOunce: 4086.2));
+    await _pump(tester, GoldChartSeries.fromResponse(currency: 'ر.س', _answer(), openingPricesPerGram: _openings, openingOunce: 4086.2));
     expect(find.byKey(const Key('gold-chart-series-0')), findsOneWidget);
     expect(_range(tester), contains('412.47 ر.س'));
     expect(_range(tester), contains('410.30 ر.س'));
@@ -88,7 +88,7 @@ void main() {
   });
 
   testWidgets('one line: no toggle, its label', (tester) async {
-    await _pump(tester, GoldChartSeries.fromResponse(_answer(withKarat: false)));
+    await _pump(tester, GoldChartSeries.fromResponse(currency: 'ر.س', _answer(withKarat: false)));
     expect(find.byKey(const Key('gold-chart-series-0')), findsNothing);
     expect(find.text('الأونصة'), findsOneWidget);
   });
@@ -103,7 +103,7 @@ void main() {
         body: Center(
           child: SizedBox(
             width: 300,
-            child: GoldSparklineEnhanced(series: GoldChartSeries.fromResponse(_answer()), onTap: () => taps++),
+            child: GoldSparklineEnhanced(series: GoldChartSeries.fromResponse(currency: 'ر.س', _answer()), onTap: () => taps++),
           ),
         ),
       ),

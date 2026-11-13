@@ -166,7 +166,7 @@ class _GoldSparklineEnhancedState extends State<GoldSparklineEnhanced> with Sing
                       decoration: BoxDecoration(color: c.tip, borderRadius: BorderRadius.circular(4)),
                       child: Text(
                         '${_hhmm(series.points[_hovered].time)}  '
-                        '${_amount(series, series.points[_hovered].price)}',
+                        '${_amount(series, series.points[_hovered].price, ltr: true)}',
                         textDirection: TextDirection.ltr,
                         style: strong,
                       ),
@@ -196,8 +196,13 @@ class _GoldSparklineEnhancedState extends State<GoldSparklineEnhanced> with Sing
   static String _hhmm(DateTime t) =>
       '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 
-  String _amount(GoldChartSeries s, double v) =>
-      s.unit == r'$' ? '\$${_price.format(v)}' : '${_price.format(v)} ${s.unit}';
+  /// A price with its unit, read the number then the sign, as the invoices say
+  /// a sum: in a right-to-left line written so; in a left-to-right one ([ltr],
+  /// the hovered point's) the sign written first, so it still falls after.
+  String _amount(GoldChartSeries s, double v, {bool ltr = false}) {
+    if (s.unit == r'$') return '\$${_price.format(v)}';
+    return ltr ? '${s.unit} ${_price.format(v)}' : '${_price.format(v)} ${s.unit}';
+  }
 
   /// Five times along the line, left to right as the line runs.
   Widget _times(List<SparklinePoint> points, TextStyle small) {

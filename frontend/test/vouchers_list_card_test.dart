@@ -20,12 +20,24 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'support/sign_order.dart';
+
 Map<String, dynamic> _voucher(int id, String status, {double cash = 15000.5}) => {
       'id': id, 'voucher_number': 'RV-2026-0000$id', 'voucher_type': 'receipt', 'status': status,
       'date': '2026-11-1${id}T09:00:00', 'amount_cash': cash, 'amount_gold': 0.0, 'amount_gold_main_karat': 0.0,
       'gold_karat': 21, 'main_karat': 21, 'description': 'سند تجريبي $id', 'party_name': 'طرف تجريبي $id',
       'party_type': 'customer', 'created_by': 'موظف', 'account_lines': [], 'gold_breakdown': {},
       'reference_type': null, 'notes': '',
+    };
+
+// Gold in two karats, no cash.
+Map<String, dynamic> _gold(int id) => {
+      ..._voucher(id, 'approved', cash: 0.0),
+      'voucher_type': 'payment', 'amount_gold': 15.345, 'gold_karat': 'متعدد', 'amount_gold_main_karat': 14.916,
+      'gold_breakdown': [
+        {'karat': 21, 'weight': 12.345},
+        {'karat': 18, 'weight': 3.0},
+      ],
     };
 
 Future<void> _open(WidgetTester tester) async {
@@ -36,7 +48,8 @@ Future<void> _open(WidgetTester tester) async {
       'employee_id': 15, 'permissions': null, 'must_change_password': false,
       'effective_permissions': const ['vouchers.view', 'vouchers.create', 'vouchers.edit', 'vouchers.approve'],
     }).toStorageMap()),
-    'app_settings': jsonEncode({'main_karat': 21}),
+    // a currency other than «ر.س»: one written in the card would show
+    'app_settings': jsonEncode({'main_karat': 21, 'currency_symbol': 'د.إ'}),
   });
   tester.view.physicalSize = const Size(390, 2000);
   tester.view.devicePixelRatio = 1;
@@ -64,9 +77,9 @@ Future<void> _open(WidgetTester tester) async {
     () => MockClient((request) async {
       final body = request.url.path.endsWith('/vouchers')
           ? {
-              'current_page': 1, 'pages': 1, 'per_page': 20, 'total': 3, 'cancelled_hidden': {},
+              'current_page': 1, 'pages': 1, 'per_page': 20, 'total': 4, 'cancelled_hidden': {},
               'available_creators': [], 'available_parties': [], 'current_summary': {},
-              'vouchers': [_voucher(1, 'pending'), _voucher(2, 'approved'), _voucher(3, 'cancelled')],
+              'vouchers': [_voucher(1, 'pending'), _voucher(2, 'approved'), _voucher(3, 'cancelled'), _gold(4)],
             }
           : (request.url.path.contains('customers') || request.url.path.contains('suppliers') ? [] : {});
       return http.Response.bytes(utf8.encode(jsonEncode(body)), 200,
@@ -116,5 +129,29 @@ void main() {
     expect(cancelled, findsOneWidget);
     expect(find.byKey(const ValueKey('voucher-menu-3')), findsNothing);
     expect(find.ancestor(of: cancelled, matching: find.byType(Opacity)), findsWidgets);
+  });
+
+  testWidgets('cash in the settings\' currency; gold by karat in «جم», with its main-karat equivalent', (tester) async {
+    await _open(tester);
+    final pending = find.byKey(const ValueKey('voucher-card-1'));
+    expect(find.descendant(of: pending, matching: find.textContaining('د.إ')), findsOneWidget,
+        reason: "the settings' currency, not «ر.س» written in");
+    expect(find.descendant(of: pending, matching: find.textContaining('ر.س')), findsNothing);
+    // read the number, then its sign -- as the invoices say a sum (the owner,
+    // 13 Nov 2026: «انت تضع رمز العمله قبل القيمة»)
+    expect(signFollowsTheNumber(tester, find.byKey(const ValueKey('voucher-cash-1')), 'د.إ'), isTrue);
+
+    await tester.drag(find.byType(Scrollable).last, const Offset(0, -900));
+    await tester.pump();
+    final gold = find.byKey(const ValueKey('voucher-card-4'));
+    expect(gold, findsOneWidget);
+    expect(find.descendant(of: gold, matching: find.text('عيار 21')), findsOneWidget);
+    expect(find.descendant(of: gold, matching: find.text('12.345')), findsOneWidget);
+    expect(find.descendant(of: gold, matching: find.text('عيار 18')), findsOneWidget);
+    expect(find.descendant(of: gold, matching: find.byKey(const Key('karat-weights-equivalent'))), findsOneWidget,
+        reason: 'two karats: what they come to in the main karat');
+    expect(find.descendant(of: gold, matching: find.textContaining(' غ')), findsNothing, reason: 'one unit: جم');
+    expect(find.descendant(of: gold, matching: find.textContaining('12.345 جم عيار')), findsNothing,
+        reason: 'said once, not twice');
   });
 }

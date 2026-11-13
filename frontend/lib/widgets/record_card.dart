@@ -28,6 +28,8 @@ class RecordField {
 /// under it, then each figure on its own line by its column's name. A record
 /// with something behind it opens it. The one card of every list and report
 /// that turns its table into cards -- not one per screen.
+final _arabic = RegExp('[\u0600-\u06FF]');
+
 class RecordCard extends StatelessWidget {
   const RecordCard({
     super.key,
@@ -125,7 +127,11 @@ class RecordCard extends StatelessWidget {
                           f.value,
                           // at the card's far edge, whichever way the screen reads
                           textAlign: rtl ? TextAlign.left : TextAlign.right,
-                          textDirection: f.figure ? TextDirection.ltr : null,
+                          // a bare figure left to right; one with its sign or unit in
+                          // Arabic in the line's own direction, so the sign follows the
+                          // number as it is read (the owner, 13 Nov 2026: «انت تضع رمز
+                          // العمله قبل القيمة» -- drawn left to right it came first)
+                          textDirection: f.figure && !_arabic.hasMatch(f.value) ? TextDirection.ltr : null,
                           style: (f.figure ? tabular : theme.textTheme.bodyMedium)?.copyWith(
                             fontWeight: strong ? FontWeight.w700 : FontWeight.w600,
                             color: f.negative ? theme.colorScheme.error : f.color,

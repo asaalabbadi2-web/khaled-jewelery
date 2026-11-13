@@ -22,7 +22,7 @@ class GoldChartSeries {
   /// «عيار 21», «الأونصة».
   final String label;
 
-  /// «ر.س» for a gram, «$» for the ounce.
+  /// The settings' currency for a gram, «$» for the ounce.
   final String unit;
   final List<SparklinePoint> points;
   final double? opening;
@@ -32,6 +32,8 @@ class GoldChartSeries {
   /// The two lines of a GET /gold_price/24h answer: the main karat's
   /// (`price_main_karat`, `high_main_karat`, `low_main_karat`) first, then the
   /// ounce's. An answer without the main karat's gives the ounce's alone.
+  /// [currency]: the settings' symbol (SettingsProvider.currencySymbolText),
+  /// never one written here.
   /// The main karat's opening is read from [openingPricesPerGram] (GET
   /// /gold_price's `opening_prices_per_gram`) by the karat this answer names --
   /// the line and its opening are one karat's, whatever the settings say now.
@@ -45,6 +47,7 @@ class GoldChartSeries {
     Map<String, dynamic>? openingPricesPerGram,
     double? openingOunce,
     int? mainKarat,
+    required String currency,
   }) {
     final raw = answer?['points'];
     final rows = raw is List ? raw.whereType<Map>().toList() : const <Map>[];
@@ -60,7 +63,7 @@ class GoldChartSeries {
       if (karat != null && karatLine.isNotEmpty && (mainKarat == null || karat == mainKarat))
         GoldChartSeries(
           label: 'عيار $karat',
-          unit: 'ر.س',
+          unit: currency,
           points: karatLine,
           opening: _num((openingPricesPerGram?['$karat'] as Map?)?['sell']),
           high: _num(answer?['high_main_karat']),

@@ -590,6 +590,7 @@ class _ShiftClosingScreenState extends State<ShiftClosingScreen> {
                             fields: [
                               RecordField(
                                 widget.isArabic ? 'المبلغ المتوقع' : 'Expected',
+                                // the number then the sign, as the invoices say a sum
                                 '${formatAmount(expected)} $currencySymbol',
                               ),
                               RecordField(
