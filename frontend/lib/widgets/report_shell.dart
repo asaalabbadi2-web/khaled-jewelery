@@ -15,6 +15,7 @@ import 'app_feedback.dart';
 import 'app_period_picker.dart';
 import 'app_state_views.dart';
 import 'report_chart.dart';
+import '../theme/app_breakpoints.dart';
 
 /// One screen for any report (REPORTS ت1, ADR-083): the period (the ready ones
 /// a tap away, UI-4) and the report's own switches above; its four states --
@@ -491,6 +492,11 @@ class ReportTable extends StatelessWidget {
     }
 
     final columns = report.columns;
+    // On a phone each line is a card (the owner, 13 Nov 2026: «في الشاشات
+    // الصغيره اجعل العرض كبطاقات وليس جداول»): a table of 720 slid sideways.
+    if (AppBreakpoints.isPhone(context)) {
+      return _cards(context, theme, tones, tabular, columns);
+    }
     // the last text column -- the description -- takes the room
     final wide = columns.lastIndexWhere((c) => !c.isFigure);
     // The table fills its card; on a narrow screen it keeps its columns
@@ -598,6 +604,156 @@ class ReportTable extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+
+  /// Whether a card says a figure: not an empty one, nor a zero -- a line of
+  /// «0.00» under every line is noise on a phone -- but a balance's zero, which
+  /// says it is settled.
+  static bool _says(ReportColumn c, Object? value) =>
+      reportCell(c, value).trim().isNotEmpty && (c.signed || !(value is num && value == 0));
+
+  /// A line as a card: its description its title, its other text under it, each figure under it by its
+  /// column's name -- a negative in the error tone, the decimals lined up; a
+  /// section's heading, its total and a finding marked as in the table; the
+  /// totals the last card. A card with something behind it opens it.
+  Widget _cards(
+    BuildContext context,
+    ThemeData theme,
+    AppSemanticColors tones,
+    TextStyle? tabular,
+    List<ReportColumn> columns,
+  ) {
+    final texts = [for (final c in columns) if (!c.isFigure) c];
+    final figures = [for (final c in columns) if (c.isFigure) c];
+
+    Widget figure(ReportColumn c, Object? value, {bool strong = false}) {
+      final text = reportCell(c, value);
+      final negative = c.signed && value is num && value < 0 && text.isNotEmpty;
+      return Padding(
+        padding: const EdgeInsets.only(top: AppSpace.xs),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                c.label,
+                style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              ),
+            ),
+            const SizedBox(width: AppSpace.sm),
+            Text(
+              text,
+              textDirection: TextDirection.ltr,
+              style: tabular?.copyWith(
+                fontWeight: strong ? FontWeight.w700 : FontWeight.w600,
+                color: negative ? theme.colorScheme.error : null,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    Widget card({
+      required Key key,
+      required String title,
+      String? subtitle,
+      required List<Widget> lines,
+      ReportRowStyle style = ReportRowStyle.line,
+      VoidCallback? onTap,
+    }) {
+      final strong = style == ReportRowStyle.heading || style == ReportRowStyle.subtotal;
+      return Card(
+        key: key,
+        margin: const EdgeInsets.only(bottom: AppSpace.sm),
+        color: switch (style) {
+          ReportRowStyle.heading => theme.colorScheme.surfaceContainerLow,
+          ReportRowStyle.finding => tones.warning.container,
+          _ => null,
+        },
+        shape: style == ReportRowStyle.subtotal
+            ? RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: theme.colorScheme.outline),
+              )
+            : null,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpace.md),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: strong ? FontWeight.w800 : FontWeight.w700,
+                          fontStyle: style == ReportRowStyle.note ? FontStyle.italic : null,
+                          color: style == ReportRowStyle.note ? theme.colorScheme.onSurfaceVariant : null,
+                        ),
+                      ),
+                    ),
+                    if (onTap != null)
+                      Icon(Icons.chevron_left_rounded, color: theme.colorScheme.onSurfaceVariant),
+                  ],
+                ),
+                if (subtitle != null && subtitle.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      subtitle,
+                      style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                    ),
+                  ),
+                ...lines,
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    final words = <String>[];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final (i, row) in report.rows.indexed)
+          () {
+            words
+              ..clear()
+              ..addAll([
+                for (final c in texts)
+                  if (reportCell(c, row[c.key]).trim().isNotEmpty) reportCell(c, row[c.key]).trim(),
+              ]);
+            final strong = row.style == ReportRowStyle.heading || row.style == ReportRowStyle.subtotal;
+            return card(
+              key: ValueKey('report-row-$i'),
+              // the description -- the last text column, the table's wide one -- its title
+              title: words.isEmpty ? '—' : words.last,
+              subtitle: words.length > 1 ? words.take(words.length - 1).join(' · ') : null,
+              style: row.style,
+              onTap: row.drill != null && onDrill != null ? () => onDrill!(row.drill!, row) : null,
+              lines: [
+                for (final c in figures)
+                  if (_says(c, row[c.key])) figure(c, row[c.key], strong: strong),
+              ],
+            );
+          }(),
+        if (report.totals.isNotEmpty)
+          card(
+            key: const ValueKey('report-totals'),
+            title: 'المجموع',
+            style: ReportRowStyle.subtotal,
+            lines: [
+              for (final c in figures)
+                if (_says(c, report.totals[c.key])) figure(c, report.totals[c.key], strong: true),
+            ],
+          ),
+      ],
     );
   }
 }

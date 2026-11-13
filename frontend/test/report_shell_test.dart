@@ -126,8 +126,8 @@ Future<void> _settle(WidgetTester tester) async {
 final saved = <(String, List<int>, String)>[];
 var printed = <int>[];
 
-Future<_Server> _open(WidgetTester tester, {_Server? server}) async {
-  tester.view.physicalSize = const Size(1400, 1000);
+Future<_Server> _open(WidgetTester tester, {_Server? server, Size size = const Size(1400, 1000)}) async {
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   final s = server ?? _Server();
@@ -150,6 +150,45 @@ Future<_Server> _open(WidgetTester tester, {_Server? server}) async {
 }
 
 void main() {
+  // On a phone each line is a card (the owner, 13 Nov 2026): its description
+  // its title, each figure under it by its column's name; the totals the last
+  // card; a card opens what its row opens. An iPad keeps the table.
+  for (final (device, size) in [('iPhone SE', const Size(375, 667)), ('iPhone', const Size(390, 844))]) {
+    testWidgets('on an $device each line is a card, and nothing overflows', (tester) async {
+      final errors = <String>[];
+      final before = FlutterError.onError;
+      FlutterError.onError = (d) => errors.add(d.exceptionAsString().split('\n').first);
+      try {
+        await _open(tester, size: size);
+      } finally {
+        FlutterError.onError = before;
+      }
+      expect(errors, isEmpty);
+      expect(find.byKey(const ValueKey('report-head-cash_debit')), findsNothing, reason: 'no table');
+      expect(find.descendant(of: find.byKey(const ValueKey('report-row-1')), matching: find.text('الموردون')),
+          findsOneWidget, reason: 'its description its title');
+      expect(find.descendant(of: find.byKey(const ValueKey('report-row-1')), matching: find.text('مدين نقد')),
+          findsNothing, reason: 'a zero is not said -- noise on a phone');
+      expect(find.descendant(of: find.byKey(const ValueKey('report-row-1')), matching: find.text('دائن نقد')),
+          findsOneWidget, reason: 'each figure by its column\'s name');
+      final negative = tester.widget<Text>(find.text('\u200e-426,580.59'));
+      expect(negative.style?.color, Theme.of(tester.element(find.text('\u200e-426,580.59'))).colorScheme.error);
+      expect(find.byKey(const ValueKey('report-totals')), findsOneWidget);
+    });
+  }
+
+  testWidgets('on a phone a card opens its row\'s account statement', (tester) async {
+    await _open(tester, size: const Size(390, 844));
+    await tester.tap(find.byKey(const ValueKey('report-row-0')));
+    await _settle(tester);
+    expect(tester.widget<AccountStatementScreen>(find.byType(AccountStatementScreen)).accountId, 110);
+  });
+
+  testWidgets('an iPad keeps the table', (tester) async {
+    await _open(tester, size: const Size(744, 1133));
+    expect(find.byKey(const ValueKey('report-head-cash_debit')), findsOneWidget);
+  });
+
   testWidgets('it opens on all periods, its checks, totals and source said', (
     tester,
   ) async {
