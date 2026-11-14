@@ -151,7 +151,7 @@ def test_an_expense_with_a_payment_standing_is_not_cancelled_nor_cut_below_it(au
 
 def test_closed_months_are_not_written_the_first_open_one_takes_them(books):
     rent = expense(books)
-    move(date(2026, 3, 31), reason='test', by='tester', now=NOW)
+    move(date(2026, 3, 31), reason='test', by='tester', now=NOW, accept_pending=True)   # its months, unposted
     plan = _run(date(2026, 4, 30))
     assert [(e['month'], e['amount']) for e in plan['entries']] == [('2026-04', 48300.0)]   # four months
     assert all(e.date.date() > date(2026, 3, 31) for e in _entries(rent))

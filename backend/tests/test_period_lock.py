@@ -44,7 +44,9 @@ def fenced(app, db_fence):
 
 
 def _lock(day, reason='test'):
-    return move(day, reason=reason, by='tester', now=NOW)
+    # What these tests leave waiting (an unposted entry, a draft) is accepted:
+    # they test the guard; what waits before a close is test_period_lock_pending.py's.
+    return move(day, reason=reason, by='tester', now=NOW, accept_pending=True)
 
 
 def _account():

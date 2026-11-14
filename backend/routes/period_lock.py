@@ -29,9 +29,26 @@ def move_period_lock():
         return jsonify({'error': 'invalid_date', 'message': 'تاريخ القفل يُكتب YYYY-MM-DD'}), 400
     by = getattr(getattr(g, 'current_user', None), 'username', None) or 'system'
     try:
-        row = move(closed_through, reason=data.get('reason'), by=by, now=datetime.now())
+        row = move(closed_through, reason=data.get('reason'), by=by, now=datetime.now(),
+                   accept_pending=bool(data.get('accept_pending')))
         db.session.commit()
     except PeriodLockRefused as refused:
         db.session.rollback()
-        return jsonify({'error': refused.code, 'message': refused.message}), 400
+        body = {'error': refused.code, 'message': refused.message}
+        if refused.detail is not None:
+            body['pending'] = refused.detail
+        return jsonify(body), 409 if refused.code == 'pending_in_period' else 400
     return jsonify(row.to_dict()), 201
+
+
+@period_lock_bp.route('/period-lock/pending', methods=['GET'])
+@require_permission('journal.view')
+def get_pending_before_close():
+    """What waits in the months a lock through ?through= would close, after the lock now."""
+    from services.period_lock import current, pending
+    try:
+        through = date.fromisoformat(request.args.get('through') or '')
+    except ValueError:
+        return jsonify({'error': 'invalid_date', 'message': 'تاريخ القفل يُكتب YYYY-MM-DD'}), 400
+    return jsonify({'after': current().isoformat() if current() else None, 'through': through.isoformat(),
+                    **pending(current(), through)}), 200

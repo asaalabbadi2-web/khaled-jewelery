@@ -78,6 +78,8 @@ GOLD_MOVED_UNVALUED = 'GOLD_MOVED_UNVALUED'
 GOLD_WITH_PARTY_ADRIFT = 'GOLD_WITH_PARTY_ADRIFT'
 BONUS_RUN_FAILED = 'BONUS_RUN_FAILED'
 KARAT_CONVERSION_ADRIFT = 'KARAT_CONVERSION_ADRIFT'
+PERIOD_EXPENSE_LEDGER_DRIFT = 'PERIOD_EXPENSE_LEDGER_DRIFT'
+PERIOD_EXPENSE_MONTH_MISSING = 'PERIOD_EXPENSE_MONTH_MISSING'
 
 KINDS = (
     ORPHAN_POSTED_ENTRY,
@@ -98,6 +100,8 @@ KINDS = (
     GOLD_WITH_PARTY_ADRIFT,
     BONUS_RUN_FAILED,
     KARAT_CONVERSION_ADRIFT,
+    PERIOD_EXPENSE_LEDGER_DRIFT,
+    PERIOD_EXPENSE_MONTH_MISSING,
 )
 
 # An invoice in one of these states is retracted: its entries must not count
@@ -711,6 +715,35 @@ def check_bonus_runs_failed() -> list:
     return facts
 
 
+def check_period_expense_ledger_drift() -> list:
+    """The two accounts of the period expenses in the ledger against the
+    expenses' balances as the books hold them (ADR-090, law 8): «مصروفات
+    مقدَّمة» the sum of the balances above zero, «مصروفات مستحقة» of those below.
+    A manual entry on either, or a writer past the expenses, says so here; a
+    payment cancelled after installments says so until its month's run
+    reclassifies. Keyed 'account:<id>'; the metric is the ledger less the
+    expenses. Nothing while the two roles are unmapped."""
+    from services.period_expense import ledger_against_expenses
+    facts = []
+    for row in ledger_against_expenses():
+        if abs(row['ledger'] - row['expenses']) > 0.01:
+            facts.append(Fact(PERIOD_EXPENSE_LEDGER_DRIFT, f"account:{row['account_id']}",
+                              round(row['ledger'] - row['expenses'], 2), row))
+    return facts
+
+
+def check_period_expense_months_missing() -> list:
+    """A period expense whose months the books have moved past are not all
+    posted (ADR-090, law 8): the schedule has accrued more by the last month
+    over than its month entries say -- the month-end action not run, or run
+    before an edit. The books' own last posted entry says which months are
+    over, no clock. Keyed 'period_expense:<id>'; the metric is the riyals not
+    yet accrued."""
+    from services.period_expense import months_behind
+    return [Fact(PERIOD_EXPENSE_MONTH_MISSING, f"period_expense:{row['period_expense_id']}",
+                 row['behind'], row) for row in months_behind()]
+
+
 CHECKS = {
     ORPHAN_POSTED_ENTRY: check_orphan_posted_entries,
     UNPOSTED_ENTRY_IN_LIMBO: check_unposted_entries_in_limbo,
@@ -731,6 +764,8 @@ CHECKS = {
     GOLD_WITH_PARTY_ADRIFT: check_gold_with_parties_adrift,
     BONUS_RUN_FAILED: check_bonus_runs_failed,
     KARAT_CONVERSION_ADRIFT: check_karat_conversion_adrift,
+    PERIOD_EXPENSE_LEDGER_DRIFT: check_period_expense_ledger_drift,
+    PERIOD_EXPENSE_MONTH_MISSING: check_period_expense_months_missing,
 }
 
 

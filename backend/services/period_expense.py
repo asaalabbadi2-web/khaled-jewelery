@@ -463,3 +463,54 @@ def cancel(pe, *, reason: str, by: str, now):
                                    'على المصروف دفعات قائمة: ألغِ سنداتها، أو عدّل المصروف إلى كلفته الحقيقية.')
     _revise(pe, reason=reason, by=by, now=now, status='cancelled')
     return pe
+
+
+# ── law 8: the ledger against the expenses -- reported, never repaired ────────
+
+FAR = date(9999, 12, 31)
+
+
+def ledger_against_expenses() -> list[dict]:
+    """The two accounts in the ledger against the expenses' balances as the
+    books hold them (paid less posted), each; none while the roles are unmapped."""
+    from models import PeriodExpense
+    try:
+        prepaid_id, accrued_id = _accounts()
+    except PeriodExpenseRefused:
+        return []
+    balances = [paid_to(pe, FAR) - posted_accrual(pe, through=FAR) for pe in PeriodExpense.query.all()]
+    return [
+        {'account_id': prepaid_id, 'role': PREPAID, 'ledger': riyals(_ledger_balance(prepaid_id, FAR)),
+         'expenses': riyals(sum(b for b in balances if b > 0))},
+        {'account_id': accrued_id, 'role': ACCRUED, 'ledger': riyals(_ledger_balance(accrued_id, FAR)),
+         'expenses': riyals(sum(b for b in balances if b < 0))},
+    ]
+
+
+def books_today():
+    """The books' own today: their last posted entry's day -- the months
+    before its month are over by what the books say, not by a clock."""
+    from models import JournalEntry, db
+    last = (db.session.query(db.func.max(JournalEntry.date))
+            .filter(JournalEntry.is_posted.is_(True), JournalEntry.is_deleted.is_(False)).scalar())
+    return _day_of(last) if last else None
+
+
+def months_behind(through: date | None = None, *, expenses=None) -> list[dict]:
+    """The period expenses whose months over by *through* (default: the last
+    month before the books' today) are not all posted: the schedule's
+    accrued by then less what the month entries posted."""
+    from models import PeriodExpense
+    if through is None:
+        today = books_today()
+        if today is None:
+            return []
+        through = date.fromordinal(today.replace(day=1).toordinal() - 1)   # the month before the books' today, its last day
+    out = []
+    for pe in (expenses if expenses is not None else PeriodExpense.query.order_by(PeriodExpense.id).all()):
+        behind = accrued_to(pe, through) - posted_accrual(pe, through=through)
+        if behind != 0:
+            ended = [m.month.isoformat()[:7] for m in _months(pe) if m.ends <= through]
+            out.append({'period_expense_id': pe.id, 'description': pe.description, 'through': through.isoformat(),
+                        'behind': riyals(behind), 'months_over': len(ended)})
+    return out

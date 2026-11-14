@@ -49,7 +49,8 @@ def fenced(app, db_fence):
 
 
 def _lock():
-    move(OCTOBER, reason='test', by='tester', now=datetime(2026, 11, 14, 10, 0))
+    # the pending voucher is what these tests want refused once closed: accepted here
+    move(OCTOBER, reason='test', by='tester', now=datetime(2026, 11, 14, 10, 0), accept_pending=True)
 
 
 # ── nothing writes past the mappers ───────────────────────────────────────────

@@ -2749,10 +2749,14 @@ class PeriodLock(db.Model):
     reason = db.Column(db.Text, nullable=False)
     changed_by = db.Column(db.String(100), nullable=False)
     changed_at = db.Column(db.DateTime, nullable=False)
+    # What still waited in the months it closed, accepted by name (ADR-090 phase 6): JSON, or none.
+    accepted_pending = db.Column(db.Text, nullable=True)
 
     def to_dict(self):
+        import json
         return {
             'id': self.id,
+            'accepted_pending': json.loads(self.accepted_pending) if self.accepted_pending else None,
             'closed_through': self.closed_through.isoformat() if self.closed_through else None,
             'reason': self.reason,
             'changed_by': self.changed_by,

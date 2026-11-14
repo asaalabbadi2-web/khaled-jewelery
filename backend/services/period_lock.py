@@ -13,7 +13,12 @@ The laws of a move:
 Moving the lock back is the authorised way to write into a closed month: it is
 recorded like any move, with its reason, and moved forward again after.
 
-The check of what still waits in a month before it is closed is ADR-090 phase 6.
+Before the lock moves forward, what still waits in the months it closes is
+shown (pending): a voucher pending, an entry unposted or a draft, an invoice
+unposted and not retracted, a period expense's months not posted -- each would
+be refused there once closed. The move is refused while any waits
+(pending_in_period), unless the owner accepts them by name (accept_pending),
+and what was accepted is kept on the lock's row (ADR-090 phase 6).
 """
 from __future__ import annotations
 
@@ -22,10 +27,60 @@ from datetime import date, datetime
 
 
 class PeriodLockRefused(ValueError):
-    def __init__(self, code: str, message: str):
+    def __init__(self, code: str, message: str, detail=None):
         super().__init__(message)
         self.code = code
         self.message = message
+        self.detail = detail
+
+
+LISTED = 50          # each kind of what waits: its count, and at most this many named
+
+
+def pending(after: date | None, through: date) -> dict:
+    """What still waits in the months after *after* through *through* -- each
+    would be refused there once they are closed."""
+    import datetime as _dt
+    from models import Invoice, JournalEntry, PeriodExpense, Voucher, db
+    from services.books_invariants import RETRACTED_INVOICE_STATUSES
+    from services.period_expense import months_behind
+    hi = _dt.datetime.combine(through, _dt.time.max)
+    lo = _dt.datetime.combine(after, _dt.time.max) if after else None
+
+    def dated(q, column):
+        q = q.filter(column <= hi)
+        return q.filter(column > lo) if lo is not None else q
+
+    vouchers = dated(Voucher.query.filter(Voucher.status == 'pending'), Voucher.date).order_by(Voucher.date)
+    # An entry of a retracted invoice waits for nothing: it is never posted
+    # and counts nowhere (four on the copy of 12 Nov, rejected sales' drafts).
+    retracted = db.session.query(Invoice.id).filter(
+        db.func.coalesce(Invoice.status, '').in_(list(RETRACTED_INVOICE_STATUSES)))
+    entries = dated(JournalEntry.query.filter(
+        JournalEntry.is_deleted.is_(False),
+        db.or_(JournalEntry.is_posted.is_(False), JournalEntry.is_draft.is_(True)),
+        # coalesced: a manual entry has no reference, and NULL in a NOT left it out (three-valued)
+        db.not_(db.and_(db.func.coalesce(JournalEntry.reference_type, '') == 'invoice',
+                        db.func.coalesce(JournalEntry.reference_id, 0).in_(retracted)))),
+        JournalEntry.date).order_by(JournalEntry.date)
+    invoices = dated(Invoice.query.filter(
+        Invoice.is_posted.is_(False),
+        db.func.coalesce(Invoice.status, '').notin_(list(RETRACTED_INVOICE_STATUSES))), Invoice.date
+    ).order_by(Invoice.date)
+    behind = months_behind(through, expenses=PeriodExpense.query.order_by(PeriodExpense.id).all())
+    out = {
+        'vouchers': {'count': vouchers.count(), 'items': [
+            {'id': v.id, 'number': v.voucher_number, 'date': v.date.date().isoformat()} for v in vouchers.limit(LISTED)]},
+        'entries': {'count': entries.count(), 'items': [
+            {'id': e.id, 'number': e.entry_number, 'date': e.date.date().isoformat(),
+             'draft': bool(e.is_draft)} for e in entries.limit(LISTED)]},
+        'invoices': {'count': invoices.count(), 'items': [
+            {'id': i.id, 'number': i.invoice_type_id, 'type': i.invoice_type, 'date': i.date.date().isoformat()}
+            for i in invoices.limit(LISTED)]},
+        'period_expenses': {'count': len(behind), 'items': behind[:LISTED]},
+    }
+    out['total'] = sum(part['count'] for part in out.values() if isinstance(part, dict))
+    return out
 
 
 def _month_end(day: date) -> bool:
@@ -44,9 +99,10 @@ def history() -> list[dict]:
     return [row.to_dict() for row in PeriodLock.query.order_by(PeriodLock.id.desc()).all()]
 
 
-def move(closed_through: date | None, *, reason: str, by: str, now: datetime):
-    """Close the books through *closed_through* (None: open them all). Flushes;
-    the caller commits."""
+def move(closed_through: date | None, *, reason: str, by: str, now: datetime, accept_pending: bool = False):
+    """Close the books through *closed_through* (None: open them all). Moving
+    forward, what waits in the months it closes refuses it unless accepted.
+    Flushes; the caller commits."""
     from models import PeriodLock, db
     reason = (reason or '').strip()
     if not reason:
@@ -58,9 +114,22 @@ def move(closed_through: date | None, *, reason: str, by: str, now: datetime):
         if closed_through >= now.date():
             raise PeriodLockRefused('not_past',
                                     f'لا يُقفل إلا شهر انتهى: {closed_through.isoformat()} لم يمضِ بعد.')
-    if closed_through == current():
+    was = current()
+    if closed_through == was:
         raise PeriodLockRefused('unchanged', 'القفل على هذا التاريخ أصلًا.')
-    row = PeriodLock(closed_through=closed_through, reason=reason, changed_by=by or 'system', changed_at=now)
+    accepted = None
+    if closed_through is not None and (was is None or closed_through > was):
+        waiting = pending(was, closed_through)
+        if waiting['total']:
+            if not accept_pending:
+                raise PeriodLockRefused(
+                    'pending_in_period',
+                    f'في الأشهر التي تُقفل ما ينتظر ({waiting["total"]}): عالجه، أو اقبله صراحةً فيُحفظ مع القفل.',
+                    detail=waiting)
+            import json
+            accepted = json.dumps(waiting, ensure_ascii=False)
+    row = PeriodLock(closed_through=closed_through, reason=reason, changed_by=by or 'system', changed_at=now,
+                     accepted_pending=accepted)
     db.session.add(row)
     db.session.flush()
     return row
