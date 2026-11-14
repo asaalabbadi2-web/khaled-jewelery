@@ -2693,6 +2693,34 @@ class DimensionSetItem(db.Model):
     )
 
 
+class PeriodExpense(db.Model):
+    """The cost of a period, accrued month by month (ADR-090, law 1): an expense
+    account, an amount net of VAT, from and to. Vouchers' lines are its payments
+    (VoucherAccountLine.period_expense_id). Accrued, paid and the balance are
+    derived (services/period_expense.py), never stored. One carried into a new
+    year's database (law 12) says when it was opened and what was accrued and
+    paid before."""
+    __tablename__ = 'period_expense'
+
+    id = db.Column(db.Integer, primary_key=True)
+    description = db.Column(db.String(300), nullable=False)
+    expense_account_id = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=False, index=True)
+    amount = db.Column(db.Numeric(14, 2), nullable=False)
+    period_start = db.Column(db.Date, nullable=False)
+    period_end = db.Column(db.Date, nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='active')       # active | cancelled
+    opened_on = db.Column(db.Date, nullable=True)                              # law 12
+    accrued_before_opening = db.Column(db.Numeric(14, 2), nullable=False, default=0)
+    paid_before_opening = db.Column(db.Numeric(14, 2), nullable=False, default=0)
+    created_by = db.Column(db.String(100), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False)
+
+    __table_args__ = (
+        db.CheckConstraint('amount > 0', name='ck_period_expense_amount_positive'),
+        db.CheckConstraint('period_end >= period_start', name='ck_period_expense_period'),
+    )
+
+
 class PeriodLock(db.Model):
     """One move of the period lock (ADR-090, law 9): the books closed through
     *closed_through* from this row on; none, all open. The last row is the lock
@@ -3453,6 +3481,10 @@ class VoucherAccountLine(db.Model):
     
     # معرف السند
     voucher_id = db.Column(db.Integer, db.ForeignKey('voucher.id', ondelete='CASCADE'), nullable=False, index=True)
+
+    # ADR-090 law 2: a payment's cash debit line may be a payment on a period
+    # expense -- one expense a line; the posting splits it, prepaid or accrued.
+    period_expense_id = db.Column(db.Integer, db.ForeignKey('period_expense.id'), nullable=True, index=True)
     voucher = db.relationship('Voucher', backref=db.backref('account_lines', cascade='all, delete-orphan', lazy='dynamic'))
     
     # معرف الحساب

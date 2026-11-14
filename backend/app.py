@@ -79,6 +79,8 @@ try:
 	from routes.system import system_bp
 	from routes.vat_returns import vat_returns_bp
 	from routes.period_lock import period_lock_bp
+	from routes.period_expenses import period_expenses_bp
+	from services.period_expense import PeriodExpenseRefused
 except ImportError as exc:
 	import traceback as _tb
 	print(
@@ -313,6 +315,14 @@ def _gold_cost_refused(exc):
 	return jsonify({'error': exc.code, 'message': exc.message}), 400
 
 
+@app.errorhandler(PeriodExpenseRefused)
+def _period_expense_refused(exc):
+	"""A payment on a period expense refused by name (ADR-090): overpaid, or
+	its two accounts not mapped -- saying why."""
+	db.session.rollback()
+	return jsonify({'error': exc.code, 'message': exc.message}), 400
+
+
 @app.errorhandler(PeriodClosed)
 def _period_closed(exc):
 	"""A write into a closed month (ADR-090 law 9): refused, saying where it
@@ -519,6 +529,7 @@ app.register_blueprint(admin_bp, url_prefix='/api')     # Admin & temp-pdf domai
 app.register_blueprint(system_bp, url_prefix='/api')    # System domain (debug, settings, reset, backup)
 app.register_blueprint(vat_returns_bp, url_prefix='/api')  # VAT returns (ADR-043 rule 5)
 app.register_blueprint(period_lock_bp, url_prefix='/api')  # the period lock (ADR-090 law 9)
+app.register_blueprint(period_expenses_bp, url_prefix='/api')  # period expenses (ADR-090)
 app.register_blueprint(internal_bp)             # ERP Sync internal API (/api/internal/*)
 app.register_blueprint(api, url_prefix='/api')  # ✅ API الرئيسي (أخيراً)
 # recurring_journal_routes تستخدم نفس api blueprint، لذا لا حاجة لتسجيلها

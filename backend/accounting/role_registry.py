@@ -28,6 +28,7 @@ GROUPS = (
     'تسوية الموردين',
     'الأطراف',
     'الموظفون',
+    'مصروفات الفترات',
     'مجموعات الشجرة (للتقارير)',
     'غير مستعمل',
 )
@@ -54,7 +55,7 @@ def _r(key, label, group, purpose, **kw):
     return key, Role(key=key, label=label, group=group, purpose=purpose, **kw)
 
 
-G_CASH, G_TRADE, G_GOLD, G_SUPP, G_PARTY, G_EMP, G_TREE, G_OLD = GROUPS
+G_CASH, G_TRADE, G_GOLD, G_SUPP, G_PARTY, G_EMP, G_PERIOD, G_TREE, G_OLD = GROUPS
 TRADE_OPS = ('بيع', 'شراء من عميل', 'مرتجع بيع', 'مرتجع شراء', 'شراء', 'مرتجع شراء (مورد)')
 
 ROLES: dict[str, Role] = dict((
@@ -178,6 +179,11 @@ ROLES: dict[str, Role] = dict((
        'يُقيَّد عليه مخصص نهاية الخدمة الذي يحسبه المسير كل شهر (المادة 84).'),
     _r('payroll_penalties_payable', 'جزاءات العاملين المستحقة', G_EMP,
        'يُقيَّد له ما يُخصم من الأجور جزاءً (المادة 66: ليس إيرادًا للمنشأة).'),
+    # ── مصروفات الفترات (ADR-090) ──
+    _r('prepaid_expenses', 'مصروفات مقدَّمة', G_PERIOD,
+       'أصل: ما دُفع من مصروف فترة قبل أن يُستحق، يُستنفد شهرًا بشهر.'),
+    _r('accrued_expenses', 'مصروفات مستحقة', G_PERIOD,
+       'التزام: ما استُحق من مصروف فترة ولم يُدفع، يُسدَّد بسنداته.'),
     # ── مجموعات الشجرة (للتقارير) ──
     _r('assets_root', 'مجموعة الأصول', G_TREE, 'تقرأ التقارير فرعها؛ وفرعُ توأمها حساباتُ الأطراف الوزنية.',
        needs_twin=True),

@@ -493,6 +493,7 @@ def _validate_and_summarize_voucher_account_lines(account_lines_data):
         'gross_weight',
         'net_weight',
         'stones_weight',
+        'period_expense_id',      # ADR-090 law 2: a payment on a period expense
     }
     normalized_lines = []
 
@@ -536,8 +537,13 @@ def _validate_and_summarize_voucher_account_lines(account_lines_data):
                 'net_weight': None,
                 'stones_weight': 0.0,
                 'description': line.get('description'),
+                'period_expense_id': line.get('period_expense_id') or None,
             })
             continue
+
+        if line.get('period_expense_id'):
+            return None, jsonify({'error': 'period_expense_line',
+                                  'message': 'مصروف الفترة يُدفع بسطر صرف نقدي مدين في سند صرف.'}), 400
 
         karat = _coerce_float(line.get('karat'), None)
         if karat is None or karat <= 0:
@@ -792,6 +798,23 @@ def _upsert_voucher_from_payload(voucher, data, *, is_create=False):
             voucher.reference_type = 'invoice'
             voucher.reference_id = plan['invoices'][0]['invoice_id']
 
+    # A line naming a period expense: a payment's cash debit on the expense's
+    # own account (ADR-090 law 2). What it pays is checked again at posting,
+    # against the payments then (law 4: overpaid_period_expense).
+    from services.period_expense import PeriodExpenseRefused, check_payment_line, check_payments_fit
+    paying = {}
+    try:
+        for line_data in summary['account_lines']:
+            if line_data.get('period_expense_id'):
+                pe = check_payment_line(line_data['period_expense_id'], voucher_type=voucher.voucher_type,
+                                        amount_type=line_data['amount_type'], line_type=line_data['line_type'],
+                                        account_id=line_data['account_id'])
+                paying[pe] = paying.get(pe, 0) + float(line_data['amount'])
+        if paying:
+            check_payments_fit(paying, voucher_id=voucher.id)
+    except PeriodExpenseRefused as refused:
+        return jsonify({'error': refused.code, 'message': refused.message}), 400
+
     for existing_line in voucher.account_lines.all():
         db.session.delete(existing_line)
 
@@ -835,6 +858,7 @@ def _upsert_voucher_from_payload(voucher, data, *, is_create=False):
             net_weight=_coerce_float(line_data.get('net_weight'), None),
             stones_weight=_coerce_float(line_data.get('stones_weight'), 0.0),
             description=line_data.get('description'),
+            period_expense_id=line_data.get('period_expense_id'),
         ))
 
     from services.expense_vat import keep_invoice

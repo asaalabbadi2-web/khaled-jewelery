@@ -13,6 +13,7 @@ from models import (
     JournalEntry,
     JournalEntryLine,
     PaymentMethod,
+    PeriodExpense,
     SafeBox,
     SafeBoxTransaction,
     Supplier,
@@ -228,6 +229,22 @@ def create_journal_entry_from_voucher(voucher):
                 if getattr(voucher, 'party_type', None) == 'supplier' and getattr(voucher, 'supplier_id', None):
                     supplier_id = voucher.supplier_id
 
+            # A payment on a period expense (ADR-090 law 4): its debit goes where
+            # the expense's balance stands -- accrued paid off first, the rest
+            # prepaid; one crossing zero is two lines. Beyond the amount, refused.
+            if getattr(account_line, 'period_expense_id', None):
+                from services.period_expense import payment_debits
+                expense = db.session.get(PeriodExpense, account_line.period_expense_id)
+                for debit_account_id, debit in payment_debits(
+                        expense, account_line.amount, voucher_day=voucher.date.date()
+                        if hasattr(voucher.date, 'date') else voucher.date, voucher_id=voucher.id):
+                    db.session.add(JournalEntryLine(
+                        journal_entry_id=journal_entry.id, account_id=debit_account_id,
+                        cash_debit=debit, cash_credit=0,
+                        description=(account_line.description or voucher.description or expense.description),
+                    ))
+                continue
+
             target_account_id = _resolve_account_id_for_amount_type(
                 int(account_line.account_id),
                 str(account_line.amount_type or ''),
@@ -299,7 +316,8 @@ def create_journal_entry_from_voucher(voucher):
 
     except Exception as e:
         from services.gold_cost_postings import GoldCostRefused
-        if isinstance(e, GoldCostRefused):
+        from services.period_expense import PeriodExpenseRefused
+        if isinstance(e, (GoldCostRefused, PeriodExpenseRefused)):
             raise   # refused by name: the caller says why (app.py's handler)
         import traceback
         traceback.print_exc()
