@@ -62,3 +62,79 @@ def create_period_expense():
         db.session.rollback()
         return jsonify({'error': refused.code, 'message': refused.message}), 400
     return jsonify(to_dict(pe, date.today())), 201
+
+
+def _by():
+    return getattr(getattr(g, 'current_user', None), 'username', None) or 'system'
+
+
+@period_expenses_bp.route('/period-expenses/accrue', methods=['POST'])
+@require_permission('journal.post')
+def accrue_period_expenses():
+    """The month-end action (law 6): {through, apply}. Without apply, a preview
+    -- the entries it would write, written in a savepoint and rolled back."""
+    from services.period_expense import PeriodExpenseRefused, accrue
+    data = request.get_json(silent=True) or {}
+    try:
+        through = date.fromisoformat(str(data.get('through') or ''))
+    except ValueError:
+        return jsonify({'error': 'invalid_date', 'message': 'آخر يوم يُستحق حتى يُكتب YYYY-MM-DD'}), 400
+    if through >= date.today():
+        return jsonify({'error': 'not_past', 'message': 'يُستحق ما انتهى من الأشهر فقط.'}), 400
+    apply = bool(data.get('apply'))
+    try:
+        plan = accrue(through, by=_by(), now=datetime.now(), dry_run=not apply)
+        if apply:
+            db.session.commit()
+        else:
+            db.session.rollback()
+    except PeriodExpenseRefused as refused:
+        db.session.rollback()
+        return jsonify({'error': refused.code, 'message': refused.message}), 400
+    return jsonify({'applied': apply, **plan}), 201 if apply else 200
+
+
+def _dated(data, key):
+    raw = data.get(key)
+    return date.fromisoformat(str(raw)) if raw else None
+
+
+@period_expenses_bp.route('/period-expenses/<int:expense_id>', methods=['PUT'])
+@require_permission('journal.edit')
+def edit_period_expense(expense_id):
+    from models import PeriodExpense
+    from services.period_expense import PeriodExpenseRefused, edit, to_dict
+    pe = db.session.get(PeriodExpense, expense_id)
+    if pe is None:
+        return jsonify({'error': 'period_expense_not_found'}), 404
+    data = request.get_json(silent=True) or {}
+    try:
+        start, end = _dated(data, 'period_start'), _dated(data, 'period_end')
+    except ValueError:
+        return jsonify({'error': 'invalid_date', 'message': 'التاريخ يُكتب YYYY-MM-DD'}), 400
+    try:
+        edit(pe, reason=data.get('reason'), by=_by(), now=datetime.now(), amount=data.get('amount'),
+             period_start=start, period_end=end)
+        db.session.commit()
+    except PeriodExpenseRefused as refused:
+        db.session.rollback()
+        return jsonify({'error': refused.code, 'message': refused.message}), 400
+    return jsonify(to_dict(pe, date.today())), 200
+
+
+@period_expenses_bp.route('/period-expenses/<int:expense_id>/cancel', methods=['POST'])
+@require_permission('journal.edit')
+def cancel_period_expense(expense_id):
+    from models import PeriodExpense
+    from services.period_expense import PeriodExpenseRefused, cancel, to_dict
+    pe = db.session.get(PeriodExpense, expense_id)
+    if pe is None:
+        return jsonify({'error': 'period_expense_not_found'}), 404
+    data = request.get_json(silent=True) or {}
+    try:
+        cancel(pe, reason=data.get('reason'), by=_by(), now=datetime.now())
+        db.session.commit()
+    except PeriodExpenseRefused as refused:
+        db.session.rollback()
+        return jsonify({'error': refused.code, 'message': refused.message}), 400
+    return jsonify(to_dict(pe, date.today())), 200

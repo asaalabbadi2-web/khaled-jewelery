@@ -18,7 +18,7 @@ import pytest
 from flask import g
 
 from app import app as flask_app
-from models import Account, JournalEntryLine, PeriodExpense, Voucher, db
+from models import Account, db
 from services.period_expense import (
     PeriodExpenseRefused, accrued_to, create, halalas, paid_to, schedule, values,
 )
@@ -92,56 +92,37 @@ def test_one_carried_into_a_new_year_counts_what_came_before_its_opening():
 
 # ── the expense, and a voucher paying it (laws 2 and 4) ───────────────────────
 
-@pytest.fixture
-def books(vworld):
-    from services.repair.period_expense_accounts import setup
-    setup(by='test', prepaid_under='1', accrued_under='2', dry_run=False)
-    parent = Account.query.filter_by(account_number='540').one()
-    rent_account = Account(account_number=f'54{uuid.uuid4().int % 10**6:06d}', name='إيجار المعرض', type='Expense',
-                           transaction_type='cash', parent_id=parent.id)
-    db.session.add(rent_account)
-    db.session.flush()
-    from accounting.chart_tree import role_account_id
-    return {**vworld, 'rent_account': rent_account.id,
-            'prepaid': role_account_id('prepaid_expenses'), 'accrued': role_account_id('accrued_expenses')}
+from tests.period_expense_world import books, debits as _debits, expense, pay as _pay  # noqa: F401,E402
 
 
-def _expense(books, amount=144900, start=date(2026, 1, 1), end=date(2026, 12, 31)):
-    return create(description='إيجار المعرض 2026', expense_account_id=books['rent_account'], amount=amount,
-                  period_start=start, period_end=end, by='tester', now=datetime(2026, 1, 1))
+def _expense(books, **kw):
+    return expense(books, **kw)
 
 
-def _pay(headers, books, pe, amount, day, *, voucher_type='payment', amount_type='cash', account=None):
-    g.pop('current_user', None)
-    line = {'account_id': account or books['rent_account'], 'line_type': 'debit', 'amount_type': amount_type,
-            'amount': amount, 'period_expense_id': pe.id}
-    if amount_type == 'gold':
-        line['karat'] = 21
-    counter = {'account_id': books['cash'] if amount_type == 'cash' else books['gold'], 'line_type': 'credit',
-               'amount_type': amount_type, 'amount': amount, **({'karat': 21} if amount_type == 'gold' else {})}
-    return flask_app.test_client().post('/api/vouchers', headers=headers, json={
-        'voucher_type': voucher_type, 'date': datetime.combine(day, datetime.min.time()).isoformat(),
-        'description': 'إيجار', 'account_lines': [line, counter]})
-
-
-def _debits(voucher_id):
-    entry = db.session.get(Voucher, voucher_id).journal_entry_id
-    return {(l.account_id, round(l.cash_debit or 0, 2)) for l in
-            JournalEntryLine.query.filter_by(journal_entry_id=entry) if (l.cash_debit or 0) > 0}
-
-
-def test_the_june_rent_pays_off_what_accrued_and_the_rest_is_prepaid(auth_headers, books):
+def test_the_june_rent_pays_off_what_the_books_accrued_and_the_rest_is_prepaid(auth_headers, books):
+    """The split reads the books, not the schedule: January to May posted as
+    accrued, the payment of 24 June pays them off and puts June prepaid."""
+    from services.period_expense import accrue
     auto_post(True)
     rent = _expense(books)
+    accrue(date(2026, 5, 31), by='tester', now=datetime(2026, 6, 1), dry_run=False)
     resp = _pay(auth_headers, books, rent, 72450, date(2026, 6, 24))
     assert resp.status_code == 201, resp.get_json()
-    # January to May accrued (60,375) paid off; June's 12,075 paid before it is over: prepaid.
     assert _debits(resp.get_json()['id']) == {(books['accrued'], 60375.0), (books['prepaid'], 12075.0)}
     assert values(rent, date(2026, 6, 24))['balance'] == 12075.0
     assert values(rent, date(2026, 6, 30))['standing'] == 'settled'
     assert values(rent, date(2026, 12, 30)) == {
         'accrued': 132825.0, 'paid': 72450.0, 'balance': -60375.0, 'standing': 'accrued',
         'amount': 144900.0, 'remaining_to_pay': 72450.0}
+
+
+def test_a_payment_with_nothing_posted_yet_is_prepaid_whatever_the_schedule(auth_headers, books):
+    """No month posted, the books carry no accrued balance to pay off: the
+    whole payment prepaid; the months, posted later, draw it down (law 4)."""
+    auto_post(True)
+    rent = _expense(books)
+    resp = _pay(auth_headers, books, rent, 72450, date(2026, 6, 24))
+    assert _debits(resp.get_json()['id']) == {(books['prepaid'], 72450.0)}
 
 
 def test_a_payment_before_the_period_is_all_prepaid(auth_headers, books):
@@ -172,14 +153,17 @@ def test_a_pending_payment_is_checked_again_when_approved(auth_headers, books):
     assert refused.status_code == 400 and 'يتجاوز المبلغ' in str(refused.get_json()), refused.get_json()
 
 
-def test_a_cancelled_payment_pays_nothing(auth_headers, books):
+def test_a_cancelled_payment_pays_nothing_from_the_day_it_was_cancelled(auth_headers, books):
     auto_post(True)
     rent = _expense(books)
     vid = _pay(auth_headers, books, rent, 72450, date(2026, 6, 24)).get_json()['id']
     g.pop('current_user', None)
     assert flask_app.test_client().post(f'/api/vouchers/{vid}/cancel', headers=auth_headers,
                                         json={'reason': 'خطأ'}).status_code == 200
-    assert values(rent, date(2026, 6, 30))['paid'] == 0.0
+    # As the books held it: paid on 30 June, the cancellation (today) not yet
+    # come; from the day it was cancelled, nothing.
+    assert values(rent, date(2026, 6, 30))['paid'] == 72450.0
+    assert values(rent, date.today())['paid'] == 0.0
 
 
 @pytest.mark.parametrize('kind, code', [

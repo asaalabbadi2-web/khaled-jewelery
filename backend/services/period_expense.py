@@ -31,6 +31,7 @@ from datetime import date
 from fractions import Fraction
 
 PREPAID, ACCRUED = 'prepaid_expenses', 'accrued_expenses'
+MONTH_ENTRY, RECLASS_ENTRY = 'period_expense', 'period_expense_reclass'     # law 6's keys
 
 
 class PeriodExpenseRefused(ValueError):
@@ -98,30 +99,71 @@ def _months(pe) -> list[Month]:
 
 
 def accrued_to(pe, day: date, *, before: bool = False) -> int:
-    """The months over by *day* (or before it), in halalas."""
+    """What the schedule has accrued by *day* (or before it), in halalas: the
+    months over, and what a new year's database carried. A cancelled expense
+    accrues nothing -- what was posted for it is taken back (law 7)."""
     carried = halalas(pe.accrued_before_opening or 0)
+    if getattr(pe, 'status', 'active') == 'cancelled':
+        return carried
     return carried + sum(m.amount for m in _months(pe) if (m.ends < day if before else m.ends <= day))
 
 
+def _day_of(value):
+    return value.date() if hasattr(value, 'date') else value
+
+
 def _payments(pe):
-    """(date, voucher id, halalas) of the approved vouchers' lines on *pe*."""
+    """(date, voucher id, halalas, the day it stopped counting or None) of the
+    vouchers' lines on *pe* that were ever posted: an approved voucher counts
+    from its date; a cancelled one from its date until the day it was
+    cancelled, its reversal's day -- so the paid at a past date is what the
+    books said then."""
     from models import Voucher, VoucherAccountLine, db
-    rows = (db.session.query(Voucher.date, Voucher.id, VoucherAccountLine.amount)
+    rows = (db.session.query(Voucher.date, Voucher.id, VoucherAccountLine.amount, Voucher.status,
+                             Voucher.cancelled_at, Voucher.journal_entry_id)
             .join(VoucherAccountLine, VoucherAccountLine.voucher_id == Voucher.id)
-            .filter(VoucherAccountLine.period_expense_id == pe.id, Voucher.status == 'approved')
+            .filter(VoucherAccountLine.period_expense_id == pe.id,
+                    Voucher.status.in_(('approved', 'cancelled')))
             .all())
-    return [(d.date() if hasattr(d, 'date') else d, vid, halalas(a)) for d, vid, a in rows]
+    out = []
+    for d, vid, amount, status, cancelled_at, entry_id in rows:
+        if status == 'cancelled' and not (entry_id and cancelled_at):
+            continue                                  # cancelled before it was approved: never paid
+        out.append((_day_of(d), vid, halalas(amount), _day_of(cancelled_at) if status == 'cancelled' else None))
+    return out
+
+
+def _counts(day, stopped, at: date) -> bool:
+    return day <= at and (stopped is None or stopped > at)
 
 
 def paid_to(pe, day: date, *, before_voucher=None) -> int:
-    """What the approved vouchers paid on *pe* by *day*. With *before_voucher*
-    (its date and id), only those before it: same day, a lower id."""
+    """What *pe* was paid by *day*. With *before_voucher* (its date and id),
+    only the payments before it: an earlier day, or the same day and a lower id."""
     carried = halalas(pe.paid_before_opening or 0)
     if before_voucher is None:
-        return carried + sum(h for d, _, h in _payments(pe) if d <= day)
+        return carried + sum(h for d, _, h, stopped in _payments(pe) if _counts(d, stopped, day))
     v_day, v_id = before_voucher
-    return carried + sum(h for d, vid, h in _payments(pe)
-                         if vid != v_id and (d < v_day or (d == v_day and vid < v_id)))
+    return carried + sum(h for d, vid, h, stopped in _payments(pe)
+                         if vid != v_id and (d < v_day or (d == v_day and vid < v_id))
+                         and (stopped is None or stopped > v_day))
+
+
+def posted_accrual(pe, *, through: date | None = None, before: date | None = None) -> int:
+    """What its month entries have accrued in the books (law 6), in halalas:
+    the expense's debits less its credits on the entries keyed to it, posted;
+    with what a new year's database carried."""
+    from accounting.balances import counted_line_filters
+    from models import JournalEntry, JournalEntryLine, db
+    q = (db.session.query(db.func.coalesce(db.func.sum(JournalEntryLine.cash_debit - JournalEntryLine.cash_credit), 0))
+         .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+         .filter(*counted_line_filters(), JournalEntry.reference_type == MONTH_ENTRY,
+                 JournalEntry.reference_id == pe.id, JournalEntryLine.account_id == pe.expense_account_id))
+    if through is not None:
+        q = q.filter(db.func.date(JournalEntry.date) <= through)
+    if before is not None:
+        q = q.filter(db.func.date(JournalEntry.date) < before)
+    return halalas(pe.accrued_before_opening or 0) + halalas(q.scalar() or 0)
 
 
 def values(pe, day: date) -> dict:
@@ -153,7 +195,10 @@ def payment_debits(pe, amount, *, voucher_day: date, voucher_id: int) -> list[tu
             'overpaid_period_expense',
             f'«{pe.description}»: المدفوع {riyals(before + pay):,.2f} يتجاوز المبلغ {riyals(halalas(pe.amount)):,.2f}.')
     prepaid_id, accrued_id = _accounts()
-    balance = before - accrued_to(pe, voucher_day, before=True)
+    # The balance as the books hold it: paid less what the month entries have
+    # posted -- not the schedule, or a payment would settle an accrual the
+    # books do not carry yet (law 4; the schedule is law 8's measure).
+    balance = before - posted_accrual(pe, before=voucher_day)
     settles = min(pay, max(0, -balance))           # what it pays of an accrued balance
     lines = [(accrued_id, riyals(settles)), (prepaid_id, riyals(pay - settles))]
     return [(acc, amt) for acc, amt in lines if amt > 0]
@@ -176,14 +221,19 @@ def check_payment_line(pe_id, *, voucher_type: str, amount_type: str, line_type:
     return pe
 
 
+def _paid_now(pe, voucher_id=None) -> int:
+    """What the approved vouchers have paid, all told (not a cancelled one)."""
+    return halalas(pe.paid_before_opening or 0) + sum(
+        h for _, vid, h, stopped in _payments(pe) if stopped is None and (voucher_id is None or vid != voucher_id))
+
+
 def check_payments_fit(paying: dict, *, voucher_id=None):
     """When a voucher is saved (law 2): what it pays on each expense ({pe: riyals})
     fits beside the approved payments of the others, and the two accounts are
     mapped -- refused now, by name, not left for its posting to fail."""
     _accounts()
     for pe, amount in paying.items():
-        others = halalas(pe.paid_before_opening or 0) + sum(
-            h for _, vid, h in _payments(pe) if voucher_id is None or vid != voucher_id)
+        others = _paid_now(pe, voucher_id)
         if others + halalas(amount) > halalas(pe.amount):
             raise PeriodExpenseRefused(
                 'overpaid_period_expense',
@@ -221,7 +271,195 @@ def to_dict(pe, day: date) -> dict:
         'id': pe.id, 'description': pe.description, 'expense_account_id': pe.expense_account_id,
         'amount': riyals(halalas(pe.amount)), 'period_start': pe.period_start.isoformat(),
         'period_end': pe.period_end.isoformat(), 'status': pe.status,
-        'as_of': day.isoformat(), **values(pe, day),
+        'as_of': day.isoformat(), **values(pe, day), 'posted_accrued': riyals(posted_accrual(pe, through=day)),
         'schedule': [{'month': m.month.isoformat()[:7], 'amount': riyals(m.amount)}
                      for m in schedule(pe.amount, pe.period_start, pe.period_end)],
     }
+
+
+# ── laws 6 and 7: the month's entry, one rule ────────────────────────────────
+#
+# A month's entry is what the schedule has accrued by the month's end less
+# what the books have posted before it. That one rule is law 6 and law 7: a
+# month not written, an edit of the amount or the period, a cancellation, a
+# closed month -- each is a difference the first open month's entry takes,
+# whole (the owner's cumulative catch-up, option A). No posted entry is
+# changed; a closed month is not written (law 9).
+
+def _month_split(pe, amount: int, month_end: date, prepaid_id: int, accrued_id: int):
+    """The credit side of a month's entry of *amount* halalas (law 4, the other
+    way): from a prepaid balance first, the rest accrued. A negative amount
+    (an accrual taken back) debits them: accrued first, the rest prepaid."""
+    balance = paid_to(pe, month_end) - posted_accrual(pe, through=month_end)
+    if amount > 0:
+        from_prepaid = min(amount, max(0, balance))
+        return [(prepaid_id, 0, from_prepaid), (accrued_id, 0, amount - from_prepaid)]
+    back = -amount
+    to_accrued = min(back, max(0, -balance))
+    return [(accrued_id, to_accrued, 0), (prepaid_id, back - to_accrued, 0)]
+
+
+def _keyed(reference_type, reference_id, month: date):
+    from models import JournalEntry
+    return JournalEntry.query.filter_by(reference_type=reference_type, reference_id=reference_id,
+                                        reference_number=month.isoformat()[:7], is_deleted=False).first()
+
+
+def _write(*, reference_type, reference_id, month_end: date, description, lines, by, now):
+    """One entry, posted, dated the month's last day; lines (account, debit, credit) in halalas."""
+    from datetime import datetime as _dt
+    from accounting.reference_number_service import generate_journal_entry_number
+    from models import JournalEntry, JournalEntryLine, db
+    when = _dt.combine(month_end, _dt.min.time())
+    entry = JournalEntry(entry_number=generate_journal_entry_number('JE', when), date=when,
+                         description=description, entry_type='استحقاق مصروف فترة',
+                         reference_type=reference_type, reference_id=reference_id,
+                         reference_number=month_end.isoformat()[:7], created_by=by,
+                         is_posted=True, posted_at=now, posted_by=by)
+    db.session.add(entry)
+    db.session.flush()
+    for account_id, debit, credit in lines:
+        if debit or credit:
+            db.session.add(JournalEntryLine(journal_entry_id=entry.id, account_id=account_id,
+                                            cash_debit=riyals(debit), cash_credit=riyals(credit),
+                                            description=description))
+    db.session.flush()
+    return entry
+
+
+def _ledger_balance(account_id: int, through: date) -> int:
+    """An account's debit balance in the books by *through*, in halalas."""
+    from accounting.balances import counted_line_filters
+    from models import JournalEntry, JournalEntryLine, db
+    total = (db.session.query(db.func.coalesce(db.func.sum(JournalEntryLine.cash_debit - JournalEntryLine.cash_credit), 0))
+             .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+             .filter(*counted_line_filters(), JournalEntryLine.account_id == account_id,
+                     db.func.date(JournalEntry.date) <= through).scalar())
+    return halalas(total or 0)
+
+
+def _month_ends(start: date, through: date):
+    month = start.replace(day=1)
+    while _month_end(month) <= through:
+        yield _month_end(month)
+        month = _next_month(month)
+
+
+def accrue(through: date, *, by: str, now, dry_run: bool = True) -> dict:
+    """The month entries due by *through* -- the authorised month-end action
+    (law 6): previewed (dry_run, the default: written in a savepoint and rolled
+    back, so the figures are the ones it would write), then applied. For each
+    month over by *through* and open (after the lock), each expense's entry by
+    the one rule; then, the month's entries made, the two accounts reclassified
+    if the expenses' balances say the sum is right but its split is not (a
+    payment cancelled after installments). A drift of the sum is reported, not
+    written over (law 8)."""
+    from models import PeriodExpense, db
+    from period_lock_guard import closed_through
+    prepaid_id, accrued_id = _accounts()
+    closed = closed_through(db.session.connection())
+    expenses = PeriodExpense.query.order_by(PeriodExpense.id).all()
+    plan = {'through': through.isoformat(), 'closed_through': closed.isoformat() if closed else None,
+            'entries': [], 'reclass': [], 'drift': []}
+    if not expenses:
+        return plan
+    savepoint = db.session.begin_nested()
+    start = min(pe.period_start for pe in expenses)
+    for month_end in _month_ends(start, through):
+        if closed is not None and month_end <= closed:
+            continue                                   # a closed month: its share goes to the first open one
+        for pe in expenses:
+            if month_end < pe.period_start.replace(day=1) or _keyed(MONTH_ENTRY, pe.id, month_end):
+                continue
+            amount = accrued_to(pe, month_end) - posted_accrual(pe, through=month_end)
+            if amount == 0:
+                continue
+            scheduled = next((m.amount for m in _months(pe) if m.ends == month_end), 0)
+            label = f'{pe.description} — {month_end.isoformat()[:7]}'
+            if amount != scheduled:
+                label += f' (تسوية تراكمية: المجدول {riyals(scheduled):,.2f})'
+            credits = _month_split(pe, amount, month_end, prepaid_id, accrued_id)
+            expense_line = (pe.expense_account_id, amount, 0) if amount > 0 else (pe.expense_account_id, 0, -amount)
+            _write(reference_type=MONTH_ENTRY, reference_id=pe.id, month_end=month_end, description=label,
+                   lines=[expense_line, *credits], by=by, now=now)
+            plan['entries'].append({'period_expense_id': pe.id, 'month': month_end.isoformat()[:7],
+                                    'amount': riyals(amount), 'scheduled': riyals(scheduled)})
+        _reclassify(expenses, month_end, prepaid_id, accrued_id, plan, by=by, now=now)
+    db.session.flush()
+    if dry_run:
+        savepoint.rollback()
+    else:
+        savepoint.commit()
+    return plan
+
+
+def _reclassify(expenses, month_end: date, prepaid_id: int, accrued_id: int, plan: dict, *, by, now):
+    balances = [paid_to(pe, month_end) - posted_accrual(pe, through=month_end) for pe in expenses]
+    want_prepaid = sum(b for b in balances if b > 0)
+    want_net = sum(balances)
+    held_prepaid, held_accrued = _ledger_balance(prepaid_id, month_end), _ledger_balance(accrued_id, month_end)
+    if held_prepaid + held_accrued != want_net:
+        plan['drift'].append({'month': month_end.isoformat()[:7], 'books': riyals(held_prepaid + held_accrued),
+                              'expenses': riyals(want_net)})
+        return
+    move = want_prepaid - held_prepaid
+    if move == 0 or _keyed(RECLASS_ENTRY, int(month_end.strftime('%Y%m')), month_end):
+        return
+    lines = [(prepaid_id, move, 0), (accrued_id, 0, move)] if move > 0 else [(accrued_id, -move, 0), (prepaid_id, 0, -move)]
+    _write(reference_type=RECLASS_ENTRY, reference_id=int(month_end.strftime('%Y%m')), month_end=month_end,
+           description=f'إعادة تصنيف مصروفات الفترات — {month_end.isoformat()[:7]}', lines=lines, by=by, now=now)
+    plan['reclass'].append({'month': month_end.isoformat()[:7], 'to_prepaid': riyals(move)})
+
+
+# ── law 7: an edit, a cancellation -- recorded, never a posted entry changed ──
+
+def _revise(pe, *, reason: str, by: str, now, **changes):
+    import json
+    from models import PeriodExpenseRevision, db
+    reason = (reason or '').strip()
+    if not reason:
+        raise PeriodExpenseRefused('reason_required', 'اذكر سبب التعديل: يُحفظ في سجلّ المصروف.')
+    before = {k: str(getattr(pe, k)) for k in changes}
+    for k, v in changes.items():
+        setattr(pe, k, v)
+    db.session.add(PeriodExpenseRevision(period_expense_id=pe.id, reason=reason, changed_by=by or 'system',
+                                         changed_at=now, before=json.dumps(before, ensure_ascii=False),
+                                         after=json.dumps({k: str(v) for k, v in changes.items()}, ensure_ascii=False)))
+    db.session.flush()
+
+
+def edit(pe, *, reason: str, by: str, now, amount=None, period_start: date | None = None,
+         period_end: date | None = None):
+    """A new amount or period (law 7). The posted months stay; the next month
+    entry takes the whole difference."""
+    if pe.status != 'active':
+        raise PeriodExpenseRefused('period_expense_cancelled', 'المصروف ملغى.')
+    changes = {}
+    if amount is not None:
+        if halalas(amount) <= 0:
+            raise PeriodExpenseRefused('amount_not_positive', 'المبلغ أكبر من صفر.')
+        if halalas(amount) < _paid_now(pe):
+            raise PeriodExpenseRefused('amount_below_paid',
+                                       f'المدفوع {riyals(_paid_now(pe)):,.2f} أكثر من المبلغ الجديد.')
+        changes['amount'] = riyals(halalas(amount))
+    if period_start is not None or period_end is not None:
+        start, end = period_start or pe.period_start, period_end or pe.period_end
+        schedule(changes.get('amount', pe.amount), start, end)
+        changes['period_start'], changes['period_end'] = start, end
+    if not changes:
+        raise PeriodExpenseRefused('unchanged', 'لا تعديل.')
+    _revise(pe, reason=reason, by=by, now=now, **changes)
+    return pe
+
+
+def cancel(pe, *, reason: str, by: str, now):
+    """Cancelled: it accrues nothing more, and the next month entry takes back
+    what was posted (law 7). Refused while a payment stands on it -- cancel
+    the payment, or edit the expense to what it really cost."""
+    if pe.status == 'cancelled':
+        raise PeriodExpenseRefused('unchanged', 'المصروف ملغى أصلًا.')
+    if _paid_now(pe) > 0:
+        raise PeriodExpenseRefused('cancel_with_payments',
+                                   'على المصروف دفعات قائمة: ألغِ سنداتها، أو عدّل المصروف إلى كلفته الحقيقية.')
+    _revise(pe, reason=reason, by=by, now=now, status='cancelled')
+    return pe

@@ -2721,6 +2721,21 @@ class PeriodExpense(db.Model):
     )
 
 
+class PeriodExpenseRevision(db.Model):
+    """One edit of a period expense (ADR-090, law 7): what changed, from what to
+    what, why, by whom, when. The posted months are never changed; the next
+    month entry takes the difference."""
+    __tablename__ = 'period_expense_revision'
+
+    id = db.Column(db.Integer, primary_key=True)
+    period_expense_id = db.Column(db.Integer, db.ForeignKey('period_expense.id'), nullable=False, index=True)
+    reason = db.Column(db.Text, nullable=False)
+    before = db.Column(db.Text, nullable=False)          # JSON
+    after = db.Column(db.Text, nullable=False)           # JSON
+    changed_by = db.Column(db.String(100), nullable=False)
+    changed_at = db.Column(db.DateTime, nullable=False)
+
+
 class PeriodLock(db.Model):
     """One move of the period lock (ADR-090, law 9): the books closed through
     *closed_through* from this row on; none, all open. The last row is the lock
@@ -7121,3 +7136,10 @@ db.event.listen(JournalEntryLine.__table__, 'after_create',
                 _DDL(_PERIOD_LOCK_ENTRY_SQL.replace('%', '%%')).execute_if(dialect='postgresql'))
 db.event.listen(PeriodLock.__table__, 'after_create',
                 _DDL(_PERIOD_LOCK_LOG_SQL.replace('%', '%%')).execute_if(dialect='postgresql'))
+
+# ADR-090 law 6: one entry for each period expense and month, one reclass for
+# each month -- held by the database too, not only by the run's own check.
+db.Index('uq_period_expense_entry_month', JournalEntry.reference_type, JournalEntry.reference_id,
+         JournalEntry.reference_number, unique=True,
+         postgresql_where=db.and_(JournalEntry.reference_type.in_(('period_expense', 'period_expense_reclass')),
+                                  JournalEntry.is_deleted.is_(False)))
