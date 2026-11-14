@@ -32,13 +32,13 @@ def clearing_pending(now: datetime) -> dict:
         method_dues, method_open_payments, overdue_grace_hours, overdue_settlements, public_holidays,
     )
     from models import PaymentMethod, SafeBox
-    from routes.clearing import _compute_clearing_due_amount
+    from routes.clearing import clearing_due
 
     holidays = public_holidays()
     late = {fact.subject_key: fact.detail.get('due_day') for fact in overdue_settlements(now, overdue_grace_hours())}
     safes = []
     for sb in SafeBox.query.filter_by(safe_type='clearing', is_active=True).order_by(SafeBox.id).all():
-        due = float(_compute_clearing_due_amount(sb.id) or 0.0)
+        due, due_net = clearing_due(sb.id)
         if due < 0.005:
             continue
         methods = PaymentMethod.query.filter_by(default_safe_box_id=sb.id).order_by(PaymentMethod.id).all()
@@ -51,6 +51,7 @@ def clearing_pending(now: datetime) -> dict:
             'safe': sb.name,
             'method': ' / '.join(pm.name for pm in methods) or None,
             'amount': round(due, 2),
+            'net': round(due_net, 2),          # what is expected to arrive: commissions off
             'payments': len(waiting),
             'oldest': min(waiting).isoformat() if waiting else None,
             'next_deposit': min(deposits).isoformat() if deposits else None,
@@ -58,5 +59,6 @@ def clearing_pending(now: datetime) -> dict:
             'overdue': late_since is not None,
             'overdue_since': late_since,
         })
-    return {'total': round(sum(s['amount'] for s in safes), 2), 'safes': safes,
+    return {'total': round(sum(s['amount'] for s in safes), 2),
+            'total_net': round(sum(s['net'] for s in safes), 2), 'safes': safes,
             'overdue': sum(1 for s in safes if s['overdue'])}

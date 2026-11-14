@@ -36,6 +36,33 @@ def test_a_card_payment_waiting_for_its_deposit_is_said(app, auth_headers, mada)
     assert clearing['total'] >= 400.0
 
 
+def test_on_its_way_net_of_its_commissions(app, auth_headers, mada):
+    """«في الطريق يكون صافي» (the owner, 14 Nov 2026): what waits is said
+    gross -- what the settlement matches against the bank -- and net, what is
+    expected to arrive: each payment's commission and its VAT off, as the
+    payment recorded them; a payment half settled, its rest at its own net."""
+    from models import db
+    ip = _sale_paid_by_mada(auth_headers, mada, 1000.0)
+    ip.commission_amount, ip.commission_vat, ip.net_amount = 20.0, 3.0, 977.0
+    db.session.flush()
+    _sale_paid_by_mada(auth_headers, mada, 500.0)                     # no commission: arrives whole
+    clearing = _clearing(app, auth_headers)
+    (box,) = [s for s in clearing['safes'] if s['safe'] == mada['box'].name]
+    assert (box['amount'], box['net']) == (1500.0, 1477.0)
+    assert round(clearing['total'] - clearing['total_net'], 2) >= 23.0
+
+
+def test_a_half_settled_payment_waits_net_on_its_rest(app, auth_headers, mada):
+    from models import db
+    from tests.test_clearing_settlement_live_balance import _settle
+    ip = _sale_paid_by_mada(auth_headers, mada, 1000.0)
+    ip.commission_amount, ip.commission_vat, ip.net_amount = 20.0, 3.0, 977.0
+    db.session.flush()
+    _settle(mada, 400.0, [ip.id])
+    (box,) = [s for s in _clearing(app, auth_headers)['safes'] if s['safe'] == mada['box'].name]
+    assert (box['amount'], box['net']) == (600.0, round(600.0 * 977.0 / 1000.0, 2))
+
+
 def test_late_is_the_alarm_s_answer(app, auth_headers, mada, monkeypatch):
     """The 31 Oct copy: the card said Tamara late and Mada on time, the
     scheduler's alarm the opposite. Late is the alarm's answer, and its day."""

@@ -67,7 +67,19 @@ def _refuse_unsettleable_payment_ids(safe_box_id, ids) -> list[int]:
 
 
 def _compute_clearing_due_amount(safe_box_id):
-    """Compute how much is actually pending in a clearing safe box.
+    """How much is pending in a clearing safe box, gross -- what the settlement
+    matches against the bank (clearing_due's first figure)."""
+    return clearing_due(safe_box_id)[0]
+
+
+def clearing_due(safe_box_id) -> tuple[float, float]:
+    """(gross, net): how much is pending in a clearing safe box, and what of it
+    is expected to arrive -- each payment's rest at its own net (its commission
+    and the commission's VAT off, as the payment recorded them), a transfer in
+    at its whole (no commission). The owner, 14 Nov 2026: «في الطريق يكون
+    صافي» -- the liquidity reads the net; the settlement, the gross.
+
+    Compute how much is actually pending in a clearing safe box.
 
     Uses SettlementLine-based calculation (primary) plus transfer-in
     adjustment (secondary) to avoid false zeros caused by accounting gaps.
@@ -96,7 +108,7 @@ def _compute_clearing_due_amount(safe_box_id):
     ]
 
     if not all_ip_ids:
-        return 0.0
+        return 0.0, 0.0
 
     # Settled per IP (approved vouchers only — excludes cancelled/phantom SLs)
     sl_rows = (
@@ -114,19 +126,20 @@ def _compute_clearing_due_amount(safe_box_id):
     )
     sl_settled: dict[int, float] = {r[0]: round(float(r[1]), 2) for r in sl_rows}
 
-    ip_amounts: dict[int, float] = {
-        r[0]: round(float(r[1]), 2)
-        for r in (
-            db.session.query(InvoicePayment.id, InvoicePayment.amount)
-            .filter(InvoicePayment.id.in_(all_ip_ids))
-            .all()
-        )
+    rows = (
+        db.session.query(InvoicePayment.id, InvoicePayment.amount, InvoicePayment.net_amount)
+        .filter(InvoicePayment.id.in_(all_ip_ids))
+        .all()
+    )
+    ip_amounts: dict[int, float] = {r[0]: round(float(r[1]), 2) for r in rows}
+    # its own net over its amount: what of each riyal still pending will arrive
+    net_share: dict[int, float] = {
+        r[0]: (float(r[2]) / float(r[1]) if r[1] and r[2] is not None else 1.0) for r in rows
     }
 
-    pending_sl = round(sum(
-        max(0.0, ip_amounts[ip_id] - sl_settled.get(ip_id, 0.0))
-        for ip_id in all_ip_ids
-    ), 2)
+    rests = {ip_id: max(0.0, ip_amounts[ip_id] - sl_settled.get(ip_id, 0.0)) for ip_id in all_ip_ids}
+    pending_sl = round(sum(rests.values()), 2)
+    pending_net = round(sum(rest * net_share[ip_id] for ip_id, rest in rests.items()), 2)
 
     # ── Secondary: safe-box transfers without IP (routing corrections) ────────
     transfer_in = (
@@ -153,7 +166,7 @@ def _compute_clearing_due_amount(safe_box_id):
 
     net_transfer_in = max(0.0, float(transfer_in) - float(reversal_out))
 
-    return round(pending_sl + net_transfer_in, 2)
+    return round(pending_sl + net_transfer_in, 2), round(pending_net + net_transfer_in, 2)
 
 def commission_vat(fee_amount) -> float:
     """VAT on a settlement's commission: the commission is entered net of VAT,

@@ -228,6 +228,19 @@ class DashboardClearingPanel extends StatelessWidget {
               ),
             ),
           ),
+          // What of it is expected to arrive: each payment's commission and its VAT
+          // off (the owner, 14 Nov 2026: «في الطريق يكون صافي»). The figure above
+          // stays gross: it is what the settlement matches against the bank.
+          if (clearing['total_net'] is num)
+            Padding(
+              key: const Key('dashboard-clearing-net'),
+              padding: const EdgeInsets.only(top: AppSpace.sm),
+              child: Row(children: [
+                Text(isArabic ? 'يصل منه صافيًا بعد العمولات  ' : 'Arriving net of commissions  ', style: muted),
+                money.text(dashboardNum(clearing['total_net']),
+                    style: dashboardFigure(theme.textTheme.bodySmall, weight: FontWeight.w700)),
+              ]),
+            ),
           for (final (i, s) in safes.indexed)
             Padding(
               padding: const EdgeInsets.only(top: AppSpace.md),

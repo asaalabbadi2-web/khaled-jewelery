@@ -346,17 +346,37 @@ class KaratShare {
   final Color color;
 }
 
-/// The karats held as bars, a line a karat, the largest first (the owner,
-/// 14 Nov 2026): its «24K» in its colour, a bar as long as its share of the
-/// whole, its grams and its share. A share under 1% says its tenth; a karat
-/// with nothing held keeps its line, its bar empty.
-class KaratBars extends StatelessWidget {
-  const KaratBars({super.key, required this.shares, required this.weight});
+/// One line of [DashboardShareBars]: its name, its value (null: not read),
+/// its colour, and its figure as the screen writes it.
+class ShareLine {
+  const ShareLine({required this.id, required this.label, required this.value, required this.color, required this.figure});
 
-  final List<KaratShare> shares;
+  final String id;
+  final Widget label;
+  final double? value;
+  final Color color;
+  final Widget figure;
+}
 
-  /// The grams as the screen writes them, without the unit.
-  final String Function(double grams) weight;
+/// Lines with a bar each, as long as its share of the whole, then its figure
+/// and its share (under 1% with its tenth). A value not read keeps its line:
+/// no bar, «غير متاح», no share -- and it is not in the whole. One for the
+/// dashboard's shares: the karat mix and the liquidity (the owner, 14 Nov 2026).
+class DashboardShareBars extends StatelessWidget {
+  const DashboardShareBars({
+    super.key,
+    required this.lines,
+    required this.keyPrefix,
+    this.labelWidth = 40,
+    this.figureWidth = 118,
+    this.largestFirst = false,
+  });
+
+  final List<ShareLine> lines;
+  final String keyPrefix;
+  final double labelWidth;
+  final double figureWidth;
+  final bool largestFirst;
 
   static String share(double percent) =>
       NumberFormat(percent > 0 && percent < 1 ? '0.0' : '0', 'en').format(percent);
@@ -365,32 +385,20 @@ class KaratBars extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final total = shares.fold<double>(0, (sum, s) => sum + s.grams);
-    final sorted = [...shares]..sort((a, b) => b.grams.compareTo(a.grams));
-    final figure = theme.textTheme.bodyMedium!.copyWith(
-      fontWeight: FontWeight.w600,
-      fontFeatures: const [FontFeature.tabularFigures()],
-    );
+    final total = lines.fold<double>(0, (sum, l) => sum + (l.value ?? 0));
+    final shown = largestFirst ? ([...lines]..sort((a, b) => (b.value ?? -1).compareTo(a.value ?? -1))) : lines;
+    final figure = dashboardFigure(theme.textTheme.bodyMedium, weight: FontWeight.w600);
     return Column(children: [
-      for (final s in sorted)
+      for (final l in shown)
         Padding(
-          key: Key('karat-bar-${s.karat}'),
+          key: Key('$keyPrefix-${l.id}'),
           padding: const EdgeInsets.symmetric(vertical: AppSpace.xs),
           child: Row(children: [
-            SizedBox(
-              width: 40,
-              child: Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: Text('${s.karat}K',
-                    textDirection: TextDirection.ltr,
-                    style: theme.textTheme.labelLarge!.copyWith(color: s.color, fontWeight: FontWeight.w800)),
-              ),
-            ),
+            SizedBox(width: labelWidth, child: Align(alignment: AlignmentDirectional.centerStart, child: l.label)),
             const SizedBox(width: AppSpace.sm),
             Expanded(
               child: LayoutBuilder(builder: (context, box) {
-                final part = total > 0 ? s.grams / total : 0.0;
-                final length = part > 0 ? math.max(box.maxWidth * part, 3.0) : 0.0;
+                final part = (l.value ?? 0) > 0 && total > 0 ? l.value! / total : 0.0;
                 return Stack(children: [
                   Container(
                     height: 12,
@@ -400,26 +408,65 @@ class KaratBars extends StatelessWidget {
                     ),
                   ),
                   Container(
-                    key: Key('karat-bar-fill-${s.karat}'),
-                    width: length,
+                    key: Key('$keyPrefix-fill-${l.id}'),
+                    width: part > 0 ? math.max(box.maxWidth * part, 3.0) : 0.0,
                     height: 12,
-                    decoration: BoxDecoration(color: s.color, borderRadius: BorderRadius.circular(6)),
+                    decoration: BoxDecoration(color: l.color, borderRadius: BorderRadius.circular(6)),
                   ),
                 ]);
               }),
             ),
             const SizedBox(width: AppSpace.md),
             SizedBox(
-              width: 118,
-              child: Text('${ltrIsolate(weight(s.grams))} جم', textAlign: TextAlign.end, style: figure),
+              width: figureWidth,
+              child: Align(
+                alignment: AlignmentDirectional.centerEnd,
+                child: l.value == null
+                    ? Text('غير متاح', style: figure?.copyWith(color: scheme.onSurfaceVariant))
+                    : DefaultTextStyle.merge(style: figure, child: l.figure),
+              ),
             ),
             SizedBox(
               width: 50,
-              child: Text(ltrIsolate('${share(total > 0 ? s.grams / total * 100 : 0)}%'),
-                  textAlign: TextAlign.end, style: figure.copyWith(fontWeight: FontWeight.w700)),
+              child: Text(
+                l.value == null || total <= 0 ? '—' : ltrIsolate('${share(l.value! / total * 100)}%'),
+                textAlign: TextAlign.end,
+                style: figure?.copyWith(fontWeight: FontWeight.w700),
+              ),
             ),
           ]),
         ),
     ]);
+  }
+}
+
+/// The karats held as bars, a line a karat, the largest first (the owner,
+/// 14 Nov 2026): its «24K» in its colour, a bar as long as its share of the
+/// whole, its grams and its share.
+class KaratBars extends StatelessWidget {
+  const KaratBars({super.key, required this.shares, required this.weight});
+
+  final List<KaratShare> shares;
+
+  /// The grams as the screen writes them, without the unit.
+  final String Function(double grams) weight;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = Theme.of(context).textTheme.labelLarge!.copyWith(fontWeight: FontWeight.w800);
+    return DashboardShareBars(
+      keyPrefix: 'karat-bar',
+      largestFirst: true,
+      lines: [
+        for (final s in shares)
+          ShareLine(
+            id: '${s.karat}',
+            label: Text('${s.karat}K', textDirection: TextDirection.ltr, style: label.copyWith(color: s.color)),
+            value: s.grams,
+            color: s.color,
+            figure: Text('${ltrIsolate(weight(s.grams))} جم'),
+          ),
+      ],
+    );
   }
 }

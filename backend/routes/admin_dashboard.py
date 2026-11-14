@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from flask import Blueprint, jsonify
+from flask import Blueprint, current_app, jsonify
 from sqlalchemy import or_
 
 from auth_decorators import require_permission
@@ -283,6 +283,7 @@ def get_admin_dashboard():
     # -- نفس الدالة التي تستخدمها /safe-boxes/balances و/safe-boxes/<id>/balance،
     # فلا يبقى أي مكان يحسب رصيد خزينة بمنطق مستقل خاص به.
     safe_boxes_summary = []
+    safes_read = True
     try:
         safe_boxes = SafeBox.query.filter(SafeBox.is_active.is_(True)).all()
         balances_by_id = safe_box_balances_bulk(safe_boxes, main_karat=main_karat)
@@ -305,7 +306,9 @@ def get_admin_dashboard():
                 'main_karat': int(main_karat),
             })
     except Exception:
+        current_app.logger.exception('admin dashboard: the safes could not be read')
         safe_boxes_summary = []
+        safes_read = False
 
     # Roll up account-derived totals for KPIs and liquidity.
     try:
@@ -458,16 +461,21 @@ def get_admin_dashboard():
         safe_boxes_enhanced = safe_boxes_summary
 
     # --- Liquidity breakdown (Cash vs Banks) ---
-    cash_in_hand = 0.0
-    cash_in_banks = 0.0
+    # Not read is not zero (the owner, 14 Nov 2026): a split that could not be
+    # summed is sent as None, and the card says «غير متاح» -- never a quiet 0.00.
+    cash_in_hand: float | None = 0.0
+    cash_in_banks: float | None = 0.0
+    if not safes_read:
+        cash_in_hand = cash_in_banks = None
     try:
-        for sb_data in safe_boxes_enhanced:
+        for sb_data in (safe_boxes_enhanced if safes_read else []):
             if sb_data['safe_type'] == 'cash':
-                cash_in_hand += sb_data['balance_cash']
+                cash_in_hand += float(sb_data['balance_cash'])
             elif sb_data['safe_type'] == 'bank':
-                cash_in_banks += sb_data['balance_cash']
+                cash_in_banks += float(sb_data['balance_cash'])
     except Exception:
-        pass
+        current_app.logger.exception('admin dashboard: the liquidity split could not be summed')
+        cash_in_hand = cash_in_banks = None
 
     # --- Sales / Purchases / Expenses Summary (today / this month / this year) ---
     sales_purchases_summary = {}
@@ -864,8 +872,8 @@ def get_admin_dashboard():
         },
         'liquidity': {
             'cash_available': round(cash_balance, 2),
-            'cash_in_hand': round(cash_in_hand, 2),
-            'cash_in_banks': round(cash_in_banks, 2),
+            'cash_in_hand': None if cash_in_hand is None else round(cash_in_hand, 2),
+            'cash_in_banks': None if cash_in_banks is None else round(cash_in_banks, 2),
         },
         'safe_boxes': safe_boxes_enhanced,
         'sales_purchases_summary': sales_purchases_summary,

@@ -427,9 +427,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
     final clearing = part('clearing');
     final vat = part('vat');
     final deficits = part('deficits');
-    final receivables = standing == null
-        ? null
-        : _asDouble(((positions['customers'] as Map?) ?? const {})['owe_us_cash']);
 
     final isArabic = widget.isArabic;
     final isNarrow = MediaQuery.sizeOf(context).width < 760;
@@ -454,7 +451,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
       else if (((clearing['safes'] as List?) ?? const []).isNotEmpty)
         DashboardClearingPanel(clearing: clearing, isArabic: isArabic, money: _money),
       _buildKaratDistributionCard(goldByKarat),
-      _buildLiquidityBreakdownCard(liquidity, receivables: receivables),
+      if (waiting)
+        const DashboardPanelSkeleton(lines: 3)
+      else
+        _buildLiquidityPanel(),
     ];
 
     final periodTiles = <Widget>[
@@ -819,9 +819,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                   theme: theme,
                   icon: Icons.water_drop_outlined,
                   label: isArabic ? 'السيولة' : 'Liquidity',
-                  value: _formatCurrency(_asDouble(
-                    (_response?['liquidity'] as Map?)?['cash_available'] ?? 0,
-                  )),
+                  value: _liquidityText,
                   color: _tones.invoiceSaleScrap.fg,
                 ),
                 SizedBox(width: 20),
@@ -840,6 +838,34 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
         },
       ),
     );
+  }
+
+  /// The liquidity, one reading for every place that says «السيولة» (the
+  /// owner, 14 Nov 2026: «في الطريق يكون صافي وطابق السيوله في الرأس»): the
+  /// safes, the banks, and what the card companies are bringing net of their
+  /// commissions. A part is null while not read -- the standing on its way, or
+  /// a reading that failed.
+  (double?, double?, double?) get _liquidityParts {
+    final liquidity = (_response?['liquidity'] as Map?) ?? const {};
+    double? read(dynamic v) => v is num ? v.toDouble() : null;
+    final standing = _standing;
+    final transit = standing == null ? null : read(((standing['clearing'] as Map?) ?? const {})['total_net']);
+    return (read(liquidity['cash_in_hand']), read(liquidity['cash_in_banks']), transit);
+  }
+
+  double? get _liquidityWhole {
+    final (safes, banks, transit) = _liquidityParts;
+    return safes == null || banks == null || transit == null ? null : safes + banks + transit;
+  }
+
+  /// The whole as said where it is a figure: «…» while the standing is on its
+  /// way, «غير متاح» when a part could not be read.
+  String get _liquidityText {
+    final whole = _liquidityWhole;
+    if (whole != null) return _formatCurrency(whole);
+    final (safes, banks, _) = _liquidityParts;
+    final onItsWay = _standing == null && _standingLoading && safes != null && banks != null;
+    return onItsWay ? '…' : (widget.isArabic ? 'غير متاح' : 'Not available');
   }
 
   Widget _buildSnapshotMiniStat({
@@ -936,94 +962,45 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
     );
   }
 
-  // Liquidity Breakdown Card
-  /// Cash, banks, and what the customers owe us -- from «لنا وعلينا»
-  /// (DASH-4), said once its reading is here (DASH-10).
-  Widget _buildLiquidityBreakdownCard(Map<String, dynamic> liquidity, {double? receivables}) {
+  /// «مركز السيولة» (the owner, 14 Nov 2026: «مالها وما عليها؟» -- «طبق
+  /// توصيتك»): the riyals the shop holds now -- its safes, its banks, and what
+  /// the card companies are bringing (its *clearing*, null when the standing
+  /// could not be read) -- the whole on its head, a bar each, a tap to the
+  /// safes. A part not read says «غير متاح», and the whole with it: never a
+  /// quiet zero. The customers' debts are «لنا وعلينا»'s, not money in hand.
+  Widget _buildLiquidityPanel() {
     final theme = Theme.of(context);
     final isArabic = widget.isArabic;
-
-    final cashInHand = _asDouble(liquidity['cash_in_hand']);
-    final cashInBanks = _asDouble(liquidity['cash_in_banks']);
-    final total = cashInHand + cashInBanks + (receivables ?? 0);
-
-    return _buildKpiCardWrapper(
-      onTap: () {},
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.water_drop, color: _tones.info.fg, size: 20),
-              SizedBox(width: 6),
-              Text(
-                isArabic ? 'مركز السيولة' : 'Liquidity',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 12,
-                ),
-              ),
-            ],
-          ),
-          SizedBox(height: 12),
-          _buildLiquidityRow(
-            isArabic ? 'نقدية' : 'Cash',
-            cashInHand,
-            _tones.ready.fg,
-            total,
-          ),
-          SizedBox(height: 4),
-          _buildLiquidityRow(
-            isArabic ? 'بنوك' : 'Banks',
-            cashInBanks,
-            _tones.info.fg,
-            total,
-          ),
-          if (receivables != null) ...[
-            SizedBox(height: 4),
-            _buildLiquidityRow(
-              isArabic ? 'ذمم' : 'Receiv.',
-              receivables,
-              _tones.warning.fg,
-              total,
-            ),
-          ],
+    final (safes, banks, transit) = _liquidityParts;
+    final whole = _liquidityWhole;
+    final label = theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600);
+    ShareLine line(String id, String name, double? value, Color tone) => ShareLine(
+          id: id,
+          label: Text(name, style: label),
+          value: value,
+          color: dashboardMark(context, tone),
+          figure: _money.text(value ?? 0),
+        );
+    return DashboardPanel(
+      key: const Key('dashboard-liquidity'),
+      icon: Icons.water_drop_outlined,
+      accent: _tones.info.fg,
+      title: isArabic ? 'مركز السيولة' : 'Liquidity',
+      figure: whole == null
+          ? Text(isArabic ? 'غير متاح' : 'Not available',
+              style: theme.textTheme.titleSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant))
+          : _money.text(whole, style: dashboardFigure(theme.textTheme.titleSmall, weight: FontWeight.w800)),
+      onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SafeBoxesScreen(api: widget.api))),
+      child: DashboardShareBars(
+        keyPrefix: 'liquidity',
+        labelWidth: 84,
+        figureWidth: 130,
+        lines: [
+          line('safes', isArabic ? 'الصناديق' : 'Safes', safes, _tones.cash.fg),
+          line('banks', isArabic ? 'البنوك' : 'Banks', banks, _tones.info.fg),
+          line('transit', isArabic ? 'في الطريق (صافٍ)' : 'In transit (net)', transit, _tones.sectionTeal.fg),
         ],
       ),
-    );
-  }
-
-  Widget _buildLiquidityRow(
-    String label,
-    double value,
-    Color color,
-    double total,
-  ) {
-    final pct = total > 0 ? value / total : 0.0;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(label, style: TextStyle(fontSize: 11)),
-            _currencyAwareText(
-              _formatCurrency(value),
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-        SizedBox(height: 2),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(2),
-          child: LinearProgressIndicator(
-            value: pct,
-            minHeight: 4,
-            backgroundColor: color.withValues(alpha: 0.15),
-            valueColor: AlwaysStoppedAnimation<Color>(color),
-          ),
-        ),
-      ],
     );
   }
 
@@ -1098,7 +1075,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
     final scrap = value('scrap_customers');
     final settlements = value('office_settlements');
     final expenses = value('expenses');
-    final cash = _asDouble(liquidity['cash_available']);
     final label = switch (_timeRange) {
       _TimeRange.today => isArabic ? 'اليوم' : 'Today',
       _TimeRange.month => isArabic ? 'الشهر' : 'Month',
@@ -1159,7 +1135,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
           Divider(height: 20, color: scheme.outlineVariant),
           DashboardAmountTable(
             rowPadding: EdgeInsets.zero,
-            rows: [row(isArabic ? 'السيولة الآن' : 'Cash now', cash, scheme.onSurface)],
+            rows: [
+              DashboardAmountRow(
+                label: Text(isArabic ? 'السيولة الآن' : 'Cash now',
+                    style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+                amount: _currencyAwareText(
+                  _liquidityText,
+                  style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800, color: scheme.onSurface),
+                ),
+              ),
+            ],
           ),
         ],
       ),

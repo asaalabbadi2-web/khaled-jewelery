@@ -75,6 +75,7 @@ final _standing = <String, dynamic>{
   // DASH-5: the production copy's, 31 Oct 2026 -- by the scheduler's reading.
   'clearing': {
     'total': 75312.0,
+    'total_net': 72100.0,
     'overdue': 1,
     'safes': [
       {'safe': 'مدى', 'amount': 12000.0, 'payments': 5, 'next_deposit': '2026-10-31', 'below_minimum': false,
@@ -400,8 +401,49 @@ void main() {
     double fill(int k) => tester.getSize(find.byKey(Key('karat-bar-fill-$k'))).width;
     expect(fill(21) / fill(18), closeTo(14385.836 / 12363.72, 0.01));
     expect(fill(22), greaterThanOrEqualTo(3), reason: 'a karat held a sliver is seen');
-    final grams = tester.widget<Text>(find.descendant(of: rows.first, matching: find.textContaining('14,385.836')));
-    expect(grams.style?.fontWeight, FontWeight.w600, reason: 'the figures a little stronger than the 11 px they were');
+    final grams = tester.widget<RichText>(find.descendant(
+        of: rows.first, matching: find.byWidgetPredicate((w) => w is RichText && w.text.toPlainText().contains('14,385.836'))));
+    expect(grams.text.style?.fontWeight, FontWeight.w600, reason: 'the figures a little stronger than the 11 px they were');
+  });
+
+  // «بطاقة مركز السيوله ... مالها وما عليها؟» -- «طبق توصيتك» (the owner, 14 Nov 2026)
+  testWidgets('the liquidity: the whole on its head, the safes, the banks and what is on its way, net', (tester) async {
+    final saved = jsonDecode(jsonEncode(_dashboard)) as Map<String, dynamic>;
+    addTearDown(() => _dashboard..clear()..addAll(saved));
+    _dashboard['liquidity'] = {'cash_available': 241019.85, 'cash_in_hand': 147903.05, 'cash_in_banks': 93116.8};
+    await open(tester);
+    final card = find.byKey(const Key('dashboard-liquidity'));
+    expect(card, findsOneWidget);
+    String said(Finder f) => tester
+        .widgetList<RichText>(find.descendant(of: f, matching: find.byType(RichText)))
+        .map((r) => r.text.toPlainText())
+        .join(' | ');
+    // «في الطريق يكون صافي» (14 Nov 2026): 72,100.00 of the 75,312.00 waiting -- the commissions off
+    expect(said(card), contains('313,119.85'), reason: 'the whole: the safes, the banks and the net on its way');
+    final rows = [for (final id in ['safes', 'banks', 'transit']) find.byKey(Key('liquidity-$id'))];
+    expect(said(rows[0]), allOf(contains('الصناديق'), contains('147,903.05'), contains('47%')));
+    expect(said(rows[1]), allOf(contains('البنوك'), contains('93,116.80'), contains('30%')));
+    expect(said(rows[2]), allOf(contains('في الطريق'), contains('72,100.00'), contains('23%')));
+    expect(said(card), isNot(contains('75,312.00')), reason: 'not the gross: the commissions never arrive');
+    expect(find.descendant(of: card, matching: find.textContaining('ذمم')), findsNothing,
+        reason: "the customers' debts are «لنا وعلينا»'s, not money in hand");
+    expect(tester.widget<DashboardPanel>(card).onTap, isNotNull, reason: 'a tap opens the safes: no dead end');
+    // «وطابق السيوله في الرأس»: every place that says «السيولة» says this whole
+    expect(find.textContaining('313,119.85'), findsNWidgets(3), reason: 'the head, the card and the period card');
+    // the awaiting deposit stays gross -- what the bank is matched against -- and says its net
+    expect(said(find.byKey(const Key('dashboard-clearing'))), contains('75,312.00'));
+    expect(said(find.byKey(const Key('dashboard-clearing-net'))), contains('72,100.00'));
+  });
+
+  testWidgets('the liquidity not read says so, never a quiet zero', (tester) async {
+    final saved = jsonDecode(jsonEncode(_dashboard)) as Map<String, dynamic>;
+    addTearDown(() => _dashboard..clear()..addAll(saved));
+    _dashboard['liquidity'] = {'cash_available': 0.0, 'cash_in_hand': null, 'cash_in_banks': null};
+    await open(tester);
+    final card = find.byKey(const Key('dashboard-liquidity'));
+    expect(find.descendant(of: card, matching: find.text('غير متاح')), findsNWidgets(3),
+        reason: 'the whole, the safes and the banks; not 0.00');
+    expect(find.textContaining('غير متاح'), findsNWidgets(5), reason: 'and the head and the period card with them');
   });
 
   testWidgets('the dashboard says what is ours and what we owe', (tester) async {
