@@ -1,0 +1,107 @@
+{
+  "about": "Two payments of 30 March 2026, paid and never entered, so they sat in «عجز / فائض الخزائن» (ADR-088): an advance on the shop's 2026 zakat (an asset, «زكاة مدفوعة مقدَّمًا», until the year's zakat is computed), and the workers' bonuses (the owner, 15 Nov 2026). Corrected on 370, never on the protected cash box or bank, as ADR-089's were. Policy, not code; written by the shared plan writer through services/repair/vat_2026.apply.",
+  "reference_type": "shortage_2026_unrecorded",
+  "audit_action": "repair_shortage_2026_unrecorded",
+  "accounts": {
+    "safes_shortage": {
+      "number": "370",
+      "name": "عجز /فائض الخزائن"
+    },
+    "zakat_expense": {
+      "number": "590",
+      "name": "مصروف الزكاة"
+    },
+    "bonuses": {
+      "role": "bonus_expense"
+    }
+  },
+  "profit_accounts": [
+    "zakat_expense",
+    "bonuses"
+  ],
+  "expect_before": {
+    "safes_shortage": {
+      "cash": 74238.72
+    },
+    "zakat_expense": {
+      "cash": 0.0
+    }
+  },
+  "expect_period": [
+    {
+      "account": "bonuses",
+      "from": "2026-01-01",
+      "to": "2026-03-31",
+      "cash": 0.0
+    }
+  ],
+  "entries": [
+    {
+      "key": "U-ZAKAT-2026-ADVANCE",
+      "date": "2026-03-30",
+      "type": "تصحيح",
+      "description": "مقدَّم زكاة المحل عن 2026: 46,173، دُفع في 30 مارس ولم يُسجَّل، فكان في عجز الخزائن؛ أصلٌ حتى تُحسب زكاة 2026 فيُخصم منها (المالك، 15 نوفمبر 2026) (ADR-088)",
+      "lines": [
+        {
+          "account": "zakat_prepaid",
+          "dr": {
+            "cash": 46173.0
+          },
+          "note": "مقدَّم عن زكاة 2026"
+        },
+        {
+          "account": "safes_shortage",
+          "cr": {
+            "cash": 46173.0
+          },
+          "note": "دُفع ولم يُسجَّل"
+        }
+      ]
+    },
+    {
+      "key": "U-BONUSES-2026-03",
+      "date": "2026-03-30",
+      "type": "تصحيح",
+      "description": "مكافآت العمال: 20,000، دُفعت في 30 مارس ولم تُسجَّل، فكانت في عجز الخزائن (المالك، 15 نوفمبر 2026) (ADR-088)",
+      "lines": [
+        {
+          "account": "bonuses",
+          "dr": {
+            "cash": 20000.0
+          },
+          "note": "مكافآت العمال"
+        },
+        {
+          "account": "safes_shortage",
+          "cr": {
+            "cash": 20000.0
+          },
+          "note": "دُفعت ولم تُسجَّل"
+        }
+      ]
+    }
+  ],
+  "expect_after": {
+    "safes_shortage": {
+      "cash": 8065.72
+    },
+    "zakat_prepaid": {
+      "cash": 46173.0
+    },
+    "zakat_expense": {
+      "cash": 0.0
+    }
+  },
+  "expect_profit_change": -20000.0,
+  "made_accounts": [
+    {
+      "key": "zakat_prepaid",
+      "name": "زكاة مدفوعة مقدَّمًا",
+      "parent": {
+        "number": "11",
+        "name": "الأصول المتداولة"
+      },
+      "type": "Asset"
+    }
+  ]
+}
