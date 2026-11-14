@@ -65,6 +65,7 @@ class Closing:
     cash: float
     grams: float = 0.0
     invoice_id: int | None = None
+    tag: tuple | None = None          # a period expense's: (expense id, 'prepaid' | 'accrued') -- ADR-090 law 11
 
 
 @dataclass
@@ -83,6 +84,11 @@ class Events:
     returns: list = field(default_factory=list)
     direct: list = field(default_factory=list)       # (when, grams, side): a weight line, a result at once
     skipped: collections.Counter = field(default_factory=collections.Counter)
+    # ADR-090 law 11, a period expense's riyals: (when, tag, riyals) back to waiting -- a payment
+    # cancelled, an accrual taken back -- with the grams they took; and (when, expense id, riyals)
+    # of a prepaid payment drawn by a month (negative: put back), its grams that month's.
+    restores: list = field(default_factory=list)
+    draws: list = field(default_factory=list)
 
 
 @dataclass
@@ -96,10 +102,17 @@ class Slice:
     lot_kind: str = SOLD
     invoice_id: int | None = None                     # the closing's invoice; none for an expense
     lot_invoice_id: int | None = None                 # the sale whose riyals it took
+    tag: tuple | None = None                          # a period expense's closing (ADR-090 law 11)
+    spent_at: dt.datetime | None = None               # a prepaid piece: the day its riyals were spent
 
     @property
     def result(self) -> float:
         return self.grams_in - self.grams_out
+
+    @property
+    def happened(self) -> dt.datetime:
+        """When its riyals left: the payment's day for a prepaid piece dated by the month it serves."""
+        return self.spent_at or self.when
 
 
 @dataclass
@@ -135,7 +148,8 @@ def replay(events: Events) -> Replay:
     ordered = ([(lot.when, 0, 'open', lot) for lot in events.openings]
                + [(r.when, 1, 'return', r) for r in events.returns]
                + [(c.when, 2, 'close', c) for c in events.closings]
-               + [(d[0], 3, 'direct', d) for d in events.direct])
+               + [(d[0], 3, 'direct', d) for d in events.direct]
+               + [(r[0], 4, 'restore', r) for r in events.restores])
     ordered.sort(key=lambda e: (e[0], e[1]))
 
     # Two queues, each first in first out. Which riyals a closing takes does
@@ -162,6 +176,8 @@ def replay(events: Events) -> Replay:
         if what == 'direct':
             by_month[m]['direct'] += item[1]
             by_kind['direct']['result'] += item[1]
+        elif what == 'restore':
+            _restore(item, slices, queues, anomalies, by_month, by_kind)
         elif what == 'open':
             queues[REVENUE if item.kind == REVENUE else SOLD].append(item)
             by_month[m]['opened_cash'] += item.cash
@@ -193,7 +209,7 @@ def replay(events: Events) -> Replay:
                     lot.grams_open -= grams_out
                     remaining -= take
                     slices.append(Slice(when, item.kind, take, grams_in, grams_out, lot.kind, item.invoice_id,
-                                         lot.invoice_id))
+                                         lot.invoice_id, tag=item.tag))
                     for bucket in (by_month[m], by_kind[item.kind]):
                         bucket['cash'] += take
                         bucket['grams_in'] += grams_in
@@ -207,8 +223,106 @@ def replay(events: Events) -> Replay:
                                          item.invoice_id))
     if current is not None:
         snapshot(current)
+    slices = _dated_by_their_months(slices, events.draws, by_month, by_kind)
     return Replay(list(events.openings), slices, sorted(events.direct, key=lambda d: d[0]), by_kind, by_month,
                   month_end, unmatched, anomalies)
+
+
+# A prepaid piece no month has drawn yet: spent, its grams waiting for the
+# months it serves -- in no period that has ended (ADR-090 law 11).
+NOT_YET_DRAWN = dt.datetime.max
+
+
+def _count(by_month, by_kind, piece, sign: float) -> None:
+    """A piece's riyals and grams in its month's and its kind's counters (sign -1: taken off)."""
+    buckets = [by_kind[piece.kind]] + ([by_month[_month(piece.when)]] if piece.when != NOT_YET_DRAWN else [])
+    for bucket in buckets:
+        bucket['cash'] += sign * piece.cash
+        bucket['grams_in'] += sign * piece.grams_in
+        bucket['grams_out'] += sign * piece.grams_out
+        bucket['result'] += sign * piece.result
+
+
+def _restore(item, slices, queues, anomalies, by_month, by_kind) -> None:
+    """A period expense's riyals back to waiting (a payment cancelled, an
+    accrual taken back): taken off its latest pieces, each back as the lot it
+    came from, with the grams it took -- as if they had never left."""
+    when, tag, cash = item
+    remaining = cash
+    for piece in reversed(slices):
+        if remaining <= 0.005:
+            break
+        if piece.tag != tag or piece.cash <= 0.005:
+            continue
+        take = min(piece.cash, remaining)
+        grams_back = piece.grams_out * take / piece.cash
+        _count(by_month, by_kind, piece, -1)
+        piece.grams_out -= grams_back
+        piece.cash -= take
+        remaining -= take
+        _count(by_month, by_kind, piece, +1)
+        lot = Lot(f'استرداد مصروف فترة #{tag[0]}', when, take, grams_back, None, piece.lot_invoice_id,
+                  kind=piece.lot_kind)
+        queues[REVENUE if lot.kind == REVENUE else SOLD].append(lot)
+    if remaining > 0.005:
+        anomalies['a period expense\'s riyals back with none of its pieces to take them from'] += 1
+
+
+def _dated_by_their_months(slices, draws, by_month, by_kind):
+    """Each prepaid payment's pieces, dated by the months that draw them,
+    first paid first drawn (a negative draw puts the latest drawn back); what
+    no month has drawn yet stays NOT_YET_DRAWN (ADR-090 law 11)."""
+    import dataclasses
+    by_expense = collections.defaultdict(list)
+    for piece in slices:
+        if piece.tag is not None and piece.tag[1] == 'prepaid' and piece.cash > 0.005:
+            by_expense[piece.tag[0]].append(piece)
+    if not by_expense:
+        return slices
+    drawn_of = collections.defaultdict(list)            # expense -> its pieces drawn, in order
+    pending_of = {pe: [dataclasses.replace(p, spent_at=p.when, when=NOT_YET_DRAWN) for p in pieces]
+                  for pe, pieces in by_expense.items()}
+    for when, pe, cash in sorted(draws, key=lambda d: d[0]):
+        by_month[_month(when)]                          # the month is read, even with nothing else in it
+        pending, drawn = pending_of.get(pe, []), drawn_of[pe]
+        if cash > 0:
+            remaining = cash
+            while remaining > 0.005 and pending:
+                piece = pending[0]
+                take = min(piece.cash, remaining)
+                share = take / piece.cash
+                drawn.append(dataclasses.replace(piece, when=when, cash=take, grams_in=piece.grams_in * share,
+                                                 grams_out=piece.grams_out * share))
+                piece.grams_in -= piece.grams_in * share
+                piece.grams_out -= piece.grams_out * share
+                piece.cash -= take
+                remaining -= take
+                if piece.cash <= 0.005:
+                    pending.pop(0)
+        else:
+            remaining = -cash
+            while remaining > 0.005 and drawn:
+                piece = drawn[-1]
+                take = min(piece.cash, remaining)
+                share = take / piece.cash
+                pending.insert(0, dataclasses.replace(piece, when=NOT_YET_DRAWN, cash=take,
+                                                      grams_in=piece.grams_in * share,
+                                                      grams_out=piece.grams_out * share))
+                piece.grams_in -= piece.grams_in * share
+                piece.grams_out -= piece.grams_out * share
+                piece.cash -= take
+                remaining -= take
+                if piece.cash <= 0.005:
+                    drawn.pop()
+    for pieces in by_expense.values():                  # off the months they were spent in
+        for piece in pieces:
+            _count(by_month, by_kind, piece, -1)
+    for piece in [p for pieces in drawn_of.values() for p in pieces]:   # onto the months that drew them
+        _count(by_month, by_kind, piece, +1)
+    redated = {id(p) for pieces in by_expense.values() for p in pieces}
+    kept = [p for p in slices if id(p) not in redated]
+    return kept + [p for pieces in drawn_of.values() for p in pieces] \
+        + [p for pieces in pending_of.values() for p in pieces]
 
 
 def sale_view(result: Replay, events: Events, invoice_id: int, price: float) -> dict | None:
@@ -237,7 +351,7 @@ def sale_view(result: Replay, events: Events, invoice_id: int, price: float) -> 
         'shares': {name: (round(part / lot.cash, 4) if lot.cash else 0.0) for name, part in
                    (('closed', closed_cash), ('returned', lot.returned_cash), ('open', lot.cash_open))},
         'grams_open': round(lot.grams_open, 3),
-        'closings': [{'date': piece.when.isoformat(), 'kind': piece.kind, 'invoice_id': piece.invoice_id,
+        'closings': [{'date': piece.happened.isoformat(), 'kind': piece.kind, 'invoice_id': piece.invoice_id,
                       'cash': round(piece.cash, 2), 'grams_in': round(piece.grams_in, 3),
                       'grams_out': round(piece.grams_out, 3), 'result': round(piece.result, 3)}
                      for piece in taken],
@@ -287,7 +401,9 @@ def _until(events: Events, moment: dt.datetime) -> Events:
     return Events(openings=[dataclasses.replace(lot) for lot in events.openings if lot.when <= moment],
                   closings=[c for c in events.closings if c.when <= moment],
                   returns=[r for r in events.returns if r.when <= moment],
-                  direct=[d for d in events.direct if d[0] <= moment])
+                  direct=[d for d in events.direct if d[0] <= moment],
+                  restores=[r for r in events.restores if r[0] <= moment],
+                  draws=[d for d in events.draws if d[0] <= moment])
 
 
 def collect_events(start: dt.datetime, end: dt.datetime) -> Events:
@@ -351,7 +467,9 @@ def collect_events(start: dt.datetime, end: dt.datetime) -> Events:
             .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
             .filter(*counted_line_filters())
             .filter(JournalEntryLine.account_id.in_(marked or {-1}),
-                    JournalEntry.date >= start, JournalEntry.date <= end).all())
+                    JournalEntry.date >= start, JournalEntry.date <= end,
+                    # a period expense's months: read from the expense itself, below (ADR-090 law 11)
+                    db.func.coalesce(JournalEntry.reference_type, '') != PERIOD_EXPENSE_MONTH).all())
     per_day = collections.defaultdict(collections.Counter)
     for when, line in rows:
         credit_less_debit = float(line.cash_credit or 0) - float(line.cash_debit or 0)
@@ -371,7 +489,89 @@ def collect_events(start: dt.datetime, end: dt.datetime) -> Events:
             events.openings.append(Lot(f'إيرادات {day}', when, amounts['revenue'], 0.0, kind=REVENUE))
         if amounts['expense'] > 0.005:
             events.closings.append(Closing(when, EXPENSE, amounts['expense']))
+    _period_expense_events(events, start, end, expense_ids)
     return events
+
+
+PERIOD_EXPENSE_MONTH = 'period_expense'            # services/period_expense.MONTH_ENTRY
+
+
+def period_expense_timeline(payments, months) -> tuple[list, list, list]:
+    """One period expense's riyals in the queue (ADR-090 law 11), pure.
+
+    *payments*: (day, voucher id, halalas, the day it was cancelled or None);
+    *months*: (month-end day, halalas) its month entries posted, signed.
+    The riyals out of waiting by any moment are the larger of what was paid
+    and what was accrued: a payment ahead of the accruals spends them that
+    day (prepaid); an accrual beyond the payments spends them at its month's
+    end (accrued); an accrual within what was paid spends nothing -- it draws
+    the prepaid, its grams that month's. What falls back -- a payment
+    cancelled, an accrual taken back -- returns to waiting with its grams.
+
+    Returns (closings, restores, draws), each (day, ...), in halalas:
+    closings (day, kind, h), restores (day, kind, h), draws (day, h)."""
+    timeline = []
+    for day, _, h, stopped in payments:
+        timeline.append((day, 0, 'pay', h))
+        if stopped is not None:
+            timeline.append((stopped, 1, 'pay', -h))
+    for day, h in months:
+        timeline.append((day, 2, 'accrue', h))         # a month's after that day's payments
+    timeline.sort(key=lambda t: (t[0], t[1]))
+    paid = posted = 0
+    closings, restores, draws = [], [], []
+    for day, _, what, h in timeline:
+        before = max(paid, posted)
+        if what == 'pay':
+            paid += h
+        else:
+            posted += h
+        delta = max(paid, posted) - before
+        if what == 'pay':
+            if delta > 0:
+                closings.append((day, 'prepaid', delta))
+            elif delta < 0:
+                restores.append((day, 'prepaid', -delta))
+            continue
+        if h > 0:
+            if delta > 0:
+                closings.append((day, 'accrued', delta))
+            if h - delta > 0:
+                draws.append((day, h - delta))
+        else:
+            if delta < 0:
+                restores.append((day, 'accrued', -delta))
+            if -h + delta > 0:
+                draws.append((day, -(-h + delta)))     # put back: a prepaid month not consumed after all
+    return closings, restores, draws
+
+
+def _period_expense_events(events: Events, start: dt.datetime, end: dt.datetime, expense_ids: set) -> None:
+    """The period expenses on a marked account, as the queue reads them (ADR-090 law 11)."""
+    from accounting.balances import counted_line_filters
+    from models import JournalEntry, JournalEntryLine, PeriodExpense, db
+    from services.period_expense import _payments, halalas
+
+    def at(day):
+        return dt.datetime.combine(day, dt.time(23, 59))
+
+    for pe in PeriodExpense.query.filter(PeriodExpense.expense_account_id.in_(expense_ids or {-1})).all():
+        rows = (db.session.query(JournalEntry.date, JournalEntryLine.cash_debit, JournalEntryLine.cash_credit)
+                .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+                .filter(*counted_line_filters(), JournalEntry.reference_type == PERIOD_EXPENSE_MONTH,
+                        JournalEntry.reference_id == pe.id, JournalEntryLine.account_id == pe.expense_account_id)
+                .all())
+        months = [(_day(d), halalas((debit or 0) - (credit or 0))) for d, debit, credit in rows]
+        closings, restores, draws = period_expense_timeline(_payments(pe), months)
+        for day, kind, h in closings:
+            if start <= at(day) <= end:
+                events.closings.append(Closing(at(day), EXPENSE, h / 100, tag=(pe.id, kind)))
+        for day, kind, h in restores:
+            if start <= at(day) <= end:
+                events.restores.append((at(day), (pe.id, kind), h / 100))
+        for day, h in draws:
+            if start <= at(day) <= end:
+                events.draws.append((at(day), pe.id, h / 100))
 
 
 def carried_cash(waiting_cash, to_gold_cash) -> float:
@@ -598,10 +798,10 @@ def position(as_of: dt.date) -> dict:
                 'unrealized': round(unrealized(lot.cash_open, lot.grams_open, price), 3)}
 
     closings = collections.OrderedDict()
-    for piece in reversed(result.slices):
-        key = (piece.kind, piece.invoice_id or piece.when.date())
+    for piece in sorted(result.slices, key=lambda p: p.happened, reverse=True):
+        key = (piece.kind, piece.invoice_id or piece.happened.date())
         row = closings.setdefault(key, {'kind': piece.kind, 'invoice_id': piece.invoice_id,
-                                        'date': piece.when.isoformat(), 'cash': 0.0, 'grams_in': 0.0,
+                                        'date': piece.happened.isoformat(), 'cash': 0.0, 'grams_in': 0.0,
                                         'grams_out': 0.0, 'result': 0.0})
         for name in ('cash', 'grams_in', 'grams_out'):
             row[name] += getattr(piece, name)
