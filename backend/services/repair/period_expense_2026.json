@@ -1,0 +1,33 @@
+{
+  "_": "ADR-090 phase 8: the owner's 2026 period expenses (13-14 Nov 2026). The rent is 144,900 for 2026; the voucher of 24 June paid January to June, the second half is paid in December. «اعتبر جميع الرخص وغيرها محصورة بسنة ٢٠٢٦» -- «على السنة كلها»: each licence, iqama and insurance, and the commercial register, an expense of 1 January to 31 December 2026, its voucher a payment on it. Amounts net of VAT (none of these vouchers carries any).",
+  "expenses": [
+    {"key": "rent_2026", "description": "إيجار المعرض 2026",
+     "account": {"number": "5400", "name": "إيجار المعرض"},
+     "amount": 144900, "start": "2026-01-01", "end": "2026-12-31",
+     "vouchers": [{"number": "PV-2026-00629", "amount": 72450}]},
+    {"key": "work_permit_saleh_2026", "description": "رخصة عمل صالح 2026",
+     "account": {"number": "5440000", "name": "رسوم تجديد رخص العمل"},
+     "amount": 4575, "start": "2026-01-01", "end": "2026-12-31",
+     "vouchers": [{"number": "PV-2026-00309", "amount": 4575}]},
+    {"key": "work_permit_yousef_2026", "description": "رخصة عمل يوسف 2026",
+     "account": {"number": "5440000", "name": "رسوم تجديد رخص العمل"},
+     "amount": 9150, "start": "2026-01-01", "end": "2026-12-31",
+     "vouchers": [{"number": "PV-2026-00771", "amount": 9150}]},
+    {"key": "commercial_register_2026", "description": "تأكيد السجل التجاري 2026",
+     "account": {"number": "5440001", "name": "رسوم التراخيص الحكوميّة"},
+     "amount": 6602.95, "start": "2026-01-01", "end": "2026-12-31",
+     "vouchers": [{"number": "PV-2026-01361", "amount": 6602.95}]},
+    {"key": "iqama_saleh_2026", "description": "إقامة صالح 2026",
+     "account": {"number": "5440000", "name": "رسوم تجديد رخص العمل"},
+     "amount": 7762, "start": "2026-01-01", "end": "2026-12-31",
+     "vouchers": [{"number": "PV-2026-01399", "amount": 7762}]},
+    {"key": "insurance_saleh_2026", "description": "تأمين صالح 2026",
+     "account": {"number": "5440000", "name": "رسوم تجديد رخص العمل"},
+     "amount": 622.15, "start": "2026-01-01", "end": "2026-12-31",
+     "vouchers": [{"number": "PV-2026-01402", "amount": 622.15}]},
+    {"key": "medical_insurance_link_saleh_2026", "description": "ربط التأمين الطبي لصالح 2026",
+     "account": {"number": "5440000", "name": "رسوم تجديد رخص العمل"},
+     "amount": 400, "start": "2026-01-01", "end": "2026-12-31",
+     "vouchers": [{"number": "PV-2026-01458", "amount": 400}]}
+  ]
+}

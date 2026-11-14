@@ -318,11 +318,15 @@ def _write(*, reference_type, reference_id, month_end: date, description, lines,
                          is_posted=True, posted_at=now, posted_by=by)
     db.session.add(entry)
     db.session.flush()
+    from dimensions_service import compute_line_analytics
     for account_id, debit, credit in lines:
         if debit or credit:
-            db.session.add(JournalEntryLine(journal_entry_id=entry.id, account_id=account_id,
-                                            cash_debit=riyals(debit), cash_credit=riyals(credit),
-                                            description=description))
+            line = JournalEntryLine(journal_entry_id=entry.id, account_id=account_id,
+                                    cash_debit=riyals(debit), cash_credit=riyals(credit), description=description)
+            # its analytics, as every writer computes them (dual_system_helpers, repair/entries)
+            line.analytic_amount_cash, line.analytic_weight_24k, line.analytic_weight_main = \
+                compute_line_analytics(db.session, line)
+            db.session.add(line)
     db.session.flush()
     return entry
 
