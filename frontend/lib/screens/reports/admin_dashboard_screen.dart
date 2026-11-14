@@ -1,5 +1,4 @@
 
-import '../../utils/bidi.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'income_statement_report_screen.dart';
@@ -924,70 +923,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
               ),
             )
           else
-            // The legend first, the chart after: in a right-to-left line the
-            // chart stands on the left, larger, each slice saying its karat
-            // (the owner, 14 Nov 2026).
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      for (final (karat, grams) in karats)
-                        _buildKaratLegendItem(
-                          key: Key('karat-mix-legend-$karat'),
-                          label: isArabic ? 'عيار $karat' : '${karat}K',
-                          value: grams,
-                          color: _tones.karat(karat).fg,
-                          total: total,
-                        ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: AppSpace.md),
-                KaratDonut(
-                  key: const Key('karat-mix-chart'),
-                  shares: [for (final (karat, grams) in karats) KaratShare(karat, grams, _tones.karat(karat).fg)],
-                  inside: theme.textTheme.labelLarge!.copyWith(color: _scheme.surface, fontWeight: FontWeight.w800),
-                  outside: theme.textTheme.labelLarge!.copyWith(fontWeight: FontWeight.w800),
-                ),
-              ],
+            // A bar a karat, the largest first: a length compares where an angle
+            // does not, and a karat held a sliver is a whole line still (the
+            // owner, 14 Nov 2026: «ابنها»).
+            KaratBars(
+              key: const Key('karat-mix-chart'),
+              shares: [for (final (karat, grams) in karats) KaratShare(karat, grams, _tones.karat(karat).fg)],
+              weight: (grams) => _weightFormat.format(grams),
             ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildKaratLegendItem({
-    Key? key,
-    required String label,
-    required double value,
-    required Color color,
-    required double total,
-  }) {
-    // under 1% with its tenth: a karat held is not «0%» (51 g of 27,818 is 0.2%)
-    final share = total > 0 ? value / total * 100 : 0.0;
-    final pct = NumberFormat(share > 0 && share < 1 ? '0.0' : '0', 'en').format(share);
-    final theme = Theme.of(context);
-    return Padding(
-      key: key,
-      padding: const EdgeInsets.only(bottom: AppSpace.xs),
-      child: Row(
-        children: [
-          Container(
-            width: 11,
-            height: 11,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: AppSpace.sm),
-          Expanded(
-            child: Text(
-              // each figure isolated left to right: the line does not turn them about
-              '$label  ·  ${ltrIsolate(_weightFormat.format(value))} جم  ·  ${ltrIsolate('$pct%')}',
-              style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
         ],
       ),
     );

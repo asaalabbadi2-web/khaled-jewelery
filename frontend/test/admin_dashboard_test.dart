@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -378,32 +377,31 @@ void main() {
   // grams -- the suppliers', the customers' and our gold at the offices.
   // The owner (14 Nov 2026): «شارت توزيع العيارات ... جهة اليسار واكبر ... وعلى كل لون عيارة
   // والبيانات التي بجانبها تقوى قليلا».
-  testWidgets('the karat mix: its chart on the left and larger, each slice its karat, the legend clearer',
-      (tester) async {
+  testWidgets('the karat mix: a bar a karat, the largest first, its «24K», its grams and share', (tester) async {
     final saved = jsonDecode(jsonEncode(_dashboard)) as Map<String, dynamic>;
     addTearDown(() => _dashboard..clear()..addAll(saved));
     _dashboard['kpis'] = {
       'today_profit_vs_yesterday_pct': 12.5,
-      'gold_by_karat': {'18k': 2262.6, '21k': 4791.0, '22k': 0.0, '24k': 119.55},
+      'gold_by_karat': {'18k': 12363.72, '21k': 14385.836, '22k': 51.1, '24k': 1017.882},
     };
     await open(tester);
-    final chart = find.byKey(const Key('karat-mix-chart'));
-    final legend = find.byKey(const Key('karat-mix-legend-21'));
-    expect(chart, findsOneWidget);
-    expect(tester.getSize(chart).width, greaterThanOrEqualTo(120), reason: 'larger than the 70 it was');
-    expect(tester.getCenter(chart).dx, lessThan(tester.getCenter(legend).dx), reason: 'the chart on the left');
-    final pie = tester.widget<PieChart>(find.descendant(of: chart, matching: find.byType(PieChart)));
-    final slices = {for (final s in pie.data.sections) s.title: s};
-    expect(slices.keys.toSet(), {'18K', '21K', '24K'}, reason: 'every karat held has its slice; none for 22 at nothing');
-    // «ترسم بحجمها ويكون هناك خط يوشر على منطقتها» (14 Nov 2026): each at its true size ...
-    expect(slices['24K']!.value, 119.55, reason: 'a sliver at its own size, not widened');
-    expect({for (final s in slices.values) if (s.showTitle) s.title}, {'18K', '21K'}, reason: 'the wide ones inside');
-    // ... and a line from the narrow one out to its karat
-    final leaders = tester.widget<CustomPaint>(find.byKey(const Key('karat-mix-leaders'))).painter as KaratLeaderPainter;
-    expect(leaders.karats, [24], reason: 'the narrow slice is pointed at, with its karat');
-    final text = tester.widget<Text>(find.descendant(of: legend, matching: find.byType(Text)));
-    expect(text.style?.fontWeight, FontWeight.w600, reason: 'the legend a little stronger');
-    expect(text.style?.fontSize ?? 0, greaterThan(11), reason: 'and a little larger than the 11 it was');
+    expect(find.byKey(const Key('karat-mix-chart')), findsOneWidget);
+    // the largest first: 21K, 18K, 24K, 22K
+    final rows = [for (final k in [21, 18, 24, 22]) find.byKey(Key('karat-bar-$k'))];
+    final tops = [for (final r in rows) tester.getTopLeft(r).dy];
+    expect([...tops]..sort(), tops, reason: 'the largest first');
+    // each says its karat, its grams and its share; a sliver is a whole line still
+    final sliver = rows.last;
+    expect(find.descendant(of: sliver, matching: find.text('22K')), findsOneWidget);
+    expect(find.descendant(of: sliver, matching: find.textContaining('51.100')), findsOneWidget);
+    expect(find.descendant(of: sliver, matching: find.textContaining('0.2%')), findsOneWidget, reason: 'not 0%');
+    expect(find.descendant(of: rows.first, matching: find.textContaining('52%')), findsOneWidget);
+    // a bar as long as its share of the whole: 21K's 52% against 18K's 44%; 22K's sliver still seen
+    double fill(int k) => tester.getSize(find.byKey(Key('karat-bar-fill-$k'))).width;
+    expect(fill(21) / fill(18), closeTo(14385.836 / 12363.72, 0.01));
+    expect(fill(22), greaterThanOrEqualTo(3), reason: 'a karat held a sliver is seen');
+    final grams = tester.widget<Text>(find.descendant(of: rows.first, matching: find.textContaining('14,385.836')));
+    expect(grams.style?.fontWeight, FontWeight.w600, reason: 'the figures a little stronger than the 11 px they were');
   });
 
   testWidgets('the dashboard says what is ours and what we owe', (tester) async {

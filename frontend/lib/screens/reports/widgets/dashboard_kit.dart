@@ -1,10 +1,10 @@
 import 'dart:math' as math;
 
-import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 
 import '../../../theme/app_tokens.dart';
+import '../../../utils/bidi.dart';
 import '../../../utils/currency_utils.dart' as cu;
 
 /// The manager's dashboard's shared pieces (DASH-10, the owner 30 Oct 2026:
@@ -337,7 +337,7 @@ class DashboardAmountTable extends StatelessWidget {
 }
 
 
-/// One karat in [KaratDonut]: its number, its grams, its colour.
+/// One karat in [KaratBars]: its number, its grams, its colour.
 class KaratShare {
   const KaratShare(this.karat, this.grams, this.color);
 
@@ -346,137 +346,80 @@ class KaratShare {
   final Color color;
 }
 
-/// The karats held, each slice at its true size (the owner, 14 Nov 2026:
-/// «ترسم بحجمها ويكون هناك خط يوشر على منطقتها»): a slice wide enough says
-/// its karat inside; a narrower one has a line from its middle out of the
-/// ring to its karat, in its colour. Each says its karat «24K» (the owner,
-/// 14 Nov 2026: «اقصد رمز مثل 24K»). A karat with nothing held has no slice.
-class KaratDonut extends StatelessWidget {
-  const KaratDonut({super.key, required this.shares, required this.inside, required this.outside});
+/// The karats held as bars, a line a karat, the largest first (the owner,
+/// 14 Nov 2026): its «24K» in its colour, a bar as long as its share of the
+/// whole, its grams and its share. A share under 1% says its tenth; a karat
+/// with nothing held keeps its line, its bar empty.
+class KaratBars extends StatelessWidget {
+  const KaratBars({super.key, required this.shares, required this.weight});
 
   final List<KaratShare> shares;
 
-  /// The style of a karat said inside its slice, and of one said at a line's end.
-  final TextStyle inside;
-  final TextStyle outside;
+  /// The grams as the screen writes them, without the unit.
+  final String Function(double grams) weight;
 
-  /// A slice this share of the whole or more says its karat inside.
-  static const insideFrom = 0.08;
-  static const centre = 24.0;
-  static const ring = 34.0;
-  static const size = Size(220, 150);
+  static String share(double percent) =>
+      NumberFormat(percent > 0 && percent < 1 ? '0.0' : '0', 'en').format(percent);
 
   @override
   Widget build(BuildContext context) {
-    final held = [for (final s in shares) if (s.grams > 0) s];
-    final total = held.fold<double>(0, (sum, s) => sum + s.grams);
-    final side = (centre + ring) * 2;
-    return SizedBox.fromSize(
-      size: size,
-      child: Stack(children: [
-        Positioned(
-          left: (size.width - side) / 2,
-          top: (size.height - side) / 2,
-          width: side,
-          height: side,
-          child: PieChart(PieChartData(
-            sectionsSpace: 2,
-            centerSpaceRadius: centre,
-            sections: [
-              for (final s in held)
-                PieChartSectionData(
-                  value: s.grams,
-                  color: s.color,
-                  radius: ring,
-                  title: '${s.karat}K',
-                  showTitle: s.grams / total >= insideFrom,
-                  titlePositionPercentageOffset: 0.55,
-                  titleStyle: inside,
-                ),
-            ],
-          )),
-        ),
-        Positioned.fill(
-          child: CustomPaint(
-            key: const Key('karat-mix-leaders'),
-            painter: KaratLeaderPainter(
-              leaders: [
-                for (final (i, s) in held.indexed)
-                  if (s.grams / total < insideFrom)
-                    (s, _middle(held, total, i)),
-              ],
-              style: outside,
-              radius: centre + ring,
-            ),
-          ),
-        ),
-      ]),
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final total = shares.fold<double>(0, (sum, s) => sum + s.grams);
+    final sorted = [...shares]..sort((a, b) => b.grams.compareTo(a.grams));
+    final figure = theme.textTheme.bodyMedium!.copyWith(
+      fontWeight: FontWeight.w600,
+      fontFeatures: const [FontFeature.tabularFigures()],
     );
+    return Column(children: [
+      for (final s in sorted)
+        Padding(
+          key: Key('karat-bar-${s.karat}'),
+          padding: const EdgeInsets.symmetric(vertical: AppSpace.xs),
+          child: Row(children: [
+            SizedBox(
+              width: 40,
+              child: Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: Text('${s.karat}K',
+                    textDirection: TextDirection.ltr,
+                    style: theme.textTheme.labelLarge!.copyWith(color: s.color, fontWeight: FontWeight.w800)),
+              ),
+            ),
+            const SizedBox(width: AppSpace.sm),
+            Expanded(
+              child: LayoutBuilder(builder: (context, box) {
+                final part = total > 0 ? s.grams / total : 0.0;
+                final length = part > 0 ? math.max(box.maxWidth * part, 3.0) : 0.0;
+                return Stack(children: [
+                  Container(
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: scheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  ),
+                  Container(
+                    key: Key('karat-bar-fill-${s.karat}'),
+                    width: length,
+                    height: 12,
+                    decoration: BoxDecoration(color: s.color, borderRadius: BorderRadius.circular(6)),
+                  ),
+                ]);
+              }),
+            ),
+            const SizedBox(width: AppSpace.md),
+            SizedBox(
+              width: 118,
+              child: Text('${ltrIsolate(weight(s.grams))} جم', textAlign: TextAlign.end, style: figure),
+            ),
+            SizedBox(
+              width: 50,
+              child: Text(ltrIsolate('${share(total > 0 ? s.grams / total * 100 : 0)}%'),
+                  textAlign: TextAlign.end, style: figure.copyWith(fontWeight: FontWeight.w700)),
+            ),
+          ]),
+        ),
+    ]);
   }
-
-  /// A slice's middle, in radians: the chart starts at the right and turns
-  /// clockwise, each slice its share of the turn.
-  static double _middle(List<KaratShare> held, double total, int index) {
-    final before = held.take(index).fold<double>(0, (sum, s) => sum + s.grams);
-    return (before + held[index].grams / 2) / total * 2 * math.pi;
-  }
-}
-
-/// The lines out of [KaratDonut]'s narrow slices, each to its karat; two
-/// whose ends would touch are pulled apart.
-class KaratLeaderPainter extends CustomPainter {
-  KaratLeaderPainter({required this.leaders, required this.style, required this.radius});
-
-  /// Each narrow slice, with its middle in radians.
-  final List<(KaratShare, double)> leaders;
-  final TextStyle style;
-  final double radius;
-
-  static const out = 16.0;
-  static const run = 14.0;
-  static const apart = 16.0;
-
-  List<int> get karats => [for (final (s, _) in leaders) s.karat];
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final centre = Offset(size.width / 2, size.height / 2);
-    final placed = <(KaratShare, Offset, Offset)>[];
-    for (final (s, angle) in leaders) {
-      final dir = Offset(math.cos(angle), math.sin(angle));
-      placed.add((s, centre + dir * radius, centre + dir * (radius + out)));
-    }
-    for (final right in [true, false]) {
-      final onSide = [for (final p in placed) if ((p.$3.dx >= centre.dx) == right) p]
-        ..sort((a, b) => a.$3.dy.compareTo(b.$3.dy));
-      for (var i = 1; i < onSide.length; i++) {
-        final (s, from, elbow) = onSide[i];
-        final lowest = onSide[i - 1].$3.dy + apart;
-        if (elbow.dy < lowest) {
-          final moved = (s, from, Offset(elbow.dx, lowest));
-          onSide[i] = moved;
-          placed[placed.indexWhere((p) => p.$1 == s)] = moved;
-        }
-      }
-    }
-    for (final (s, from, elbow) in placed) {
-      final right = elbow.dx >= centre.dx;
-      final end = elbow + Offset(right ? run : -run, 0);
-      final line = Paint()
-        ..color = s.color
-        ..strokeWidth = 1.5
-        ..style = PaintingStyle.stroke;
-      canvas.drawPath(Path()..moveTo(from.dx, from.dy)..lineTo(elbow.dx, elbow.dy)..lineTo(end.dx, end.dy), line);
-      canvas.drawCircle(from, 2, Paint()..color = s.color);
-      final text = TextPainter(
-        text: TextSpan(text: '${s.karat}K', style: style.copyWith(color: s.color)),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      text.paint(canvas, Offset(right ? end.dx + 3 : end.dx - 3 - text.width, end.dy - text.height / 2));
-    }
-  }
-
-  @override
-  bool shouldRepaint(KaratLeaderPainter old) =>
-      old.leaders != leaders || old.style != style || old.radius != radius;
 }
