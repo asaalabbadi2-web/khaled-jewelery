@@ -1,0 +1,26 @@
+{
+  "account_lines": [
+    {
+      "account_id": 70,
+      "amount": 72450.0,
+      "amount_type": "cash",
+      "description": "نقد",
+      "line_type": "credit"
+    },
+    {
+      "account_id": 92,
+      "amount": 72450.0,
+      "amount_type": "cash",
+      "description": "نقد",
+      "line_type": "debit",
+      "period_expense_id": 7
+    }
+  ],
+  "date": "<date>",
+  "description": "",
+  "notes": null,
+  "party_name": "كهرباء",
+  "party_type": "other",
+  "receiver_name": null,
+  "voucher_type": "payment"
+}

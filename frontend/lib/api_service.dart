@@ -2806,6 +2806,105 @@ class ApiService {
     return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
   }
 
+  // ── Period expenses and the period lock (ADR-090) ─────────────────────────
+  // The figures are the server's: accrued, paid and the balance are derived
+  // there; a refusal carries its reason (ApiException.message, .details).
+
+  Future<Map<String, dynamic>> _json(http.Response response, {Set<int> ok = const {200}}) async {
+    if (!ok.contains(response.statusCode)) throw _apiError(response);
+    return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+  }
+
+  Future<List<Map<String, dynamic>>> getPeriodExpenses({String? asOf}) async {
+    final uri = Uri.parse('$_baseUrl/period-expenses')
+        .replace(queryParameters: {if (asOf != null) 'as_of': asOf});
+    final response = await _authedGet(uri);
+    if (response.statusCode != 200) throw _apiError(response);
+    return (json.decode(utf8.decode(response.bodyBytes)) as List)
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
+  /// One expense with its schedule and its revisions.
+  Future<Map<String, dynamic>> getPeriodExpense(int id) async =>
+      _json(await _authedGet(Uri.parse('$_baseUrl/period-expenses/$id')));
+
+  Future<Map<String, dynamic>> createPeriodExpense({
+    required String description,
+    required int expenseAccountId,
+    required num amount,
+    required String periodStart,
+    required String periodEnd,
+  }) async =>
+      _json(
+        await _authedPost(
+          Uri.parse('$_baseUrl/period-expenses'),
+          headers: {'Content-Type': 'application/json; charset=UTF-8'},
+          body: json.encode({
+            'description': description,
+            'expense_account_id': expenseAccountId,
+            'amount': amount,
+            'period_start': periodStart,
+            'period_end': periodEnd,
+          }),
+        ),
+        ok: const {201},
+      );
+
+  /// A new amount or period (law 7): the posted months stay, the next month takes the difference.
+  Future<Map<String, dynamic>> editPeriodExpense(int id,
+          {required String reason, num? amount, String? periodStart, String? periodEnd}) async =>
+      _json(await _authedPut(
+        Uri.parse('$_baseUrl/period-expenses/$id'),
+        headers: {'Content-Type': 'application/json; charset=UTF-8'},
+        body: json.encode({
+          'reason': reason,
+          if (amount != null) 'amount': amount,
+          if (periodStart != null) 'period_start': periodStart,
+          if (periodEnd != null) 'period_end': periodEnd,
+        }),
+      ));
+
+  Future<Map<String, dynamic>> cancelPeriodExpense(int id, {required String reason}) async => _json(
+        await _authedPost(
+          Uri.parse('$_baseUrl/period-expenses/$id/cancel'),
+          headers: {'Content-Type': 'application/json; charset=UTF-8'},
+          body: json.encode({'reason': reason}),
+        ),
+      );
+
+  /// The month-end action (law 6): a preview without [apply], then applied.
+  Future<Map<String, dynamic>> accruePeriodExpenses(String through, {bool apply = false}) async => _json(
+        await _authedPost(
+          Uri.parse('$_baseUrl/period-expenses/accrue'),
+          headers: {'Content-Type': 'application/json; charset=UTF-8'},
+          body: json.encode({'through': through, 'apply': apply}),
+        ),
+        ok: const {200, 201},
+      );
+
+  /// The lock now and every move of it.
+  Future<Map<String, dynamic>> getPeriodLock() async =>
+      _json(await _authedGet(Uri.parse('$_baseUrl/period-lock')));
+
+  /// What waits in the months a lock through [through] would close.
+  Future<Map<String, dynamic>> getPeriodLockPending(String through) async => _json(
+      await _authedGet(Uri.parse('$_baseUrl/period-lock/pending').replace(queryParameters: {'through': through})));
+
+  /// Move the lock: [closedThrough] a month's last day, or null to open all. A
+  /// refusal for what waits (409 pending_in_period) carries the list in its details.
+  Future<Map<String, dynamic>> movePeriodLock(
+          {required String? closedThrough, required String reason, bool acceptPending = false}) async =>
+      _json(
+        await _authedPost(
+          Uri.parse('$_baseUrl/period-lock'),
+          headers: {'Content-Type': 'application/json; charset=UTF-8'},
+          body: json.encode({'closed_through': closedThrough, 'reason': reason, 'accept_pending': acceptPending}),
+        ),
+        ok: const {201},
+      );
+
   Future<Map<String, dynamic>> reviewSystemAlert(int alertId) async {
     final uri = Uri.parse('$_baseUrl/system-alerts/$alertId/review');
     final response = await _authedPut(uri);

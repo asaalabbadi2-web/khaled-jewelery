@@ -247,6 +247,12 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
   final _vatInvoiceController = TextEditingController();
   DateTime? _vatInvoiceDate;
 
+  // A payment on a period expense (ADR-090 law 2): the expenses open on the
+  // chosen «آخر» account, asked once and only when one is chosen; the one it pays.
+  List<Map<String, dynamic>>? _periodExpenses;
+  bool _periodExpensesAsked = false;
+  int? _periodExpenseId;
+
   final List<AccountLineModel> _accountLines = [];
   final List<String> _attachedFileNames = [];
 
@@ -611,6 +617,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         if (candidateId != null) {
           _selectedOtherAccountId = candidateId;
         }
+        _periodExpenseId = _coerceAccountId(partyLine['period_expense_id']);
       }
 
       _accountLines.clear();
@@ -785,6 +792,38 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       _partyType == 'other' &&
       _selectedOtherAccountId != null &&
       _expenseIds.contains(_selectedOtherAccountId);
+
+  /// The period expenses open on the chosen «آخر» account, left to pay.
+  List<Map<String, dynamic>> get _periodExpenseChoices {
+    if (widget.voucherType != 'payment' || _partyType != 'other' || _selectedOtherAccountId == null) {
+      return const [];
+    }
+    return (_periodExpenses ?? const [])
+        .where((pe) =>
+            pe['expense_account_id'] == _selectedOtherAccountId &&
+            pe['status'] == 'active' &&
+            (((pe['remaining_to_pay'] as num?) ?? 0) > 0 || pe['id'] == _periodExpenseId))
+        .toList();
+  }
+
+  bool get _periodExpenseOffered => _periodExpenseChoices.isNotEmpty;
+
+  /// Asked once, when a payment to «آخر» has its account -- not on opening the screen.
+  Future<void> _askPeriodExpenses() async {
+    if (_periodExpensesAsked ||
+        widget.voucherType != 'payment' ||
+        _partyType != 'other' ||
+        _selectedOtherAccountId == null) {
+      return;
+    }
+    _periodExpensesAsked = true;
+    try {
+      final rows = await _apiService.getPeriodExpenses();
+      if (mounted) setState(() => _periodExpenses = rows);
+    } catch (_) {
+      // none offered: the voucher is saved as an ordinary expense
+    }
+  }
 
   double get _expenseVatAmount =>
       readTypedNumber(_vatAmountController.text) ?? 0;
@@ -1297,6 +1336,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       });
 
       _applyIncomingAccountLinesIfNeeded();
+      _askPeriodExpenses();
       // توليد البيان والمستلم تلقائياً بعد اكتمال تحميل البيانات
       // (يُغطي حالة الفتح من مورد/عميل عبر initialSupplierId/initialPartyType)
       WidgetsBinding.instance.addPostFrameCallback(
@@ -2407,7 +2447,11 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                     _selectedOtherAccountId = value;
                     // Auto-switch all lines to match the party safe type
                     _syncLinesAmountTypeToParty(value);
+                    if (!_periodExpenseChoices.any((pe) => pe['id'] == _periodExpenseId)) {
+                      _periodExpenseId = null;
+                    }
                   });
+                  _askPeriodExpenses();
                 },
               ),
             _buildPartyBalance(),
@@ -2744,6 +2788,49 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  /// A payment on a period expense (ADR-090): folded, so an ordinary expense
+  /// is not weighed down; the server puts the payment where the expense's
+  /// balance stands -- what was accrued paid off first, the rest prepaid.
+  Widget _buildPeriodExpenseCard() {
+    final theme = Theme.of(context);
+    final settings = context.read<SettingsProvider>();
+    final choices = _periodExpenseChoices;
+    return Card(
+      key: const Key('period-expense-link'),
+      child: ExpansionTile(
+        initiallyExpanded: _periodExpenseId != null,
+        title: Text('مصروف فترة (اختياري)', style: theme.textTheme.titleMedium),
+        subtitle: Text(
+          _periodExpenseId == null
+              ? 'إيجار أو رخصة عن أشهر: يُقيَّد مقدَّمًا أو سدادًا لمستحق، لا مصروفًا كله اليوم'
+              : '${choices.firstWhere((pe) => pe['id'] == _periodExpenseId, orElse: () => const {})['description'] ?? ''}',
+        ),
+        childrenPadding: const EdgeInsets.fromLTRB(AppSpace.lg, 0, AppSpace.lg, AppSpace.lg),
+        children: [
+          DropdownButtonFormField<int?>(
+            key: const Key('period-expense-picker'),
+            initialValue: _periodExpenseId,
+            isExpanded: true,
+            decoration: const InputDecoration(border: OutlineInputBorder(), labelText: 'يدفع'),
+            items: [
+              const DropdownMenuItem<int?>(value: null, child: Text('لا — مصروف عادي')),
+              for (final pe in choices)
+                DropdownMenuItem<int?>(
+                  value: pe['id'] as int,
+                  child: Text(
+                    '${pe['description']} — الباقي ${formatAmount((pe['remaining_to_pay'] as num?) ?? 0)} '
+                    '${settings.currencySymbolText}',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+            ],
+            onChanged: (id) => setState(() => _periodExpenseId = id),
+          ),
+        ],
+      ),
     );
   }
 
@@ -3568,6 +3655,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           'amount_type': 'cash',
           'amount': cash,
           'description': 'نقد',
+          if (_periodExpenseId != null && _periodExpenseOffered) 'period_expense_id': _periodExpenseId,
         },
       for (final MapEntry(key: karat, value: g) in gold.entries)
         {
@@ -4232,6 +4320,10 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       if (_expenseVatOffered) ...[
         const SizedBox(height: 12),
         _buildExpenseVatCard(),
+      ],
+      if (_periodExpenseOffered) ...[
+        const SizedBox(height: 12),
+        _buildPeriodExpenseCard(),
       ],
     ];
 

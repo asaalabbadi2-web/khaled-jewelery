@@ -44,6 +44,8 @@ import 'accounts_screen.dart';
 import 'journal_entries_list_screen.dart';
 import 'journal_entry_form.dart';
 import 'recurring_templates_screen.dart';
+import 'period_expenses_screen.dart';
+import 'period_lock_screen.dart';
 import 'general_ledger_screen_v2.dart';
 import 'reports/trial_balance_report_screen.dart';
 import 'settings_screen_enhanced.dart';
@@ -2009,6 +2011,33 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           await Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => reportDestination('vat_returns', api, isAr)!),
+          );
+        },
+      );
+      // ADR-090: an expense of a period accrued month by month; writing needs
+      // journal.create / journal.post (the server's)
+      addDestination(
+        icon: Icons.event_repeat,
+        title: isAr ? 'مصروفات الفترات' : 'Period Expenses',
+        keywords: const ['مصروف مقدم', 'مصروف مستحق', 'إيجار', 'استحقاق الشهر', 'مصروفات مقدمة'],
+        onSelected: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => PeriodExpensesScreen(api: api)),
+          );
+        },
+      );
+      // ADR-090 law 9: the books closed through a month; moving it is the owner's alone
+      addDestination(
+        icon: Icons.lock_clock_outlined,
+        title: isAr ? 'إقفال الفترات' : 'Period Lock',
+        keywords: const ['إقفال شهر', 'قفل الفترة', 'فتح الفترة', 'إقفال محاسبي'],
+        onSelected: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => PeriodLockScreen(api: api, canMove: auth.hasPermission('accounting.period_lock')),
+            ),
           );
         },
       );

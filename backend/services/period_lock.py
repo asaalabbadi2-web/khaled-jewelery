@@ -36,6 +36,11 @@ class PeriodLockRefused(ValueError):
 
 LISTED = 50          # each kind of what waits: its count, and at most this many named
 
+# The entries whose reference_id is their invoice's own id (measured on the copy
+# of 12 Nov: every 'invoice_payment_deferred', 2,361 of 2,364 'invoice_payments');
+# an 'invoice_payment' or 'invoice_correction' names its payment or correction.
+INVOICE_ID_REFERENCES = ('invoice', 'invoice_payments', 'invoice_payment_deferred')
+
 
 def pending(after: date | None, through: date) -> dict:
     """What still waits in the months after *after* through *through* -- each
@@ -53,14 +58,16 @@ def pending(after: date | None, through: date) -> dict:
 
     vouchers = dated(Voucher.query.filter(Voucher.status == 'pending'), Voucher.date).order_by(Voucher.date)
     # An entry of a retracted invoice waits for nothing: it is never posted
-    # and counts nowhere (four on the copy of 12 Nov, rejected sales' drafts).
+    # and counts nowhere (five on the copy of 12 Nov: four rejected sales'
+    # drafts, and the payment of 3123 -- the owner, 14 Nov 2026: «من آثار حذف
+    # الفواتير السابق ولا يجب ان ترحل»).
     retracted = db.session.query(Invoice.id).filter(
         db.func.coalesce(Invoice.status, '').in_(list(RETRACTED_INVOICE_STATUSES)))
     entries = dated(JournalEntry.query.filter(
         JournalEntry.is_deleted.is_(False),
         db.or_(JournalEntry.is_posted.is_(False), JournalEntry.is_draft.is_(True)),
         # coalesced: a manual entry has no reference, and NULL in a NOT left it out (three-valued)
-        db.not_(db.and_(db.func.coalesce(JournalEntry.reference_type, '') == 'invoice',
+        db.not_(db.and_(db.func.coalesce(JournalEntry.reference_type, '').in_(INVOICE_ID_REFERENCES),
                         db.func.coalesce(JournalEntry.reference_id, 0).in_(retracted)))),
         JournalEntry.date).order_by(JournalEntry.date)
     invoices = dated(Invoice.query.filter(

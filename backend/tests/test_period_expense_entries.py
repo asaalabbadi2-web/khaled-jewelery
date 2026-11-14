@@ -210,6 +210,10 @@ def test_the_month_end_action_previews_then_applies(auth_headers, books):
     applied = client.post('/api/period-expenses/accrue', headers=auth_headers,
                           json={'through': '2026-02-28', 'apply': True})
     assert applied.status_code == 201 and len(_entries(rent)) == 2
+    edit(rent, reason='العقد الجديد', by='tester', now=NOW, amount=150000)
+    g.pop('current_user', None)
+    read = client.get(f'/api/period-expenses/{rent.id}', headers=auth_headers).get_json()
+    assert read['revisions'][0]['reason'] == 'العقد الجديد' and read['revisions'][0]['after'] == {'amount': '150000.0'}
     g.pop('current_user', None)
     future = client.post('/api/period-expenses/accrue', headers=auth_headers, json={'through': '2099-01-31'})
     assert future.status_code == 400 and future.get_json()['error'] == 'not_past'

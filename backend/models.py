@@ -3562,6 +3562,8 @@ class VoucherAccountLine(db.Model):
                 'account_number': self.account.account_number,
                 'type': self.account.type
             }
+        if self.period_expense_id:                 # a payment on a period expense (ADR-090 law 2)
+            result['period_expense_id'] = self.period_expense_id
         
         return result
 

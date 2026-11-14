@@ -22,7 +22,18 @@ class FakeVoucherApi extends ApiService {
     this.plan,
     this.failLoads = 0,
     this.appConfig = const {},
+    this.periodExpenses = const [],
   });
+
+  /// The period expenses the server holds (ADR-090), and how often they were asked.
+  final List<Map<String, dynamic>> periodExpenses;
+  int periodExpensesAsked = 0;
+
+  @override
+  Future<List<Map<String, dynamic>>> getPeriodExpenses({String? asOf}) async {
+    periodExpensesAsked++;
+    return periodExpenses;
+  }
 
   /// What /app-config says: the account groups a screen filters by.
   final Map<String, dynamic> appConfig;

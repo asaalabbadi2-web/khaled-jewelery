@@ -122,13 +122,16 @@ def test_what_waits_in_the_months_is_listed_and_refuses_the_close(auth_headers, 
     db.session.flush()
     left = JournalEntry(entry_number='PP-LEFT', date=datetime(2026, 10, 8), description='مسودة فاتورة مرفوضة',
                         is_draft=True, reference_type='invoice', reference_id=retracted.id)
-    db.session.add(left)
+    # its payment's draft too, as JE-2026-05978 of 3123 (the owner: «لا يجب ان ترحل»)
+    paid = JournalEntry(entry_number='PP-PAID', date=datetime(2026, 9, 26), description='دفعات فاتورة مرفوضة',
+                        is_draft=True, reference_type='invoice_payments', reference_id=retracted.id)
+    db.session.add_all([left, paid])
     db.session.flush()
     rent = expense(books)
     waiting = pending(None, OCTOBER)
     assert [v['id'] for v in waiting['vouchers']['items']] == [voucher_id]
     assert 'PP-DRAFT' in [e['number'] for e in waiting['entries']['items']]
-    assert 'PP-LEFT' not in [e['number'] for e in waiting['entries']['items']]   # a rejected invoice's: waits for nothing
+    assert {'PP-LEFT', 'PP-PAID'}.isdisjoint(e['number'] for e in waiting['entries']['items'])   # a rejected invoice's
     assert [i['id'] for i in waiting['invoices']['items']] == [invoice.id]       # not the rejected one
     assert [p['period_expense_id'] for p in waiting['period_expenses']['items']] == [rent.id]
     with pytest.raises(PeriodLockRefused) as refused:

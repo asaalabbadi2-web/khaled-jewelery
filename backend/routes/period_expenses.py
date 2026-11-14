@@ -39,7 +39,13 @@ def get_period_expense(expense_id):
         day = _as_of()
     except ValueError:
         return jsonify({'error': 'invalid_date', 'message': 'التاريخ يُكتب YYYY-MM-DD'}), 400
-    return jsonify(to_dict(pe, day)), 200
+    import json
+    from models import PeriodExpenseRevision
+    revisions = [{'reason': r.reason, 'before': json.loads(r.before), 'after': json.loads(r.after),
+                  'changed_by': r.changed_by, 'changed_at': r.changed_at.isoformat()}
+                 for r in PeriodExpenseRevision.query.filter_by(period_expense_id=pe.id)
+                 .order_by(PeriodExpenseRevision.id.desc())]
+    return jsonify({**to_dict(pe, day), 'revisions': revisions}), 200
 
 
 @period_expenses_bp.route('/period-expenses', methods=['POST'])
