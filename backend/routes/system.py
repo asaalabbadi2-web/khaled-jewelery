@@ -1758,7 +1758,7 @@ def _reset_full_system_wipe():
     - Explicitly delete/clear *all* SafeBox/Account dependency tables first.
 
     Ordering:
-      1) Operational/transaction tables (incl. SafeBoxTransaction + CategoryWeightMovement + recurring journals)
+      1) Operational/transaction tables (incl. SafeBoxTransaction + CategoryWeightMovement)
       2) Parties/master-data (customers/suppliers/items/categories/payment)
       3) Structure (employees/users/branches/offices/safebox)
       4) Chart of accounts (mappings -> accounts)
@@ -1780,7 +1780,6 @@ def _reset_full_system_wipe():
         SystemAlert,
         WeightClosingLog,
     )
-    from recurring_journal_system import RecurringJournalLine, RecurringJournalTemplate
 
     def _step(label: str, fn, required: bool = True) -> None:
         try:
@@ -1797,8 +1796,6 @@ def _reset_full_system_wipe():
     # 1) Transactions/operational tables that block SafeBox/Account deletion
     _step('Delete CategoryWeightMovement (blocks SafeBox)', lambda: CategoryWeightMovement.query.delete())
     _step('Delete SafeBoxTransaction (blocks SafeBox)', lambda: SafeBoxTransaction.query.delete())
-    _step('Delete recurring journals (block Account)', lambda: RecurringJournalLine.query.delete())
-    _step('Delete recurring journal templates (block Account)', lambda: RecurringJournalTemplate.query.delete())
 
     # Core operations (children first)
     _step('Delete WeightClosingExecution', lambda: WeightClosingExecution.query.delete())

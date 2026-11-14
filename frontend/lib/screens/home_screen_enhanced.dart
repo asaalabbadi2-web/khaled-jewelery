@@ -43,7 +43,6 @@ import 'add_voucher_screen.dart';
 import 'accounts_screen.dart';
 import 'journal_entries_list_screen.dart';
 import 'journal_entry_form.dart';
-import 'recurring_templates_screen.dart';
 import 'period_expenses_screen.dart';
 import 'period_lock_screen.dart';
 import 'general_ledger_screen_v2.dart';
@@ -1984,20 +1983,6 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
             context,
             MaterialPageRoute(
               builder: (_) => AddEditJournalEntryScreen(),
-            ),
-          );
-        },
-      );
-      addDestination(
-        icon: Icons.repeat,
-        title: isAr ? 'القيود الدورية' : 'Recurring Entries',
-        color: _tone.sectionPurple.fg,
-        onSelected: () async {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) =>
-                  RecurringTemplatesScreen(isArabic: isAr),
             ),
           );
         },
@@ -5279,14 +5264,6 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           context,
           MaterialPageRoute(
             builder: (_) => const PurchaseInvoiceScreen(supplierReturnMode: true),
-          ),
-        );
-        break;
-      case 'recurring_entries':
-        result = await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => RecurringTemplatesScreen(isArabic: widget.isArabic),
           ),
         );
         break;

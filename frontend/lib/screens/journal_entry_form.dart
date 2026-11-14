@@ -1349,13 +1349,7 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
       ],
       onChanged: (value) => setState(() => _selectedEntryType = value!),
     );
-    // A recurring template's reference is set by the system, never chosen;
-    // an entry that already carries it keeps showing it.
-    final referenceTypes = {
-      ..._referenceTypes,
-      if (_referenceType == 'recurring_template')
-        'recurring_template': 'قيد دوري',
-    };
+    final referenceTypes = {..._referenceTypes};
     final reference = Row(
       children: [
         Expanded(

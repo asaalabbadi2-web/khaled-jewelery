@@ -30,9 +30,6 @@ KNOWN_TOKENLESS = {
     ('api_service.dart', 'post'): 'generic helper: tries without a session, retries with one on 401 (_authedPost)',
     ('api_service.dart', 'put'): 'generic helper: tries without a session, retries with one on 401 (_authedPut)',
     ('api_service.dart', 'delete'): 'generic helper: tries without a session, retries with one on 401 (_authedDelete)',
-    ('screens/recurring_templates_screen.dart', '*'):
-        'DEBT: hard-codes http://127.0.0.1:8001, so it never reached the server in production; '
-        'RecurringTemplatesListScreen is the working screen',
 }
 
 _METHOD_SIG = re.compile(r'^\s*(?:static\s+)?(?:Future(?:<.*>)?|void|[A-Z]\w*(?:<.*>)?)\s+(\w+)\s*\(')

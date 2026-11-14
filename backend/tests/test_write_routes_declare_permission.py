@@ -68,18 +68,6 @@ ALLOWED = {
         'checks users.change_permissions in its body; the decorator would make it visible',
     ('permissions_routes.py', 'update_user_role'):
         'checks users.change_permissions in its body; the decorator would make it visible',
-    ('recurring_journal_routes.py', 'create_entry_from_template'):
-        'api blueprint: _enforce_api_auth_and_permissions infers the permission',
-    ('recurring_journal_routes.py', 'create_recurring_template_endpoint'):
-        'api blueprint: _enforce_api_auth_and_permissions infers the permission',
-    ('recurring_journal_routes.py', 'delete_recurring_template'):
-        'api blueprint: _enforce_api_auth_and_permissions infers the permission',
-    ('recurring_journal_routes.py', 'process_all_recurring'):
-        'api blueprint: _enforce_api_auth_and_permissions infers the permission',
-    ('recurring_journal_routes.py', 'toggle_template_active'):
-        'api blueprint: _enforce_api_auth_and_permissions infers the permission',
-    ('recurring_journal_routes.py', 'update_recurring_template'):
-        'api blueprint: _enforce_api_auth_and_permissions infers the permission',
     ('routes/admin.py', 'upload_temp_pdf'):
         'any signed-in user may upload the PDF of the invoice they print',
     ('routes/employees.py', 'check_goal_progress'):

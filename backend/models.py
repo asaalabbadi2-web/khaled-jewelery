@@ -2304,7 +2304,6 @@ class JournalEntry(db.Model):
     reference_type = db.Column(db.String(50))  # نوع المرجع (voucher, invoice, etc.)
     reference_id = db.Column(db.Integer)  # معرف المرجع
     reference_number = db.Column(db.String(100))  # رقم المرجع الخارجي (رقم الفاتورة، السند، إلخ)
-    recurring_template_id = db.Column(db.Integer, db.ForeignKey('recurring_journal_template.id'), nullable=True)  # ربط بالقالب الدوري
     created_by = db.Column(db.String(100))
     created_at = db.Column(db.DateTime, default=db.func.now(), nullable=True)
 

@@ -5,8 +5,8 @@ writer passes it; the database trigger holds the rest. What this file holds:
 
   - no runtime code writes entries past the mappers (bulk ORM writes, raw SQL)
     but the one known startup backfill, which touches no row on production;
-  - a writer dated by its document (a voucher's approval, a recurring entry)
-    is refused in a closed month, and the request answers 409 period_closed
+  - a writer dated by its document (a voucher's approval, a manual entry --
+    test_period_lock.py) is refused in a closed month, and the request answers 409 period_closed
     whatever the route made of it -- many routes catch every exception;
   - the correction of a closed month's document goes in the open month: a
     voucher approved in October is cancelled in November, its reversal dated
@@ -109,20 +109,6 @@ def test_a_pending_voucher_of_a_closed_month_is_not_approved_and_says_why(auth_h
     assert resp.status_code == 409, resp.get_json()
     assert resp.get_json()['error'] == 'period_closed'
     assert '2026-10-01' in resp.get_json()['message']
-
-
-def test_a_recurring_entry_into_a_closed_month_is_refused_and_says_why(auth_headers):
-    from models import Account
-    from recurring_journal_system import create_recurring_template
-    leaves = [a.id for a in Account.query.filter(~Account.id.in_(
-        db.session.query(Account.parent_id).filter(Account.parent_id.isnot(None)))).order_by(Account.id).limit(2)]
-    template = create_recurring_template('إيجار', 'إيجار شهري', 'monthly', datetime(2026, 10, 1), [
-        {'account_id': leaves[0], 'cash_debit': 100}, {'account_id': leaves[1], 'cash_credit': 100}])
-    _lock()
-    g.pop('current_user', None)
-    resp = flask_app.test_client().post(f'/api/recurring_templates/{template.id}/create_entry', headers=auth_headers)
-    assert resp.status_code == 409, resp.get_json()
-    assert resp.get_json()['error'] == 'period_closed'
 
 
 # ── the correction goes in the open month ─────────────────────────────────────

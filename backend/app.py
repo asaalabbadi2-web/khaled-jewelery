@@ -100,10 +100,6 @@ if _log_startup_imports:
 from payment_methods_routes import payment_methods_api, ensure_default_payment_types  # 🆕 استيراد payment methods routes
 if _log_startup_imports:
 	print("DEBUG: Imported payment_methods_api blueprint")
-# استيراد recurring_journal_routes ليتم تسجيل routes على نفس api blueprint
-import recurring_journal_routes  # 🆕 استيراد recurring journal routes
-if _log_startup_imports:
-	print("DEBUG: Imported recurring_journal_routes")
 from offices_routes import offices_bp  # 🆕 استيراد offices routes
 if _log_startup_imports:
 	print("DEBUG: Imported offices_bp blueprint")
@@ -532,7 +528,6 @@ app.register_blueprint(period_lock_bp, url_prefix='/api')  # the period lock (AD
 app.register_blueprint(period_expenses_bp, url_prefix='/api')  # period expenses (ADR-090)
 app.register_blueprint(internal_bp)             # ERP Sync internal API (/api/internal/*)
 app.register_blueprint(api, url_prefix='/api')  # ✅ API الرئيسي (أخيراً)
-# recurring_journal_routes تستخدم نفس api blueprint، لذا لا حاجة لتسجيلها
 
 from auth_decorators import require_permission  # noqa: E402
 

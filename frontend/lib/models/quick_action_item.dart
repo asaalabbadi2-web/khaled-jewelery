@@ -515,16 +515,6 @@ class DefaultQuickActions {
       group: QuickActionGroup.accounting,
     ),
     QuickActionItem(
-      id: 'recurring_entries',
-      icon: Icons.repeat,
-      label: 'القيود الدورية',
-      route: 'recurring_entries',
-      colorHex: '#6A1B9A',
-      isActive: false,
-      order: 6,
-      group: QuickActionGroup.accounting,
-    ),
-    QuickActionItem(
       id: 'general_ledger',
       icon: Icons.menu_book,
       label: 'دفتر الأستاذ العام',
