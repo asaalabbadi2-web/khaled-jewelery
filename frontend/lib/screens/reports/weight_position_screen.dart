@@ -242,10 +242,10 @@ class _WeightPositionScreenState extends State<WeightPositionScreen> {
   // ── 4: the five layers, for the period and month by month ────────────────
 
   static const _layerNames = <String, String>{
-    'trading': '① المتاجرة: ريالات المُباع التي عادت ذهبًا',
+    'trading': '① المتاجرة: ربح المُباع بسعر التسكير',
     'revenue': '② إيرادات إضافية',
     'expense_direct': '③ مصاريف وزنية',
-    'expense_cash': '④ مصاريف نقدية',
+    'expense_cash': '④ مصاريف نقدية بسعر التسكير',
     'price_effect': '⑤ ما لم يُسكَّر بعد',
   };
 

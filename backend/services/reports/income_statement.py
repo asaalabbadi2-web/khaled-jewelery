@@ -112,12 +112,12 @@ def income_statement(*, start: dt.date, end: dt.date, now: dt.datetime) -> Repor
     bought_cash, bought_grams = sum(c.cash for c in bought), sum(c.grams for c in bought)
     row('gram_layers', 'ربح الجرام — الطبقات الخمس', style='heading')
     for key, name, grams in (
-            ('layer_trading', '① المتاجرة: ريالات المُباع التي عادت ذهبًا', layers['trading']),
+            ('layer_trading', '① المتاجرة: ربح المُباع بسعر التسكير', layers['trading']),
             ('sold', None, None),
             ('bought', None, None),
             ('layer_revenue', '② الإيرادات', layers['revenue_converted'] + layers['revenue_direct']),
             ('layer_expense_direct', '③ المصاريف الوزنية', layers['expense_direct']),
-            ('layer_expense_cash', '④ المصاريف النقدية', layers['expense_cash']),
+            ('layer_expense_cash', '④ المصاريف النقدية بسعر التسكير', layers['expense_cash']),
             ('layer_waiting', '⑤ ما لم يُسكَّر بعد', layers['price_effect'])):
         if key == 'sold':
             if sold_grams:

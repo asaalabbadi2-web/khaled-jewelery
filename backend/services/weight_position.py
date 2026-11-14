@@ -360,22 +360,42 @@ def sale_view(result: Replay, events: Events, invoice_id: int, price: float) -> 
     }
 
 
-def split_layers(slices, direct) -> dict:
+def split_layers(slices, direct, price_on=None) -> dict:
     """The weight profit by layer (the owner, 16 Oct 2026: five, not four).
 
-    ① trading         riyals of what was sold that became gold
-    ② revenue         a marked revenue's riyals that became gold, and its weight lines
+    ① trading         riyals of what was sold that became gold -- or were spent
+    ② revenue         a marked revenue's riyals that became gold (or were spent), and its weight lines
     ③ expense_direct  marked expenses booked in weight
-    ④ expense_cash    marked cash expenses: the grams sold whose riyals they spent
+    ④ expense_cash    marked cash expenses: their riyals at the closing price of the day they left
     ⑤ price_effect    (added by the caller) how the waiting riyals' worth moved
+
+    The shop closes its cash at the offices' price, not at its sales' (the
+    owner, 14 Nov 2026: «نحن نقوم بتسكير النقد على سعر الشراء المكاتب وليس على
+    المبيعات»): an expense costs its riyals over *price_on* of the day they
+    left (a prepaid piece: its payment's day); what those riyals were worth
+    in gold over the grams sold for them is the sale's (or the revenue's),
+    in ① (or ②). A piece with no price on its day costs the grams sold it
+    spent, as before. The whole is the same either way: only the layers read
+    differently.
     """
-    return {
+    layers = {
         'trading': sum(s.result for s in slices if s.kind != EXPENSE and s.lot_kind != REVENUE),
         'revenue_converted': sum(s.result for s in slices if s.kind != EXPENSE and s.lot_kind == REVENUE),
         'revenue_direct': sum(d[1] for d in direct if d[2] == REVENUE_SIDE),
         'expense_direct': sum(d[1] for d in direct if d[2] == EXPENSE_SIDE),
-        'expense_cash': sum(s.result for s in slices if s.kind == EXPENSE),
+        'expense_cash': 0.0,
     }
+    for s in slices:
+        if s.kind != EXPENSE:
+            continue
+        price = price_on(s.happened.date())[0] if price_on is not None else 0.0
+        if not price:
+            layers['expense_cash'] += s.result
+            continue
+        at_price = s.cash / price
+        layers['expense_cash'] -= at_price
+        layers['revenue_converted' if s.lot_kind == REVENUE else 'trading'] += at_price - s.grams_out
+    return layers
 
 
 def unrealized(cash_open: float, grams_open: float, price: float) -> float:
@@ -661,6 +681,45 @@ def office_prices(until: dt.date):
     return price_on
 
 
+def expense_prices(prices, until: dt.date):
+    """price_on(day) -> (price, where it came from) for a marked cash
+    expense's riyals (split_layers ④): the closing office's price of the day
+    (*prices*, office_prices); a day before any office price, the first
+    supplier's purchase on or after it, up to *until* -- its gold's riyals
+    (no wages, no tax) over its grams in the main karat (the owner, 14 Nov
+    2026: «سعر اول فاتورة شراء بعد هذا التاريخ»). Neither: nothing. The
+    purchases are read once, and only if a day needs them."""
+    import bisect
+    purchases = None
+
+    def first_purchases():
+        from models import Invoice
+        from routes import _invoice_weight_in_main_karat
+        end = dt.datetime.combine(until, dt.time.max)
+        rows = []
+        for inv in (_with_weight_lines(Invoice.query).filter(Invoice.invoice_type == PURCHASE,
+                                                             Invoice.is_posted.is_(True), Invoice.date <= end)
+                    .order_by(Invoice.date)):
+            gold, grams = float(inv.gold_subtotal or 0), _invoice_weight_in_main_karat(inv)
+            if gold > 0 and grams > 0:
+                rows.append((inv.date.date(), gold / grams, inv.invoice_type_id))
+        return rows
+
+    def price_on(day: dt.date):
+        nonlocal purchases
+        price, source = prices(day)
+        if price:
+            return price, source
+        if purchases is None:
+            purchases = first_purchases()
+        at = bisect.bisect_left([p[0] for p in purchases], day)
+        if at >= len(purchases):
+            return 0.0, 'لا سعر'
+        when, price, number = purchases[at]
+        return price, f'أول فاتورة شراء بعده: شراء #{number} ({when:%Y-%m-%d})'
+    return price_on
+
+
 def closing_price(lots) -> float | None:
     """The open sales' prices, weighted by their grams still waiting
     (the owner: 1 g at 440, 1 g at 435, 1 g at 430 close at 435)."""
@@ -894,6 +953,7 @@ def performance_by_month(start: dt.date, end: dt.date, events: Events = None, pr
     hi = dt.datetime.combine(end, dt.time.max)
     events = events if events is not None else collect_events(year_start(end), hi)
     prices = prices or office_prices(end)
+    expense_price_on = expense_prices(prices, end)
     result = replay(_until(events, hi))
     rows, previous_u = [], 0.0
     first_month = dt.date(start.year, start.month, 1)
@@ -907,7 +967,7 @@ def performance_by_month(start: dt.date, end: dt.date, events: Events = None, pr
         if month_start >= first_month:
             lo, hi = dt.datetime.combine(month_start, dt.time.min), dt.datetime.combine(month_last, dt.time.max)
             layers = split_layers([s for s in result.slices if lo <= s.when <= hi],
-                                  [d for d in result.direct if lo <= d[0] <= hi])
+                                  [d for d in result.direct if lo <= d[0] <= hi], expense_price_on)
             layers['price_effect'] = u - previous_u
             rows.append({'month': m, 'valuation_price': round(price, 4), 'open_cash': round(cash_m, 2),
                          'unrealized': round(u, 3), 'layers': {k: round(v, 3) for k, v in layers.items()},
@@ -931,7 +991,7 @@ def performance(start: dt.date, end: dt.date, events: Events = None, prices=None
     realized = sum(by_kind.values())
     in_period = [d for d in result.direct if lo <= d[0] <= hi]
     direct = sum(d[1] for d in in_period)
-    layers = split_layers(taken, in_period)
+    layers = split_layers(taken, in_period, expense_prices(prices, end))
 
     def parts_on(day: dt.date) -> tuple[float, float]:
         if day < year_start(end).date():

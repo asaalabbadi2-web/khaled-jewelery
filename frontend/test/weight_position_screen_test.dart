@@ -102,8 +102,8 @@ void main() {
 
   testWidgets('the five layers and their total, as the server gives them', (tester) async {
     await _pump(tester);
-    for (final name in ['① المتاجرة: ريالات المُباع التي عادت ذهبًا', '② إيرادات إضافية', '③ مصاريف وزنية',
-                        '④ مصاريف نقدية', '⑤ ما لم يُسكَّر بعد']) {
+    for (final name in ['① المتاجرة: ربح المُباع بسعر التسكير', '② إيرادات إضافية', '③ مصاريف وزنية',
+                        '④ مصاريف نقدية بسعر التسكير', '⑤ ما لم يُسكَّر بعد']) {
       expect(find.text(name), findsOneWidget, reason: name);
     }
     final total = tester.widget<Text>(find.byKey(const ValueKey('wp-period-total')));
