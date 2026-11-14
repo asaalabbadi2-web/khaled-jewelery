@@ -639,6 +639,34 @@ class _ExpenseSheetState extends State<_ExpenseSheet> {
                             icon: const Icon(Icons.edit),
                             label: const Text('تعديل المبلغ'),
                           ),
+                          // A new period: the months posted stay; the next month
+                          // takes the difference (law 7), saying so in its entry.
+                          OutlinedButton.icon(
+                            key: const Key('period-expense-edit-period'),
+                            onPressed: () async {
+                              final picked = await showDateRangePicker(
+                                context: context,
+                                firstDate: DateTime(2020),
+                                lastDate: DateTime(2035),
+                                initialDateRange: DateTimeRange(
+                                  start: DateTime.parse('${pe['period_start']}'),
+                                  end: DateTime.parse('${pe['period_end']}'),
+                                ),
+                              );
+                              if (picked == null || !mounted) return;
+                              await _act(
+                                (r) => widget.api.editPeriodExpense(
+                                  widget.id,
+                                  reason: r,
+                                  periodStart: _day.format(picked.start),
+                                  periodEnd: _day.format(picked.end),
+                                ),
+                                'تعديل الفترة: من ${_day.format(picked.start)} إلى ${_day.format(picked.end)}',
+                              );
+                            },
+                            icon: const Icon(Icons.date_range),
+                            label: const Text('تعديل الفترة'),
+                          ),
                           OutlinedButton.icon(
                             key: const Key('period-expense-cancel'),
                             onPressed: () => _act(

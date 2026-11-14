@@ -208,9 +208,15 @@ class _PeriodLockScreenState extends State<PeriodLockScreen> {
     );
   }
 
+  /// Opened back to a month's end before [current] -- the last month by
+  /// default, as far back as the correction needs -- or all of it (null).
   Future<void> _reopen(DateTime current) async {
     final reason = TextEditingController();
-    final earlier = DateTime(current.year, current.month, 0);
+    final choices = <DateTime?>[
+      for (var i = 0; i < 24; i++) DateTime(current.year, current.month - i, 0),
+      null,
+    ];
+    DateTime? earlier = choices.first;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -222,9 +228,26 @@ class _PeriodLockScreenState extends State<PeriodLockScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                DropdownButtonFormField<DateTime?>(
+                  key: const Key('period-lock-reopen-to'),
+                  initialValue: earlier,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'يصير القفل حتى'),
+                  items: [
+                    for (final d in choices)
+                      DropdownMenuItem<DateTime?>(
+                        value: d,
+                        child: Text(d == null ? 'لا شيء مقفل (يُفتح كله)' : _day.format(d)),
+                      ),
+                  ],
+                  onChanged: (d) => set(() => earlier = d),
+                ),
+                const SizedBox(height: AppSpace.sm),
                 Text(
-                  'يُفتح ${DateFormat('yyyy-MM').format(current)}: يصير القفل حتى ${_day.format(earlier)}. '
-                  'أعد إقفاله بعد التصحيح.',
+                  earlier == null
+                      ? 'تُفتح الدفاتر كلها. أعد إقفالها بعد التصحيح.'
+                      : 'تُفتح الأشهر بعد ${_day.format(earlier!)} حتى ${DateFormat('yyyy-MM').format(current)}. '
+                          'أعد إقفالها بعد التصحيح.',
                 ),
                 TextField(
                   key: const Key('period-lock-reopen-reason'),
@@ -255,11 +278,11 @@ class _PeriodLockScreenState extends State<PeriodLockScreen> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    await _move(_day.format(earlier), reason.text.trim());
+    await _move(earlier == null ? null : _day.format(earlier!), reason.text.trim());
   }
 
   Future<void> _move(
-    String through,
+    String? through,
     String reason, {
     bool acceptPending = false,
   }) async {
@@ -271,7 +294,7 @@ class _PeriodLockScreenState extends State<PeriodLockScreen> {
         acceptPending: acceptPending,
       );
       if (!mounted) return;
-      _say('الدفاتر مقفلة حتى $through');
+      _say(through == null ? 'فُتحت الدفاتر كلها' : 'الدفاتر مقفلة حتى $through');
       _reload();
     } catch (e) {
       if (mounted) AppFeedback.error(context, e);

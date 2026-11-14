@@ -50,6 +50,15 @@ class _FakeApi extends ApiService {
         ],
       };
 
+  final edits = <(int, String, String?, String?)>[];
+
+  @override
+  Future<Map<String, dynamic>> editPeriodExpense(int id,
+      {required String reason, num? amount, String? periodStart, String? periodEnd}) async {
+    edits.add((id, reason, periodStart, periodEnd));
+    return getPeriodExpense(id);
+  }
+
   @override
   Future<Map<String, dynamic>> accruePeriodExpenses(String through, {bool apply = false}) async {
     accrued.add((through, apply));
@@ -212,6 +221,48 @@ void main() {
     await tester.tap(find.byKey(const Key('period-lock-reopen-confirm')));
     await tester.pumpAndSettle();
     expect(api.moves.single.$1, '2026-08-31');
+  });
+
+  testWidgets('one expense: its period changed, with its reason', (tester) async {
+    final api = await _open(tester, (api) => PeriodExpensesScreen(api: api));
+    await tester.tap(find.byKey(const ValueKey('period-expense-7')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('period-expense-edit-period')));
+    await tester.tap(find.byKey(const Key('period-expense-edit-period')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save'));                     // the range picker, as it opened: the period kept
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('period-expense-reason')), 'العقد قُصّر');
+    await tester.tap(find.byKey(const Key('period-expense-reason-ok')));
+    await tester.pumpAndSettle();
+    expect(api.edits.single, (7, 'العقد قُصّر', '2026-01-01', '2026-12-31'));
+  });
+
+  testWidgets('the lock reopens as far back as the correction needs, or wholly', (tester) async {
+    final api = await _open(tester, (api) => PeriodLockScreen(api: api, canMove: true));
+    await tester.tap(find.byKey(const Key('period-lock-reopen')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('period-lock-reopen-to')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('2025-12-31').last);                       // the opening's year, for its correction
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('period-lock-reopen-reason')), 'تصحيح الافتتاح');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('period-lock-reopen-confirm')));
+    await tester.pumpAndSettle();
+    expect(api.moves.single.$1, '2025-12-31');
+
+    await tester.tap(find.byKey(const Key('period-lock-reopen')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('period-lock-reopen-to')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('لا شيء مقفل (يُفتح كله)').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('period-lock-reopen-reason')), 'فتح كامل');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('period-lock-reopen-confirm')));
+    await tester.pumpAndSettle();
+    expect(api.moves.last.$1, isNull);
   });
 
   test('the months a close may choose: after the lock, up to the last one over', () {
