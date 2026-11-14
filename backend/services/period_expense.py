@@ -360,13 +360,13 @@ def accrue(through: date, *, by: str, now, dry_run: bool = True) -> dict:
     written over (law 8)."""
     from models import PeriodExpense, db
     from period_lock_guard import closed_through
-    prepaid_id, accrued_id = _accounts()
     closed = closed_through(db.session.connection())
     expenses = PeriodExpense.query.order_by(PeriodExpense.id).all()
     plan = {'through': through.isoformat(), 'closed_through': closed.isoformat() if closed else None,
             'entries': [], 'reclass': [], 'drift': []}
     if not expenses:
-        return plan
+        return plan                                    # nothing to accrue: the roles are not asked for
+    prepaid_id, accrued_id = _accounts()
     savepoint = db.session.begin_nested()
     start = min(pe.period_start for pe in expenses)
     for month_end in _month_ends(start, through):

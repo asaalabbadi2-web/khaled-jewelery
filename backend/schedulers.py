@@ -14,7 +14,9 @@ CRITICAL  — absence means money stops moving.  Startup failure → sys.exit(1)
 
 OPTIONAL  — degraded but tolerable.  Startup failure → WARNING, process continues.
             Currently: bonus, gold_price, backup, safebox_reconciliation,
-            books_invariants (report-only: it must never be why money stops).
+            books_invariants (report-only: it must never be why money stops),
+            period_expense (a month it misses waits for the next night, and
+            the morning's check says so).
 """
 
 from __future__ import annotations
@@ -66,6 +68,11 @@ def _start_gold_acquisition_reconciliation(app):
     return start_gold_acquisition_reconciliation_scheduler(app)
 
 
+def _start_period_expense(app):
+    from period_expense_scheduler import start_period_expense_scheduler
+    return start_period_expense_scheduler(app)
+
+
 _SCHEDULER_STARTERS: dict[str, object] = {
     'clearing_settlement':              _start_clearing_settlement,
     'bonus':                            _start_bonus,
@@ -74,6 +81,7 @@ _SCHEDULER_STARTERS: dict[str, object] = {
     'safebox_reconciliation':           _start_safebox_reconciliation,
     'books_invariants':                 _start_books_invariants,
     'gold_acquisition_reconciliation':  _start_gold_acquisition_reconciliation,
+    'period_expense':                   _start_period_expense,
 }
 
 # ── Public API ────────────────────────────────────────────────────────────────

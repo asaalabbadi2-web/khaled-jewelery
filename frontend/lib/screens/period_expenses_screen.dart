@@ -22,7 +22,8 @@ import '../widgets/summary_strip.dart';
 /// balance -- prepaid above zero, accrued below. The screen computes none of
 /// it. From here: a new one, its schedule and its edits, an edit or a
 /// cancellation with its reason, and the month-end action -- previewed, then
-/// applied.
+/// applied. The scheduler accrues the months every night (the owner, 14 Nov
+/// 2026); the action is for a preview or a run at once.
 class PeriodExpensesScreen extends StatefulWidget {
   final ApiService api;
 
