@@ -169,8 +169,14 @@ def test_only_the_months_the_move_closes_are_asked(books):
 
 
 def test_the_routes_preview_and_refuse_with_what_waits(auth_headers, books):
-    expense(books)
     client = flask_app.test_client()
+    g.pop('current_user', None)
+    assert client.get('/api/period-lock', headers=auth_headers).status_code == 200   # the sign-in's activity, committed
+    expense(books)
+    # In the books before the requests, as on production -- not left in the
+    # session, where a refused request's rollback takes it (CI, 16f91f409).
+    # The fence makes this commit a savepoint, rolled back after the test.
+    db.session.commit()
     g.pop('current_user', None)
     preview = client.get('/api/period-lock/pending?through=2026-10-31', headers=auth_headers).get_json()
     assert preview['period_expenses']['count'] == 1 and preview['after'] is None

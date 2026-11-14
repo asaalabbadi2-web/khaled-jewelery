@@ -92,8 +92,8 @@ def accrue_period_expenses():
         plan = accrue(through, by=_by(), now=datetime.now(), dry_run=not apply)
         if apply:
             db.session.commit()
-        else:
-            db.session.rollback()
+        # a preview rolled its own savepoint back: nothing to undo here, and
+        # nothing else of the session's to undo with it
     except PeriodExpenseRefused as refused:
         db.session.rollback()
         return jsonify({'error': refused.code, 'message': refused.message}), 400

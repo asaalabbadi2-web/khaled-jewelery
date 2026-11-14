@@ -201,15 +201,24 @@ def test_the_database_holds_one_entry_a_month(books):
 # ── the routes ────────────────────────────────────────────────────────────────
 
 def test_the_month_end_action_previews_then_applies(auth_headers, books):
-    rent = expense(books)
+    """The preview leaves the session as it found it: what was written before
+    it stays. It once rolled the whole session back -- harmless on production,
+    where a request starts empty, and here only rescued when the sign-in's
+    activity, throttled to a minute, happened to commit first: CI, faster,
+    failed (16f91f409). So a request first, and the expense written after it."""
     client = flask_app.test_client()
     g.pop('current_user', None)
+    assert client.get('/api/period-expenses', headers=auth_headers).status_code == 200   # the activity, committed
+    rent = expense(books)                                                  # written after: no commit follows
+    g.pop('current_user', None)
     preview = client.post('/api/period-expenses/accrue', headers=auth_headers, json={'through': '2026-02-28'})
-    assert preview.status_code == 200 and len(preview.get_json()['entries']) == 2 and _entries(rent) == []
+    assert preview.status_code == 200, preview.get_json()
+    assert len(preview.get_json()['entries']) == 2 and _entries(rent) == []
     g.pop('current_user', None)
     applied = client.post('/api/period-expenses/accrue', headers=auth_headers,
                           json={'through': '2026-02-28', 'apply': True})
-    assert applied.status_code == 201 and len(_entries(rent)) == 2
+    assert applied.status_code == 201, applied.get_json()
+    assert len(_entries(rent)) == 2
     edit(rent, reason='العقد الجديد', by='tester', now=NOW, amount=150000)
     g.pop('current_user', None)
     read = client.get(f'/api/period-expenses/{rent.id}', headers=auth_headers).get_json()
