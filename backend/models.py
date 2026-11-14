@@ -7137,6 +7137,10 @@ db.event.listen(JournalEntryLine.__table__, 'after_create',
 import period_lock_guard as _period_lock_guard  # noqa: E402
 from period_lock_trigger import ENTRY_SQL as _PERIOD_LOCK_ENTRY_SQL, LOG_SQL as _PERIOD_LOCK_LOG_SQL  # noqa: E402
 _period_lock_guard.register(JournalEntry, JournalEntryLine)
+# A cash or bank safe holds no gold: no line moves its weight twin away from
+# zero (the owner, 14 Nov 2026; nightly CASH_SAFE_HOLDS_GOLD).
+import cash_safe_gold_guard as _cash_safe_gold_guard  # noqa: E402
+_cash_safe_gold_guard.register(JournalEntryLine)
 db.event.listen(JournalEntryLine.__table__, 'after_create',
                 _DDL(_PERIOD_LOCK_ENTRY_SQL.replace('%', '%%')).execute_if(dialect='postgresql'))
 db.event.listen(PeriodLock.__table__, 'after_create',

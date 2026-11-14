@@ -80,6 +80,7 @@ BONUS_RUN_FAILED = 'BONUS_RUN_FAILED'
 KARAT_CONVERSION_ADRIFT = 'KARAT_CONVERSION_ADRIFT'
 PERIOD_EXPENSE_LEDGER_DRIFT = 'PERIOD_EXPENSE_LEDGER_DRIFT'
 PERIOD_EXPENSE_MONTH_MISSING = 'PERIOD_EXPENSE_MONTH_MISSING'
+CASH_SAFE_HOLDS_GOLD = 'CASH_SAFE_HOLDS_GOLD'
 
 KINDS = (
     ORPHAN_POSTED_ENTRY,
@@ -102,6 +103,7 @@ KINDS = (
     KARAT_CONVERSION_ADRIFT,
     PERIOD_EXPENSE_LEDGER_DRIFT,
     PERIOD_EXPENSE_MONTH_MISSING,
+    CASH_SAFE_HOLDS_GOLD,
 )
 
 # An invoice in one of these states is retracted: its entries must not count
@@ -744,6 +746,35 @@ def check_period_expense_months_missing() -> list:
                  row['behind'], row) for row in months_behind()]
 
 
+def check_cash_safes_hold_no_gold() -> list:
+    """A cash or bank safe whose account's weight twin holds grams (the owner,
+    14 Nov 2026: «راجع صندوق النقدية المالي عليه وزن قديم»). The guard
+    (cash_safe_gold_guard) refuses a line moving it away from zero; this says
+    what is left past it -- an older writer's line, raw SQL. Keyed
+    'safe_box:<id>'; the metric is the grams at the main karat."""
+    from accounting.balances import counted_line_filters
+    from models import Account, JournalEntry, JournalEntryLine, SafeBox, db
+    from pricing.gold_price_service import get_main_karat
+    main = float(get_main_karat() or 0)
+    karats = (18, 21, 22, 24)
+    facts = []
+    rows = (db.session.query(SafeBox.id, SafeBox.name, Account.memo_account_id)
+            .join(Account, Account.id == SafeBox.account_id)
+            .filter(SafeBox.safe_type.in_(('cash', 'bank')), Account.memo_account_id.isnot(None)).all())
+    for safe_id, name, twin in rows:
+        sums = (db.session.query(*[func.coalesce(func.sum(func.coalesce(getattr(JournalEntryLine, f'debit_{k}k'), 0)
+                                                           - func.coalesce(getattr(JournalEntryLine, f'credit_{k}k'), 0)), 0)
+                                   for k in karats])
+                .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+                .filter(*counted_line_filters(), JournalEntryLine.account_id == twin).one())
+        grams = {f'{k}k': round(float(v or 0.0), 3) for k, v in zip(karats, sums)}
+        if any(abs(v) > 0.0005 for v in grams.values()):
+            at_main = round(sum(v * int(k[:-1]) / main for k, v in grams.items()), 3) if main else None
+            facts.append(Fact(CASH_SAFE_HOLDS_GOLD, f'safe_box:{safe_id}', at_main,
+                              {'safe_box_name': name, 'weight_account_id': twin, 'grams': grams}))
+    return facts
+
+
 CHECKS = {
     ORPHAN_POSTED_ENTRY: check_orphan_posted_entries,
     UNPOSTED_ENTRY_IN_LIMBO: check_unposted_entries_in_limbo,
@@ -766,6 +797,7 @@ CHECKS = {
     KARAT_CONVERSION_ADRIFT: check_karat_conversion_adrift,
     PERIOD_EXPENSE_LEDGER_DRIFT: check_period_expense_ledger_drift,
     PERIOD_EXPENSE_MONTH_MISSING: check_period_expense_months_missing,
+    CASH_SAFE_HOLDS_GOLD: check_cash_safes_hold_no_gold,
 }
 
 
