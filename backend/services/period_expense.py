@@ -305,7 +305,7 @@ def _keyed(reference_type, reference_id, month: date):
                                         reference_number=month.isoformat()[:7], is_deleted=False).first()
 
 
-def _write(*, reference_type, reference_id, month_end: date, description, lines, by, now):
+def _write(*, reference_type, reference_id, month_end: date, description, lines, by, now, reference_number=None):
     """One entry, posted, dated the month's last day; lines (account, debit, credit) in halalas."""
     from datetime import datetime as _dt
     from accounting.reference_number_service import generate_journal_entry_number
@@ -314,7 +314,7 @@ def _write(*, reference_type, reference_id, month_end: date, description, lines,
     entry = JournalEntry(entry_number=generate_journal_entry_number('JE', when), date=when,
                          description=description, entry_type='استحقاق مصروف فترة',
                          reference_type=reference_type, reference_id=reference_id,
-                         reference_number=month_end.isoformat()[:7], created_by=by,
+                         reference_number=reference_number or month_end.isoformat()[:7], created_by=by,
                          is_posted=True, posted_at=now, posted_by=by)
     db.session.add(entry)
     db.session.flush()
@@ -518,3 +518,56 @@ def months_behind(through: date | None = None, *, expenses=None) -> list[dict]:
             out.append({'period_expense_id': pe.id, 'description': pe.description, 'through': through.isoformat(),
                         'behind': riyals(behind), 'months_over': len(ended)})
     return out
+
+
+
+# ── a restatement in the open months -- the owner's, once (ADR-090, 14 Nov 2026) ──
+#
+# Law 7 takes an edit's difference whole into the next month not yet posted.
+# A restatement, decided by the owner for one correction, puts each month's
+# difference in that month instead -- only in months still open, each a new
+# entry beside the month's own (keyed '<YYYY-MM>/restated'), no posted entry
+# changed. Not offered on the screen: a tool calls it.
+
+RESTATED = '/restated'
+
+
+def _posted_in_months(pe) -> dict:
+    """{month's last day: halalas} its month entries posted, every key of the month together."""
+    from accounting.balances import counted_line_filters
+    from models import JournalEntry, JournalEntryLine, db
+    rows = (db.session.query(db.func.date(JournalEntry.date),
+                             db.func.sum(JournalEntryLine.cash_debit - JournalEntryLine.cash_credit))
+            .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+            .filter(*counted_line_filters(), JournalEntry.reference_type == MONTH_ENTRY,
+                    JournalEntry.reference_id == pe.id, JournalEntryLine.account_id == pe.expense_account_id)
+            .group_by(db.func.date(JournalEntry.date)).all())
+    return {d: halalas(v or 0) for d, v in rows}
+
+
+def restate_in_their_months(pe, *, through: date, by: str, now) -> list[dict]:
+    """Each month over by *through* whose posted entries differ from the
+    expense's schedule now: the difference, in that month. Refused in a
+    closed month (period_closed). Flushes."""
+    from models import db
+    from period_lock_guard import closed_through
+    prepaid_id, accrued_id = _accounts()
+    closed = closed_through(db.session.connection())
+    schedule_now = {m.ends: m.amount for m in _months(pe) if m.ends <= through}
+    posted = _posted_in_months(pe)
+    written = []
+    for month_end in sorted(set(schedule_now) | {d for d in posted if d <= through}):
+        difference = schedule_now.get(month_end, 0) - posted.get(month_end, 0)
+        if difference == 0:
+            continue
+        if closed is not None and month_end <= closed:
+            raise PeriodExpenseRefused('period_closed', f'{month_end.isoformat()[:7]} مقفل: لا يُعاد فيه شيء')
+        credits = _month_split(pe, difference, month_end, prepaid_id, accrued_id)
+        expense_line = ((pe.expense_account_id, difference, 0) if difference > 0
+                        else (pe.expense_account_id, 0, -difference))
+        _write(reference_type=MONTH_ENTRY, reference_id=pe.id, month_end=month_end,
+               reference_number=month_end.isoformat()[:7] + RESTATED,
+               description=f'{pe.description} — {month_end.isoformat()[:7]} (إعادة بيان في شهره)',
+               lines=[expense_line, *credits], by=by, now=now)
+        written.append({'period_expense_id': pe.id, 'month': month_end.isoformat()[:7], 'amount': riyals(difference)})
+    return written

@@ -33,11 +33,16 @@ class _FakeApi extends ApiService {
         'lines': {'1400': -5739.67, '1410': -2544.02}, 'entry_number': null,
       };
     }
-    // the server's as filed: 22,286.79 out, 18,149.11 in; the books held 8,283.69 of input
+    // the server's as filed: the output it declares, all the books lack of it an
+    // expense; the input as typed, against the books' 8,283.69 -- a difference
+    // refuses the filing until it is recorded on its vouchers (14 Nov 2026)
+    final input = filedInputVat ?? 8283.69;
     return {
-      'start': start, 'end': end, 'output_vat': 22286.79, 'input_vat': 18149.11, 'net': 4137.68,
-      'books_output_vat': 0.0, 'books_input_vat': 8283.69, 'non_recoverable': 12421.37,
-      'lines': {'1400': -5739.67, '1410': -2544.02, '5402': 12421.37}, 'entry_number': null,
+      'start': start, 'end': end, 'output_vat': 22286.79, 'input_vat': input,
+      'net': ((22286.79 - input) * 100).round() / 100,
+      'books_output_vat': 0.0, 'books_input_vat': 8283.69, 'non_recoverable': 22286.79,
+      'input_difference': ((input - 8283.69) * 100).round() / 100,
+      'lines': {'1400': -5739.67, '1410': -2544.02, '5402': 22286.79}, 'entry_number': null,
     };
   }
 
@@ -80,8 +85,8 @@ void main() {
     expect(find.textContaining('VAT-2026-00002'), findsWidgets);
   });
 
-  testWidgets('the return as filed: its figures sent, what the books lack shown, filed as previewed',
-      (tester) async {
+  testWidgets('the return as filed: its figures sent, an input the books lack shown and not filed, '
+      'the input as in the books filed as previewed', (tester) async {
     tester.view.physicalSize = const Size(390, 1600);     // a phone
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -94,27 +99,33 @@ void main() {
     await tester.tap(find.byKey(const Key('vat-return-preview')));
     await tester.pumpAndSettle();
     expect(api.previewFigures.last, (22286.79, 18149.11));
-    expect(tester.widget<Text>(find.byKey(const Key('vat-return-net'))).data, '4,137.68');
-    expect(find.textContaining('مستحقة للهيئة'), findsWidgets);
     expect(tester.widget<Text>(find.byKey(const Key('vat-return-books'))).data,
         'في الدفاتر: مخرجات 0.00 · مدخلات 8,283.69');
     expect(tester.widget<Text>(find.byKey(const Key('vat-return-non-recoverable'))).data,
-        'ضريبة غير قابلة للاسترداد (مصروف): 12,421.37');
+        'ضريبة غير قابلة للاسترداد (مصروف): 22,286.79');
+    // the statement holds 9,865.42 the books do not: shown, and not filed
+    expect(tester.widget<Text>(find.byKey(const Key('vat-return-input-difference'))).data,
+        startsWith('ضريبة المدخلات في الإقرار تخالف الدفاتر بـ 9,865.42'));
+    await tester.ensureVisible(find.byKey(const Key('vat-return-file')));
+    expect(tester.widget<FilledButton>(find.byKey(const Key('vat-return-file'))).onPressed, isNull);
 
     // a figure changed after the preview: the preview is gone, nothing to file
-    await tester.enterText(find.byKey(const Key('vat-return-filed-input')), '18149.1');
+    await tester.enterText(find.byKey(const Key('vat-return-filed-input')), '8283.6');
     await tester.pump();
     expect(find.byKey(const Key('vat-return-file')), findsNothing);
-    await tester.enterText(find.byKey(const Key('vat-return-filed-input')), '18149.11');
+    // recorded on their vouchers, the books hold the statement's input: filed
+    await tester.enterText(find.byKey(const Key('vat-return-filed-input')), '8283.69');
     await tester.tap(find.byKey(const Key('vat-return-preview')));
     await tester.pumpAndSettle();
+    expect(find.byKey(const Key('vat-return-input-difference')), findsNothing);
+    expect(tester.widget<Text>(find.byKey(const Key('vat-return-net'))).data, '14,003.10');
 
     await tester.ensureVisible(find.byKey(const Key('vat-return-file')));
     await tester.tap(find.byKey(const Key('vat-return-file')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('vat-return-confirm')));
     await tester.pumpAndSettle();
-    expect(api.fileFigures.single, (22286.79, 18149.11), reason: 'filed what was previewed');
+    expect(api.fileFigures.single, (22286.79, 8283.69), reason: 'filed what was previewed');
     expect(tester.takeException(), isNull);
   });
 }

@@ -20,9 +20,17 @@ them goes on «ضريبة القيمة المضافة غير القابلة لل
 the output VAT that stayed in revenue, less the input VAT that stayed in
 costs. It is an expense under the marked operating expenses, so the weight
 profit reads the riyals that left. The net on 2301 is the return's. Refused:
-a period whose sales were untaxed filed without its output VAT, and a filing
-whose missing input exceeds its missing output -- the input VAT is recorded
-on its vouchers first.
+a period whose sales were untaxed filed without its output VAT.
+
+Input VAT as filed equals the books' (the owner, 14 Nov 2026: «اريد ان تتطابق
+ضريبة مدخلاتي مع كشف المحاسب»): each input VAT is recorded on its voucher
+(the expense's tax invoice, ADR-054) or its purchase invoice, so the books
+hold what the accountant's statement holds, invoice by invoice. A difference
+is shown by the preview (input_difference) and refuses the filing
+(INPUT_VAT_DIFFERS) until it is recorded where it belongs -- never put on an
+expense in silence, as it once was (the input the books lacked went off
+«غير القابلة للاسترداد», and the books' input then fell short of the
+statement for good).
 """
 from __future__ import annotations
 
@@ -141,21 +149,30 @@ def file_vat_return(*, start: date, end: date, by: str, now, dry_run: bool = Fal
                                                       'الدفاتر: اكتب ضريبة المخرجات كما في الإقرار')
     output_vat = books_output if filed_output is None else filed_output
     input_vat = books_input if filed_input is None else filed_input
-    # What the books lack of the return: output VAT left in revenue, less input VAT left in costs.
-    lacking = round((output_vat - books_output) - (input_vat - books_input), 2)
+    # The input VAT filed is the books' (the owner, 14 Nov 2026): a difference is
+    # shown, and refuses the filing below -- never put on an expense.
+    input_difference = round(input_vat - books_input, 2)
+    # What the books lack of the return's output: the VAT that stayed in revenue.
+    lacking = round(output_vat - books_output, 2)
     if lacking < -CENT:
-        raise VatReturnRefused('INPUT_VAT_MISSING', f'ضريبة المدخلات في الإقرار تزيد على الدفاتر بأكثر مما تزيد '
-                                                    f'المخرجات ({-lacking:,.2f}): سجّلها في سنداتها أولًا')
+        raise VatReturnRefused('OUTPUT_VAT_BELOW_BOOKS', f'ضريبة المخرجات في الإقرار أقل من الدفاتر '
+                                                         f'({-lacking:,.2f}): راجع المبيعات قبل التقديم')
     if abs(lacking) > CENT:
         lines[non_recoverable_account_id()] += lacking            # an expense: the riyals that left
     net = round(output_vat - input_vat, 2)
     out = {'start': start.isoformat(), 'end': end.isoformat(), 'output_vat': output_vat, 'input_vat': input_vat,
            'net': net, 'books_output_vat': books_output, 'books_input_vat': books_input,
            'non_recoverable': lacking if abs(lacking) > CENT else 0.0,
+           'input_difference': input_difference if abs(input_difference) > CENT else 0.0,
            'lines': {number.get(i) or str(i): round(v, 2) for i, v in lines.items() if abs(v) > CENT},
            'entry_number': None}
     if dry_run:
         return out
+    if abs(input_difference) > CENT:
+        raise VatReturnRefused(
+            'INPUT_VAT_DIFFERS',
+            f'ضريبة المدخلات في الإقرار {input_vat:,.2f} والدفاتر {books_input:,.2f} — الفرق {input_difference:,.2f}: '
+            'سجّل كل ضريبة على سندها (فاتورة المصروف الضريبية) أو فاتورة شرائها، ثم قدّم.')
     if abs(output_vat) < CENT and abs(input_vat) < CENT:
         # A nil return is a return: the period is filed, with no entry to write.
         db.session.add(VatReturn(period_start=start, period_end=end, output_vat=0.0, input_vat=0.0, net=0.0,

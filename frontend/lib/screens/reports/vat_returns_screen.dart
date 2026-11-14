@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 
 import '../../api_service.dart';
+import '../../theme/app_semantic_colors.dart';
 import '../../utils.dart' show normalizeNumber;
 import '../../utils/arabic_number_formatter.dart';
 
@@ -16,6 +17,10 @@ import '../../utils/arabic_number_formatter.dart';
 /// them the server books as «ضريبة القيمة المضافة غير القابلة للاسترداد»; the
 /// preview shows it beside the books' own figures. What is filed is what was
 /// previewed: a change to either figure asks for the preview again.
+///
+/// The input VAT filed is the books' (the owner, 14 Nov 2026: «اريد ان تتطابق
+/// ضريبة مدخلاتي مع كشف المحاسب»): a difference is shown, and the return is not
+/// filed until each VAT is recorded on its voucher or purchase invoice.
 class VatReturnsScreen extends StatefulWidget {
   final ApiService api;
   final bool isArabic;
@@ -200,6 +205,16 @@ class _VatReturnsScreenState extends State<VatReturnsScreen> {
                   key: const Key('vat-return-non-recoverable'),
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
             ],
+            if (((p['input_difference'] as num?) ?? 0).abs() > 0.005) ...[
+              const SizedBox(height: 8),
+              Text(
+                'ضريبة المدخلات في الإقرار تخالف الدفاتر بـ ${_amount(p['input_difference'])}: '
+                'سجّلها على سنداتها (فاتورة المصروف الضريبية) أو فواتير شرائها، ثم عاين وقدّم.',
+                key: const Key('vat-return-input-difference'),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: AppSemanticColors.of(context).warning.fg, fontWeight: FontWeight.w700),
+              ),
+            ],
             if (lines.isNotEmpty) ...[
               const Divider(height: 24),
               for (final e in lines.entries)
@@ -211,7 +226,7 @@ class _VatReturnsScreenState extends State<VatReturnsScreen> {
             const SizedBox(height: 12),
             FilledButton.icon(
               key: const Key('vat-return-file'),
-              onPressed: _busy ? null : _file,
+              onPressed: _busy || ((p['input_difference'] as num?) ?? 0).abs() > 0.005 ? null : _file,
               icon: const Icon(Icons.assignment_turned_in_outlined),
               label: const Text('تقديم الإقرار'),
             ),

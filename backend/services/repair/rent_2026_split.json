@@ -1,0 +1,8 @@
+{
+  "_": "ADR-090, the owner (14 Nov 2026): the rent of 2026 is 144,900 with its VAT. The first half (January-June, 72,450) was paid on 24 June, its VAT kept in the expense and claimed in the third quarter's return. The second half is 63,000 net (July-December), paid in December with its tax invoice (9,450 VAT on the voucher, ADR-054). «اريد ان تتطابق ضريبة مدخلاتي مع كشف المحاسب»; and the months restated in their months (option B).",
+  "rent": {"description": "إيجار المعرض 2026", "amount": 144900, "start": "2026-01-01", "end": "2026-12-31"},
+  "first_half": {"amount": 72450, "start": "2026-01-01", "end": "2026-06-30", "paid": 72450,
+                 "reason": "النصف الأول كما دُفع بضريبته (سند 24 يونيو)؛ النصف الثاني مصروف مستقل صافيًا"},
+  "second_half": {"description": "إيجار المعرض يوليو–ديسمبر 2026", "amount": 63000,
+                  "start": "2026-07-01", "end": "2026-12-31"}
+}

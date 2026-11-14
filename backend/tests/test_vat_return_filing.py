@@ -199,28 +199,38 @@ def test_untaxed_sales_are_filed_with_the_returns_output_and_what_the_books_lack
     assert refused.value.code == 'OUTPUT_VAT_REQUIRED'
 
     filed = file_vat_return(start=date(2034, 1, 1), end=date(2034, 1, 31), by='t', now=NOW,
-                            filed_output_vat=1500, filed_input_vat=400)
-    # the return's own: 1500 out, 400 in, 1100 owed; the books lacked 1500 of output and 80 of input
-    assert (filed['output_vat'], filed['input_vat'], filed['net']) == (1500.0, 400.0, 1100.0)
-    assert (filed['books_output_vat'], filed['books_input_vat'], filed['non_recoverable']) == (0.0, 320.0, 1420.0)
-    assert _moved(b['expense']) == 1420.0, 'what the books lacked: an expense the weight profit reads'
+                            filed_output_vat=1500, filed_input_vat=320)
+    # the return's own: 1500 out, 320 in -- the books' input; 1180 owed; the books lacked the 1500 of output
+    assert (filed['output_vat'], filed['input_vat'], filed['net']) == (1500.0, 320.0, 1180.0)
+    assert (filed['books_output_vat'], filed['books_input_vat'], filed['non_recoverable']) == (0.0, 320.0, 1500.0)
+    assert filed['input_difference'] == 0.0
+    assert _moved(b['expense']) == 1500.0, 'what the books lacked of the output: an expense the weight profit reads'
     from services.vat_policy import NON_RECOVERABLE_NAMES
     assert Account.query.filter(Account.name.in_(NON_RECOVERABLE_NAMES)).count() == 1, \
         'production\'s «الغير» account found, none made'
     feb = datetime(2034, 2, 1)
     assert _moved(b['input'], feb) == 0 and _moved(b['commission'], feb) == 0
-    assert _moved(db.session.get(Account, settlement_account_id())) == -1100.0
+    assert _moved(db.session.get(Account, settlement_account_id())) == -1180.0
     record = VatReturn.query.filter_by(period_start=date(2034, 1, 1)).one()
-    assert (record.output_vat, record.input_vat, record.net) == (1500.0, 400.0, 1100.0)
+    assert (record.output_vat, record.input_vat, record.net) == (1500.0, 320.0, 1180.0)
 
 
-def test_input_the_books_lack_beyond_the_output_they_lack_is_refused(untaxed):
+def test_input_vat_that_differs_from_the_books_is_shown_and_refuses_the_filing(untaxed):
+    """The owner (14 Nov 2026): «اريد ان تتطابق ضريبة مدخلاتي مع كشف المحاسب» --
+    the input the statement holds and the books do not is recorded on its
+    voucher first; it is never put on an expense in silence."""
+    from models import VatReturn
     from services.vat_return import VatReturnRefused, file_vat_return
     _january(untaxed, output=0.0, input_=300.0, commission=20.0)
-    with pytest.raises(VatReturnRefused) as refused:            # lacking: 100 out, 180 in -- record it first
-        file_vat_return(start=date(2034, 1, 1), end=date(2034, 1, 31), by='t', now=NOW,
-                        filed_output_vat=100, filed_input_vat=500)
-    assert refused.value.code == 'INPUT_VAT_MISSING'
+    preview = file_vat_return(start=date(2034, 1, 1), end=date(2034, 1, 31), by='t', now=NOW, dry_run=True,
+                              filed_output_vat=1500, filed_input_vat=400)
+    assert (preview['input_difference'], preview['non_recoverable']) == (80.0, 1500.0)
+    for filed_input in (400, 250):                       # the statement above the books, and below them
+        with pytest.raises(VatReturnRefused) as refused:
+            file_vat_return(start=date(2034, 1, 1), end=date(2034, 1, 31), by='t', now=NOW,
+                            filed_output_vat=1500, filed_input_vat=filed_input)
+        assert refused.value.code == 'INPUT_VAT_DIFFERS'
+    assert VatReturn.query.filter_by(period_start=date(2034, 1, 1)).count() == 0
     with pytest.raises(VatReturnRefused) as refused:
         file_vat_return(start=date(2034, 1, 1), end=date(2034, 1, 31), by='t', now=NOW,
                         filed_output_vat=-1, filed_input_vat=0)
@@ -232,11 +242,14 @@ def test_the_routes_carry_the_returns_figures(untaxed, auth_headers):
     db.session.add(VatPolicyPeriod(effective_from=date(2001, 1, 1), input_vat_recoverable=True,
                                    sales_vat_charged=False, created_by='t'))
     _january(untaxed, output=0.0, input_=300.0, commission=20.0, year=2001)
+    db.session.commit()                  # in the books before the requests: a refusal's rollback takes nothing
     client = flask_app.test_client()
     body = {'start': '2001-01-01', 'end': '2001-01-31'}
     preview = client.post('/api/vat-returns/preview', headers=auth_headers,
                           json={**body, 'filed_output_vat': 1500, 'filed_input_vat': 400}).get_json()
-    assert (preview['net'], preview['non_recoverable']) == (1100.0, 1420.0)
-    # last: a refusal rolls the request back, and the test fence does not hold (Flask-SQLAlchemy 3.1)
+    assert (preview['net'], preview['non_recoverable'], preview['input_difference']) == (1100.0, 1500.0, 80.0)
+    differs = client.post('/api/vat-returns', headers=auth_headers,
+                          json={**body, 'filed_output_vat': 1500, 'filed_input_vat': 400})
+    assert differs.status_code == 400 and differs.get_json()['error'] == 'INPUT_VAT_DIFFERS'
     refused = client.post('/api/vat-returns/preview', headers=auth_headers, json=body)
     assert refused.status_code == 400 and refused.get_json()['error'] == 'OUTPUT_VAT_REQUIRED'

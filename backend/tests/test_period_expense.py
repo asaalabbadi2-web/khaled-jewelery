@@ -240,3 +240,52 @@ def test_the_accounts_are_made_and_mapped_once_and_a_dry_run_makes_nothing(app):
     assert (prepaid.type, accrued.type) == ('Asset', 'Liability')
     assert setup(by='t', prepaid_under='1', accrued_under='2', dry_run=False)['kept'] == [
         'prepaid_expenses', 'accrued_expenses']
+
+
+def test_a_payment_with_its_tax_invoice_defers_the_net_and_claims_the_vat_on_its_day(auth_headers, books, vat_mapped):
+    """The owner (14 Nov 2026): an expense of a period paid with VAT -- the VAT is
+    not deferred (law 10): split off on the voucher's day by the expense-VAT
+    rule (ADR-054), the net alone the period expense's payment."""
+    from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, get_account_id_for_mapping
+    auto_post(True)
+    insurance = _expense(books, amount=10000, start=date(2026, 12, 1), end=date(2027, 11, 30))
+    g.pop('current_user', None)
+    resp = flask_app.test_client().post('/api/vouchers', headers=auth_headers, json={
+        'voucher_type': 'payment', 'date': '2026-11-20T00:00:00', 'party_type': 'other', 'description': 'تأمين',
+        'account_lines': [
+            {'account_id': books['rent_account'], 'line_type': 'debit', 'amount_type': 'cash', 'amount': 11500,
+             'period_expense_id': insurance.id},
+            {'account_id': books['cash'], 'line_type': 'credit', 'amount_type': 'cash', 'amount': 11500}],
+        'expense_vat': {'amount': 1500, 'supplier_name': 'شركة التأمين', 'supplier_tax_number': '300000000000003',
+                        'invoice_number': 'INS-2026-77', 'invoice_date': '2026-11-20'}})
+    assert resp.status_code == 201, resp.get_json()
+    vat_account = get_account_id_for_mapping(DEFAULT_MAPPING_OPERATION_TYPE, 'vat_receivable')
+    assert _debits(resp.get_json()['id']) == {(books['prepaid'], 10000.0), (vat_account, 1500.0)}
+    assert values(insurance, date(2026, 11, 30)) == {
+        'accrued': 0.0, 'paid': 10000.0, 'balance': 10000.0, 'standing': 'prepaid',
+        'amount': 10000.0, 'remaining_to_pay': 0.0}
+
+
+def test_an_accrued_expense_paid_late_with_its_tax_invoice_settles_the_net_and_claims_the_vat(
+        auth_headers, books, vat_mapped):
+    """Accrued, then paid: the months accrue the net (no invoice yet, no VAT to
+    claim); the payment with its tax invoice settles the accrued net and claims
+    the VAT on its day -- nothing of the VAT ever in the expense."""
+    from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, get_account_id_for_mapping
+    from services.period_expense import accrue
+    auto_post(True)
+    rent = _expense(books, amount=60000, start=date(2026, 1, 1), end=date(2026, 6, 30))
+    accrue(date(2026, 6, 30), by='t', now=datetime(2026, 7, 1), dry_run=False)       # six months, net, owed
+    g.pop('current_user', None)
+    resp = flask_app.test_client().post('/api/vouchers', headers=auth_headers, json={
+        'voucher_type': 'payment', 'date': '2026-07-05T00:00:00', 'party_type': 'other', 'description': 'إيجار',
+        'account_lines': [
+            {'account_id': books['rent_account'], 'line_type': 'debit', 'amount_type': 'cash', 'amount': 69000,
+             'period_expense_id': rent.id},
+            {'account_id': books['cash'], 'line_type': 'credit', 'amount_type': 'cash', 'amount': 69000}],
+        'expense_vat': {'amount': 9000, 'supplier_name': 'المؤجر', 'supplier_tax_number': '300000000000003',
+                        'invoice_number': 'R-2026-H1', 'invoice_date': '2026-07-05'}})
+    assert resp.status_code == 201, resp.get_json()
+    vat_account = get_account_id_for_mapping(DEFAULT_MAPPING_OPERATION_TYPE, 'vat_receivable')
+    assert _debits(resp.get_json()['id']) == {(books['accrued'], 60000.0), (vat_account, 9000.0)}
+    assert values(rent, date(2026, 7, 31))['standing'] == 'settled'
