@@ -33,6 +33,9 @@ SYSTEM_PERMISSIONS = {
     # MAPPING-UI-1 (the owner, 15 Oct 2026): a role's account decides where every
     # entry through it goes -- changed by the owner or the manager only.
     'accounting.mapping': 'تعديل الربط المحاسبي (حساب كل دور)',
+    # ADR-090 law 9 (the owner, 14 Nov 2026): closing a month, and opening it
+    # again to correct it, is the owner's alone.
+    'accounting.period_lock': 'إقفال الفترات المحاسبية وفتحها',
     'audit.view': 'عرض سجل التدقيق ونتائج الفحص',
 }
 

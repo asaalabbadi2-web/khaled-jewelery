@@ -2692,6 +2692,31 @@ class DimensionSetItem(db.Model):
         db.UniqueConstraint('dimension_set_id', 'dimension_value_id', name='uq_dimension_set_item'),
     )
 
+
+class PeriodLock(db.Model):
+    """One move of the period lock (ADR-090, law 9): the books closed through
+    *closed_through* from this row on; none, all open. The last row is the lock
+    -- the log is the lock, no setting beside it to disagree. A row is never
+    changed nor deleted (a database trigger, period_lock_trigger.py); written
+    only by services/period_lock.move()."""
+    __tablename__ = 'period_lock'
+
+    id = db.Column(db.Integer, primary_key=True)
+    closed_through = db.Column(db.Date, nullable=True)
+    reason = db.Column(db.Text, nullable=False)
+    changed_by = db.Column(db.String(100), nullable=False)
+    changed_at = db.Column(db.DateTime, nullable=False)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'closed_through': self.closed_through.isoformat() if self.closed_through else None,
+            'reason': self.reason,
+            'changed_by': self.changed_by,
+            'changed_at': self.changed_at.isoformat() if self.changed_at else None,
+        }
+
+
 class Settings(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     
@@ -7051,3 +7076,16 @@ db.event.listen(JournalEntry.__table__, 'after_create',
 from account_status_trigger import INSTALL_SQL as _ACCOUNT_ACTIVE_TRIGGER_SQL  # noqa: E402
 db.event.listen(JournalEntryLine.__table__, 'after_create',
                 _DDL(_ACCOUNT_ACTIVE_TRIGGER_SQL.replace('%', '%%')).execute_if(dialect='postgresql'))
+
+# ADR-090 law 9: a closed month takes no entry -- the guard readably on every
+# ORM path, the trigger against every path. The trigger's DDL is the
+# migration's, shared, so a database built by create_all -- the tests' -- carries
+# it too: the entries' triggers once journal_entry_line exists (journal_entry
+# before it), the log's with its table.
+import period_lock_guard as _period_lock_guard  # noqa: E402
+from period_lock_trigger import ENTRY_SQL as _PERIOD_LOCK_ENTRY_SQL, LOG_SQL as _PERIOD_LOCK_LOG_SQL  # noqa: E402
+_period_lock_guard.register(JournalEntry, JournalEntryLine)
+db.event.listen(JournalEntryLine.__table__, 'after_create',
+                _DDL(_PERIOD_LOCK_ENTRY_SQL.replace('%', '%%')).execute_if(dialect='postgresql'))
+db.event.listen(PeriodLock.__table__, 'after_create',
+                _DDL(_PERIOD_LOCK_LOG_SQL.replace('%', '%%')).execute_if(dialect='postgresql'))

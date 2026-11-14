@@ -41,6 +41,7 @@ MATRIX = {
     'users.change_permissions': '', 'system.settings': '', 'system.backup': '', 'system.logs': '',
     'business.setup': 'C',
     'accounting.mapping': 'M',   # MAPPING-UI-1: the owner or the manager
+    'accounting.period_lock': '',  # ADR-090 law 9: closing and reopening a month, the owner alone
     'audit.view': 'MC',
     'employees.view': 'MC', 'employees.create': 'M', 'employees.edit': 'M', 'employees.delete': 'M',
     'employees.payroll': 'MC', 'employees.bonuses': 'M',

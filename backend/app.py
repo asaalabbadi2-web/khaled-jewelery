@@ -51,6 +51,7 @@ try:
 	from flask import Flask, jsonify, url_for
 	from models import db
 	from pricing.gold_price_service import MainKaratNotSet
+	from period_lock_guard import PeriodClosed, answered_readably as _period_lock_answered_readably
 	from pricing.karat_service import LineKaratMissing
 	from services.gold_cost_postings import GoldCostRefused
 	from routes import api
@@ -77,6 +78,7 @@ try:
 	from routes.admin import admin_bp
 	from routes.system import system_bp
 	from routes.vat_returns import vat_returns_bp
+	from routes.period_lock import period_lock_bp
 except ImportError as exc:
 	import traceback as _tb
 	print(
@@ -311,6 +313,22 @@ def _gold_cost_refused(exc):
 	return jsonify({'error': exc.code, 'message': exc.message}), 400
 
 
+@app.errorhandler(PeriodClosed)
+def _period_closed(exc):
+	"""A write into a closed month (ADR-090 law 9): refused, saying where it
+	may go -- the first open month, or an authorised move of the lock."""
+	db.session.rollback()
+	return jsonify({'error': exc.code, 'message': exc.message}), 409
+
+
+@app.after_request
+def _period_closed_readably(response):
+	"""Whatever a route made of a refusal by the period lock (a 500 from a
+	broad except, a 400 with its text), the request answers 409 period_closed
+	with the refusal's words (ADR-090 law 9)."""
+	return _period_lock_answered_readably(response, logger=app.logger)
+
+
 @app.errorhandler(MainKaratNotSet)
 def _main_karat_not_set(exc):
 	"""No main karat in the settings: the request is refused, saying where it
@@ -500,6 +518,7 @@ app.register_blueprint(pieces_bp, url_prefix='/api')  # محطة ترميز ال
 app.register_blueprint(admin_bp, url_prefix='/api')     # Admin & temp-pdf domain
 app.register_blueprint(system_bp, url_prefix='/api')    # System domain (debug, settings, reset, backup)
 app.register_blueprint(vat_returns_bp, url_prefix='/api')  # VAT returns (ADR-043 rule 5)
+app.register_blueprint(period_lock_bp, url_prefix='/api')  # the period lock (ADR-090 law 9)
 app.register_blueprint(internal_bp)             # ERP Sync internal API (/api/internal/*)
 app.register_blueprint(api, url_prefix='/api')  # ✅ API الرئيسي (أخيراً)
 # recurring_journal_routes تستخدم نفس api blueprint، لذا لا حاجة لتسجيلها
