@@ -121,7 +121,10 @@ void main() {
         expect(find.textContaining('\u2066▲ 1.85 · 0.45%\u2069'), findsOneWidget,
             reason: 'isolated left to right: the line does not turn its figures and signs about');
         expect(find.textContaining('الفارق  7.25'), findsOneWidget, reason: "its spread, the server's");
-        expect(find.textContaining('▼ 0.10%'), findsOneWidget, reason: "24's own move -- not the main one's");
+        // the other karats say what their gram moved by: the percent is the ounce's, for all (the owner, 14 Nov 2026)
+        expect(find.textContaining('\u2066▼ 0.47\u2069'), findsOneWidget, reason: "24's own move, in riyals a gram");
+        expect(find.textContaining('\u2066▲ 1.60\u2069'), findsOneWidget, reason: "18's own move, in riyals a gram");
+        expect(find.textContaining('▼ 0.10%'), findsNothing, reason: 'not the percent every karat shares');
         expect(_in(const Key('gold-bar-ounce'), '▼ 3.10 · 0.08%'), findsOneWidget, reason: "the ounce's own");
         expect(_in(const Key('gold-bar-status'), 'مباشر'), findsOneWidget);
         expect(tester.getSize(find.byKey(const Key('gold-bar-karats'))).width, greaterThanOrEqualTo(230));
@@ -144,7 +147,8 @@ void main() {
         }
         expect(tester.takeException(), isNull);
         expect(find.byKey(const Key('gold-bar-chart')), findsOneWidget);
-        expect(_in(const Key('gold-bar-karat-24'), '▼ 0.10%'), findsOneWidget, reason: "24's own move");
+        expect(_in(const Key('gold-bar-karat-24'), '▼ 0.47'), findsOneWidget, reason: "24's own move, in riyals a gram");
+        expect(_in(const Key('gold-bar-karat-24'), '%'), findsNothing, reason: 'not the percent every karat shares');
         expect(_in(const Key('gold-bar-ounce'), '▼ 0.08%'), findsOneWidget, reason: "the ounce's own");
 
         await tester.tap(find.byKey(const Key('gold-bar-toggle')));

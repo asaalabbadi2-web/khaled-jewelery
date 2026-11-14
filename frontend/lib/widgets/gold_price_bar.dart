@@ -140,6 +140,14 @@ class _GoldPriceBarState extends State<GoldPriceBar> {
     return '\u2066$said\u2069';
   }
 
+  /// «▲ 1.60»: a karat's move in riyals a gram. The percent is the same for
+  /// every karat -- the ounce's, shown beside the ounce and on the main card --
+  /// so the other karats say what their gram moved by (the owner, 14 Nov 2026).
+  String _sayAmount(double? change) {
+    if (change == null) return '—';
+    return '\u2066${change >= 0 ? '▲' : '▼'} ${_money.format(change.abs())}\u2069';
+  }
+
   Color _moveColor(_Palette p, double? v) => v == null ? p.muted : (v >= 0 ? p.up : p.down);
 
   // ── the market and the price's age ──
@@ -330,7 +338,7 @@ class _GoldPriceBarState extends State<GoldPriceBar> {
 
   /// One karat in a line: its tag, its sell and buy, its own move.
   Widget _karatRow(_Palette p, int karat) {
-    final percent = _move(karat, 'change_percent');
+    final change = _move(karat, 'change');
     final figure = p.type.bodyMedium!.copyWith(color: p.ink, fontWeight: FontWeight.w700);
     final letter = p.type.bodySmall!.copyWith(fontWeight: FontWeight.w800);
     return Container(
@@ -359,8 +367,8 @@ class _GoldPriceBarState extends State<GoldPriceBar> {
           ),
         ),
         const SizedBox(width: 6),
-        Text(_say(null, percent, amount: false),
-            style: p.type.bodySmall!.copyWith(color: _moveColor(p, percent), fontWeight: FontWeight.w700)),
+        Text(_sayAmount(change),
+            style: p.type.bodySmall!.copyWith(color: _moveColor(p, change), fontWeight: FontWeight.w700)),
       ]),
     );
   }
@@ -549,7 +557,7 @@ class _GoldPriceBarState extends State<GoldPriceBar> {
           for (final (i, k) in _others.indexed) ...[
             if (i > 0) const SizedBox(width: 6),
             chip(Key('gold-bar-karat-$k'), 'عيار $k', p.karat(k), _fmt(_price(k, 'sell')),
-                _say(null, _move(k, 'change_percent'), amount: false), _moveColor(p, _move(k, 'change_percent'))),
+                _sayAmount(_move(k, 'change')), _moveColor(p, _move(k, 'change'))),
           ],
           const SizedBox(width: 6),
           chip(const Key('gold-bar-ounce'), 'الأونصة', p.gold,

@@ -1,5 +1,5 @@
 
-import 'package:fl_chart/fl_chart.dart';
+import '../../utils/bidi.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'income_statement_report_screen.dart';
@@ -891,6 +891,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
     final k22 = _asDouble(goldByKarat['22k']);
     final k24 = _asDouble(goldByKarat['24k']);
     final total = k18 + k21 + k22 + k24;
+    final karats = [(24, k24), (22, k22), (21, k21), (18, k18)];
 
     return _buildKpiCardWrapper(
       onTap: () {
@@ -923,76 +924,32 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
               ),
             )
           else
+            // The legend first, the chart after: in a right-to-left line the
+            // chart stands on the left, larger, each slice saying its karat
+            // (the owner, 14 Nov 2026).
             Row(
               children: [
-                // Mini Donut Chart
-                SizedBox(
-                  width: 70,
-                  height: 70,
-                  child: PieChart(
-                    PieChartData(
-                      sectionsSpace: 1,
-                      centerSpaceRadius: 18,
-                      sections: [
-                        PieChartSectionData(
-                          value: k24,
-                          color: _tones.karat24.fg,
-                          radius: 15,
-                          showTitle: false,
-                        ),
-                        PieChartSectionData(
-                          value: k22,
-                          color: _tones.karat22.fg,
-                          radius: 15,
-                          showTitle: false,
-                        ),
-                        PieChartSectionData(
-                          value: k21,
-                color: _tones.karat21.fg,
-                          radius: 15,
-                          showTitle: false,
-                        ),
-                        PieChartSectionData(
-                          value: k18,
-                          color: _tones.karat18.fg,
-                          radius: 15,
-                          showTitle: false,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _buildKaratLegendItem(
-                        label: '24K',
-                        value: k24,
-                        color: _tones.karat24.fg,
-                        total: total,
-                      ),
-                      _buildKaratLegendItem(
-                        label: '22K',
-                        value: k22,
-                        color: _tones.karat22.fg,
-                        total: total,
-                      ),
-                      _buildKaratLegendItem(
-                        label: '21K',
-                        value: k21,
-                        color: _tones.karat21.fg,
-                        total: total,
-                      ),
-                      _buildKaratLegendItem(
-                        label: '18K',
-                        value: k18,
-                        color: _tones.karat18.fg,
-                        total: total,
-                      ),
+                      for (final (karat, grams) in karats)
+                        _buildKaratLegendItem(
+                          key: Key('karat-mix-legend-$karat'),
+                          label: isArabic ? 'عيار $karat' : '${karat}K',
+                          value: grams,
+                          color: _tones.karat(karat).fg,
+                          total: total,
+                        ),
                     ],
                   ),
+                ),
+                const SizedBox(width: AppSpace.md),
+                KaratDonut(
+                  key: const Key('karat-mix-chart'),
+                  shares: [for (final (karat, grams) in karats) KaratShare(karat, grams, _tones.karat(karat).fg)],
+                  inside: theme.textTheme.labelLarge!.copyWith(color: _scheme.surface, fontWeight: FontWeight.w800),
+                  outside: theme.textTheme.labelLarge!.copyWith(fontWeight: FontWeight.w800),
                 ),
               ],
             ),
@@ -1002,26 +959,32 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
   }
 
   Widget _buildKaratLegendItem({
+    Key? key,
     required String label,
     required double value,
     required Color color,
     required double total,
   }) {
-    final pct = total > 0 ? (value / total * 100).toStringAsFixed(0) : '0';
+    // under 1% with its tenth: a karat held is not «0%» (51 g of 27,818 is 0.2%)
+    final share = total > 0 ? value / total * 100 : 0.0;
+    final pct = NumberFormat(share > 0 && share < 1 ? '0.0' : '0', 'en').format(share);
+    final theme = Theme.of(context);
     return Padding(
-      padding: EdgeInsets.only(bottom: 2),
+      key: key,
+      padding: const EdgeInsets.only(bottom: AppSpace.xs),
       child: Row(
         children: [
           Container(
-            width: 9,
-            height: 9,
+            width: 11,
+            height: 11,
             decoration: BoxDecoration(color: color, shape: BoxShape.circle),
           ),
-          SizedBox(width: 6),
+          const SizedBox(width: AppSpace.sm),
           Expanded(
             child: Text(
-              '$label: ${_formatWeight(value)} • $pct%',
-              style: TextStyle(fontSize: 11),
+              // each figure isolated left to right: the line does not turn them about
+              '$label  ·  ${ltrIsolate(_weightFormat.format(value))} جم  ·  ${ltrIsolate('$pct%')}',
+              style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
               overflow: TextOverflow.ellipsis,
             ),
           ),
