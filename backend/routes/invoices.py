@@ -56,7 +56,7 @@ from core.database import _db_has_column
 from core.dates import _parse_iso_date
 from core.number_helpers import _coerce_float
 from core.responses import _wrap_api_exceptions
-from auth_decorators import get_current_user, require_admin, require_auth, require_permission
+from auth_decorators import get_current_user, internal_request, require_admin, require_auth, require_permission
 from category_weight_tracking import (
     get_category_weight_balances,
     record_category_weight_movements_for_invoice_payload,
@@ -1318,8 +1318,8 @@ def update_unposted_invoice(invoice_id: int):
         except Exception:
             pass
 
-    with _app.test_request_context(
-        '/api/invoices', method='POST',
+    with internal_request(
+        _app, '/api/invoices', method='POST',
         json=create_data, headers=headers,
     ):
         rv = add_invoice(
@@ -3146,7 +3146,7 @@ def add_barter_sale():
     headers = {'Authorization': request.headers.get('Authorization', '')}
 
     def _create(payload):
-        with _app.test_request_context('/api/invoices', method='POST', json=payload, headers=headers):
+        with internal_request(_app, '/api/invoices', method='POST', json=payload, headers=headers):
             rv = add_invoice(defer_commit=True)
         resp_obj, status = (rv[0], rv[1]) if isinstance(rv, tuple) else (rv, 201)
         body = resp_obj.get_json(silent=True) if hasattr(resp_obj, 'get_json') else None
@@ -3264,7 +3264,7 @@ def reverse_invoice(invoice_id):
     }
     _app = current_app._get_current_object()
     headers = {'Authorization': request.headers.get('Authorization', '')}
-    with _app.test_request_context('/api/invoices', method='POST', json=payload, headers=headers):
+    with internal_request(_app, '/api/invoices', method='POST', json=payload, headers=headers):
         rv = add_invoice()
     resp_obj, status = (rv[0], rv[1]) if isinstance(rv, tuple) else (rv, 201)
     return resp_obj, status

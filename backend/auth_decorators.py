@@ -269,10 +269,38 @@ def _blacklist_access_token_best_effort(payload: Dict, reason: str) -> None:
             pass
 
 
+# A request the server makes inside another one (internal_request): its user's
+# idle timeout was enforced by the outer request a moment ago.
+INTERNAL_CALL = 'yasargold.internal_call'
+
+
+def internal_request(app, *args, **kwargs):
+    """The request context of a call the server makes inside a request -- an
+    invoice's edit re-creates it through add_invoice. Marked so its auth writes
+    no activity: that write commits the session, and with it the outer
+    request's unfinished work -- an edit had deleted the original, the
+    re-creation then failed, and the rollback found the deletion committed:
+    the invoice was gone while the message said it stood (15 Nov 2026). Only
+    the server sets the mark: it is an environ key, not a header."""
+    environ = dict(kwargs.pop('environ_base', None) or {})
+    environ[INTERNAL_CALL] = True
+    return app.test_request_context(*args, environ_base=environ, **kwargs)
+
+
+def _internal_call() -> bool:
+    try:
+        from flask import has_request_context, request
+        return has_request_context() and bool(request.environ.get(INTERNAL_CALL))
+    except Exception:
+        return False
+
+
 def _enforce_idle_timeout(payload: Dict) -> bool:
     """Return True if session is still valid; False if expired due to inactivity."""
     timeout = _idle_timeout_seconds()
     if timeout <= 0:
+        return True
+    if _internal_call():
         return True
 
     subject = _subject_from_payload(payload or {})

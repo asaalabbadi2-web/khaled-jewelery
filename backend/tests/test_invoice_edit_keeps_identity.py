@@ -153,3 +153,31 @@ def test_the_invoice_says_whether_its_holder_has_a_custody_safe():
     db.session.flush()
     db.session.expire(invoice, ['scrap_holder_employee'])
     assert invoice.to_dict()['scrap_holder_gold_safe_box_id'] is None
+
+
+def test_a_failed_edit_keeps_the_original_even_when_the_auth_writes_its_activity(auth_headers, monkeypatch):
+    """15 Nov 2026: this file's failed edit lost its original now and then. The
+    edit deletes the original (flushed), then re-creates it through add_invoice
+    -- a request inside the request, whose auth writes the session's activity
+    once a minute: that write commits the session, the deletion with it, and
+    the rollback after a failed re-creation found nothing to undo. Every
+    request writing its activity here, the original still stands."""
+    import auth_decorators
+    monkeypatch.setattr(auth_decorators, '_touch_last_activity_throttled',
+                        lambda t, i: auth_decorators._set_last_activity(t, i, auth_decorators._now()))
+    pm, old_id, number = _held_purchase(auth_headers)
+    broken = _payload(pm, price=90000.0, date=datetime.now().isoformat())
+    broken['payments'][0]['payment_method_id'] = 999999
+    resp = flask_app.test_client().put(f'/api/invoices/{old_id}', headers=auth_headers, json=broken)
+    assert resp.status_code >= 400 and resp.get_json()['error'] == 'edit_failed'
+    original = Invoice.query.get(old_id)
+    assert original is not None and original.invoice_type_id == number and float(original.total) == 100000.0
+
+
+def test_only_the_server_marks_a_request_internal():
+    """The mark is an environ key: a client's header cannot set it."""
+    import auth_decorators
+    with flask_app.test_request_context('/', headers={'Yasargold.Internal-Call': '1', auth_decorators.INTERNAL_CALL: '1'}):
+        assert auth_decorators._internal_call() is False
+    with auth_decorators.internal_request(flask_app, '/'):
+        assert auth_decorators._internal_call() is True

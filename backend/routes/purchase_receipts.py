@@ -16,7 +16,7 @@ from datetime import datetime
 
 from flask import Blueprint, current_app, jsonify, request
 
-from auth_decorators import require_permission
+from auth_decorators import internal_request, require_permission
 from models import Category, Invoice, InvoiceItem, Supplier, db
 
 purchase_receipts_bp = Blueprint('purchase_receipts', __name__)
@@ -27,7 +27,7 @@ def _through_add_invoice(payload: dict, **kw):
     app, signed in as the caller; its answer and status."""
     from routes.invoices import add_invoice
     headers = {'Authorization': request.headers.get('Authorization', '')}
-    with current_app.test_request_context('/api/invoices', method='POST', json=payload, headers=headers):
+    with internal_request(current_app, '/api/invoices', method='POST', json=payload, headers=headers):
         from flask import g
         g.pop('current_user', None)
         rv = add_invoice(defer_commit=True, **kw)
