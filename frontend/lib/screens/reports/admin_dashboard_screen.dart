@@ -81,6 +81,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
   bool _gramProfitLoading = false;
 
 
+  /// The gram profit's request in flight: a new period ends it.
+  ApiCancelToken? _gramProfitRequest;
+
   /// The safes holding nothing, shown on a tap (15 Nov 2026: 20 safes, more
   /// than half of them empty, pushed the ones that hold something aside).
   bool _showEmptyVaults = false;
@@ -153,6 +156,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
   void dispose() {
     AppEvents.vaultRefreshSignal.removeListener(_onVaultRefresh);
     stopLiveGoldPrices();
+    _gramProfitRequest?.cancel();
     super.dispose();
   }
 
@@ -269,19 +273,34 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
     return DateTimeRange(start: start, end: now);
   }
 
+  /// The period's gram profit. A new period ends the last one's request at
+  /// once and starts its own (the owner, 15 Nov 2026: «ينهي طلب الفترة
+  /// السابقة فورا ويبدا بمهمته»); the card shows the new period's shape
+  /// meanwhile, never the old period's figures under the new name.
   Future<void> _loadGramProfit() async {
+    _gramProfitRequest?.cancel();
+    final request = ApiCancelToken();
+    _gramProfitRequest = request;
+    setState(() {
+      _gramProfitLoading = true;
+      _gramProfitData = null;
+    });
     try {
-      setState(() => _gramProfitLoading = true);
       final range = _gramProfitRange();
       final data = await widget.api.getGramProfitReport(
         startDate: range.start,
         endDate: range.end,
+        cancel: request,
       );
-      if (mounted) setState(() => _gramProfitData = data);
+      if (mounted && identical(request, _gramProfitRequest)) setState(() => _gramProfitData = data);
     } catch (e) {
-      debugPrint('❌ Gram profit load error: $e');
+      if (!request.isCancelled) debugPrint('❌ Gram profit load error: $e');
     } finally {
-      if (mounted) setState(() => _gramProfitLoading = false);
+      if (identical(request, _gramProfitRequest)) {
+        _gramProfitRequest = null;
+        request.cancel(); // its connection, closed
+        if (mounted) setState(() => _gramProfitLoading = false);
+      }
     }
   }
 
@@ -591,15 +610,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
       title: isArabic ? 'الأداء' : 'Performance',
       subtitle: isNarrow ? null : (isArabic ? 'ما تغيّره الفترة' : 'What the period changes'),
     );
-    // The selector in the screen's middle, the title at its side (the owner,
-    // 30 Oct 2026: «أزرار الفترات ليست في مركز الشاشة بل مسحوبة على اليسار»).
+    // The selector beside the title, at its side (the owner, 15 Nov 2026:
+    // «ازرار فترات الاداء اليس من الافضل ان تكون جهة العنوان وليس بالمنتصف»;
+    // on 30 Oct it had been drawn to the middle). On a phone, under it.
     if (!isNarrow) {
-      return Stack(alignment: Alignment.center, children: [head, selector]);
+      return DashboardSection(
+        title: isArabic ? 'الأداء' : 'Performance',
+        subtitle: isArabic ? 'ما تغيّره الفترة' : 'What the period changes',
+        beside: selector,
+      );
     }
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+      crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
-      children: [head, const SizedBox(height: AppSpace.sm), Center(child: selector)],
+      children: [head, const SizedBox(height: AppSpace.sm), selector],
     );
   }
 
@@ -1022,47 +1046,39 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
     );
   }
 
-  Widget _miniStatChip({
-    required IconData icon,
-    required String label,
-    required String value,
-    required Color color,
-  }) {
-    final theme = Theme.of(context);
-    return Container(
-      padding:
-          EdgeInsets.symmetric(horizontal: 7, vertical: 5),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: color.withValues(alpha: 0.18)),
-      ),
+  /// A layer of the gram profit: its name, and its grams signed -- the
+  /// figures LTR and tabular inside the RTL card.
+  Widget _gramLayer(String key, String label, double grams, {bool total = false}) {
+    final color = grams.abs() < 0.0005
+        ? Theme.of(context).hintColor
+        : (grams > 0 ? _tones.ready.fg : _scheme.error);
+    final sign = grams > 0.0005 ? '+' : (grams < -0.0005 ? '−' : '');
+    final size = total ? _type.bodyMedium?.fontSize : _type.bodySmall?.fontSize;
+    return Padding(
+      key: ValueKey('gram-layer-$key'),
+      padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         children: [
-          Icon(icon, size: 11, color: color),
-          SizedBox(width: 4),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(fontSize: _type.labelSmall?.fontSize, color: theme.hintColor),
-                  overflow: TextOverflow.ellipsis,
-                ),
-                _currencyAwareText(
-                  value,
-                  style: TextStyle(
-                    fontSize: _type.labelSmall?.fontSize,
-                    fontWeight: FontWeight.bold,
-                    color: color,
-                    letterSpacing: -0.2,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: size,
+                fontWeight: total ? FontWeight.w800 : FontWeight.w600,
+                color: total ? _scheme.onSurface : _scheme.onSurfaceVariant,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          Text(
+            '$sign${_weightFormat.format(grams.abs())} جم',
+            key: const ValueKey('value'),
+            textDirection: TextDirection.ltr,
+            style: TextStyle(
+              fontSize: size,
+              fontWeight: total ? FontWeight.w900 : FontWeight.w700,
+              color: color,
+              fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
         ],
@@ -1223,7 +1239,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
     final netProfitWeight = gd('net_profit_weight');
     final avgSell = gd('avg_sell_per_gram');
     final avgBuy = gd('avg_buy_per_gram');
-    final marginPerGram = gd('margin_per_gram');
     final netMarginPct = gd('net_margin_pct');
     final weightSold = gd('weight_sold');
 
@@ -1572,7 +1587,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                           style: TextStyle(
                             color: profitColor.withValues(alpha: 0.7),
                             fontWeight: FontWeight.w600,
-                            fontSize: _type.labelSmall?.fontSize,
+                            fontSize: _type.bodySmall?.fontSize,
                           ),
                         ),
                       ),
@@ -1591,7 +1606,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                 child: _currencyAwareText(
                   '≈ ${_formatCurrency(netProfit)}',
                   style: TextStyle(
-                    fontSize: _type.labelSmall?.fontSize,
+                    fontSize: _type.bodySmall?.fontSize,
                     fontWeight: FontWeight.bold,
                     color: profitColor,
                   ),
@@ -1608,7 +1623,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                 child: Text(
                   '${netMarginPct.toStringAsFixed(1)}%',
                   style: TextStyle(
-                    fontSize: _type.labelSmall?.fontSize,
+                    fontSize: _type.bodySmall?.fontSize,
                     fontWeight: FontWeight.bold,
                     color: profitColor,
                   ),
@@ -1618,64 +1633,26 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
           ),
           SizedBox(height: 10),
 
-          // 4 chips
-          Row(
-            children: [
-              Expanded(
-                child: _miniStatChip(
-                  icon: Icons.trending_up,
-                  label: isArabic ? 'بيع/جم' : 'Sell/g',
-                  value: _formatCurrency(avgSell)
-                      .replaceAll(_currencySymbol, '')
-                      .trim(),
-                  color: _tones.ready.fg,
-                ),
-              ),
-              SizedBox(width: 6),
-              Expanded(
-                child: _miniStatChip(
-                  icon: Icons.trending_down,
-                  label: isArabic ? 'شراء/جم' : 'Buy/g',
-                  value: _formatCurrency(avgBuy)
-                      .replaceAll(_currencySymbol, '')
-                      .trim(),
-                  color: _tones.warning.fg,
-                ),
-              ),
-              SizedBox(width: 6),
-              Expanded(
-                child: _miniStatChip(
-                  icon: Icons.swap_horiz,
-                  label: isArabic ? 'فارق/جم' : 'Margin/g',
-                  value: _formatCurrency(marginPerGram)
-                      .replaceAll(_currencySymbol, '')
-                      .trim(),
-                  color: marginPerGram >= 0
-                      ? _tones.ready.fg
-                      : _scheme.error,
-                ),
-              ),
-              SizedBox(width: 6),
-              Expanded(
-                child: _miniStatChip(
-                  icon: Icons.monitor_weight_outlined,
-                  label: isArabic ? 'المباع' : 'Sold',
-                  value: _formatWeight(weightSold)
-                      .replaceAll(' جم', '')
-                      .replaceAll(' g', ''),
-                  color: _tones.info.fg,
-                ),
-              ),
-            ],
+          // The layers the headline is, their sum it (ADR-048; the owner,
+          // 15 Nov 2026): the old averages -- sell, buy and margin a gram, the
+          // weight sold -- added up to nothing the card said.
+          _gramLayer('trading', isArabic ? 'ربح التداول' : 'Trading', gd('trading_profit_weight')),
+          _gramLayer('revenue', isArabic ? 'الإيرادات' : 'Revenue', gd('total_extra_revenue_weight')),
+          _gramLayer('expenses', isArabic ? 'المصروفات' : 'Expenses',
+              -(gd('expense_weight_direct') + gd('expense_cash_as_weight'))),
+          _gramLayer('price_effect', isArabic ? 'ما لم يُسكَّر بعد' : 'Not closed yet', gd('price_effect_weight')),
+          Padding(
+            padding: const EdgeInsetsDirectional.only(start: AppSpace.md, bottom: AppSpace.xs),
+            child: Text(
+              isArabic
+                  ? 'منه ربح مبيعات تنتظر ${_formatWeight(waitingSales)}، وأثر السعر ${_formatWeight(priceMove)}'
+                  : 'Of which its sales ${_formatWeight(waitingSales)}, the price ${_formatWeight(priceMove)}',
+              key: const ValueKey('gram-profit-price-effect'),
+              style: TextStyle(fontSize: _type.labelSmall?.fontSize, color: theme.hintColor),
+            ),
           ),
-          SizedBox(height: 8),
-          Text(
-            isArabic
-                ? 'منه ما لم يُسكَّر: ربح مبيعات تنتظر ${_formatWeight(waitingSales)}، وأثر السعر ${_formatWeight(priceMove)}'
-                : 'Of which still waiting: its sales ${_formatWeight(waitingSales)}, the price ${_formatWeight(priceMove)}',
-            key: const ValueKey('gram-profit-price-effect'),
-            style: TextStyle(fontSize: _type.labelSmall?.fontSize, color: theme.hintColor),
-          ),
+          Divider(height: AppSpace.md, color: _scheme.outlineVariant),
+          _gramLayer('net', isArabic ? 'الصافي' : 'Net', netProfitWeight, total: true),
         ],
       ),
     ),

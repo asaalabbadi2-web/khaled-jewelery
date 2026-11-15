@@ -50,11 +50,14 @@ TextStyle? dashboardFigure(TextStyle? base, {FontWeight weight = FontWeight.w700
 
 /// A section's heading: an accent, its name, what it covers, and what acts on it.
 class DashboardSection extends StatelessWidget {
-  const DashboardSection({super.key, required this.title, this.subtitle, this.trailing});
+  const DashboardSection({super.key, required this.title, this.subtitle, this.trailing, this.beside});
 
   final String title;
   final String? subtitle;
   final Widget? trailing;
+
+  /// Next to the title, at its side -- the performance's period (15 Nov 2026).
+  final Widget? beside;
 
   @override
   Widget build(BuildContext context) {
@@ -77,6 +80,7 @@ class DashboardSection extends StatelessWidget {
                 style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
           ),
         ],
+        if (beside != null) ...[const SizedBox(width: AppSpace.lg), beside!],
         const Spacer(),
         ?trailing,
       ],

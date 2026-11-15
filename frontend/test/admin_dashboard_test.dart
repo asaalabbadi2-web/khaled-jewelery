@@ -213,7 +213,8 @@ class _Api extends ApiService {
       };
 
   @override
-  Future<Map<String, dynamic>> getGramProfitReport({required DateTime startDate, required DateTime endDate}) async =>
+  Future<Map<String, dynamic>> getGramProfitReport(
+          {required DateTime startDate, required DateTime endDate, ApiCancelToken? cancel}) async =>
       gramProfit;
 
   @override
@@ -223,6 +224,21 @@ class _Api extends ApiService {
       int? employeeId, String? karat, String? goldType, DateTime? dateFrom, DateTime? dateTo}) async {
     invoiceCalls++;
     return {'invoices': []};
+  }
+}
+
+/// Holds each gram profit request, in the order asked, until the test answers it
+/// -- by order, not by its dates: on a month's first day today and the month are one.
+class _SlowGramApi extends _Api {
+  final asked = <Completer<Map<String, dynamic>>>[];
+  final tokens = <ApiCancelToken?>[];
+
+  @override
+  Future<Map<String, dynamic>> getGramProfitReport(
+      {required DateTime startDate, required DateTime endDate, ApiCancelToken? cancel}) {
+    tokens.add(cancel);
+    asked.add(Completer<Map<String, dynamic>>());
+    return asked.last.future;
   }
 }
 
@@ -549,6 +565,28 @@ void main() {
     expect(line, isNot(contains('مركز التسكير')), reason: 'the card opens the income statement');
   });
 
+  // The owner, 15 Nov 2026: the card's chips were the old averages -- sell,
+  // buy and margin a gram, the weight sold -- that no reader could add up to
+  // its headline. It says the layers the headline is, and their sum is it.
+  testWidgets('the gram profit card says the layers its headline adds up to', (tester) async {
+    await open(tester, gramProfit: {
+      'net_profit': 1139864.83, 'net_profit_weight': 2758.6, 'net_margin_pct': 8.54, 'weight_sold': 22536.943,
+      'avg_sell_per_gram': 592.40, 'avg_buy_per_gram': 461.62, 'margin_per_gram': 130.78,
+      'trading_profit_weight': 6306.4, 'total_extra_revenue_weight': 284.4,
+      'expense_weight_direct': 1000.0, 'expense_cash_as_weight': 2894.5, 'price_effect_weight': 62.3,
+    });
+    final card = find.byKey(const ValueKey('gram-profit-card'));
+    String layer(String key) => tester.widget<Text>(find.descendant(
+        of: find.byKey(ValueKey('gram-layer-$key')), matching: find.byKey(const ValueKey('value')))).data!;
+    expect(layer('trading'), contains('6,306.4'));
+    expect(layer('expenses'), allOf(contains('3,894.5'), contains('−')), reason: 'both expense layers, as a cost');
+    expect(layer('revenue'), contains('284.4'));
+    expect(layer('price_effect'), contains('62.3'));
+    for (final gone in ['بيع/جم', 'شراء/جم', 'فارق/جم', 'المباع']) {
+      expect(find.descendant(of: card, matching: find.text(gone)), findsNothing, reason: gone);
+    }
+  });
+
   // DASH-7/10: what is wrong now -- a pill, not a block; named, and the safe below zero in its grams.
   testWidgets('the dashboard says what is wrong now', (tester) async {
     await open(tester, theme: DarkTheme.theme);
@@ -863,13 +901,43 @@ void main() {
     expect(month, lessThan(safes), reason: 'the safes at the foot');
   });
 
-  // The owner, 30 Oct 2026: «أزرار الفترات ليست في مركز الشاشة بل مسحوبة على اليسار».
-  testWidgets('the period\'s buttons sit in the screen\'s middle, wide and narrow', (tester) async {
-    for (final width in [1440.0, 390.0]) {
-      await open(tester, width: width);
-      final selector = tester.getCenter(find.byKey(const Key('dashboard-period'))).dx;
-      expect((selector - width / 2).abs(), lessThan(4), reason: 'at $width');
-    }
+  // The owner, 15 Nov 2026: «ازرار فترات الاداء اليس من الافضل ان تكون جهة العنوان وليس بالمنتصف»
+  // (on 30 Oct they had been drawn to the screen's middle).
+  testWidgets('the period\'s buttons sit beside the title, wide; under it at its side, narrow', (tester) async {
+    await open(tester, width: 1440);
+    final title = tester.getRect(find.text('الأداء'));
+    final selector = tester.getRect(find.byKey(const Key('dashboard-period')));
+    expect((selector.center.dy - title.center.dy).abs(), lessThan(12), reason: 'on the title\'s line');
+    expect(selector.right, lessThan(title.left), reason: 'after the title, right to left');
+    expect(selector.center.dx, greaterThan(1440 / 2), reason: 'on the title\'s side, not the middle');
+    await open(tester, width: 390);
+    final narrow = tester.getRect(find.byKey(const Key('dashboard-period')));
+    expect(narrow.top, greaterThan(tester.getRect(find.text('الأداء')).bottom), reason: 'under the title');
+    expect(390 - narrow.right, lessThan(40), reason: 'at the title\'s side, not centred');
+  });
+
+  // «تغيير الفترة ... ينهي طلب الفترة السابقة فورا ويبدا بمهمته» (the owner, 15 Nov 2026).
+  testWidgets('a new period ends the last one\'s request at once, and its late answer changes nothing',
+      (tester) async {
+    final api = _SlowGramApi();
+    await mount(tester, api);
+    expect(api.asked, hasLength(1), reason: 'today\'s, on opening');
+    await tester.ensureVisible(find.text('هذا الشهر').first);
+    await tester.tap(find.text('هذا الشهر').first);
+    await tester.pump();
+    expect(api.asked, hasLength(2), reason: 'the month\'s, started');
+    expect(api.tokens[0]!.isCancelled, isTrue, reason: 'the last period\'s request ended at once');
+    expect(api.tokens[1]!.isCancelled, isFalse);
+    expect(find.byKey(const ValueKey('gram-profit-card')), findsNothing, reason: 'the new period\'s shape, not old figures');
+    api.asked[1].complete({'net_profit_weight': 211.793, 'weight_sold': 1282.393, 'main_karat': 21});
+    await tester.pump(const Duration(milliseconds: 100));
+    String net() => tester.widget<Text>(find.descendant(
+        of: find.byKey(const ValueKey('gram-layer-net')), matching: find.byKey(const ValueKey('value')))).data!;
+    expect(net(), contains('211.793'));
+    api.asked[0].complete({'net_profit_weight': 9.999, 'weight_sold': 1.0, 'main_karat': 21});
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(net(), contains('211.793'), reason: 'the late answer of a period left changes nothing');
+    expect(find.textContaining('9.999'), findsNothing);
   });
 
   // DASH-10: the screen drawn, for looking at (SHOT_DIR; nothing without it).

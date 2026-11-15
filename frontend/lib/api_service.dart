@@ -281,9 +281,11 @@ class ApiService {
   Future<http.Response> _authedGet(
     Uri uri, {
     Map<String, String>? headers,
+    ApiCancelToken? cancel,
   }) async {
+    final get = cancel?._client.get ?? http.get;
     var token = await _requireAuthToken();
-    var response = await http.get(
+    var response = await get(
       uri,
       headers: {
         ..._jsonHeaders(token: token),
@@ -292,7 +294,7 @@ class ApiService {
     );
     if (response.statusCode == 401) {
       token = await _refreshAccessTokenFromStorage();
-      response = await http.get(
+      response = await get(
         uri,
         headers: {
           ..._jsonHeaders(token: token),
@@ -2999,9 +3001,11 @@ class ApiService {
     return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
   }
 
+  /// *cancel*: ended when a newer period's request starts (the dashboard).
   Future<Map<String, dynamic>> getGramProfitReport({
     required DateTime startDate,
     required DateTime endDate,
+    ApiCancelToken? cancel,
   }) async {
     final uri = Uri.parse('$_baseUrl/reports/gram_profit').replace(
       queryParameters: {
@@ -3009,7 +3013,7 @@ class ApiService {
         'end_date': endDate.toIso8601String().split('T').first,
       },
     );
-    final response = await _authedGet(uri);
+    final response = await _authedGet(uri, cancel: cancel);
     if (response.statusCode == 200) {
       final decoded = json.decode(utf8.decode(response.bodyBytes));
       if (decoded is Map<String, dynamic>) return decoded;
@@ -8067,3 +8071,21 @@ class ApiService {
   }
 }
 
+
+
+/// A request that can be ended before its answer (the owner, 15 Nov 2026:
+/// «تغيير الفترة ... ينهي طلب الفترة السابقة فورا ويبدا بمهمته»): cancel()
+/// closes its own connection, so the request in flight ends at once -- its
+/// future fails, and the caller has already moved on. One token, one request.
+class ApiCancelToken {
+  final http.Client _client = http.Client();
+  bool _cancelled = false;
+
+  bool get isCancelled => _cancelled;
+
+  void cancel() {
+    if (_cancelled) return;
+    _cancelled = true;
+    _client.close();
+  }
+}
