@@ -232,11 +232,13 @@ class _Api extends ApiService {
 class _SlowGramApi extends _Api {
   final asked = <Completer<Map<String, dynamic>>>[];
   final tokens = <ApiCancelToken?>[];
+  final starts = <DateTime>[];
 
   @override
   Future<Map<String, dynamic>> getGramProfitReport(
       {required DateTime startDate, required DateTime endDate, ApiCancelToken? cancel}) {
     tokens.add(cancel);
+    starts.add(startDate);
     asked.add(Completer<Map<String, dynamic>>());
     return asked.last.future;
   }
@@ -917,6 +919,39 @@ void main() {
   });
 
   // «تغيير الفترة ... ينهي طلب الفترة السابقة فورا ويبدا بمهمته» (the owner, 15 Nov 2026).
+  // The owner, 16 Nov 2026: «تبديل الفترات صار يأخذ وقت اطول» -- the card
+  // emptied on every switch to wait for its period. Each period is read once,
+  // the others after the first, one at a time; a period read shows at once
+  // when chosen again, and is read anew behind it.
+  testWidgets('a period read once shows at once when chosen again; the others are read after the first, one at a time',
+      (tester) async {
+    final api = _SlowGramApi();
+    await mount(tester, api);
+    final now = DateTime.now();
+    String net() => tester.widget<Text>(find.descendant(
+        of: find.byKey(const ValueKey('gram-layer-net')), matching: find.byKey(const ValueKey('value')))).data!;
+    Future<void> answer(int i, double grams) async {
+      api.asked[i].complete({'net_profit_weight': grams, 'weight_sold': 1.0, 'main_karat': 21});
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+
+    expect(api.starts, [DateTime(now.year, now.month, now.day)], reason: 'today first, alone');
+    await answer(0, 1.111);
+    expect(api.starts.skip(1), [DateTime(now.year, now.month, 1)], reason: 'then the month, one at a time');
+    await answer(1, 2.222);
+    expect(api.starts.skip(2), [DateTime(now.year, 1, 1)], reason: 'then the year');
+    await answer(2, 3.333);
+    expect(api.asked, hasLength(3), reason: 'each read once');
+
+    await tester.ensureVisible(find.text('هذا الشهر').first);
+    await tester.tap(find.text('هذا الشهر').first);
+    await tester.pump();
+    expect(net(), contains('2.222'), reason: 'the month at once, not an empty card');
+    expect(api.asked, hasLength(4), reason: 'and read anew behind it');
+    await answer(3, 2.5);
+    expect(net(), contains('2.500'));
+  });
+
   testWidgets('a new period ends the last one\'s request at once, and its late answer changes nothing',
       (tester) async {
     final api = _SlowGramApi();

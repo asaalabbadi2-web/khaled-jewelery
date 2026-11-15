@@ -75,14 +75,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
   _TimeRange _timeRange = _TimeRange.today;
 
   // ── Gram Profit KPI ─────────────────────────────────────────────────────
-  Map<String, dynamic>? _gramProfitData;
+  /// Each period's gram profit as last read: a period read once shows at once
+  /// when chosen again, and is read anew behind it (the owner, 16 Nov 2026:
+  /// «تبديل الفترات صار يأخذ وقت اطول» -- the card emptied on every switch).
+  final Map<_TimeRange, Map<String, dynamic>> _gramProfitByPeriod = {};
+  Map<String, dynamic>? get _gramProfitData => _gramProfitByPeriod[_timeRange];
   // The month's race, by points -- its own reading (DASH-9).
   List<Map<String, dynamic>> _leaders = const [];
-  bool _gramProfitLoading = false;
-
-
-  /// The gram profit's request in flight: a new period ends it.
+  /// The gram profit's one request in flight, and its period: a new period ends it.
   ApiCancelToken? _gramProfitRequest;
+  _TimeRange? _gramProfitRequestPeriod;
+  bool get _gramProfitLoading => _gramProfitRequest != null && _gramProfitRequestPeriod == _timeRange;
 
   /// The safes holding nothing, shown on a tap (15 Nov 2026: 20 safes, more
   /// than half of them empty, pushed the ones that hold something aside).
@@ -263,9 +266,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
   }
 
   /// The period the gram profit card says, and its report opens on.
-  DateTimeRange _gramProfitRange() {
+  DateTimeRange _gramProfitRange([_TimeRange? period]) {
     final now = DateTime.now();
-    final start = switch (_timeRange) {
+    final start = switch (period ?? _timeRange) {
       _TimeRange.today => DateTime(now.year, now.month, now.day),
       _TimeRange.month => DateTime(now.year, now.month, 1),
       _TimeRange.year => DateTime(now.year, 1, 1),
@@ -273,33 +276,45 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
     return DateTimeRange(start: start, end: now);
   }
 
-  /// The period's gram profit. A new period ends the last one's request at
-  /// once and starts its own (the owner, 15 Nov 2026: «ينهي طلب الفترة
-  /// السابقة فورا ويبدا بمهمته»); the card shows the new period's shape
-  /// meanwhile, never the old period's figures under the new name.
-  Future<void> _loadGramProfit() async {
+  /// Reads [period]'s gram profit -- the period shown when none is named. One
+  /// request at a time: a new one ends the last at once (the owner, 15 Nov
+  /// 2026: «ينهي طلب الفترة السابقة فورا ويبدا بمهمته»); a late answer of a
+  /// request ended changes nothing. Once answered, the periods not read yet
+  /// follow, one after another, so a switch finds its figures there.
+  Future<void> _loadGramProfit([_TimeRange? period]) async {
+    final p = period ?? _timeRange;
     _gramProfitRequest?.cancel();
     final request = ApiCancelToken();
     _gramProfitRequest = request;
-    setState(() {
-      _gramProfitLoading = true;
-      _gramProfitData = null;
-    });
+    _gramProfitRequestPeriod = p;
+    if (mounted) setState(() {});
+    var answered = false;
     try {
-      final range = _gramProfitRange();
+      final range = _gramProfitRange(p);
       final data = await widget.api.getGramProfitReport(
         startDate: range.start,
         endDate: range.end,
         cancel: request,
       );
-      if (mounted && identical(request, _gramProfitRequest)) setState(() => _gramProfitData = data);
+      if (mounted && identical(request, _gramProfitRequest)) {
+        setState(() => _gramProfitByPeriod[p] = data);
+        answered = true;
+      }
     } catch (e) {
       if (!request.isCancelled) debugPrint('❌ Gram profit load error: $e');
     } finally {
       if (identical(request, _gramProfitRequest)) {
         _gramProfitRequest = null;
+        _gramProfitRequestPeriod = null;
         request.cancel(); // its connection, closed
-        if (mounted) setState(() => _gramProfitLoading = false);
+        if (mounted) setState(() {});
+      }
+    }
+    if (!answered || !mounted || _gramProfitRequest != null) return;
+    for (final next in _TimeRange.values) {
+      if (!_gramProfitByPeriod.containsKey(next)) {
+        _loadGramProfit(next);
+        return;
       }
     }
   }
