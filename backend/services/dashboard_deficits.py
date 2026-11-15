@@ -25,7 +25,14 @@ def deficits(start: datetime, end: datetime) -> dict:
     by_actor: dict = {}
     for inv in rows:
         actor_id, name = PointsMetric._infer_actor(inv) or (0, '—')
-        e = by_actor.setdefault(actor_id, {'id': actor_id, 'name': name, 'count': 0, 'loss_cash': 0.0})
+        # An invoice with no employee is attributed to who posted it, by a
+        # made-up id below zero: it is not an employee's (15 Nov 2026: «admin»
+        # stood among the employees as -100729354). Said as what it is, apart.
+        no_employee = actor_id <= 0
+        if no_employee:
+            name = f'بلا موظف — سجّلها {name}' if name not in ('', '—') else 'بلا موظف'
+        e = by_actor.setdefault(actor_id, {'id': None if no_employee else actor_id, 'name': name,
+                                           'no_employee': no_employee, 'count': 0, 'loss_cash': 0.0})
         e['count'] += 1
         e['loss_cash'] += float(inv.profit_cash or 0.0)
     employees = sorted(({**e, 'loss_cash': round(e['loss_cash'], 2)} for e in by_actor.values()),

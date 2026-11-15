@@ -1,9 +1,11 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart' hide TextDirection;
 
 import '../../../theme/app_semantic_colors.dart';
 import '../../../theme/app_tokens.dart';
+import '../../../utils/bidi.dart';
 import 'dashboard_kit.dart';
 
 /// Where the business stands, drawn (DASH-10, the owner 30 Oct 2026:
@@ -288,6 +290,178 @@ class DashboardClearingPanel extends StatelessWidget {
             ),
         ],
       ),
+    );
+  }
+}
+
+/// What the shop will pay soon (the owner, 15 Nov 2026): each period expense
+/// still to pay -- what is left of it, by its end, what of it is owed now --
+/// the salaries owed, the suppliers in riyals and grams, the VAT; their
+/// riyals together on its head. *upcoming* null: the server could not read
+/// it, and it says so.
+class DashboardUpcomingPanel extends StatelessWidget {
+  const DashboardUpcomingPanel({super.key, required this.upcoming, required this.isArabic, required this.money});
+
+  final Map<String, dynamic>? upcoming;
+  final bool isArabic;
+  final DashboardMoney money;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final tones = AppSemanticColors.of(context);
+    final muted = theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant);
+    final figure = dashboardFigure(theme.textTheme.bodyMedium, weight: FontWeight.w700);
+    final notRead = isArabic ? 'غير متاح' : 'Not available';
+    final u = upcoming;
+    final total = u?['total_cash'];
+
+    DashboardAmountRow row(String key, String name, num? amount, {String? note, String? grams}) => DashboardAmountRow(
+          label: Column(
+            key: Key('dashboard-upcoming-$key'),
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(name, style: theme.textTheme.bodyMedium),
+              if (note != null) Text(note, style: muted),
+            ],
+          ),
+          amount: amount == null ? Text(notRead, style: muted) : money.text(amount, style: figure),
+          weight: grams,
+        );
+
+    final rows = <DashboardAmountRow>[];
+    if (u != null) {
+      for (final e in ((u['period_expenses'] as List?) ?? const []).whereType<Map>()) {
+        final by = DateTime.tryParse('${e['by']}');
+        final owed = dashboardNum(e['owed_now']);
+        rows.add(row(
+          'expense-${e['id']}',
+          '${e['name']}',
+          dashboardNum(e['to_pay']),
+          note: [
+            if (by != null) (isArabic ? 'حتى ' : 'by ') + ltrIsolate(DateFormat('dd/MM/yyyy').format(by)),
+            if (owed > 0.005) (isArabic ? 'المستحق منه الآن ' : 'owed now ') + money.cash(owed),
+          ].join(' · '),
+        ));
+      }
+      final salaries = (u['salaries'] as Map?) ?? const {};
+      if (dashboardNum(salaries['amount']) > 0.005) {
+        rows.add(row('salaries', isArabic ? 'رواتب مستحقة (${salaries['count']})' : 'Salaries owed (${salaries['count']})',
+            dashboardNum(salaries['amount'])));
+      }
+      final suppliers = (u['suppliers'] as Map?) ?? const {};
+      final gold = suppliers['gold'];
+      if (suppliers['cash'] == null || dashboardNum(suppliers['cash']) > 0.005 || dashboardNum(gold) > 0.0005) {
+        rows.add(row('suppliers', isArabic ? 'للموردين (${suppliers['count'] ?? '—'})' : 'Suppliers',
+            suppliers['cash'] as num?, grams: dashboardNum(gold) > 0.0005 ? money.grams(dashboardNum(gold), isArabic: isArabic) : null));
+      }
+      if (dashboardNum(u['vat']) > 0.005) {
+        rows.add(row('vat', isArabic ? 'الضريبة للهيئة' : 'VAT to the authority', dashboardNum(u['vat'])));
+      }
+    }
+
+    return DashboardPanel(
+      key: const Key('dashboard-upcoming'),
+      icon: Icons.event_note_outlined,
+      accent: tones.warning.fg,
+      title: isArabic ? 'التزامات قادمة' : 'Coming payments',
+      figure: total is num
+          ? money.text(total, style: dashboardFigure(theme.textTheme.titleSmall, weight: FontWeight.w800))
+          : Text(notRead, style: theme.textTheme.titleSmall?.copyWith(color: scheme.onSurfaceVariant)),
+      child: u == null
+          ? Text(isArabic ? 'تعذّرت قراءتها' : 'Could not be read', style: muted)
+          : rows.isEmpty
+              ? Text(isArabic ? 'لا التزامات قادمة' : 'Nothing to pay', style: muted)
+              : DashboardAmountTable(rows: rows),
+    );
+  }
+}
+
+/// Is the system doing its own work (the owner, 15 Nov 2026): the scheduler
+/// alive, the nightly check's last run, the server's newest backup -- each a
+/// line with its state said in words and an icon, never a colour alone.
+/// *health* null: the server could not read it.
+class DashboardHealthPanel extends StatelessWidget {
+  const DashboardHealthPanel({super.key, required this.health, required this.isArabic});
+
+  final Map<String, dynamic>? health;
+  final bool isArabic;
+
+  static String _when(dynamic iso) {
+    final at = DateTime.tryParse('${iso ?? ''}');
+    return at == null ? '' : ltrIsolate(DateFormat('dd/MM HH:mm').format(at.toLocal()));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final tones = AppSemanticColors.of(context);
+    final muted = theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant);
+    final h = health;
+
+    Widget line(String key, String name, bool ok, String said) => Padding(
+          key: Key('dashboard-health-$key'),
+          padding: const EdgeInsets.symmetric(vertical: AppSpace.xs),
+          child: Row(children: [
+            Icon(ok ? Icons.check_circle_outline_rounded : Icons.warning_amber_rounded,
+                size: 18, color: ok ? tones.ready.fg : tones.warning.fg),
+            const SizedBox(width: AppSpace.sm),
+            Text(name, style: theme.textTheme.bodyMedium),
+            const SizedBox(width: AppSpace.md),
+            Expanded(child: Text(said, textAlign: TextAlign.end, style: muted)),
+          ]),
+        );
+
+    final rows = <Widget>[];
+    if (h != null) {
+      final scheduler = (h['scheduler'] as Map?) ?? const {};
+      final alive = scheduler['alive'] == true;
+      rows.add(line(
+        'scheduler',
+        isArabic ? 'المجدولات' : 'Schedulers',
+        alive,
+        alive
+            ? (isArabic ? 'تعمل' : 'Running')
+            : scheduler['silent_minutes'] == null
+                ? (isArabic ? 'لم تبدأ قط' : 'Never started')
+                : (isArabic ? 'صامتة منذ ${scheduler['silent_minutes']} دقيقة' : 'Silent ${scheduler['silent_minutes']} min'),
+      ));
+      final nightly = (h['nightly'] as Map?) ?? const {};
+      rows.add(line(
+        'nightly',
+        isArabic ? 'الفحص الليلي' : 'Nightly check',
+        nightly['late'] != true,
+        nightly['last'] == null
+            ? (isArabic ? 'لم يُسجَّل تشغيل' : 'No run recorded')
+            : (isArabic ? 'آخر تشغيل ' : 'Last run ') + _when(nightly['last']) +
+                (nightly['late'] == true ? (isArabic ? ' — متأخر' : ' — late') : ''),
+      ));
+      final backup = (h['backup'] as Map?) ?? const {};
+      rows.add(line(
+        'backup',
+        isArabic ? 'النسخ الاحتياطي على الخادم' : 'Server backups',
+        backup['last'] != null,
+        backup['last'] == null
+            ? (isArabic ? 'لا نسخة على الخادم' : 'None on the server')
+            : (isArabic ? 'آخر نسخة ' : 'Newest ') + _when(backup['last']),
+      ));
+      if (backup['auto'] != true) {
+        rows.add(Text(isArabic ? 'النسخ التلقائي على الخادم غير مفعّل' : 'Automatic server backups are off',
+            style: muted));
+      }
+    }
+
+    return DashboardPanel(
+      key: const Key('dashboard-health'),
+      icon: Icons.monitor_heart_outlined,
+      accent: tones.info.fg,
+      title: isArabic ? 'صحة النظام' : 'System health',
+      child: h == null
+          ? Text(isArabic ? 'غير متاح: تعذّرت قراءتها' : 'Not available', style: muted)
+          : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: rows),
     );
   }
 }

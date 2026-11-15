@@ -35,11 +35,15 @@ class DashboardVatPanel extends StatelessWidget {
     final salesCharged = (vat['policy'] as Map?)?['sales_vat_charged'] != false;
     final muted = theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant);
 
+    // *net* null: the output is the return's to say -- the figure is the
+    // input so far, and *side* says so (15 Nov 2026: it said «لكم»).
     Widget station({
       required String title,
       required String period,
-      required double net,
+      required double? net,
       required Widget node,
+      double input = 0,
+      String? detail,
       String? status,
       Color? statusColor,
       bool last = false,
@@ -71,6 +75,7 @@ class DashboardVatPanel extends StatelessWidget {
                           children: [
                             Text(title, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
                             Text(period, textDirection: TextDirection.ltr, style: muted),
+                            if (detail != null) Text(detail, style: muted),
                             if (status != null)
                               Text(status,
                                   style: theme.textTheme.labelMedium
@@ -81,8 +86,9 @@ class DashboardVatPanel extends StatelessWidget {
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          money.text(net.abs(), style: dashboardFigure(theme.textTheme.bodyMedium)),
-                          Text(_direction(net), style: muted),
+                          money.text((net ?? input).abs(), style: dashboardFigure(theme.textTheme.bodyMedium)),
+                          Text(net == null ? (isArabic ? 'مدخلات حتى اليوم' : 'input so far') : _direction(net),
+                              style: muted),
                         ],
                       ),
                     ],
@@ -116,6 +122,14 @@ class DashboardVatPanel extends StatelessWidget {
             title: isArabic ? 'الربع الماضي' : 'Last quarter',
             period: '${last['start'] ?? ''} – ${last['end'] ?? ''}',
             net: dashboardNum(last['net']),
+            // a filed quarter says its return's figures (15 Nov 2026: 0 / 0 for 4,137.68 due)
+            detail: last['source'] == 'return'
+                ? (isArabic
+                    ? 'من الإقرار: مخرجات ${money.cash(dashboardNum(last['output_vat']))} · '
+                        'مدخلات ${money.cash(dashboardNum(last['input_vat']))}'
+                    : 'As filed: output ${money.cash(dashboardNum(last['output_vat']))} · '
+                        'input ${money.cash(dashboardNum(last['input_vat']))}')
+                : null,
             node: ring(unfiled ? tones.warning.fg : tones.ready.fg, filled: !unfiled),
             status: last['filed'] == true
                 ? (isArabic ? 'مُقدَّم' : 'Filed')
@@ -125,7 +139,11 @@ class DashboardVatPanel extends StatelessWidget {
           station(
             title: isArabic ? 'هذا الربع حتى اليوم' : 'This quarter so far',
             period: '${quarter['start'] ?? ''} – ${quarter['end'] ?? ''}',
-            net: dashboardNum(quarter['net']),
+            net: quarter['output_at_filing'] == true ? null : dashboardNum(quarter['net']),
+            input: dashboardNum(quarter['input_vat']),
+            detail: quarter['output_at_filing'] == true
+                ? (isArabic ? 'المخرجات تُحسب عند الإقرار' : 'The output is the return\'s to say')
+                : null,
             node: ring(scheme.primary),
             last: true,
           ),

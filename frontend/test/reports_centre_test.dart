@@ -133,7 +133,7 @@ void main() {
 
   testWidgets("the manager's dashboard is the manager's alone", (tester) async {
     await _open(tester, auth: _Seller());
-    expect(find.text('لوحة تحكم المدير'), findsNothing);
+    expect(find.text('لوحة التحكم'), findsNothing);
     expect(find.text('الميزانية العمومية'), findsOneWidget);
   });
 

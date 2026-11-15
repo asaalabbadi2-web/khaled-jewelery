@@ -172,7 +172,7 @@ void main() {
 
   testWidgets('on a phone the bottom bar holds five, settings in the account menu', (tester) async {
     await _open(tester, _devices['iPhone']!, manager: true);
-    expect(find.text('لوحة المدير'), findsWidgets);
+    expect(find.text('لوحة التحكم'), findsWidgets);
     expect(find.text('الإعدادات'), findsNothing, reason: 'not a sixth tab');
     await tester.tap(find.byKey(const Key('user-menu')));
     await tester.pump(const Duration(milliseconds: 400));

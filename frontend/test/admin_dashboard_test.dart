@@ -50,7 +50,7 @@ Map<String, dynamic> _period({double sales = 0, double purchases = 0, double exp
 final _dashboard = <String, dynamic>{
   'success': true,
   'global_snapshot': {'net_financial_position': 1000000.0, 'gold_price_24k': 505.0, 'gold_price_change_pct': 0.0},
-  'kpis': {'today_profit_vs_yesterday_pct': 12.5, 'gold_by_karat': {}},
+  'kpis': {'gold_by_karat': {}, 'gold_equivalent_main_karat': 0.0},
   'liquidity': {'cash_available': 371561.53},
   'valuation': {},
   'series': {},
@@ -117,6 +117,22 @@ final _standing = <String, dynamic>{
         'net': -8283.69, 'filed': false},
     'owed': 0.0,
     'policy': {'sales_vat_charged': false, 'input_vat_recoverable': true},
+  },
+  // what the shop has less what it owes (15 Nov 2026)
+  'net_position': {
+    'net': 10700774.3, 'has': 11067279.78, 'owes': 366505.48, 'price': 413.2,
+    'price_at': '2026-11-13T23:05:00', 'main_karat': 21, 'parts': {},
+  },
+  // is the system doing its own work (15 Nov 2026)
+  'health': {
+    'scheduler': {'last': '2026-11-15T09:00:00Z', 'alive': true, 'silent_minutes': 0},
+    'nightly': {'last': '2026-11-15T00:00:00Z', 'late': false},
+    'backup': {'last': '2026-11-14T14:09:00Z', 'auto': true},
+  },
+  // what will be paid soon (15 Nov 2026)
+  'upcoming': {
+    'period_expenses': [], 'salaries': {'amount': 0.0, 'count': 0}, 'suppliers': {'cash': 0.0, 'gold': 0.0, 'count': 0},
+    'vat': 0.0, 'total_cash': 0.0,
   },
   // DASH-9: the month's losing invoices, by employee.
   'deficits': {
@@ -382,7 +398,7 @@ void main() {
     final saved = jsonDecode(jsonEncode(_dashboard)) as Map<String, dynamic>;
     addTearDown(() => _dashboard..clear()..addAll(saved));
     _dashboard['kpis'] = {
-      'today_profit_vs_yesterday_pct': 12.5,
+      'gold_equivalent_main_karat': 26200.137,
       'gold_by_karat': {'18k': 12363.72, '21k': 14385.836, '22k': 51.1, '24k': 1017.882},
     };
     await open(tester);
@@ -570,6 +586,235 @@ void main() {
     expect(find.descendant(of: card, matching: find.text('لم يُقدَّم إقراره')), findsOneWidget);
     expect(find.descendant(of: card, matching: find.text('المبيعات لا تُحمَّل ضريبة حسب السياسة السارية')),
         findsOneWidget);
+  });
+
+  // 15 Nov 2026: a filed quarter said 0 / 0, and this one «لكم 5,692.68» with no output in the books.
+  testWidgets('the VAT: a filed quarter says its return, this one leaves its output to the return', (tester) async {
+    final saved = jsonDecode(jsonEncode(_standing)) as Map<String, dynamic>;
+    addTearDown(() => _standing..clear()..addAll(saved));
+    _standing['vat'] = {
+      'quarter': {'start': '2026-10-01', 'end': '2026-11-15', 'output_vat': null, 'input_vat': 5692.68, 'net': null,
+          'output_at_filing': true},
+      'last_quarter': {'start': '2026-07-01', 'end': '2026-09-30', 'output_vat': 22286.79, 'input_vat': 18149.11,
+          'net': 4137.68, 'filed': true, 'source': 'return'},
+      'owed': 1.12,
+      'policy': {'sales_vat_charged': false, 'input_vat_recoverable': true},
+    };
+    await open(tester);
+    final card = find.byKey(const Key('dashboard-vat'));
+    expect(find.descendant(of: card, matching: find.textContaining('4,137.68')), findsOneWidget);
+    expect(find.descendant(of: card, matching: find.textContaining('من الإقرار:')), findsOneWidget);
+    expect(find.descendant(of: card, matching: find.textContaining('22,286.79')), findsOneWidget);
+    expect(find.descendant(of: card, matching: find.textContaining('5,692.68')), findsOneWidget);
+    expect(find.descendant(of: card, matching: find.text('مدخلات حتى اليوم')), findsOneWidget);
+    expect(find.descendant(of: card, matching: find.text('المخرجات تُحسب عند الإقرار')), findsOneWidget);
+    expect(find.descendant(of: card, matching: find.text('لكم')), findsNothing, reason: 'not due back: unknown yet');
+  });
+
+  // 15 Nov 2026: each period beside the one before it; the seven days the server summed and no one saw;
+  // the price the position stands on; and what could not be read, said.
+  testWidgets('the period against the one before it, the seven days, the price the position stands on',
+      (tester) async {
+    final saved = jsonDecode(jsonEncode(_dashboard)) as Map<String, dynamic>;
+    addTearDown(() => _dashboard..clear()..addAll(saved));
+    final today = _period(sales: 12000, scrap: 3000);
+    today['previous'] = {
+      'sales': {'total_value': 10000.0}, 'purchases': {'total_value': 0.0}, 'scrap_customers': {'total_value': 4000.0},
+      'office_settlements': {'total_value': 0.0}, 'expenses': {'total_value': 0.0}, 'revenues': {'total_value': 0.0},
+    };
+    (_dashboard['sales_purchases_summary'] as Map)['today'] = today;
+    _dashboard['valuation'] = {'spot_price_24k_per_gram': 473.15, 'spot_price_timestamp': '2026-11-13T23:05:00'};
+    _dashboard['series'] = {
+      'daily': [
+        for (var i = 9; i <= 15; i++) {'day': '2026-11-${i.toString().padLeft(2, '0')}', 'sales': i * 1000.0,
+            'scrap_customers': 500.0},
+      ],
+    };
+    await open(tester);
+    String said(Key key) => tester.widget<Text>(find.byKey(key)).data ?? '';
+    expect(said(const Key('dashboard-against-sales')), allOf(contains('▲ 20%'), contains('أمس')));
+    expect(said(const Key('dashboard-against-scrap_customers')), contains('▼ 25%'));
+    expect(find.byKey(const Key('dashboard-against-purchases')), findsNothing, reason: 'nothing then, nothing now');
+    final week = find.byKey(const Key('dashboard-week'));
+    expect(week, findsOneWidget);
+    expect(find.descendant(of: week, matching: find.byKey(const Key('dashboard-week-2026-11-15'))), findsOneWidget);
+    expect(find.byTooltip('الأحد 15/11: مبيعات 15,000.00 ر.س · كسر 500.00 ر.س'), findsOneWidget);
+    expect(said(const Key('dashboard-net-valued-at')),
+        allOf(contains('عيار 21'), contains('413.20'), contains('13/11 23:05')));
+  });
+
+  testWidgets('what the server could not read is said, not drawn as zero', (tester) async {
+    final saved = jsonDecode(jsonEncode(_dashboard)) as Map<String, dynamic>;
+    addTearDown(() => _dashboard..clear()..addAll(saved));
+    final savedS = jsonDecode(jsonEncode(_standing)) as Map<String, dynamic>;
+    addTearDown(() => _standing..clear()..addAll(savedS));
+    _standing['net_position'] = null;
+    _dashboard['kpis'] = {'gold_by_karat': null, 'gold_equivalent_main_karat': null};
+    _dashboard['unavailable'] = ['safes', 'summary_today'];
+    (_dashboard['sales_purchases_summary'] as Map).remove('today');
+    await open(tester);
+    expect(find.descendant(of: find.byKey(const Key('dashboard-net-position')), matching: find.text('غير متاح')),
+        findsNWidgets(3), reason: 'the position, the liquidity and the gold weight: not 0.00');
+    expect(find.text('لا يوجد ذهب'), findsNothing, reason: 'not read is not «no gold»');
+    expect(find.textContaining('غير متاح: تعذّرت قراءة الفترة'), findsOneWidget);
+    expect(find.text('لا توجد عمليات بعد'), findsNothing);
+  });
+
+  // 15 Nov 2026: what is about to leave, beside what is held.
+  testWidgets('the coming payments: each with what is left and by when, their riyals together', (tester) async {
+    final saved = jsonDecode(jsonEncode(_standing)) as Map<String, dynamic>;
+    addTearDown(() => _standing..clear()..addAll(saved));
+    _standing['upcoming'] = {
+      'period_expenses': [
+        {'id': 16, 'name': 'إيجار المعرض يوليو–ديسمبر 2026', 'to_pay': 63000.0, 'owed_now': 42000.0, 'by': '2026-12-31'},
+      ],
+      'salaries': {'amount': 21035.0, 'count': 2},
+      'suppliers': {'cash': 187260.01, 'gold': 281.24, 'count': 12},
+      'vat': 1.12,
+      'total_cash': 271296.13,
+    };
+    await open(tester);
+    final card = find.byKey(const Key('dashboard-upcoming'));
+    expect(card, findsOneWidget);
+    String said(Finder f) => tester
+        .widgetList<RichText>(find.descendant(of: f, matching: find.byType(RichText)))
+        .map((r) => r.text.toPlainText())
+        .join(' | ');
+    expect(said(card), allOf(contains('271,296.13'), contains('63,000.00'), contains('21,035.00'),
+        contains('187,260.01'), contains('281.240'), contains('1.12')));
+    expect(said(find.byKey(const Key('dashboard-upcoming-expense-16'))),
+        allOf(contains('31/12/2026'), contains('42,000.00')), reason: 'by when, and what of it is owed now');
+    expect(said(find.byKey(const Key('dashboard-upcoming-salaries'))), contains('رواتب مستحقة (2)'));
+  });
+
+  testWidgets('the coming payments not read say so', (tester) async {
+    final saved = jsonDecode(jsonEncode(_standing)) as Map<String, dynamic>;
+    addTearDown(() => _standing..clear()..addAll(saved));
+    _standing['upcoming'] = null;
+    await open(tester);
+    final card = find.byKey(const Key('dashboard-upcoming'));
+    expect(find.descendant(of: card, matching: find.text('غير متاح')), findsOneWidget);
+    expect(find.descendant(of: card, matching: find.text('تعذّرت قراءتها')), findsOneWidget);
+  });
+
+  // 15 Nov 2026: 20 safes, more than half empty, pushed the ones holding something aside.
+  testWidgets('the safes holding nothing wait behind a tap', (tester) async {
+    final saved = jsonDecode(jsonEncode(_dashboard)) as Map<String, dynamic>;
+    addTearDown(() => _dashboard..clear()..addAll(saved));
+    Map<String, dynamic> safe(int id, String name, double cash, double grams) => {
+          'id': id, 'name': name, 'safe_type': grams > 0 ? 'gold' : 'cash', 'balance_cash': cash,
+          'balance_gold_21k': grams, 'weight_balance': {'18k': 0.0, '21k': grams, '22k': 0.0, '24k': 0.0},
+          'total_weight_main_karat': grams, 'main_karat': 21, 'has_recent_activity': false,
+        };
+    _dashboard['safe_boxes'] = [
+      safe(1, 'خزينة النقدية الرئيسية', 147903.05, 0),
+      safe(2, 'صندوق نقدية مؤقت', 0, 0),
+      safe(3, 'عهدة ذهب صالح العبادي', 0, 0),
+      safe(4, 'الذهب المعروض', 0, 25278.9),
+    ];
+    await open(tester);
+    final toggle = find.byKey(const Key('dashboard-vaults-empty-toggle'));
+    await tester.ensureVisible(toggle);
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.text('الذهب المعروض'), findsOneWidget);
+    expect(find.text('صندوق نقدية مؤقت'), findsNothing, reason: 'empty: behind the tap');
+    expect(find.descendant(of: toggle, matching: find.text('إظهار الفارغة (2)')), findsOneWidget);
+    await tester.tap(toggle);
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.text('صندوق نقدية مؤقت'), findsOneWidget);
+    expect(find.descendant(of: toggle, matching: find.text('إخفاء الفارغة')), findsOneWidget);
+  });
+
+  // «الخزائن يفضل ان تكون ذي اطار الشاشه وليس تمرير افقي» (the owner, 15 Nov 2026)
+  testWidgets('the safes sit within the screen, a line after a line, not a strip to scroll', (tester) async {
+    final saved = jsonDecode(jsonEncode(_dashboard)) as Map<String, dynamic>;
+    addTearDown(() => _dashboard..clear()..addAll(saved));
+    _dashboard['safe_boxes'] = [
+      for (var i = 1; i <= 6; i++)
+        {'id': i, 'name': 'خزينة $i', 'safe_type': 'cash', 'balance_cash': 1000.0 * i, 'balance_gold_21k': 0.0,
+            'weight_balance': {'18k': 0.0, '21k': 0.0, '22k': 0.0, '24k': 0.0}, 'total_weight_main_karat': 0.0,
+            'main_karat': 21, 'has_recent_activity': false},
+    ];
+    await mount(tester, _Api(), width: 390);
+    final grid = find.byKey(const Key('dashboard-vaults-grid'));
+    await tester.scrollUntilVisible(grid, 600,
+        scrollable: find.descendant(of: find.byType(CustomScrollView), matching: find.byType(Scrollable)).first);
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(tester.takeException(), isNull);
+    final names = [for (var i = 1; i <= 6; i++) find.text('خزينة $i')];
+    for (final n in names) {
+      expect(n, findsOneWidget, reason: 'every safe drawn, none waiting off the screen');
+      final box = tester.getRect(n);
+      expect(box.left >= 0 && box.right <= 390, isTrue, reason: 'within the screen: ${box.left}..${box.right}');
+    }
+    final rows = {for (final n in names) tester.getTopLeft(n).dy.round()};
+    expect(rows.length, greaterThan(1), reason: 'a line after a line');
+    expect(find.descendant(of: grid, matching: find.byType(ListView)), findsNothing, reason: 'no strip to scroll');
+  });
+
+  // «احذف وطبق الترتيب التلقائي» (the owner, 15 Nov 2026): one order, the same every time.
+  testWidgets('the safes in one order: the cash first, the largest first; then the gold, the most grams first',
+      (tester) async {
+    final saved = jsonDecode(jsonEncode(_dashboard)) as Map<String, dynamic>;
+    addTearDown(() => _dashboard..clear()..addAll(saved));
+    Map<String, dynamic> safe(int id, String name, String type, double cash, double grams) => {
+          'id': id, 'name': name, 'safe_type': type, 'balance_cash': cash, 'balance_gold_21k': grams,
+          'weight_balance': {'18k': 0.0, '21k': grams, '22k': 0.0, '24k': 0.0}, 'total_weight_main_karat': grams,
+          'main_karat': 21, 'has_recent_activity': false,
+        };
+    _dashboard['safe_boxes'] = [
+      safe(1, 'عهدة ذهب مسعد', 'gold', 0, 64.1),
+      safe(2, 'خزينة بنك الرياض', 'bank', 93116.8, 0),
+      safe(3, 'الذهب المعروض', 'gold', 0, 25278.9),
+      safe(4, 'صندوق نقدية مؤقت', 'cash', 500, 0),
+      safe(5, 'خزينة النقدية الرئيسية', 'cash', 147903.05, 0),
+    ];
+    await mount(tester, _Api(), width: 1920);
+    final grid = find.byKey(const Key('dashboard-vaults-grid'));
+    await tester.scrollUntilVisible(grid, 600,
+        scrollable: find.descendant(of: find.byType(CustomScrollView), matching: find.byType(Scrollable)).first);
+    await tester.pump(const Duration(milliseconds: 600));
+    final order = ['خزينة النقدية الرئيسية', 'صندوق نقدية مؤقت', 'خزينة بنك الرياض', 'الذهب المعروض', 'عهدة ذهب مسعد'];
+    final xs = [for (final n in order) tester.getTopRight(find.text(n)).dx];
+    expect([...xs]..sort((a, b) => b.compareTo(a)), xs, reason: 'right to left, in that order');
+    expect(find.byIcon(Icons.swap_horiz), findsNothing, reason: 'no hand-kept order to set');
+  });
+
+  // 15 Nov 2026: is the system doing its own work -- in words and an icon, not a colour alone.
+  testWidgets('the system health: the scheduler, the nightly check, the backup', (tester) async {
+    final saved = jsonDecode(jsonEncode(_standing)) as Map<String, dynamic>;
+    addTearDown(() => _standing..clear()..addAll(saved));
+    _standing['health'] = {
+      'scheduler': {'last': '2026-11-15T08:20:00Z', 'alive': false, 'silent_minutes': 40},
+      'nightly': {'last': '2026-11-13T00:00:00Z', 'late': true},
+      'backup': {'last': null, 'auto': false},
+    };
+    await open(tester);
+    String said(String key) => tester
+        .widgetList<Text>(find.descendant(of: find.byKey(Key('dashboard-health-$key')), matching: find.byType(Text)))
+        .map((t) => t.data ?? '')
+        .join(' | ');
+    expect(said('scheduler'), contains('صامتة منذ 40 دقيقة'));
+    expect(said('nightly'), contains('متأخر'));
+    expect(said('backup'), contains('لا نسخة على الخادم'));
+    expect(find.text('النسخ التلقائي على الخادم غير مفعّل'), findsOneWidget);
+    expect(find.descendant(of: find.byKey(const Key('dashboard-health-scheduler')),
+        matching: find.byIcon(Icons.warning_amber_rounded)), findsOneWidget, reason: 'an icon, not a colour alone');
+  });
+
+  // «صافي المركز المالي» was the cash and the gold with nothing owed taken off (15 Nov 2026).
+  testWidgets('the net position is what we have less what we owe, and says both', (tester) async {
+    await open(tester);
+    final card = find.byKey(const Key('dashboard-net-position'));
+    String said(Finder f) => tester
+        .widgetList<RichText>(find.descendant(of: f, matching: find.byType(RichText)))
+        .map((r) => r.text.toPlainText())
+        .join(' | ');
+    expect(said(card), contains('10,700,774.30'));
+    expect(said(card), isNot(contains('1,000,000.00')), reason: "the dashboard's old gross is not read");
+    expect(find.descendant(of: card, matching: find.text('ما نملك − ما علينا')), findsOneWidget);
+    expect(said(find.byKey(const Key('dashboard-net-breakdown'))),
+        allOf(contains('11,067,279.78'), contains('366,505.48')));
   });
 
   // DASH-9: the month's three leaders, and its losses by employee.

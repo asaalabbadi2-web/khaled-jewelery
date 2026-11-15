@@ -708,7 +708,7 @@ class DefaultQuickActions {
     QuickActionItem(
       id: 'admin_dashboard',
       icon: Icons.dashboard_customize,
-      label: 'لوحة تحكم المدير',
+      label: 'لوحة التحكم',
       route: 'admin_dashboard',
       colorHex: '#D4AF37',
       isActive: false,

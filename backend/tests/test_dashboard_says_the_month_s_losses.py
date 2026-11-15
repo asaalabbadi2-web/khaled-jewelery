@@ -46,3 +46,16 @@ def test_each_loss_is_its_employee_s(app, auth_headers):
     assert after['loss_cash'] - before['loss_cash'] == pytest.approx(-150.0)
     mine = next(e for e in after['employees'] if e['id'] == seller.id)
     assert (mine['count'], mine['loss_cash']) == (2, -150.0)
+
+
+def test_an_invoice_with_no_employee_is_said_so_not_an_employee(app, auth_headers):
+    """15 Nov 2026: «admin» stood among the employees, its id -100729354 -- a
+    made-up one for the user who posted an invoice no employee holds."""
+    db.session.add(Invoice(invoice_type='بيع', invoice_type_id=10**8 + uuid.uuid4().int % 10**8,
+                           date=datetime.now(), total=1000.0, profit_cash=-27.0, is_posted=True,
+                           employee_id=None, posted_by='admin'))
+    db.session.flush()
+    rows = [e for e in _deficits(app, auth_headers)['employees'] if e.get('no_employee')]
+    assert rows and rows[0]['id'] is None
+    assert rows[0]['name'] == 'بلا موظف — سجّلها admin'
+    assert all(e['id'] is None or e['id'] > 0 for e in _deficits(app, auth_headers)['employees'])

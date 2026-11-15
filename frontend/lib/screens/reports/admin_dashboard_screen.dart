@@ -1,11 +1,11 @@
 
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'income_statement_report_screen.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:intl/intl.dart' hide TextDirection;
+
+import '../../utils/bidi.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../api_service.dart';
 import '../../app_events.dart';
@@ -21,6 +21,7 @@ import 'gold_price_history_report_screen.dart';
 import 'safe_box_hero_details_screen.dart';
 import 'widgets/dashboard_attention_bar.dart';
 import 'widgets/dashboard_gold_price_card.dart';
+import 'gold_by_place_report_screen.dart';
 import 'widgets/dashboard_kit.dart';
 import 'widgets/dashboard_period_panels.dart';
 import 'widgets/dashboard_standing_panels.dart';
@@ -51,6 +52,10 @@ class AdminDashboardScreen extends StatefulWidget {
 }
 
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGoldPrices {
+  /// The theme's type scale: every size on this screen is one of its steps
+  /// (15 Nov 2026: 34 sizes were written as numbers; tests/…type_scale holds it).
+  TextTheme get _type => Theme.of(context).textTheme;
+
   // The theme's colours only (DASH-2): the fixed AppColors did not follow the
   // dark theme -- the text and the cards lost each other.
   ColorScheme get _scheme => Theme.of(context).colorScheme;
@@ -75,16 +80,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
   List<Map<String, dynamic>> _leaders = const [];
   bool _gramProfitLoading = false;
 
-  // ── Vault ordering ────────────────────────────────────────────────────────
-  /// Local ordered list of safe-box ids (persisted in SharedPreferences).
-  List<int> _vaultOrder = [];
-  /// Safe-box ids that were opened in the current session ("recently used").
-  final Set<int> _recentVaultIds = {};
-  static const String _kVaultOrderKey = 'dashboard_vault_order';
-  /// Horizontal scroll controller for the vault list (mouse wheel support).
-  final ScrollController _vaultScrollController = ScrollController();
-  /// When true the vault list becomes a drag-and-drop reorderable list.
-  bool _isReorderingVaults = false;
+
+  /// The safes holding nothing, shown on a tap (15 Nov 2026: 20 safes, more
+  /// than half of them empty, pushed the ones that hold something aside).
+  bool _showEmptyVaults = false;
 
   /// Maps the unified top-level time selector to the backend summary key.
   String get _summaryPeriod {
@@ -114,7 +113,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
       widget.isArabic ? 'ar' : 'en',
     );
     _weightFormat = NumberFormat('#,##0.000');
-    _loadVaultOrder();
     _loadData();
     _loadGramProfit();
     _loadLeaders();
@@ -155,68 +153,27 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
   void dispose() {
     AppEvents.vaultRefreshSignal.removeListener(_onVaultRefresh);
     stopLiveGoldPrices();
-    _vaultScrollController.dispose();
     super.dispose();
   }
 
-  // ── Vault order persistence ──────────────────────────────────────────────
-  Future<void> _loadVaultOrder() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getStringList(_kVaultOrderKey) ?? [];
-      if (mounted) {
-        setState(() {
-          _vaultOrder = raw
-              .map((s) => int.tryParse(s))
-              .whereType<int>()
-              .toList();
-        });
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _saveVaultOrder() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setStringList(
-        _kVaultOrderKey,
-        _vaultOrder.map((id) => id.toString()).toList(),
-      );
-    } catch (_) {}
-  }
-
-  /// Returns safe-box list sorted: recently-used first, then user order.
+  /// The safes in one order, the same every time (the owner, 15 Nov 2026:
+  /// «احذف وطبق الترتيب التلقائي» -- the grid shows them all; a hand-kept
+  /// order, and one that moved a safe opened lately to the front, are gone):
+  /// the cash first -- the safes, then the banks -- the largest balance
+  /// first; then the gold, the most grams first; the name breaks a tie.
   List<Map<String, dynamic>> _sortedVaults(List<dynamic> raw) {
-    final maps = raw.whereType<Map<String, dynamic>>().toList();
-
-    // Seed _vaultOrder with any new ids not yet stored
-    final knownIds = _vaultOrder.toSet();
-    for (final sb in maps) {
-      final id = sb['id'];
-      final sbId = id is int ? id : int.tryParse(id?.toString() ?? '');
-      if (sbId != null && !knownIds.contains(sbId)) {
-        _vaultOrder.add(sbId);
-        knownIds.add(sbId);
-      }
-    }
-
-    maps.sort((a, b) {
-      final aId = a['id'] is int ? a['id'] as int : int.tryParse(a['id']?.toString() ?? '') ?? -1;
-      final bId = b['id'] is int ? b['id'] as int : int.tryParse(b['id']?.toString() ?? '') ?? -1;
-
-      final aRecent = _recentVaultIds.contains(aId);
-      final bRecent = _recentVaultIds.contains(bId);
-      if (aRecent && !bRecent) return -1;
-      if (!aRecent && bRecent) return 1;
-
-      final aPos = _vaultOrder.indexOf(aId);
-      final bPos = _vaultOrder.indexOf(bId);
-      final aRank = aPos < 0 ? 9999 : aPos;
-      final bRank = bPos < 0 ? 9999 : bPos;
-      return aRank.compareTo(bRank);
-    });
-
-    return maps;
+    const kinds = {'cash': 0, 'bank': 1, 'gold': 2};
+    double size(Map<String, dynamic> sb) => sb['safe_type'] == 'gold'
+        ? _asDouble(sb['total_weight_main_karat'])
+        : _asDouble(sb['balance_cash']);
+    return raw.whereType<Map<String, dynamic>>().toList()
+      ..sort((a, b) {
+        final kind = (kinds[a['safe_type']] ?? 3).compareTo(kinds[b['safe_type']] ?? 3);
+        if (kind != 0) return kind;
+        final bySize = size(b).compareTo(size(a));
+        if (bySize != 0) return bySize;
+        return '${a['name'] ?? ''}'.compareTo('${b['name'] ?? ''}');
+      });
   }
 
   @override
@@ -384,7 +341,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
           SizedBox(height: 12),
           Text(
             isArabic ? 'تعذّر تحميل البيانات' : 'Failed to load data',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            style: TextStyle(fontSize: _type.headlineSmall?.fontSize, fontWeight: FontWeight.bold),
           ),
           SizedBox(height: 8),
           Padding(
@@ -392,7 +349,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
             child: Text(
               _error ?? '',
               textAlign: TextAlign.center,
-              style: TextStyle(color: hintColor, fontSize: 12),
+              style: TextStyle(color: hintColor, fontSize: _type.bodySmall?.fontSize),
             ),
           ),
           SizedBox(height: 16),
@@ -416,7 +373,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
     final series = (_response?['series'] as Map<String, dynamic>?) ?? {};
     final salesPurchasesSummary =
         (_response?['sales_purchases_summary'] as Map<String, dynamic>?) ?? {};
-    final goldByKarat = (kpis['gold_by_karat'] as Map<String, dynamic>?) ?? {};
+    // null: the safes could not be read -- said so, not «لا يوجد ذهب» (15 Nov 2026)
+    final goldByKarat = kpis['gold_by_karat'] as Map<String, dynamic>?;
 
     // Where the business stands (DASH-10): each panel its grey shape while
     // its reading is on the way, and nothing where the reading has nothing.
@@ -455,6 +413,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
         const DashboardPanelSkeleton(lines: 3)
       else
         _buildLiquidityPanel(),
+      // what is about to leave, beside what is held (15 Nov 2026)
+      if (waiting)
+        const DashboardPanelSkeleton(lines: 4)
+      else if (standing != null)
+        DashboardUpcomingPanel(
+            upcoming: standing['upcoming'] as Map<String, dynamic>?, isArabic: isArabic, money: _money),
+      if (!waiting && standing != null)
+        DashboardHealthPanel(health: standing['health'] as Map<String, dynamic>?, isArabic: isArabic),
     ];
 
     final periodTiles = <Widget>[
@@ -549,6 +515,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                       );
                     },
                   ),
+                  if (((_response?['series'] as Map?)?['daily'] as List?)?.isNotEmpty ?? false) ...[
+                    const SizedBox(height: AppSpace.md),
+                    DashboardWeek(
+                      days: [
+                        for (final d in ((_response!['series'] as Map)['daily'] as List).whereType<Map>())
+                          Map<String, dynamic>.from(d),
+                      ],
+                      money: _money,
+                      isArabic: isArabic,
+                    ),
+                  ],
                   const SizedBox(height: AppSpace.md),
                   DashboardSummaryTabsCard(
                     periodData: (salesPurchasesSummary[_summaryPeriod] as Map<String, dynamic>?) ?? {},
@@ -637,7 +614,27 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
     final theme = Theme.of(context);
     final isArabic = widget.isArabic;
 
-    final netPosition = _asDouble(snapshot['net_financial_position']);
+    // What the shop has less what it owes (the owner, 15 Nov 2026: «اودع وابني») --
+    // the standing's, beside the dashboard: «…» while it is on its way.
+    final standingNet = _standing?['net_position'] as Map<String, dynamic>?;
+    final net = standingNet?['net'];
+    final netPosition = net is num ? net.toDouble() : null;
+    final netWaiting = _standing == null && _standingLoading;
+    final breakdown = standingNet == null
+        ? null
+        : (isArabic ? 'نملك ' : 'Has ') +
+            ltrIsolate(_formatCurrency(_asDouble(standingNet['has']))) +
+            (isArabic ? ' · علينا ' : ' · owes ') +
+            ltrIsolate(_formatCurrency(_asDouble(standingNet['owes'])));
+    // The price the gold is valued at, and when it was saved: a weekend's
+    // position stands on Friday's price, and says so.
+    final price = standingNet?['price'];
+    final priceAt = DateTime.tryParse('${standingNet?['price_at'] ?? ''}');
+    final valuedAt = price is num
+        ? (isArabic ? 'الذهب بسعر عيار ${standingNet!['main_karat']}: ' : 'Gold at ${standingNet!['main_karat']}K: ') +
+            ltrIsolate(_formatCurrency(price.toDouble())) +
+            (priceAt == null ? '' : ' · ${ltrIsolate(DateFormat('dd/MM HH:mm').format(priceAt))}')
+        : null;
     final goldCard = DashboardGoldPriceCard(
       sell: liveSell,
       buy: liveBuy,
@@ -681,7 +678,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
               ),
               const Spacer(),
               Text(
-                isArabic ? 'لوحة تحكم المدير' : 'Admin Dashboard',
+                isArabic ? 'لوحة التحكم' : 'Dashboard',
                 style: theme.textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
@@ -700,7 +697,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
             if (isCompact) {
               return Column(
                 children: [
-                  _buildNetPositionCard(theme, isArabic, netPosition, isWide: constraints.maxWidth >= 500),
+                  _buildNetPositionCard(theme, isArabic, netPosition, valuedAt,
+                      breakdown: breakdown, waiting: netWaiting, isWide: constraints.maxWidth >= 500),
                   SizedBox(height: 12),
                   goldCard,
                 ],
@@ -715,7 +713,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                 children: [
                   Expanded(
                     flex: 3,
-                    child: _buildNetPositionCard(theme, isArabic, netPosition, isWide: netWidth >= 500),
+                    child: _buildNetPositionCard(theme, isArabic, netPosition, valuedAt,
+                        breakdown: breakdown, waiting: netWaiting, isWide: netWidth >= 500),
                   ),
                   SizedBox(width: 12),
                   Expanded(flex: 2, child: goldCard),
@@ -734,11 +733,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
   Widget _buildNetPositionCard(
     ThemeData theme,
     bool isArabic,
-    double netPosition, {
+    double? netPosition,
+    String? valuedAt, {
+    String? breakdown,
+    bool waiting = false,
     required bool isWide,
   }) {
     final isDark = theme.brightness == Brightness.dark;
-    final isPositive = netPosition >= 0;
+    final isPositive = (netPosition ?? 0) >= 0;
     final accentColor = isPositive ? _scheme.primary : _scheme.error;
     return Container(
       key: const Key('dashboard-net-position'),
@@ -779,7 +781,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                       isArabic ? 'صافي المركز المالي' : 'Net Position',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.hintColor,
-                        fontSize: 12,
+                        fontSize: _type.bodySmall?.fontSize,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -788,22 +790,35 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                       fit: BoxFit.scaleDown,
                       alignment: AlignmentDirectional.centerStart,
                       child: _currencyAwareText(
-                        _formatCurrency(netPosition),
+                        netPosition != null
+                            ? _formatCurrency(netPosition)
+                            : waiting
+                                ? '…'
+                                : (isArabic ? 'غير متاح' : 'Not available'),
                         style: theme.textTheme.headlineSmall?.copyWith(
                           fontWeight: FontWeight.bold,
                           color: accentColor,
-                          fontSize: 22,
+                          fontSize: _type.headlineMedium?.fontSize,
                         ),
                       ),
                     ),
                     SizedBox(height: 2),
                     Text(
-                      isArabic ? 'نقد + قيمة الذهب' : 'Cash + Gold Value',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.hintColor,
-                        fontSize: 11,
-                      ),
+                      isArabic ? 'ما نملك − ما علينا' : 'What we have − what we owe',
+                      style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor),
                     ),
+                    if (breakdown != null)
+                      Text(
+                        breakdown,
+                        key: const Key('dashboard-net-breakdown'),
+                        style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor),
+                      ),
+                    if (valuedAt != null)
+                      Text(
+                        valuedAt,
+                        key: const Key('dashboard-net-valued-at'),
+                        style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor),
+                      ),
                   ],
                 ),
               ),
@@ -827,9 +842,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                   theme: theme,
                   icon: Icons.auto_awesome,
                   label: isArabic ? 'وزن الذهب' : 'Gold Weight',
-                  value: _formatWeight(_asDouble(
-                    (_response?['kpis'] as Map?)?['gold_equivalent_main_karat'] ?? 0,
-                  )),
+                  value: switch ((_response?['kpis'] as Map?)?['gold_equivalent_main_karat']) {
+                    final num grams => _formatWeight(grams.toDouble()),
+                    _ => isArabic ? 'غير متاح' : 'Not available',
+                  },
                   color: _scheme.primary,
                 ),
               ],
@@ -887,7 +903,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
               label,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.hintColor,
-                fontSize: 11,
+                fontSize: _type.labelSmall?.fontSize,
                 fontWeight: FontWeight.w500,
               ),
             ),
@@ -897,7 +913,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
         _currencyAwareText(
           value,
           style: TextStyle(
-            fontSize: 14,
+            fontSize: _type.titleMedium?.fontSize,
             fontWeight: FontWeight.bold,
             color: color,
           ),
@@ -906,22 +922,24 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
     );
   }
 
-  // Karat Distribution Donut Card
-  Widget _buildKaratDistributionCard(Map<String, dynamic> goldByKarat) {
+  /// The karats held, a bar each; a tap opens «الذهب حسب مكانه» -- where
+  /// each karat is (15 Nov 2026: it led nowhere). *goldByKarat* null: the
+  /// safes could not be read.
+  Widget _buildKaratDistributionCard(Map<String, dynamic>? goldByKarat) {
     final theme = Theme.of(context);
     final isArabic = widget.isArabic;
+    final read = goldByKarat != null;
 
-    final k18 = _asDouble(goldByKarat['18k']);
-    final k21 = _asDouble(goldByKarat['21k']);
-    final k22 = _asDouble(goldByKarat['22k']);
-    final k24 = _asDouble(goldByKarat['24k']);
+    final k18 = _asDouble(goldByKarat?['18k']);
+    final k21 = _asDouble(goldByKarat?['21k']);
+    final k22 = _asDouble(goldByKarat?['22k']);
+    final k24 = _asDouble(goldByKarat?['24k']);
     final total = k18 + k21 + k22 + k24;
     final karats = [(24, k24), (22, k22), (21, k21), (18, k18)];
 
     return _buildKpiCardWrapper(
-      onTap: () {
-        // Navigate to inventory
-      },
+      onTap: () => Navigator.of(context)
+          .push(MaterialPageRoute(builder: (_) => GoldByPlaceReportScreen(api: widget.api))),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -933,16 +951,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                 isArabic ? 'توزيع العيارات' : 'Karat Mix',
                 style: theme.textTheme.bodySmall?.copyWith(
                   fontWeight: FontWeight.w600,
-                  fontSize: 12,
+                  fontSize: _type.bodySmall?.fontSize,
                 ),
               ),
             ],
           ),
           SizedBox(height: 12),
-          if (total == 0)
+          if (!read || total == 0)
             Center(
               child: Text(
-                isArabic ? 'لا يوجد ذهب' : 'No gold',
+                !read ? (isArabic ? 'غير متاح' : 'Not available') : (isArabic ? 'لا يوجد ذهب' : 'No gold'),
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.hintColor,
                 ),
@@ -993,7 +1011,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
       onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SafeBoxesScreen(api: widget.api))),
       child: DashboardShareBars(
         keyPrefix: 'liquidity',
-        labelWidth: 84,
+        labelWidth: 112,
         figureWidth: 130,
         lines: [
           line('safes', isArabic ? 'الصناديق' : 'Safes', safes, _tones.cash.fg),
@@ -1031,13 +1049,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
               children: [
                 Text(
                   label,
-                  style: TextStyle(fontSize: 9, color: theme.hintColor),
+                  style: TextStyle(fontSize: _type.labelSmall?.fontSize, color: theme.hintColor),
                   overflow: TextOverflow.ellipsis,
                 ),
                 _currencyAwareText(
                   value,
                   style: TextStyle(
-                    fontSize: 10,
+                    fontSize: _type.labelSmall?.fontSize,
                     fontWeight: FontWeight.bold,
                     color: color,
                     letterSpacing: -0.2,
@@ -1081,9 +1099,42 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
       _TimeRange.year => isArabic ? 'السنة' : 'Year',
     };
 
+    // The period before it, to the same point (15 Nov 2026): yesterday to this
+    // hour, last month to this day, last year to this date -- the server's.
+    final previous = (period['previous'] as Map<String, dynamic>?) ?? const {};
+    final before = switch (_timeRange) {
+      _TimeRange.today => isArabic ? 'أمس' : 'yesterday',
+      _TimeRange.month => isArabic ? 'الشهر الماضي' : 'last month',
+      _TimeRange.year => isArabic ? 'السنة الماضية' : 'last year',
+    };
+    String? against(String key, double amount) {
+      final was = previous[key];
+      if (was is! Map) return null;
+      final then = _asDouble(was['total_value']);
+      if (then.abs() < 0.005) return amount.abs() < 0.005 ? null : (isArabic ? 'لا شيء $before' : 'none $before');
+      final change = (amount - then) / then.abs() * 100;
+      final arrow = change >= 0 ? '▲' : '▼';
+      final pct = NumberFormat('0', 'en').format(change.abs());
+      return '${ltrIsolate('$arrow $pct%')} ${isArabic ? 'عن $before' : 'vs $before'}';
+    }
+    final unread = period.isEmpty &&
+        ((_response?['unavailable'] as List?) ?? const []).contains('summary_$_summaryPeriod');
+
     // Its weight beside its amount, set apart, in columns (the owner, 30-31 Oct 2026).
-    DashboardAmountRow row(String name, double amount, Color color, [double grams = 0]) => DashboardAmountRow(
-          label: Text(name, style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+    DashboardAmountRow row(String name, double amount, Color color, [double grams = 0, String? key]) {
+      final change = key == null ? null : against(key, amount);
+      return DashboardAmountRow(
+          label: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(name, style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+              if (change != null)
+                Text(change,
+                    key: Key('dashboard-against-$key'),
+                    style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+            ],
+          ),
           amount: _currencyAwareText(
             _formatCurrency(amount),
             style: theme.textTheme.titleSmall?.copyWith(
@@ -1094,6 +1145,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
           ),
           weight: grams.abs() >= 0.0005 ? _formatWeight(grams) : null,
         );
+    }
 
     return Container(
       key: const Key('dashboard-period-movement'),
@@ -1108,10 +1160,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
         children: [
           Text(isArabic ? 'حركة $label' : '$label activity',
               style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800)),
-          if (sales == 0 && purchases == 0 && scrap == 0 && settlements == 0 && expenses == 0)
+          if (unread || (sales == 0 && purchases == 0 && scrap == 0 && settlements == 0 && expenses == 0))
             Padding(
               padding: EdgeInsets.only(top: 8),
-              child: Text(isArabic ? 'لا توجد عمليات بعد' : 'No activity yet',
+              child: Text(
+                  unread
+                      ? (isArabic ? 'غير متاح: تعذّرت قراءة الفترة' : 'Not available: the period could not be read')
+                      : (isArabic ? 'لا توجد عمليات بعد' : 'No activity yet'),
                   style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
             )
           else
@@ -1120,15 +1175,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
               child: DashboardAmountTable(
                 rowPadding: const EdgeInsets.symmetric(vertical: AppSpace.xs),
                 rows: [
-                  row(isArabic ? 'المبيعات' : 'Sales', sales, tones.ready.fg, weight('sales')),
+                  row(isArabic ? 'المبيعات' : 'Sales', sales, tones.ready.fg, weight('sales'), 'sales'),
                   row(isArabic ? 'شراء جديد (موردون)' : 'New gold (suppliers)', purchases, tones.cash.fg,
-                      weight('purchases')),
+                      weight('purchases'), 'purchases'),
                   row(isArabic ? 'شراء كسر (عملاء)' : 'Scrap (customers)', scrap, tones.cash.fg,
-                      weight('scrap_customers')),
+                      weight('scrap_customers'), 'scrap_customers'),
                   row(isArabic ? 'تسكيرات (مكاتب)' : 'Settlements (offices)', settlements, tones.cash.fg,
-                      weight('office_settlements')),
+                      weight('office_settlements'), 'office_settlements'),
                   row(isArabic ? 'المصروفات التشغيلية' : 'Operating expenses', expenses, tones.warning.fg,
-                      weight('expenses')),
+                      weight('expenses'), 'expenses'),
                 ],
               ),
             ),
@@ -1244,7 +1299,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                       Text(
                         isArabic ? 'ربح الجرام الذهبي' : 'Gold Gram Profit',
                         style: TextStyle(
-                          fontSize: 13.5,
+                          fontSize: _type.bodyMedium?.fontSize,
                           fontWeight: FontWeight.w800,
                           color: _scheme.primary,
                         ),
@@ -1262,7 +1317,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                         child: Text(
                           periodLabel,
                           style: TextStyle(
-                            fontSize: 9.5,
+                            fontSize: _type.labelSmall?.fontSize,
                             fontWeight: FontWeight.w700,
                             color: _scheme.primary,
                           ),
@@ -1276,7 +1331,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                         ? 'غير محسوب — $reasonText'
                         : 'Unavailable — $reasonText',
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: _type.labelSmall?.fontSize,
                       color: _tones.warning.fg,
                     ),
                   ),
@@ -1286,7 +1341,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                         ? '$wSold جم مباعة  •  $salesStr مبيعات'
                         : '$wSold g sold  •  $salesStr sales',
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: _type.labelSmall?.fontSize,
                       color: theme.hintColor,
                     ),
                   ),
@@ -1334,7 +1389,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                       Text(
                         isArabic ? 'ربح الجرام الذهبي' : 'Gold Gram Profit',
                         style: TextStyle(
-                          fontSize: 13.5,
+                          fontSize: _type.bodyMedium?.fontSize,
                           fontWeight: FontWeight.w800,
                           color: _scheme.primary,
                         ),
@@ -1352,7 +1407,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                         child: Text(
                           periodLabel,
                           style: TextStyle(
-                            fontSize: 9.5,
+                            fontSize: _type.labelSmall?.fontSize,
                             fontWeight: FontWeight.w700,
                             color: _scheme.primary,
                           ),
@@ -1375,7 +1430,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                               ? 'في انتظار أول عملية بيع لحساب الربح'
                               : 'Awaiting first sale to calculate profit',
                           style: TextStyle(
-                            fontSize: 11.5,
+                            fontSize: _type.labelSmall?.fontSize,
                             color: theme.hintColor,
                           ),
                         ),
@@ -1391,14 +1446,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                 Text(
                   isArabic ? 'الربح' : 'Profit',
                   style: TextStyle(
-                    fontSize: 10,
+                    fontSize: _type.labelSmall?.fontSize,
                     color: theme.hintColor,
                   ),
                 ),
                 _currencyAwareText(
                   '0 $_currencySymbol',
                   style: TextStyle(
-                    fontSize: 15,
+                    fontSize: _type.titleMedium?.fontSize,
                     fontWeight: FontWeight.w800,
                     color: theme.hintColor.withValues(alpha: 0.6),
                   ),
@@ -1458,7 +1513,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                 child: Text(
                   isArabic ? 'ربح الجرام الذهبي' : 'Gold Gram Profit',
                   style: TextStyle(
-                    fontSize: 13,
+                    fontSize: _type.bodyMedium?.fontSize,
                     fontWeight: FontWeight.w700,
                     color: _scheme.primary,
                   ),
@@ -1475,7 +1530,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                 child: Text(
                   periodLabel,
                   style: TextStyle(
-                    fontSize: 10,
+                    fontSize: _type.labelSmall?.fontSize,
                     fontWeight: FontWeight.w600,
                     color: _scheme.primary,
                   ),
@@ -1503,7 +1558,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                         style: TextStyle(
                           fontWeight: FontWeight.w900,
                           color: profitColor,
-                          fontSize: 22,
+                          fontSize: _type.headlineMedium?.fontSize,
                           letterSpacing: -0.5,
                         ),
                       ),
@@ -1517,7 +1572,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                           style: TextStyle(
                             color: profitColor.withValues(alpha: 0.7),
                             fontWeight: FontWeight.w600,
-                            fontSize: 11,
+                            fontSize: _type.labelSmall?.fontSize,
                           ),
                         ),
                       ),
@@ -1536,7 +1591,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                 child: _currencyAwareText(
                   '≈ ${_formatCurrency(netProfit)}',
                   style: TextStyle(
-                    fontSize: 10,
+                    fontSize: _type.labelSmall?.fontSize,
                     fontWeight: FontWeight.bold,
                     color: profitColor,
                   ),
@@ -1553,7 +1608,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                 child: Text(
                   '${netMarginPct.toStringAsFixed(1)}%',
                   style: TextStyle(
-                    fontSize: 10,
+                    fontSize: _type.labelSmall?.fontSize,
                     fontWeight: FontWeight.bold,
                     color: profitColor,
                   ),
@@ -1619,7 +1674,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                 ? 'منه ما لم يُسكَّر: ربح مبيعات تنتظر ${_formatWeight(waitingSales)}، وأثر السعر ${_formatWeight(priceMove)}'
                 : 'Of which still waiting: its sales ${_formatWeight(waitingSales)}, the price ${_formatWeight(priceMove)}',
             key: const ValueKey('gram-profit-price-effect'),
-            style: TextStyle(fontSize: 11, color: theme.hintColor),
+            style: TextStyle(fontSize: _type.labelSmall?.fontSize, color: theme.hintColor),
           ),
         ],
       ),
@@ -1656,7 +1711,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                 isArabic ? 'هامش الربح اليوم' : 'Today Profit',
                 style: theme.textTheme.bodySmall?.copyWith(
                   fontWeight: FontWeight.w600,
-                  fontSize: 12,
+                  fontSize: _type.bodySmall?.fontSize,
                 ),
               ),
             ],
@@ -1667,7 +1722,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
             style: theme.textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.bold,
               color: isPositive ? _tones.ready.fg : _scheme.error,
-              fontSize: 20,
+              fontSize: _type.headlineMedium?.fontSize,
             ),
           ),
           if (marginValue != null)
@@ -1683,7 +1738,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
               child: Text(
                 '${marginValue.toStringAsFixed(1)}% ${isArabic ? "هامش" : "margin"}',
                 style: TextStyle(
-                  fontSize: 11,
+                  fontSize: _type.labelSmall?.fontSize,
                   fontWeight: FontWeight.bold,
                   color: isPositive ? _tones.ready.fg : _scheme.error,
                 ),
@@ -1719,12 +1774,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
 
     if (safeBoxes.isEmpty) return const SizedBox.shrink();
 
-    final anyExpanded = _expandedVaultSafeBoxId != null;
-    // Give cards enough vertical room to avoid RenderFlex overflow.
-    final listHeight = anyExpanded ? 260.0 : 168.0;
     final sorted = _sortedVaults(safeBoxes);
+    bool holds(dynamic sb) {
+      final m = (sb as Map?) ?? const {};
+      return _asDouble(m['balance_cash']).abs() >= 0.005 || _asDouble(m['total_weight_main_karat']).abs() >= 0.0005;
+    }
+    final empty = sorted.where((sb) => !holds(sb)).length;
+    final shown = _showEmptyVaults ? sorted : sorted.where(holds).toList();
 
-    Widget buildCard(int index, Map<String, dynamic> sb, {bool reorderMode = false}) {
+    Widget buildCard(int index, Map<String, dynamic> sb) {
       final id = sb['id'];
       final sbId = id is int ? id : int.tryParse(id?.toString() ?? '');
       final heroTag = sbId != null ? 'vault_safe_box_$sbId' : 'vault_safe_box_$index';
@@ -1736,7 +1794,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
         heroTag: heroTag,
         isExpanded: isExpanded,
         isPressed: isPressed,
-        reorderMode: reorderMode,
         onTap: () {
           if (sbId == null) return;
           setState(() {
@@ -1744,9 +1801,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
           });
         },
         onOpenDetails: () {
-          if (sbId != null) {
-            setState(() => _recentVaultIds.add(sbId));
-          }
           Navigator.of(context).push(
             MaterialPageRoute(
               builder: (_) => SafeBoxHeroDetailsScreen(
@@ -1791,22 +1845,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                 ),
               ),
               const Spacer(),
-              // Reorder toggle
-              Tooltip(
-                message: _isReorderingVaults
-                    ? (isArabic ? 'تم الترتيب' : 'Done')
-                    : (isArabic ? 'إعادة ترتيب' : 'Reorder'),
-                child: IconButton(
-                  icon: Icon(
-                    _isReorderingVaults ? Icons.check_circle_outline : Icons.swap_horiz,
-                    size: 20,
-                    color: _isReorderingVaults
-                        ? theme.colorScheme.primary
-                        : theme.hintColor,
-                  ),
-                  onPressed: () => setState(() => _isReorderingVaults = !_isReorderingVaults),
+              if (empty > 0)
+                TextButton(
+                  key: const Key('dashboard-vaults-empty-toggle'),
+                  onPressed: () => setState(() => _showEmptyVaults = !_showEmptyVaults),
+                  child: Text(_showEmptyVaults
+                      ? (isArabic ? 'إخفاء الفارغة' : 'Hide empty')
+                      : (isArabic ? 'إظهار الفارغة ($empty)' : 'Show empty ($empty)')),
                 ),
-              ),
               TextButton(
                 onPressed: () {
                   Navigator.of(context).push(
@@ -1823,75 +1869,34 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
           ),
         ),
         SizedBox(height: 12),
-        SizedBox(
-          height: listHeight,
-          child: Listener(
-            onPointerSignal: (event) {
-              if (event is PointerScrollEvent) {
-                final offset = (_vaultScrollController.offset +
-                    event.scrollDelta.dy * 1.5)
-                    .clamp(0.0,
-                        _vaultScrollController.position.maxScrollExtent);
-                _vaultScrollController.jumpTo(offset);
-              }
-            },
-            child: _isReorderingVaults
-                ? ReorderableListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    scrollController: _vaultScrollController,
-                    padding: EdgeInsets.symmetric(horizontal: 16),
-                    itemCount: sorted.length,
-                    onReorder: (oldIndex, newIndex) {
-                      setState(() {
-                        if (newIndex > oldIndex) newIndex--;
-                        final item = sorted.removeAt(oldIndex);
-                        sorted.insert(newIndex, item);
-                        // Rebuild _vaultOrder from reordered list
-                        _vaultOrder = sorted
-                            .map((sb) {
-                              final id = sb['id'];
-                              return id is int
-                                  ? id
-                                  : int.tryParse(id?.toString() ?? '');
-                            })
-                            .whereType<int>()
-                            .toList();
-                      });
-                      _saveVaultOrder();
-                    },
-                    itemBuilder: (context, index) {
-                      final sb = sorted[index];
-                      final id = sb['id'];
-                      final sbId = id is int ? id : int.tryParse(id?.toString() ?? '');
-                      return KeyedSubtree(
-                        key: ValueKey(sbId ?? index),
-                        child: buildCard(index, sb, reorderMode: true),
-                      );
-                    },
-                  )
-                : AnimationLimiter(
-                    child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      controller: _vaultScrollController,
-                      padding: EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: sorted.length,
-                      itemBuilder: (context, index) {
-                        final sb = sorted[index];
-                        return AnimationConfiguration.staggeredList(
-                          position: index,
-                          duration: const Duration(milliseconds: 420),
-                          child: SlideAnimation(
-                            verticalOffset: 18.0,
-                            child: FadeInAnimation(
-                              child: buildCard(index, sb),
-                            ),
-                          ),
-                        );
-                      },
+        // Within the screen's width, a line after a line (the owner, 15 Nov
+        // 2026: «يفضل ان تكون ذي اطار الشاشه وليس تمرير افقي»).
+        Padding(
+            key: const Key('dashboard-vaults-grid'),
+            padding: const EdgeInsetsDirectional.only(start: 4, end: 16),
+            child: AnimationLimiter(
+              child: Wrap(
+                runSpacing: 12,
+                children: [
+                  for (final (index, sb) in shown.indexed)
+                    AnimationConfiguration.staggeredGrid(
+                      position: index,
+                      columnCount: 4,
+                      duration: const Duration(milliseconds: 420),
+                      child: FadeInAnimation(
+                        child: SizedBox(
+                          // the card's own height, as the strip gave it: a Spacer needs one
+                          height: _expandedVaultSafeBoxId != null && sb['id'] == _expandedVaultSafeBoxId
+                              ? 260
+                              : 168,
+                          child: buildCard(index, sb),
+                        ),
+                      ),
                     ),
-                  ),
+                ],
+              ),
+            ),
           ),
-        ),
       ],
     );
   }
@@ -1914,7 +1919,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
     required VoidCallback onTap,
     required VoidCallback onOpenDetails,
     required ValueChanged<bool> onPressChanged,
-    bool reorderMode = false,
   }) {
     final theme = Theme.of(context);
     final isArabic = widget.isArabic;
@@ -2001,7 +2005,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
         child: _currencyAwareText(
           '$label: $value',
           style: theme.textTheme.bodySmall?.copyWith(
-            fontSize: 11,
+            fontSize: _type.labelSmall?.fontSize,
             fontWeight: FontWeight.w600,
             color: _scheme.onSurface,
           ),
@@ -2160,7 +2164,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                           Text(
                             subtitle,
                             style: theme.textTheme.bodySmall?.copyWith(
-                              fontSize: 11,
+                              fontSize: _type.labelSmall?.fontSize,
                               color: color,
                               fontWeight: FontWeight.w600,
                             ),
@@ -2176,7 +2180,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                                 name,
                                 style: theme.textTheme.bodySmall?.copyWith(
                                   fontWeight: FontWeight.w700,
-                                  fontSize: 12.5,
+                                  fontSize: _type.bodySmall?.fontSize,
                                 ),
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
@@ -2189,7 +2193,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                             Text(
                               primaryCaption,
                               style: theme.textTheme.bodySmall?.copyWith(
-                                fontSize: 10.5,
+                                fontSize: _type.labelSmall?.fontSize,
                                 color: theme.hintColor,
                                 fontWeight: FontWeight.w600,
                               ),
@@ -2205,7 +2209,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with LiveGo
                             style: theme.textTheme.bodyMedium?.copyWith(
                               fontWeight: FontWeight.bold,
                               color: color,
-                              fontSize: 14,
+                              fontSize: _type.titleMedium?.fontSize,
                             ),
                           ),
                           AnimatedCrossFade(

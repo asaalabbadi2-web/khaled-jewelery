@@ -19,6 +19,10 @@ from threading import Thread
 import schedule
 
 
+# The heartbeat a whole run writes: the dashboard reads when the check last ran.
+NIGHTLY = 'books_invariants'
+
+
 class BooksInvariantsScheduler:
 
     RUN_AT = "03:00"  # Server local time. After backup (02:00) and safe-box reconciliation (02:30).
@@ -40,6 +44,9 @@ class BooksInvariantsScheduler:
             except Exception:
                 db.session.rollback()
                 raise
+            # When it last ran whole -- the dashboard's health says it (15 Nov 2026).
+            from services.scheduler_heartbeat import beat
+            beat(NIGHTLY)
         return result
 
     def job(self) -> None:

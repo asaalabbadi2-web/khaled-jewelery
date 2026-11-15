@@ -257,7 +257,7 @@ class ReportCatalog {
           ReportDescriptor(
             id: 'admin_dashboard',
             icon: Icons.dashboard,
-            titleAr: 'لوحة تحكم المدير',
+            titleAr: 'لوحة التحكم',
             titleEn: 'Admin Dashboard',
             descriptionAr: 'مؤشرات اليوم وتنبيهاته، للمدير',
             descriptionEn: 'Today\'s figures and alerts, for the manager',

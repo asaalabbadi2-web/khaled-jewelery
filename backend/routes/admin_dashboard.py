@@ -13,7 +13,7 @@ from sqlalchemy import or_
 from auth_decorators import require_permission
 from core.database import _db_has_column
 from models import Employee, InvoiceItem, SafeBox, db
-from pricing.karat_service import get_main_karat, line_karat
+from pricing.karat_service import get_main_karat
 from services.live_balances import safe_box_balances_bulk
 
 admin_dashboard_bp = Blueprint('admin_dashboard', __name__)
@@ -37,11 +37,20 @@ def get_admin_dashboard_standing():
       wrong_now  the open findings and a safe below zero (DASH-7)
       vat        this quarter, the last one, what is owed (DASH-8)
       deficits   the month's losing invoices by employee (DASH-9)
+      health     the scheduler alive, the nightly check's last run, the
+                 server's newest backup (15 Nov 2026)
+      net_position  what the shop has less what it owes, each side by the
+                 readers above and the safes (services/dashboard_net) -- the
+                 head's figure (15 Nov 2026)
+      upcoming   what the shop will pay soon: the period expenses, the
+                 salaries, the suppliers, the VAT (15 Nov 2026) -- after the
+                 positions and the VAT, whose figures it says
     """
     from services.dashboard_alerts import alerts
     from services.dashboard_approvals import approvals
     from services.dashboard_clearing import clearing_pending
     from services.dashboard_deficits import deficits
+    from services.dashboard_health import health
     from services.dashboard_positions import positions
     from services.dashboard_vat import vat_due
 
@@ -61,14 +70,23 @@ def get_admin_dashboard_standing():
         'wrong_now': lambda: alerts(safe_rows(), today=now.date()),   # + documents near their end (EMP-3)
         'vat': lambda: vat_due(now.date()),
         'deficits': lambda: deficits(datetime(now.year, now.month, 1), now + timedelta(seconds=1)),
+        'health': lambda: health(datetime.utcnow()),
     }
+    from services.dashboard_net import net_position
+    from services.dashboard_upcoming import upcoming
+    sections['upcoming'] = lambda: upcoming(
+        now.date(), suppliers=(out.get('positions') or {}).get('suppliers'),
+        vat_owed=(out.get('vat') or {}).get('owed') if out.get('vat') is not None else None)
+    # last: it says the others' figures, and is not read when one of them is not
+    sections['net_position'] = lambda: net_position(positions=out.get('positions'), clearing=out.get('clearing'),
+                                                    upcoming=out.get('upcoming'))
     out = {}
     for name, read in sections.items():
         try:
             out[name] = read()
-        except Exception as err:
+        except Exception:
             db.session.rollback()
-            print(f'[dashboard standing] {name} error: {err}')
+            current_app.logger.exception('dashboard standing: %s could not be read', name)
             out[name] = None
     return jsonify(out), 200
 
@@ -76,92 +94,43 @@ def get_admin_dashboard_standing():
 @admin_dashboard_bp.route('/dashboard/admin', methods=['GET'])
 @require_permission('dashboard.admin')   # the manager's alone (DASH-3, the owner 30 Oct 2026)
 def get_admin_dashboard():
-    """Admin dashboard aggregates for KPIs and charts.
+    """The manager's dashboard: the gold and the cash where they are, and the
+    period's activity beside the one before it (the owner, 15 Nov 2026:
+    «اطلع على لوحة تحكم المدير وحللها ... ابدأ بالبند ١ وطبق جميع ما اقترحت»).
 
-    Response shape (stable contract for Flutter):
-      - kpis: cash_balance, gold_by_karat, gold_pure_24k, sales_today
-      - series: last_7_days_sales (net_value/net_weight per day)
-      - where the business stands is its own request, /dashboard/admin/standing
-        (DASH-10). The old alerts -- the critical
-        bar, the last shift's differences, the sensitive operations -- went
-        from the screen on 2 Jun 2026 (448e4758) and from here on 30 Oct (the
-        owner: «حذف بقايا الخادم القديمة»).
+      global_snapshot  the price the gold is valued at, and when -- the net
+                       position is the standing's (services/dashboard_net):
+                       what is owed is read there
+      kpis             the gold by karat and in the main karat; the cash
+      liquidity        the safes and the banks (the standing adds what is on its way)
+      safe_boxes       every active safe, its balance
+      sales_purchases_summary  today, the month and the year -- each with
+                       `previous`: the period before it to the same point
+                       (yesterday to this hour, last month to this day, last
+                       year to this date), by the same readers
+      series.daily     the last seven days' sales and scrap bought, by them too
+      unavailable      what could not be read: the screen says «غير متاح»,
+                       never a zero. Each failure is logged.
+
+    Where the business stands is its own request, /dashboard/admin/standing
+    (DASH-10). What was computed and never shown -- today's «profit» (sales
+    less purchases), yesterday's, the margins, the average cost, the price's
+    change, the inventory value -- is gone with its sums.
     """
-    from models import SafeBox, SafeBoxTransaction, Invoice, GoldPrice
+    from models import GoldPrice, Invoice, SafeBoxTransaction
 
     now = datetime.now()
     today_start = datetime.combine(now.date(), datetime.min.time())
-    tomorrow_start = today_start + timedelta(days=1)
-
-    # --- Safe boxes summary (Account-derived balances; aligned with SafeBox details UI) ---
     main_karat = get_main_karat()
-    cash_balance = 0.0
-    gold_18k = 0.0
-    gold_21k = 0.0
-    gold_22k = 0.0
-    gold_24k = 0.0
+    unavailable = []
 
-    # --- Sales today (posted only) ---
-    sale_types = {
-        'بيع': 1,
-        'sell': 1,
-        'sale': 1,
-        'مرتجع بيع': -1,
-    }
-    today_invoices = (
-        Invoice.query
-        .filter(Invoice.invoice_type.in_(list(sale_types.keys())))
-        .filter(Invoice.is_posted.is_(True))
-        .filter(Invoice.date >= today_start)
-        .filter(Invoice.date < tomorrow_start)
-        .all()
-    )
+    def failed(section):
+        current_app.logger.exception('admin dashboard: %s could not be read', section)
+        db.session.rollback()
+        unavailable.append(section)
 
-    sales_today_value = 0.0
-    sales_today_weight = 0.0
-    for inv in today_invoices:
-        sign = sale_types.get(inv.invoice_type, 1)
-        sales_today_value += float(inv.total or 0.0) * sign
-        sales_today_weight += float(inv.total_weight or 0.0) * sign
-
-    # --- Last 7 days sales series (posted only) ---
-    start_7 = today_start - timedelta(days=6)
-    series_invoices = (
-        Invoice.query
-        .filter(Invoice.invoice_type.in_(list(sale_types.keys())))
-        .filter(Invoice.is_posted.is_(True))
-        .filter(Invoice.date >= start_7)
-        .filter(Invoice.date < tomorrow_start)
-        .order_by(Invoice.date.asc())
-        .all()
-    )
-
-    by_day = {}
-    for i in range(7):
-        day = (start_7 + timedelta(days=i)).date()
-        key = day.isoformat()
-        by_day[key] = {
-            'period': key,
-            'net_value': 0.0,
-            'net_weight': 0.0,
-            'documents': 0,
-        }
-
-    for inv in series_invoices:
-        sign = sale_types.get(inv.invoice_type, 1)
-        period_key = (inv.date.date() if inv.date else now.date()).isoformat()
-        bucket = by_day.get(period_key)
-        if bucket is None:
-            continue
-        bucket['documents'] += 1
-        bucket['net_value'] += float(inv.total or 0.0) * sign
-        bucket['net_weight'] += float(inv.total_weight or 0.0) * sign
-
-    last_7_days_sales = list(by_day.values())
-
-    # --- Valuation (presentation-only): pure 24k grams * raw spot per gram (24k) ---
-    spot_price_24k_per_gram = None
-    spot_price_timestamp = None
+    # --- The price the gold is valued at, and when it was saved ---
+    spot_price_24k_per_gram = spot_price_timestamp = None
     try:
         latest = GoldPrice.query.order_by(GoldPrice.date.desc()).first()
         if latest and latest.price:
@@ -169,119 +138,9 @@ def get_admin_dashboard():
             spot_price_24k_per_gram = row_gram_price(latest, 24)   # the office's (OFFICE-PRICE-1)
             spot_price_timestamp = latest.date.isoformat() if latest.date else None
     except Exception:
-        spot_price_24k_per_gram = None
-        spot_price_timestamp = None
+        failed('valuation')
 
-    # --- Purchases today (posted only) ---
-    # Include both supplier purchases and scrap purchases from customers,
-    # and include return variants used in production.
-    purchase_types = {
-        'شراء': 1,
-        'شراء من عميل': 1,
-        'مرتجع شراء': -1,
-        'مرتجع شراء (مورد)': -1,
-    }
-    today_purchases = (
-        Invoice.query
-        .filter(Invoice.invoice_type.in_(list(purchase_types.keys())))
-        .filter(Invoice.is_posted.is_(True))
-        .filter(Invoice.date >= today_start)
-        .filter(Invoice.date < tomorrow_start)
-        .all()
-    )
-
-    purchases_today_value = 0.0
-    purchases_today_weight = 0.0
-    for inv in today_purchases:
-        sign = purchase_types.get(inv.invoice_type, 1)
-        purchases_today_value += float(inv.total or 0.0) * sign
-        purchases_today_weight += float(inv.total_weight or 0.0) * sign
-
-    # --- Last 7 days purchases series (posted only) ---
-    purchases_series = (
-        Invoice.query
-        .filter(Invoice.invoice_type.in_(list(purchase_types.keys())))
-        .filter(Invoice.is_posted.is_(True))
-        .filter(Invoice.date >= start_7)
-        .filter(Invoice.date < tomorrow_start)
-        .order_by(Invoice.date.asc())
-        .all()
-    )
-
-    purchases_by_day = {}
-    for i in range(7):
-        day = (start_7 + timedelta(days=i)).date()
-        key = day.isoformat()
-        purchases_by_day[key] = {
-            'period': key,
-            'net_value': 0.0,
-            'net_weight': 0.0,
-            'documents': 0,
-        }
-
-    for inv in purchases_series:
-        sign = purchase_types.get(inv.invoice_type, 1)
-        period_key = (inv.date.date() if inv.date else now.date()).isoformat()
-        bucket = purchases_by_day.get(period_key)
-        if bucket is None:
-            continue
-        bucket['documents'] += 1
-        bucket['net_value'] += float(inv.total or 0.0) * sign
-        bucket['net_weight'] += float(inv.total_weight or 0.0) * sign
-
-    last_7_days_purchases = list(purchases_by_day.values())
-
-    # --- Gold equivalent in main karat (from account-derived balances) ---
-    gold_equivalent_main_karat = 0.0
-    try:
-        mk = float(main_karat)
-        gold_equivalent_main_karat = (
-            (gold_18k * (18.0 / mk))
-            + (gold_21k * (21.0 / mk))
-            + (gold_22k * (22.0 / mk))
-            + (gold_24k * (24.0 / mk))
-        )
-    except Exception:
-        gold_equivalent_main_karat = 0.0
-
-    # --- Price Intelligence: Average cost vs market price ---
-    from models import Item
-    avg_cost_per_gram = None
-    try:
-        # Calculate weighted average cost from inventory items
-        items_with_cost = (
-            Item.query
-            .filter(Item.is_active.is_(True))
-            .filter(Item.weight > 0)
-            .all()
-        )
-        total_cost = 0.0
-        total_weight_for_cost = 0.0
-        for item in items_with_cost:
-            item_weight = float(item.weight or 0.0)
-            item_karat = line_karat(item.karat, f'صنف {item.id}')
-            # Convert to 24k equivalent for fair comparison
-            weight_24k = item_weight * (item_karat / 24.0)
-            # Use purchase price or calculate from gold price
-            item_cost = float(item.purchase_price or 0.0)
-            if item_cost > 0 and item_weight > 0:
-                total_cost += item_cost
-                total_weight_for_cost += weight_24k
-        
-        if total_weight_for_cost > 0:
-            avg_cost_per_gram = total_cost / total_weight_for_cost
-    except Exception:
-        avg_cost_per_gram = None
-
-    # Calculate profit margin
-    profit_margin = None
-    if avg_cost_per_gram and spot_price_24k_per_gram and avg_cost_per_gram > 0:
-        profit_margin = ((spot_price_24k_per_gram - avg_cost_per_gram) / avg_cost_per_gram) * 100
-
-    # --- Safe boxes summary ---
-    # مصدر الرصيد الرسمي الوحيد: safe_box_balances_bulk (دفتر الأستاذ مباشرة)
-    # -- نفس الدالة التي تستخدمها /safe-boxes/balances و/safe-boxes/<id>/balance،
-    # فلا يبقى أي مكان يحسب رصيد خزينة بمنطق مستقل خاص به.
+    # --- The safes: the same reader as /safe-boxes/balances ---
     safe_boxes_summary = []
     safes_read = True
     try:
@@ -298,198 +157,54 @@ def get_admin_dashboard():
                 'name': sb.name,
                 'safe_type': sb.safe_type,
                 'balance_cash': bal['cash'],
-                # Keep legacy single-field gold balance used by older UI.
                 'balance_gold_21k': weight.get('21k', 0.0),
-                # New: detailed weights per karat (ledger-based) for richer UI.
                 'weight_balance': {k: v for k, v in weight.items() if k != 'total'},
                 'total_weight_main_karat': weight.get('total', 0.0),
                 'main_karat': int(main_karat),
             })
     except Exception:
-        current_app.logger.exception('admin dashboard: the safes could not be read')
+        failed('safes')
         safe_boxes_summary = []
         safes_read = False
 
-    # Roll up account-derived totals for KPIs and liquidity.
-    try:
-        cash_balance = 0.0
-        gold_18k = gold_21k = gold_22k = gold_24k = 0.0
+    # --- What the safes hold, summed: nothing when they were not read ---
+    cash_balance = cash_in_hand = cash_in_banks = None
+    gold = None
+    if safes_read:
+        cash_balance = cash_in_hand = cash_in_banks = 0.0
+        gold = dict.fromkeys(('18k', '21k', '22k', '24k'), 0.0)
         for sb in safe_boxes_summary:
             st = (sb.get('safe_type') or '').strip()
             if st in ('cash', 'bank', 'check'):
                 cash_balance += float(sb.get('balance_cash') or 0.0)
+            if st == 'cash':
+                cash_in_hand += float(sb.get('balance_cash') or 0.0)
+            elif st == 'bank':
+                cash_in_banks += float(sb.get('balance_cash') or 0.0)
             if st == 'gold':
                 wb = sb.get('weight_balance') if isinstance(sb.get('weight_balance'), dict) else {}
-                gold_18k += float(wb.get('18k') or 0.0)
-                gold_21k += float(wb.get('21k') or 0.0)
-                gold_22k += float(wb.get('22k') or 0.0)
-                gold_24k += float(wb.get('24k') or 0.0)
-    except Exception:
-        cash_balance = 0.0
-        gold_18k = gold_21k = gold_22k = gold_24k = 0.0
-
-    gold_pure_24k = (
-        (gold_18k * (18.0 / 24.0))
-        + (gold_21k * (21.0 / 24.0))
-        + (gold_22k * (22.0 / 24.0))
-        + gold_24k
-    )
-
-    # Valued once the pure grams are known (NAMES-1: it was valued before
-    # them, failed on the name, and was always empty).
-    inventory_value = None
-    if spot_price_24k_per_gram is not None:
-        inventory_value = float(gold_pure_24k) * float(spot_price_24k_per_gram)
-
-    try:
-        mk = float(main_karat)
-        gold_equivalent_main_karat = (
-            (gold_18k * (18.0 / mk))
-            + (gold_21k * (21.0 / mk))
-            + (gold_22k * (22.0 / mk))
-            + (gold_24k * (24.0 / mk))
-        )
-    except Exception:
-        gold_equivalent_main_karat = 0.0
-
-    # --- Yesterday comparison ---
-    yesterday_start = today_start - timedelta(days=1)
-    yesterday_sales_value = 0.0
-    yesterday_purchases_value = 0.0
-    yesterday_sales_weight = 0.0
-    yesterday_purchases_weight = 0.0
-    try:
-        yesterday_sales = (
-            Invoice.query
-            .filter(Invoice.invoice_type.in_(list(sale_types.keys())))
-            .filter(Invoice.is_posted.is_(True))
-            .filter(Invoice.date >= yesterday_start)
-            .filter(Invoice.date < today_start)
-            .all()
-        )
-        for inv in yesterday_sales:
-            sign = sale_types.get(inv.invoice_type, 1)
-            yesterday_sales_value += float(inv.total or 0.0) * sign
-            yesterday_sales_weight += float(inv.total_weight or 0.0) * sign
-        
-        yesterday_purchases = (
-            Invoice.query
-            .filter(Invoice.invoice_type.in_(list(purchase_types.keys())))
-            .filter(Invoice.is_posted.is_(True))
-            .filter(Invoice.date >= yesterday_start)
-            .filter(Invoice.date < today_start)
-            .all()
-        )
-        for inv in yesterday_purchases:
-            sign = purchase_types.get(inv.invoice_type, 1)
-            yesterday_purchases_value += float(inv.total or 0.0) * sign
-            yesterday_purchases_weight += float(inv.total_weight or 0.0) * sign
-    except Exception:
-        yesterday_sales_value = 0.0
-        yesterday_purchases_value = 0.0
-        yesterday_sales_weight = 0.0
-        yesterday_purchases_weight = 0.0
-
-    # Calculate change percentages
-    sales_change_pct = None
-    if yesterday_sales_value > 0:
-        sales_change_pct = ((sales_today_value - yesterday_sales_value) / yesterday_sales_value) * 100
-    
-    purchases_change_pct = None
-    if yesterday_purchases_value > 0:
-        purchases_change_pct = ((purchases_today_value - yesterday_purchases_value) / yesterday_purchases_value) * 100
-
-    # Weight-based change percentages (preferred for this POS)
-    sales_change_pct_weight = None
-    if abs(yesterday_sales_weight) > 0:
-        sales_change_pct_weight = ((sales_today_weight - yesterday_sales_weight) / yesterday_sales_weight) * 100
-
-    purchases_change_pct_weight = None
-    if abs(yesterday_purchases_weight) > 0:
-        purchases_change_pct_weight = ((purchases_today_weight - yesterday_purchases_weight) / yesterday_purchases_weight) * 100
-
-    # --- Net Financial Position (Cash + Gold Value) ---
-    net_financial_position = cash_balance
-    if spot_price_24k_per_gram and spot_price_24k_per_gram > 0:
-        net_financial_position += gold_pure_24k * spot_price_24k_per_gram
-
-    # --- Today's Profit Margin (Sales - Purchases) ---
-    today_profit = sales_today_value - purchases_today_value
-    today_profit_margin_pct = None
-    if sales_today_value > 0:
-        today_profit_margin_pct = (today_profit / sales_today_value) * 100
-
-    # --- Yesterday Profit (for trend comparison) ---
-    yesterday_profit = yesterday_sales_value - yesterday_purchases_value
-    today_profit_vs_yesterday_pct = None
-    if abs(yesterday_profit) > 0.01:
-        today_profit_vs_yesterday_pct = ((today_profit - yesterday_profit) / abs(yesterday_profit)) * 100
-
-    # --- Gold Price Change from Yesterday ---
-    gold_price_change_pct = None
-    try:
-        yesterday_price = (
-            GoldPrice.query
-            .filter(GoldPrice.date < now.date())
-            .order_by(GoldPrice.date.desc())
-            .first()
-        )
-        if yesterday_price and yesterday_price.price and spot_price_24k_per_gram:
-            from pricing.office_price import row_gram_price
-            yesterday_spot = row_gram_price(yesterday_price, 24)
-            if yesterday_spot > 0:
-                gold_price_change_pct = ((spot_price_24k_per_gram - yesterday_spot) / yesterday_spot) * 100
-    except Exception:
-        gold_price_change_pct = None
-
-    # --- Safe boxes with activity pulse (last 15 minutes) ---
+                for k in gold:
+                    gold[k] += float(wb.get(k) or 0.0)
+    gold_pure_24k = gold_equivalent_main_karat = None
+    if gold is not None:
+        gold_pure_24k = sum(gold[k] * int(k[:-1]) / 24.0 for k in gold)
+        gold_equivalent_main_karat = sum(gold[k] * int(k[:-1]) / float(main_karat) for k in gold)
+    # --- A safe that moved in the last 15 minutes pulses ---
     fifteen_mins_ago = now - timedelta(minutes=15)
-    safe_boxes_enhanced = []
     try:
+        moved = {sid for (sid,) in db.session.query(SafeBoxTransaction.safe_box_id)
+                 .filter(SafeBoxTransaction.created_at >= fifteen_mins_ago).distinct()}
         for sb_data in safe_boxes_summary:
-            sb_id = sb_data['id']
-            # Check for recent activity
-            recent_activity = (
-                SafeBoxTransaction.query
-                .filter(SafeBoxTransaction.safe_box_id == sb_id)
-                .filter(SafeBoxTransaction.created_at >= fifteen_mins_ago)
-                .first()
-            )
-            sb_data['has_recent_activity'] = recent_activity is not None
-            safe_boxes_enhanced.append(sb_data)
+            sb_data['has_recent_activity'] = sb_data['id'] in moved
     except Exception:
-        safe_boxes_enhanced = safe_boxes_summary
+        failed('safe_activity')
 
-    # --- Liquidity breakdown (Cash vs Banks) ---
-    # Not read is not zero (the owner, 14 Nov 2026): a split that could not be
-    # summed is sent as None, and the card says «غير متاح» -- never a quiet 0.00.
-    cash_in_hand: float | None = 0.0
-    cash_in_banks: float | None = 0.0
-    if not safes_read:
-        cash_in_hand = cash_in_banks = None
-    try:
-        for sb_data in (safe_boxes_enhanced if safes_read else []):
-            if sb_data['safe_type'] == 'cash':
-                cash_in_hand += float(sb_data['balance_cash'])
-            elif sb_data['safe_type'] == 'bank':
-                cash_in_banks += float(sb_data['balance_cash'])
-    except Exception:
-        current_app.logger.exception('admin dashboard: the liquidity split could not be summed')
-        cash_in_hand = cash_in_banks = None
-
-    # --- Sales / Purchases / Expenses Summary (today / this month / this year) ---
+    # --- The periods' activity, and the period before each ---
+    sale_types = {'بيع': 1, 'sell': 1, 'sale': 1, 'مرتجع بيع': -1}
     sales_purchases_summary = {}
+    daily = []
     try:
         from models import JournalEntryLine as JELine, JournalEntry as JE2, Account as AccModel
-
-        month_start = datetime(now.year, now.month, 1)
-        year_start = datetime(now.year, 1, 1)
-
-        _summary_periods = {
-            'today': (today_start, tomorrow_start),
-            'month': (month_start, tomorrow_start),
-            'year': (year_start, tomorrow_start),
-        }
 
         _EMPTY_INV_SUMMARY = {
             'total_value': 0.0, 'total_weight': 0.0, 'docs': 0,
@@ -629,11 +344,8 @@ def get_admin_dashboard():
                         key=lambda x: -(x['weight'] or 0)
                     ),
                 }
-            except Exception as _inv_err:
-                import traceback
-                print(f'[dashboard] _build_inv_summary error: {_inv_err}')
-                traceback.print_exc()
-                return dict(_EMPTY_INV_SUMMARY)
+            except Exception:
+                raise
 
         def _build_expenses_summary(start, end):
             """The period's operating expenses, as the chart names them: group 5
@@ -690,7 +402,7 @@ def get_admin_dashboard():
                     'docs': int(docs),
                 }
             except Exception:
-                return {'total_value': 0.0, 'total_weight': 0.0, 'by_account': [], 'docs': 0}
+                raise
 
         def _grams_of(account_ids, start, end, *, credit_side=False):
             """(main-karat grams, {account name: grams}) the weight lines of
@@ -770,111 +482,105 @@ def get_admin_dashboard():
                     'docs': int(docs),
                 }
             except Exception:
-                return {'total_value': 0.0, 'total_weight': 0.0, 'by_account': [], 'docs': 0}
+                raise
 
-        for period_key, (p_start, p_end) in _summary_periods.items():
+        def summary(p_start, p_end):
+            return {
+                'sales': _build_inv_summary(sale_types, p_start, p_end),
+                # Three purchases, apart (DASH-3, the owner 30 Oct 2026): a
+                # supplier's, a customer's scrap, an office's settlement.
+                'purchases': _build_inv_summary({'شراء': 1, 'مرتجع شراء (مورد)': -1}, p_start, p_end,
+                                                where=Invoice.office_id.is_(None)),
+                'scrap_customers': _build_inv_summary({'شراء من عميل': 1, 'مرتجع شراء': -1}, p_start, p_end),
+                'office_settlements': _build_inv_summary({'شراء': 1}, p_start, p_end,
+                                                         where=Invoice.office_id.isnot(None)),
+                'expenses': _build_expenses_summary(p_start, p_end),
+                'revenues': _build_revenues_summary(p_start, p_end),
+            }
+
+        def totals(block):
+            return {k: {'total_value': v.get('total_value', 0.0), 'total_weight': v.get('total_weight', 0.0),
+                        'docs': v.get('docs', 0)} for k, v in block.items()}
+
+        for period_key, ((p_start, p_end), (q_start, q_end)) in previous_periods(now).items():
             try:
-                sales_purchases_summary[period_key] = {
-                    'sales': _build_inv_summary(sale_types, p_start, p_end),
-                    # Three purchases, apart (DASH-3, the owner 30 Oct 2026): a
-                    # supplier's, a customer's scrap, an office's settlement.
-                    'purchases': _build_inv_summary({'شراء': 1, 'مرتجع شراء (مورد)': -1}, p_start, p_end,
-                                                    where=Invoice.office_id.is_(None)),
-                    'scrap_customers': _build_inv_summary({'شراء من عميل': 1, 'مرتجع شراء': -1}, p_start, p_end),
-                    'office_settlements': _build_inv_summary({'شراء': 1}, p_start, p_end,
-                                                             where=Invoice.office_id.isnot(None)),
-                    'expenses': _build_expenses_summary(p_start, p_end),
-                    'revenues': _build_revenues_summary(p_start, p_end),
-                }
-            except Exception as _period_err:
-                import traceback
-                print(f'[dashboard] sales_purchases_summary period={period_key} error: {_period_err}')
-                traceback.print_exc()
-                sales_purchases_summary[period_key] = {}
-    except Exception as _summary_err:
-        import traceback
-        print(f'[dashboard] sales_purchases_summary outer error: {_summary_err}')
-        traceback.print_exc()
-        sales_purchases_summary = {}
+                block = summary(p_start, p_end)
+                block['previous'] = totals(summary(q_start, q_end))
+                block['previous_range'] = {'start': q_start.isoformat(), 'end': q_end.isoformat()}
+                sales_purchases_summary[period_key] = block
+            except Exception:
+                failed(f'summary_{period_key}')
+
+        try:
+            for i in range(6, -1, -1):
+                d_start = today_start - timedelta(days=i)
+                d_end = d_start + timedelta(days=1)
+                daily.append({
+                    'day': d_start.date().isoformat(),
+                    'sales': round(_build_inv_summary(sale_types, d_start, d_end)['total_value'], 2),
+                    'scrap_customers': round(_build_inv_summary({'شراء من عميل': 1, 'مرتجع شراء': -1}, d_start,
+                                                                d_end)['total_value'], 2),
+                })
+        except Exception:
+            failed('daily')
+            daily = []
+    except Exception:
+        failed('summary')
+
+    def money(v):
+        return None if v is None else round(v, 2)
 
     return jsonify({
         'success': True,
         'generated_at': now.isoformat(),
+        'unavailable': unavailable,
         'global_snapshot': {
-            'net_financial_position': round(net_financial_position, 2),
-            'gold_price_24k': round(float(spot_price_24k_per_gram), 2) if spot_price_24k_per_gram else None,
-            'gold_price_change_pct': round(gold_price_change_pct, 2) if gold_price_change_pct is not None else None,
+            'gold_price_24k': money(float(spot_price_24k_per_gram)) if spot_price_24k_per_gram else None,
             'gold_price_timestamp': spot_price_timestamp,
         },
         'kpis': {
-            'cash_balance': round(cash_balance, 2),
-            'gold_by_karat': {
-                '18k': round(gold_18k, 3),
-                '21k': round(gold_21k, 3),
-                '22k': round(gold_22k, 3),
-                '24k': round(gold_24k, 3),
-            },
-            'gold_pure_24k': round(gold_pure_24k, 3),
-            'gold_equivalent_main_karat': round(gold_equivalent_main_karat, 3),
+            'cash_balance': money(cash_balance),
+            'gold_by_karat': None if gold is None else {k: round(v, 3) for k, v in gold.items()},
+            'gold_pure_24k': None if gold_pure_24k is None else round(gold_pure_24k, 3),
+            'gold_equivalent_main_karat': None if gold_equivalent_main_karat is None
+            else round(gold_equivalent_main_karat, 3),
             'main_karat': main_karat,
-            'sales_today': {
-                'net_value': round(sales_today_value, 2),
-                'net_weight': round(sales_today_weight, 3),
-                'documents': len(today_invoices),
-                'change_pct': round(sales_change_pct, 1) if sales_change_pct is not None else None,
-                'change_pct_weight': round(sales_change_pct_weight, 1)
-                if sales_change_pct_weight is not None
-                else None,
-            },
-            'purchases_today': {
-                'net_value': round(purchases_today_value, 2),
-                'net_weight': round(purchases_today_weight, 3),
-                'documents': len(today_purchases),
-                'change_pct': round(purchases_change_pct, 1) if purchases_change_pct is not None else None,
-                'change_pct_weight': round(purchases_change_pct_weight, 1)
-                if purchases_change_pct_weight is not None
-                else None,
-            },
-            'today_profit': round(today_profit, 2),
-            'today_profit_margin_pct': round(today_profit_margin_pct, 1) if today_profit_margin_pct is not None else None,
-            'yesterday_profit': round(yesterday_profit, 2),
-            'today_profit_vs_yesterday_pct': round(today_profit_vs_yesterday_pct, 1) if today_profit_vs_yesterday_pct is not None else None,
         },
-        'series': {
-            'last_7_days_sales': [
-                {
-                    'period': row['period'],
-                    'documents': int(row.get('documents') or 0),
-                    'net_value': round(float(row.get('net_value') or 0.0), 2),
-                    'net_weight': round(float(row.get('net_weight') or 0.0), 3),
-                }
-                for row in last_7_days_sales
-            ],
-            'last_7_days_purchases': [
-                {
-                    'period': row['period'],
-                    'documents': int(row.get('documents') or 0),
-                    'net_value': round(float(row.get('net_value') or 0.0), 2),
-                    'net_weight': round(float(row.get('net_weight') or 0.0), 3),
-                }
-                for row in last_7_days_purchases
-            ],
-        },
+        'series': {'daily': daily},
         'valuation': {
-            'spot_price_24k_per_gram': round(float(spot_price_24k_per_gram), 2)
-            if spot_price_24k_per_gram is not None
-            else None,
+            'spot_price_24k_per_gram': money(float(spot_price_24k_per_gram)) if spot_price_24k_per_gram else None,
             'spot_price_timestamp': spot_price_timestamp,
             'currency': 'ر.س',
-            'inventory_value': round(float(inventory_value), 2) if inventory_value is not None else None,
-            'avg_cost_per_gram': round(float(avg_cost_per_gram), 2) if avg_cost_per_gram else None,
-            'profit_margin_pct': round(float(profit_margin), 2) if profit_margin is not None else None,
         },
         'liquidity': {
-            'cash_available': round(cash_balance, 2),
-            'cash_in_hand': None if cash_in_hand is None else round(cash_in_hand, 2),
-            'cash_in_banks': None if cash_in_banks is None else round(cash_in_banks, 2),
+            'cash_available': money(cash_balance),
+            'cash_in_hand': money(cash_in_hand),
+            'cash_in_banks': money(cash_in_banks),
         },
-        'safe_boxes': safe_boxes_enhanced,
+        'safe_boxes': safe_boxes_summary,
         'sales_purchases_summary': sales_purchases_summary,
     }), 200
+
+
+def previous_periods(now: datetime) -> dict:
+    """{period: ((its start, its end), (the one before's start, end))}: today
+    against yesterday to this hour, the month against the last one to this
+    day (its last day when shorter), the year against the last one to this
+    date -- each pair to the same point, so they compare (15 Nov 2026)."""
+    import calendar
+    today_start = datetime.combine(now.date(), datetime.min.time())
+    tomorrow_start = today_start + timedelta(days=1)
+    month_start = datetime(now.year, now.month, 1)
+    last_month_end_day = month_start - timedelta(days=1)
+    last_month_start = datetime(last_month_end_day.year, last_month_end_day.month, 1)
+    same_day = min(now.day, calendar.monthrange(last_month_start.year, last_month_start.month)[1])
+    year_start = datetime(now.year, 1, 1)
+    last_year_day = min(now.day, calendar.monthrange(now.year - 1, now.month)[1])
+    return {
+        'today': ((today_start, tomorrow_start), (today_start - timedelta(days=1), now - timedelta(days=1))),
+        'month': ((month_start, tomorrow_start),
+                  (last_month_start, datetime(last_month_start.year, last_month_start.month, same_day)
+                   + timedelta(days=1))),
+        'year': ((year_start, tomorrow_start),
+                 (datetime(now.year - 1, 1, 1), datetime(now.year - 1, now.month, last_year_day) + timedelta(days=1))),
+    }

@@ -1043,7 +1043,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     drawerChildren.add(fixedAction('home', Icons.home_outlined, isAr ? 'الرئيسية' : 'Home'));
     if (_bottomNavItems.contains('dashboard')) {
       drawerChildren.add(fixedAction(
-          'dashboard', Icons.dashboard_customize_outlined, isAr ? 'لوحة تحكم المدير' : "Manager's dashboard"));
+          'dashboard', Icons.dashboard_customize_outlined, isAr ? 'لوحة التحكم' : 'Dashboard'));
     }
     final sections = _menuSections(isAr, gold);
     // Build section widgets as collapsible ExpansionTiles (card style)
@@ -2868,7 +2868,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       'home': {'icon': Icons.home, 'label_ar': 'الرئيسية', 'label_en': 'Home'},
       'dashboard': {
         'icon': Icons.dashboard_customize,
-        'label_ar': 'لوحة المدير',
+        'label_ar': 'لوحة التحكم',
         'label_en': 'Dashboard',
       },
       'invoices': {

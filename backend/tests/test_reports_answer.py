@@ -39,24 +39,21 @@ def test_the_report_answers(app, auth_headers, url):
 
 
 def test_the_admin_dashboard_values_the_stock(app, auth_headers):
-    """inventory_value was valued before the pure grams existed -- always None."""
+    """inventory_value was valued before the pure grams existed -- always None
+    (NAMES-1). That field was never shown and is gone (15 Nov 2026); the net
+    position values the same gold at the last price saved, so it holds the
+    class: with a price saved, the net is said, its gold the grams at it."""
     from datetime import datetime
+    from flask import g
     from models import GoldPrice
     db.session.add(GoldPrice(price=2400.0, date=datetime(2026, 10, 14, 9, 0)))
     db.session.flush()
-    resp = flask_app.test_client().get('/api/dashboard/admin', headers=auth_headers)
+    g.pop('current_user', None)
+    resp = flask_app.test_client().get('/api/dashboard/admin/standing', headers=auth_headers)
     assert resp.status_code == 200
-    body = resp.get_json()
-    found = []
-
-    def walk(node):
-        if isinstance(node, dict):
-            for k, v in node.items():
-                if k == 'inventory_value':
-                    found.append(v)
-                walk(v)
-        elif isinstance(node, list):
-            for v in node:
-                walk(v)
-    walk(body)
-    assert found and all(v is not None for v in found), found
+    net = resp.get_json()['net_position']
+    assert net is not None and net['price']
+    parts = net['parts']
+    # the grams are sent to the thousandth: their rounding at the price is the room
+    assert parts['gold_value'] == pytest.approx(parts['gold_grams'] * net['price'], abs=0.0005 * net['price'] + 0.01)
+    assert net['net'] == pytest.approx(net['has'] - net['owes'], abs=0.02)

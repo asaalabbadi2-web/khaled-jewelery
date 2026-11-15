@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 
+import '../../../theme/app_semantic_colors.dart';
 import '../../../theme/app_tokens.dart';
 import '../../../utils/bidi.dart';
 import '../../../utils/currency_utils.dart' as cu;
@@ -467,6 +468,103 @@ class KaratBars extends StatelessWidget {
             figure: Text('${ltrIsolate(weight(s.grams))} جم'),
           ),
       ],
+    );
+  }
+}
+
+/// The last seven days, a column each: its sales and the scrap bought, as
+/// tall as their share of the week's largest day, the day under them -- today
+/// stronger; each column says its figures on hover and to a reader (the
+/// owner, 15 Nov 2026: the seven days the server summed were never shown).
+/// *days*: the server's `series.daily`, oldest first.
+class DashboardWeek extends StatelessWidget {
+  const DashboardWeek({super.key, required this.days, required this.money, required this.isArabic});
+
+  final List<Map<String, dynamic>> days;
+  final DashboardMoney money;
+  final bool isArabic;
+
+  static const _arabicDays = ['الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت', 'الأحد'];
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final tones = AppSemanticColors.of(context);
+    final sale = dashboardMark(context, tones.ready.fg);
+    final scrap = dashboardMark(context, tones.cash.fg);
+    final top = days.fold<double>(
+        0, (m, d) => math.max(m, math.max(dashboardNum(d['sales']), dashboardNum(d['scrap_customers']))));
+    final week = days.fold<double>(0, (sum, d) => sum + dashboardNum(d['sales']));
+    final small = theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant);
+    Widget bar(double v, Color c) => Container(
+          width: 10,
+          height: top > 0 && v > 0 ? math.max(72 * v / top, 3) : 0,
+          decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(3)),
+        );
+    Widget dot(Color c) => Container(width: 8, height: 8, decoration: BoxDecoration(color: c, shape: BoxShape.circle));
+    return DashboardPanel(
+      key: const Key('dashboard-week'),
+      icon: Icons.bar_chart_rounded,
+      title: isArabic ? 'آخر سبعة أيام' : 'Last seven days',
+      figure: money.text(week, style: dashboardFigure(theme.textTheme.titleSmall, weight: FontWeight.w800)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          dot(sale),
+          const SizedBox(width: AppSpace.xs),
+          Text(isArabic ? 'المبيعات' : 'Sales', style: small),
+          const SizedBox(width: AppSpace.md),
+          dot(scrap),
+          const SizedBox(width: AppSpace.xs),
+          Text(isArabic ? 'شراء الكسر' : 'Scrap bought', style: small),
+        ]),
+        const SizedBox(height: AppSpace.sm),
+        Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+          for (final (i, d) in days.indexed)
+            Expanded(
+              child: Builder(builder: (context) {
+                final day = DateTime.tryParse('${d['day']}');
+                final name = day == null ? '' : (isArabic ? _arabicDays[day.weekday - 1] : DateFormat.E().format(day));
+                final said = '$name ${day == null ? '' : DateFormat('dd/MM').format(day)}: '
+                    '${isArabic ? 'مبيعات' : 'sales'} ${money.cash(dashboardNum(d['sales']))} · '
+                    '${isArabic ? 'كسر' : 'scrap'} ${money.cash(dashboardNum(d['scrap_customers']))}';
+                final today = i == days.length - 1;
+                return Tooltip(
+                  message: said,
+                  child: Semantics(
+                    label: said,
+                    container: true,
+                    child: Column(key: Key('dashboard-week-${d['day']}'), children: [
+                      SizedBox(
+                        height: 76,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            bar(dashboardNum(d['sales']), sale),
+                            const SizedBox(width: 2),
+                            bar(dashboardNum(d['scrap_customers']), scrap),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: AppSpace.xs),
+                      Text(
+                        name.length > 3 && isArabic ? name.substring(name.startsWith('ال') ? 2 : 0) : name,
+                        maxLines: 1,
+                        overflow: TextOverflow.fade,
+                        softWrap: false,
+                        style: small?.copyWith(
+                          fontWeight: today ? FontWeight.w800 : FontWeight.w500,
+                          color: today ? scheme.onSurface : scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ]),
+                  ),
+                );
+              }),
+            ),
+        ]),
+      ]),
     );
   }
 }

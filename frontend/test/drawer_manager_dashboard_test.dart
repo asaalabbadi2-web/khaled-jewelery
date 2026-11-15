@@ -63,7 +63,7 @@ void main() {
     await openDrawer(tester, dashboard: true);
     final item = find.byKey(const ValueKey('drawer-fixed-dashboard'));
     expect(item, findsOneWidget);
-    expect(find.descendant(of: item, matching: find.text('لوحة تحكم المدير')), findsOneWidget);
+    expect(find.descendant(of: item, matching: find.text('لوحة التحكم')), findsOneWidget);
     final home = tester.getTopLeft(find.byKey(const ValueKey('drawer-fixed-home')));
     expect(tester.getTopLeft(item).dy, greaterThan(home.dy), reason: 'under «الرئيسية»');
   });
