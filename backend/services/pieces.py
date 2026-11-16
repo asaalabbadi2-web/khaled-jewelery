@@ -687,3 +687,148 @@ def replace_tag(piece: Item, *, reason, value=None, by: str, now) -> PieceTag:
         db.session.flush()
     return mount_tag(piece, value=value, technology=old.technology if old is not None else 'uhf_epc96',
                      by=by, now=now)
+
+
+# ── the pieces' list (the owner, 16 Nov 2026) ───────────────────────────────
+
+PIECE_STATES = ('in_stock', 'sold', 'returned_to_supplier', 'out')
+PIECE_SORTS = {'number': Item.item_code, 'weight': Item.weight, 'name': Item.name}
+PIECES_PER_PAGE_MAX = 100
+
+
+class PiecesFilterInvalid(ValueError):
+    """A filter, a sort or a page the list does not know."""
+
+
+def _held_by_piece() -> dict:
+    """{piece id: {account id: grams}} -- every piece's allocations on counted
+    lines, net by account, in one reading."""
+    from accounting.balances import counted_line_filters
+    rows = (db.session.query(StockLineAllocation.item_id, JournalEntryLine.account_id,
+                             func.sum(StockLineAllocation.grams))
+            .join(JournalEntryLine, JournalEntryLine.id == StockLineAllocation.journal_entry_line_id)
+            .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+            .filter(StockLineAllocation.item_id.isnot(None), *counted_line_filters())
+            .group_by(StockLineAllocation.item_id, JournalEntryLine.account_id).all())
+    held: dict = {}
+    for item_id, account_id, grams in rows:
+        held.setdefault(item_id, {})[account_id] = float(grams or 0.0)
+    return held
+
+
+def _last_exits(item_ids) -> dict:
+    """{piece id: (day, state)} -- the document that last took each piece out:
+    a sale, a return to its supplier, or anything else (out)."""
+    from accounting.balances import counted_line_filters
+    if not item_ids:
+        return {}
+    rows = (db.session.query(StockLineAllocation.item_id, JournalEntry.date, JournalEntry.reference_type,
+                             JournalEntry.reference_id)
+            .join(JournalEntryLine, JournalEntryLine.id == StockLineAllocation.journal_entry_line_id)
+            .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+            .filter(StockLineAllocation.item_id.in_(list(item_ids)), StockLineAllocation.grams < -GRAM,
+                    *counted_line_filters())
+            .order_by(JournalEntry.date, StockLineAllocation.id).all())
+    last = {item_id: (when, ref_type, ref_id) for item_id, when, ref_type, ref_id in rows}
+    invoice_ids = {ref_id for _, ref_type, ref_id in last.values() if ref_type == 'invoice' and ref_id}
+    kinds = dict(db.session.query(Invoice.id, Invoice.invoice_type).filter(Invoice.id.in_(invoice_ids)).all()
+                 if invoice_ids else [])
+    state_of = {'بيع': 'sold', 'مرتجع شراء (مورد)': 'returned_to_supplier'}
+    return {item_id: (when, state_of.get(kinds.get(ref_id) if ref_type == 'invoice' else None, 'out'))
+            for item_id, (when, ref_type, ref_id) in last.items()}
+
+
+def _received_view(piece: Item) -> dict | None:
+    """Where the piece was born: its receipt (date, document, supplier) or its batch of stock."""
+    from models import Supplier
+    source = piece_source(piece)
+    if isinstance(source, StockCoding):
+        safe = db.session.get(SafeBox, source.safe_box_id)
+        return {'kind': 'coding', 'date': source.created_at.date().isoformat() if source.created_at else None,
+                'document': None, 'invoice_id': None, 'supplier_name': None,
+                'safe_name': getattr(safe, 'name', None)}
+    if isinstance(source, InvoiceItem):
+        invoice = db.session.get(Invoice, source.invoice_id)
+        supplier = db.session.get(Supplier, invoice.supplier_id) if invoice and invoice.supplier_id else None
+        return {'kind': 'receipt', 'date': invoice.date.date().isoformat() if invoice and invoice.date else None,
+                'document': getattr(invoice, 'invoice_number', None), 'invoice_id': source.invoice_id,
+                'supplier_name': getattr(supplier, 'name', None)}
+    return None
+
+
+def pieces_list(*, q=None, category_id=None, karat=None, safe_box_id=None, state='in_stock', sort='number',
+                descending=True, page=1, per_page=25, today) -> dict:
+    """The pieces -- searched by number, name or a tag read; filtered by
+    category, karat, place and state ('all' for every state); sorted and
+    paged -- each with its place, state and receipt; and the shop's summary,
+    whatever the filter. *today*: the caller's clock (ADR-015)."""
+    if state not in PIECE_STATES + ('all',):
+        raise PiecesFilterInvalid(f'حالة غير معروفة: {state}')
+    if sort not in PIECE_SORTS:
+        raise PiecesFilterInvalid(f'ترتيب غير معروف: {sort}')
+    try:
+        page, per_page = int(page), int(per_page)
+    except (TypeError, ValueError):
+        raise PiecesFilterInvalid('الصفحة وعدد القطع فيها أرقام') from None
+    if page < 1 or not 1 <= per_page <= PIECES_PER_PAGE_MAX:
+        raise PiecesFilterInvalid(f'الصفحة من 1، والقطع فيها من 1 إلى {PIECES_PER_PAGE_MAX}')
+
+    query = Item.query.filter((Item.receipt_item_id.isnot(None)) | (Item.coding_id.isnot(None)))
+    if category_id is not None:
+        query = query.filter(Item.category_id == int(category_id))
+    if karat is not None:
+        query = query.filter(Item.karat == str(int(karat)))
+    text = str(q or '').strip()
+    if text:
+        tagged = db.session.query(PieceTag.item_id).filter(PieceTag.value == text.upper(),
+                                                           PieceTag.stopped_at.is_(None))
+        query = query.filter(Item.item_code.ilike(f'%{text}%') | Item.name.ilike(f'%{text}%')
+                             | Item.id.in_(tagged))
+    every = query.all()
+
+    held = _held_by_piece()
+    every_piece = Item.query.filter((Item.receipt_item_id.isnot(None)) | (Item.coding_id.isnot(None))).all()
+    in_stock = {p.id for p in every_piece if sum(held.get(p.id, {}).values()) > GRAM}
+    exits = _last_exits([p.id for p in every_piece if p.id not in in_stock])
+    account_of_safe = {s.account_id: s for s in SafeBox.query.filter(SafeBox.account_id.isnot(None))}
+
+    def state_of(piece):
+        return 'in_stock' if piece.id in in_stock else exits.get(piece.id, (None, 'out'))[1]
+
+    def place_of(piece):
+        if piece.id not in in_stock:
+            return None
+        accounts = [a for a, grams in held.get(piece.id, {}).items() if grams > GRAM]
+        return account_of_safe.get(accounts[0]) if len(accounts) == 1 else None
+
+    chosen = [p for p in every if state == 'all' or state_of(p) == state]
+    if safe_box_id is not None:
+        chosen = [p for p in chosen if (place_of(p) is not None and place_of(p).id == int(safe_box_id))]
+    key = {'number': lambda p: p.item_code or '', 'weight': lambda p: float(p.weight or 0.0),
+           'name': lambda p: (p.name or '', p.item_code or '')}[sort]
+    chosen.sort(key=key, reverse=bool(descending))
+    shown = chosen[(page - 1) * per_page: page * per_page]
+
+    rows = []
+    for piece in shown:
+        view = piece_view(piece)
+        where = place_of(piece)
+        left = exits.get(piece.id) if piece.id not in in_stock else None
+        category = db.session.get(Category, piece.category_id) if piece.category_id else None
+        view.update({'state': state_of(piece), 'in_stock': piece.id in in_stock,
+                     'location': {'id': where.id, 'name': where.name} if where is not None else None,
+                     'left_at': left[0].date().isoformat() if left and left[0] else None,
+                     'category_id': piece.category_id, 'category_name': getattr(category, 'name', None),
+                     'description': piece.description, 'received': _received_view(piece)})
+        rows.append(view)
+
+    tagged_now = {i for (i,) in db.session.query(PieceTag.item_id).filter(PieceTag.stopped_at.is_(None))}
+    month = today.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    weights = {p.id: float(p.weight or 0.0) for p in every_piece}
+    summary = {
+        'in_stock_count': len(in_stock),
+        'in_stock_weight': round(sum(weights[i] for i in in_stock), 3),
+        'in_stock_untagged': len(in_stock - tagged_now),
+        'sold_this_month': sum(1 for when, kind in exits.values() if kind == 'sold' and when and when >= month),
+    }
+    return {'pieces': rows, 'total': len(chosen), 'page': page, 'per_page': per_page, 'summary': summary}

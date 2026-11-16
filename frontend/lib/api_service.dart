@@ -1259,6 +1259,42 @@ class ApiService {
   /// جلب جميع التصنيفات
   /// The categories offered; [includeInactive] adds the stopped ones (the
   /// management dialog) -- a stopped category is offered to no one (ADR-045 B).
+  /// The pieces' list (the owner, 16 Nov 2026; ADR-087): searched, filtered,
+  /// sorted and paged by the server -- each piece with its place, its state
+  /// and its receipt, and the shop's summary. [state]: in_stock (unless
+  /// asked) | sold | returned_to_supplier | out | all; [sort]: number |
+  /// weight | name.
+  Future<Map<String, dynamic>> getPieces({
+    String? q,
+    int? categoryId,
+    int? karat,
+    int? safeBoxId,
+    String state = 'in_stock',
+    String sort = 'number',
+    bool ascending = false,
+    int page = 1,
+    int perPage = 25,
+    ApiCancelToken? cancel,
+  }) async {
+    final query = <String, String>{
+      if (q != null && q.trim().isNotEmpty) 'q': q.trim(),
+      if (categoryId != null) 'category_id': '$categoryId',
+      if (karat != null) 'karat': '$karat',
+      if (safeBoxId != null) 'safe_box_id': '$safeBoxId',
+      'state': state,
+      'sort': sort,
+      'dir': ascending ? 'asc' : 'desc',
+      'page': '$page',
+      'per_page': '$perPage',
+    };
+    final uri = Uri.parse('$_baseUrl/pieces').replace(queryParameters: query);
+    final response = await _authedGet(uri, cancel: cancel);
+    if (response.statusCode == 200) {
+      return Map<String, dynamic>.from(json.decode(utf8.decode(response.bodyBytes)) as Map);
+    }
+    throw _apiError(response);
+  }
+
   Future<List<dynamic>> getCategories({bool includeInactive = false}) async {
     final response = await _authedGet(Uri.parse(
         '$_baseUrl/categories${includeInactive ? '?include_inactive=1' : ''}'));

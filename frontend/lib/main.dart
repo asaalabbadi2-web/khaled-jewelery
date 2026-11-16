@@ -16,11 +16,11 @@ import 'app_route_observer.dart';
 import 'theme/app_theme.dart'; // 🆕 نظام الثيم الموحد
 import 'screens/home_screen_enhanced.dart';
 import 'screens/add_item_screen_enhanced.dart';
-import 'screens/items_screen_enhanced.dart';
 import 'api_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/change_password_screen.dart';
 import 'screens/initial_setup_screen.dart';
+import 'screens/items_or_pieces_screen.dart';
 import 'widgets/archive_banner.dart';
 
 Future<void> main() async {
@@ -192,7 +192,7 @@ class _MyAppState extends State<MyApp> {
           '/items': (context) => Consumer<AuthProvider>(
             builder: (context, auth, _) {
               if (auth.isAuthenticated) {
-                return ItemsScreenEnhanced(api: ApiService());
+                return ItemsOrPiecesScreen(api: ApiService());
               }
               return const LoginScreen();
             },

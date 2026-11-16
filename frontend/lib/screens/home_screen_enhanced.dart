@@ -26,7 +26,6 @@ import '../widgets/app_feedback.dart';
 import '../widgets/app_state_views.dart';
 import '../models/report_catalog.dart';
 import '../app_route_observer.dart';
-import 'items_screen_enhanced.dart';
 import 'add_customer_screen.dart';
 import 'add_item_screen_enhanced.dart';
 import 'sales_invoice_screen_v2.dart';
@@ -90,6 +89,7 @@ import 'accounting_mapping_screen_enhanced.dart';
 import 'backup_restore_screen.dart';
 import 'weight_closing_settings_screen.dart';
 import 'supplier_settlement_policy_screen.dart';
+import 'items_or_pieces_screen.dart';
 import '../widgets/goal_ring_tile.dart';
 import '../widgets/race_rank_row.dart';
 
@@ -1717,7 +1717,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       onSelected: () async {
         await Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => ItemsScreenEnhanced(api: api)),
+          MaterialPageRoute(builder: (_) => ItemsOrPiecesScreen(api: api)),
         );
       },
     );
@@ -2930,7 +2930,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       case 'customers':
         tab = CustomersScreen(api: api, isArabic: isAr);
       case 'items':
-        tab = ItemsScreenEnhanced(api: api);
+        tab = ItemsOrPiecesScreen(api: api);
       case 'settings':
         tab = SettingsScreenEnhanced();
       default:
@@ -5126,7 +5126,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       case 'items_list':
         result = await Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => ItemsScreenEnhanced(api: api)),
+          MaterialPageRoute(builder: (_) => ItemsOrPiecesScreen(api: api)),
         );
         break;
       case 'receipt_voucher':

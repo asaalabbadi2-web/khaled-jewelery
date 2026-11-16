@@ -10,6 +10,11 @@ POST /api/pieces                  -- a piece under a line (line_id) or a batch
      request_key -- the save attempt's key: pressed twice, one.
 GET  /api/pieces/wage-check       -- line_id or coding_id, model_id: the
      source's wage per gram against the model's expected one -- a warning.
+GET  /api/pieces                  -- the pieces' list (the owner, 16 Nov 2026):
+     q, category_id, karat, safe_box_id, state (in_stock | sold |
+     returned_to_supplier | out | all; in_stock unless asked), sort
+     (number | weight | name), dir (asc | desc), page, per_page -- each
+     piece with its place, state and receipt, and the shop's summary.
 GET  /api/pieces/lookup?code=     -- a piece by its number: its view and
      where it is (the transfer screen, R3.6).
 POST /api/pieces/<id>/tag         -- its tag mounted: by default the number's
@@ -126,6 +131,26 @@ def station_wage_check():
     if source is None or model is None:
         return jsonify({'error': 'not_found', 'message': 'السطر أو الموديل غير موجود'}), 404
     return jsonify(wage_check(source, model))
+
+
+@pieces_bp.route('/pieces', methods=['GET'])
+@require_permission('items.view')
+def pieces_index():
+    from services.pieces import PiecesFilterInvalid, pieces_list
+    args = request.args
+
+    def number(name):
+        value = (args.get(name) or '').strip()
+        return int(value) if value else None
+    try:
+        listed = pieces_list(q=args.get('q'), category_id=number('category_id'), karat=number('karat'),
+                             safe_box_id=number('safe_box_id'), state=args.get('state') or 'in_stock',
+                             sort=args.get('sort') or 'number', descending=(args.get('dir') or 'desc') != 'asc',
+                             page=args.get('page') or 1, per_page=args.get('per_page') or 25,
+                             today=datetime.now())
+    except (PiecesFilterInvalid, ValueError) as refused:
+        return jsonify({'error': 'pieces_filter_invalid', 'message': str(refused)}), 400
+    return jsonify(listed), 200
 
 
 @pieces_bp.route('/pieces/lookup', methods=['GET'])
