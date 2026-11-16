@@ -12,6 +12,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/models/app_user_model.dart';
@@ -32,6 +33,7 @@ import 'support/shots.dart';
 const _devices = <String, Size>{
   'iPhone': Size(390, 844),
   'iPhone SE': Size(375, 667),
+  'a 360 phone': Size(360, 780),
   'iPad mini': Size(744, 1133),
 };
 
@@ -63,8 +65,40 @@ final _goldPrice = {
   'market': {'open': true, 'unavailable': false},
 };
 
+/// A whole race, as the server sends it (made up): four employees, the
+/// leader with a long name, crowns and goals beside each, the team's goal and,
+/// for the manager, the totals. An empty race drew no rows, so a phone never
+/// showed the rows' overflow in a test (the owner, 16 Nov 2026).
+Map<String, dynamic> _race(bool manager) {
+  Map<String, dynamic> row(int id, String name, double score, double sales, int count, int crowns, int goals,
+          double share) =>
+      {'id': id, 'name': name, 'photo': null, 'score': score, 'share': share, 'count': count,
+       'sales_amount': sales, 'purchase_amount': 215600.0, 'points_sales': 0, 'points_purchase': 0,
+       'crowns': crowns, 'goals_reached': goals, 'goal_progress': 0.62, 'goal_target': 1500};
+  return {
+    'period': 'today', 'requested_period': 'today', 'effective_period': 'today', 'metric': 'weight_g',
+    'is_fallback': false, 'effective_start_date': '2026-11-16', 'effective_source_date': '2026-11-16',
+    'config': {'enabled': true, 'show_champion': true, 'show_invoice_count': true, 'amounts_visible': true,
+               'points_visible': true, 'share_visible': true, 'enabled_periods': ['today', 'week', 'month'],
+               'default_period': 'today'},
+    'champion': {'id': 18, 'name': 'عبدالرحمن بن عبدالله الشمراني', 'badge': '🥇'},
+    'ranking': [
+      row(18, 'عبدالرحمن بن عبدالله الشمراني', 743.35, 1381410.0, 38, 9, 6, 0.48),
+      row(21, 'خالد', 383.5, 208460.0, 35, 2, 4, 0.25),
+      row(24, 'مسعد بن صالح المهري', 300.0, 150000.0, 33, 1, 2, 0.2),
+      row(22, 'منى', 247.2, 136020.0, 32, 0, 4, 0.16),
+      row(23, 'سارة', 120.0, 64000.0, 12, 0, 0, 0.11),
+    ],
+    'team_goal': {'employees': 5, 'metric': 'points', 'period': 'monthly', 'period_label': 'الشهري',
+                  'progress': 0.4692, 'reached': false, 'target': 50000, 'unit': 'نقطة', 'value': 23460},
+    if (manager)
+      'admin_summary': {'total_sales_amount': 1860000.0, 'total_purchase_amount': 1215600.0, 'total_points': 15530},
+  };
+}
+
 Object _answer(String path, bool manager) {
   if (path.endsWith('/public/gold_price')) return _goldPrice;
+  if (path.endsWith('/home/leaderboard')) return _race(manager);
   if (path.endsWith('/pending-actions')) {
     return manager
         ? {'total_pending_invoices': 3, 'total_pending_reservations': 0, 'total_system_alerts': 1,
@@ -165,6 +199,32 @@ void main() {
         final box = tester.getRect(menu);
         expect(box.left >= 0 && box.right <= device.value.width, isTrue, reason: 'the menu on the screen: $box');
         await shot(tester, 'home_${manager ? 'manager' : 'seller'}_${device.key.replaceAll(' ', '_')}');
+        await _close(tester);
+      });
+    }
+  }
+
+  // The owner, 16 Nov 2026: «راجع سلامة عرض بطاقة سباق الاداء في شاشة
+  // الجوال» -- the rows ran 15 to 60 px past their width and the name was
+  // squeezed to nothing; the totals and the team's goal were cut with «…».
+  for (final manager in [false, true]) {
+    for (final device in ['iPhone SE', 'a 360 phone']) {
+      testWidgets('the race card says it whole on $device, as ${manager ? 'the manager' : 'the seller'}',
+          (tester) async {
+        final overflows = await _open(tester, Size(_devices[device]!.width, 3000), manager: manager);
+        expect(overflows, isEmpty);
+        final card = find.byKey(const Key('home-race-card'));
+        expect(card, findsOneWidget);
+        expect(find.descendant(of: card, matching: find.text('عبدالرحمن بن عبدالله الشمراني')), findsWidgets);
+        final cut = <String>[];
+        for (final e in find.descendant(of: card, matching: find.byType(RichText)).evaluate()) {
+          final p = e.renderObject! as RenderParagraph;
+          if (p.didExceedMaxLines || p.size.width < 1) cut.add(p.text.toPlainText());
+        }
+        // A long name may end in «…», where it stands alone or after «المتصدر
+        // الآن»; nothing else may -- a short name least of all.
+        cut.removeWhere((t) => t.contains('عبدالرحمن بن عبدالله الشمراني'));
+        expect(cut, isEmpty, reason: 'cut on $device: $cut');
         await _close(tester);
       });
     }

@@ -20,6 +20,9 @@ class GoalTileStyle extends InheritedWidget {
 
 /// A goal as a ring and its lines (bonus study م3ز–م3ح): the percent in the
 /// ring, the title, the value of its target, and up to two more lines. Used
+/// Below this width a goal's line puts its figures under its title.
+const double goalLineOnTwoBelow = 420;
+
 /// by «هدفي» and by the team's goal, side by side in the race card.
 class GoalRingTile extends StatelessWidget {
   const GoalRingTile({
@@ -103,22 +106,37 @@ class GoalRingTile extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Row(children: [
-                Flexible(
-                  child: Text(title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.labelMedium?.copyWith(color: cs.onSurfaceVariant)),
-                ),
-                Text(' · ', style: theme.textTheme.labelMedium?.copyWith(color: cs.onSurfaceVariant)),
-                Expanded(
-                  child: Text(figure,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w800)),
-                ),
-                filling((v) => Text('${(v * 100).round()}%', textDirection: TextDirection.ltr, style: percentStyle)),
-              ]),
+              // The title and its figures on one line; on a phone, the figures
+              // on a line of their own (the owner, 16 Nov 2026: «2,346 من
+              // 5,000 نقـ…» was cut beside the title).
+              LayoutBuilder(builder: (context, box) {
+                final titleText = Text(title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelMedium?.copyWith(color: cs.onSurfaceVariant));
+                final figureText = Text(figure,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w800));
+                final percentText = filling(
+                    (v) => Text('${(v * 100).round()}%', textDirection: TextDirection.ltr, style: percentStyle));
+                if (box.maxWidth < goalLineOnTwoBelow) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(children: [Expanded(child: titleText), percentText]),
+                      figureText,
+                    ],
+                  );
+                }
+                return Row(children: [
+                  Flexible(child: titleText),
+                  Text(' · ', style: theme.textTheme.labelMedium?.copyWith(color: cs.onSurfaceVariant)),
+                  Expanded(child: figureText),
+                  percentText,
+                ]);
+              }),
               const SizedBox(height: 6),
               ClipRRect(
                 borderRadius: BorderRadius.circular(999),

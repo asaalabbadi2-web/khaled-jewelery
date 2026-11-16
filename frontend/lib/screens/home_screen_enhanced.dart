@@ -3152,7 +3152,9 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           showPoints: showPoints,
         );
 
-    return _buildGlassCard(
+    return KeyedSubtree(
+      key: const Key('home-race-card'),
+      child: _buildGlassCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -3679,58 +3681,58 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                     (adminSummary['total_purchase_amount'] != null) ||
                     (adminSummary['total_points'] != null))) ...[
               const SizedBox(height: 8),
-              Row(
-                children: [
-                  if (adminSummary['total_sales_amount'] != null) ...[
-                    Expanded(
-                      child: _buildSummaryTileWithBorder(
-                        theme: theme,
-                        colorScheme: colorScheme,
-                        icon: Icons.north_rounded,
-                        label: isAr ? 'مبلغ المبيعات' : 'Sales',
-                        value:
-                            '${NumberFormat('#,##0', 'en').format(
-                              ((adminSummary['total_sales_amount'] as num?) ?? 0).round(),
-                            )} ${context.read<SettingsProvider>().currencySymbolText}',
-                        accent: _tone.ready.fg,
-                        borderBottomColor: _tone.ready.fg,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                  ],
-                  if (adminSummary['total_purchase_amount'] != null) ...[
-                    Expanded(
-                      child: _buildSummaryTileWithBorder(
-                        theme: theme,
-                        colorScheme: colorScheme,
-                        icon: Icons.south_rounded,
-                        label: isAr ? 'إجمالي المشتريات' : 'Purchases',
-                        value:
-                            '${NumberFormat('#,##0', 'en').format(
-                              ((adminSummary['total_purchase_amount'] as num?) ?? 0).round(),
-                            )} ${context.read<SettingsProvider>().currencySymbolText}',
-                        accent: _tone.invoicePurchase.fg,
-                        borderBottomColor: _tone.invoicePurchase.fg,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                  ],
+              // The race's totals: beside one another, or on a phone one a
+              // line, the label on one side and the whole amount on the other
+              // (the owner, 16 Nov 2026: three tiles of ~100 px cut 860,000 to
+              // «…860,0»).
+              Builder(builder: (context) {
+                final currency = context.read<SettingsProvider>().currencySymbolText;
+                String amount(Object? v) =>
+                    '${NumberFormat('#,##0', 'en').format(((v as num?) ?? 0).round())} $currency';
+                final tiles = <({IconData icon, String label, String value, Color accent, Color border})>[
+                  if (adminSummary['total_sales_amount'] != null)
+                    (icon: Icons.north_rounded, label: isAr ? 'مبلغ المبيعات' : 'Sales',
+                     value: amount(adminSummary['total_sales_amount']), accent: _tone.ready.fg, border: _tone.ready.fg),
+                  if (adminSummary['total_purchase_amount'] != null)
+                    (icon: Icons.south_rounded, label: isAr ? 'إجمالي المشتريات' : 'Purchases',
+                     value: amount(adminSummary['total_purchase_amount']), accent: _tone.invoicePurchase.fg,
+                     border: _tone.invoicePurchase.fg),
                   if (adminSummary['total_points'] != null)
-                    Expanded(
-                      child: _buildSummaryTileWithBorder(
-                        theme: theme,
-                        colorScheme: colorScheme,
-                        icon: Icons.grade_rounded,
-                        label: isAr ? 'إجمالي النقاط' : 'Points',
-                        value: isAr
-                            ? '${adminSummary['total_points']} نقطة'
-                            : '${adminSummary['total_points']} pts',
-                        accent: _tone.gold.fg,
-                        borderBottomColor: _cs.primary,
-                      ),
-                    ),
-                ],
-              ),
+                    (icon: Icons.grade_rounded, label: isAr ? 'إجمالي النقاط' : 'Points',
+                     value: isAr ? '${adminSummary['total_points']} نقطة' : '${adminSummary['total_points']} pts',
+                     accent: _tone.gold.fg, border: _cs.primary),
+                ];
+                Widget tile(({IconData icon, String label, String value, Color accent, Color border}) t) =>
+                    _buildSummaryTileWithBorder(
+                      theme: theme,
+                      colorScheme: colorScheme,
+                      icon: t.icon,
+                      label: t.label,
+                      value: t.value,
+                      accent: t.accent,
+                      borderBottomColor: t.border,
+                      inline: _narrowRaceHeader,
+                    );
+                if (_narrowRaceHeader) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final (i, t) in tiles.indexed) ...[
+                        if (i > 0) const SizedBox(height: 8),
+                        tile(t),
+                      ],
+                    ],
+                  );
+                }
+                return Row(
+                  children: [
+                    for (final (i, t) in tiles.indexed) ...[
+                      if (i > 0) const SizedBox(width: 8),
+                      Expanded(child: tile(t)),
+                    ],
+                  ],
+                );
+              }),
             ],
             ], // end else (not today-fallback)
                 ],
@@ -3738,6 +3740,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
             ),
           ],
         ),
+      ),
     );
   }
 
@@ -4027,6 +4030,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     required String value,
     required Color accent,
     required Color borderBottomColor,
+    bool inline = false,
   }) {
     final isDark = theme.brightness == Brightness.dark;
     var hovered = false;
@@ -4046,7 +4050,9 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                 duration: const Duration(milliseconds: 170),
                 curve: Curves.easeOutCubic,
                 width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(14, 14, 14, 20),
+                padding: inline
+                    ? const EdgeInsets.fromLTRB(14, 10, 14, 13)
+                    : const EdgeInsets.fromLTRB(14, 14, 14, 20),
                 decoration: BoxDecoration(
                   color: isDark
                       ? colorScheme.surfaceContainerHigh
@@ -4081,7 +4087,52 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                           ),
                         ],
                 ),
-                child: Column(
+                child: inline
+                    ? Row(
+                        children: [
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 170),
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: accent.withValues(alpha: hovered ? 0.16 : 0.10),
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                      child: AnimatedScale(
+                        duration: const Duration(milliseconds: 170),
+                        scale: hovered ? 1.08 : 1.0,
+                        child: Icon(icon, size: 16, color: accent),
+                      ),
+                    ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                      label,
+                      style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: _type.labelSmall?.fontSize,
+                        fontWeight: FontWeight.w500,
+                        color: colorScheme.onSurface.withValues(alpha: 0.52),
+                      ),
+                    ),
+                          ),
+                          const SizedBox(width: 8),
+                    cu.SarAwareText(
+                      value,
+                      isNewSar: context.read<SettingsProvider>().currencyIsNewSar,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: _type.titleLarge?.fontSize,
+                        fontWeight: FontWeight.w900,
+                        color: accent,
+                        height: 1.2,
+                      ),
+                    ),
+                        ],
+                      )
+                    : Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
