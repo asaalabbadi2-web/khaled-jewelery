@@ -88,7 +88,11 @@ def test_its_pieces_wage_is_known_and_they_are_sold(app, world, roles, showroom,
     assert [piece_wage(p) for p in pieces[:2]] == [round(12.333 * 10.01, 2)] * 2
     wages = line_wages(batch)
     assert round(sum(wages['pieces'].values()), 2) == wages['line'] == round(12.333 * 30.0, 2), 'law 5'
-    refuse_piece_sales('بيع', [{'item_id': pieces[0].id, 'weight': 10.01, 'karat': 21}])     # not refused
+    # sold at its batch's wage per gram, unrounded (the owner, 18 Nov 2026) -- not refused
+    refuse_piece_sales('بيع', [{'item_id': pieces[0].id, 'weight': 10.01, 'karat': 21, 'wage': 12.333}])
+    with pytest.raises(PieceRefused) as refused:
+        refuse_piece_sales('بيع', [{'item_id': pieces[0].id, 'weight': 10.01, 'karat': 21, 'wage': 12.33}])
+    assert refused.value.code == 'piece_wage_differs', '12.33 would leave 0.03 of its wage behind'
 
 
 def test_a_batch_weighs_no_more_than_the_location_holds(app, world, roles, showroom, bangles, receiving):

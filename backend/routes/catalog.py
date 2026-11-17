@@ -99,6 +99,15 @@ def get_items():
             return jsonify({'error': 'exclude_category_id غير صالح'}), 400
 
     items = query.all()
+    # A piece's wage is its source's, never kept on it (ADR-087 §6): sent here
+    # per gram, as the sale line reads a wage, with whether it is known yet.
+    from services.pieces import is_piece, wages_per_gram
+    pieces = [i for i in items if is_piece(i)]
+    piece_wage = wages_per_gram(pieces)
+
+    def wage_of(i):
+        return piece_wage.get(i.id) if i.id in piece_wage or is_piece(i) else i.wage
+
     return jsonify([
         {
             'id': i.id,
@@ -110,8 +119,10 @@ def get_items():
             'karat': i.karat,
             'weight': i.weight,
             'count': i.count,
-            'wage': i.wage,
-            'manufacturing_wage_per_gram': i.manufacturing_wage_per_gram,
+            'wage': wage_of(i),
+            'manufacturing_wage_per_gram': wage_of(i) if is_piece(i) else i.manufacturing_wage_per_gram,
+            'is_piece': is_piece(i),
+            'wage_known': wage_of(i) is not None if is_piece(i) else True,
             'description': i.description,
             'price': i.price,
             'stock': i.stock

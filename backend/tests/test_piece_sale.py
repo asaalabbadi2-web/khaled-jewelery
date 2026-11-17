@@ -32,14 +32,18 @@ def _piece(auth_headers, world, showroom, bangles_by_the_piece, *, invoiced=True
     if invoiced:
         build, _ = SHAPES['items only, no VAT']
         payload = build(world)
-        payload['items'][0].update(weight=20.0, category_id=line.category_id)
+        payload['items'][0].update(weight=20.0, category_id=line.category_id, wage=15.0,
+                                   manufacturing_wage_per_gram=15.0)
         status, body = _call(auth_headers, payload, posting_part='cash', complete_invoice_id=invoice.id)
         assert status in (200, 201), body
     return piece
 
 
 def _line(piece, **kw):
-    return {'item_id': piece.id, 'karat': 21, 'weight': piece.weight, 'category_id': piece.category_id, **kw}
+    from services.pieces import piece_source, source_wage_per_gram
+    per_gram = source_wage_per_gram(piece_source(piece))
+    return {'item_id': piece.id, 'karat': 21, 'weight': piece.weight, 'category_id': piece.category_id,
+            'wage': per_gram if per_gram is not None else 0.0, **kw}
 
 
 def _refusal(items):
@@ -53,6 +57,19 @@ def _refusal(items):
 def test_a_piece_in_stock_its_wage_known_is_sold(auth_headers, world, roles, showroom, bangles_by_the_piece):
     piece = _piece(auth_headers, world, showroom, bangles_by_the_piece)
     assert _refusal([_line(piece)]) is None
+
+
+def test_sold_at_its_invoices_wage_and_no_other(auth_headers, world, roles, showroom, bangles_by_the_piece):
+    """The owner, 18 Nov 2026: a piece's line is not edited -- its weight, and its
+    wage: the sale releases wage x weight from the wages' stock to the expense."""
+    piece = _piece(auth_headers, world, showroom, bangles_by_the_piece)
+    right = _line(piece)['wage']
+    assert _refusal([_line(piece, wage=right + 5)]) == 'piece_wage_differs'
+    assert _refusal([_line(piece, wage=0)]) == 'piece_wage_differs', 'the 0 the screen showed'
+    no_wage = _line(piece)
+    no_wage.pop('wage')
+    assert _refusal([no_wage]) == 'piece_wage_differs'
+    assert _refusal([_line(piece, wage=right)]) is None
 
 
 def test_its_wage_unknown_it_is_not(auth_headers, world, roles, showroom, bangles_by_the_piece):

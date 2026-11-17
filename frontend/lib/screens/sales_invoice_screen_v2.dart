@@ -272,6 +272,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
               'karat': i.karat,
               'weight': i.weight,
               'wage': i.wage,
+              'wage_locked': i.wageLocked,
+              'is_piece': i.isPiece,
               'category_id': i.categoryId,
               'category_name': i.categoryName,
               'count': i.count,
@@ -401,6 +403,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
           karat: toDouble(map['karat']),
           weight: toDouble(map['weight']),
           wage: toDouble(map['wage']),
+          wageLocked: map['wage_locked'] == true || map['is_piece'] == true,
+          isPiece: map['is_piece'] == true,
           categoryId: toInt(map['category_id']),
           categoryName: map['category_name']?.toString(),
           count: toInt(map['count']) ?? 1,
@@ -861,6 +865,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
       if (mounted) {
         setState(() {
           _availableItems = normalized;
+          _markPieces();
         });
       }
     } catch (e) {
@@ -1535,6 +1540,18 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
 
     double wage = _parseDouble(itemData['wage']);
     bool wageLocked = false;
+    // A piece's wage is its invoice's (ADR-087 §6), sent by the server per
+    // gram: its own, locked -- no category's default over it. Its invoice not
+    // completed, it is not sold yet: said now, not at the save.
+    final isPiece = itemData['is_piece'] == true;
+    if (isPiece && itemData['wage_known'] == false) {
+      _showError(
+        'القطعة ${itemData['item_code'] ?? ''} لم تُستكمل فاتورة استلامها: '
+        'أجرتها غير معروفة، فلا تُباع حتى تُكمَل الفاتورة',
+      );
+      return false;
+    }
+    if (isPiece) wageLocked = true;
 
     final weight = _parseDouble(itemData['weight']);
 
@@ -1559,7 +1576,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
           final catWage = rawCatWage is num
               ? rawCatWage.toDouble()
               : double.tryParse('${rawCatWage ?? ''}');
-          if (catWage != null && catWage > 0) {
+          if (!isPiece && catWage != null && catWage > 0) {
             wage = catWage;
             wageLocked = true;
           }
@@ -1579,6 +1596,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
           weight: weight,
           wage: wage,
           wageLocked: wageLocked,
+          isPiece: isPiece,
           categoryId: categoryId,
           categoryName: categoryName,
           goldPrices: _goldPrices,
@@ -2108,7 +2126,26 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
   }
 
   // ==================== Item Actions ====================
+  /// The lines that are coded pieces, as the items' list says: their weight
+  /// and wage locked -- a line read back from an invoice being edited too.
+  void _markPieces() {
+    final pieces = {
+      for (final i in _availableItems)
+        if (i['is_piece'] == true) _parseInt(i['id']),
+    };
+    for (final line in _items) {
+      if (line.id != null && pieces.contains(line.id)) {
+        line.isPiece = true;
+        line.wageLocked = true;
+      }
+    }
+  }
+
   void _updateItem(int index, String field, double value) {
+    if (_items[index].isPiece && (field == 'weight' || field == 'wage')) {
+      _showError('القطعة تُباع بوزنها وأجرة فاتورتها: لا يُعدَّلان');
+      return;
+    }
     setState(() {
       final item = _items[index];
       bool requiresManualTargetRecalculation = false;
@@ -4291,8 +4328,19 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
                   ),
                 );
 
-  Widget _saleWeightCell(int index, InvoiceItem item, TextStyle? cellStyle) => _uiLockPriceEdits
-                    ? Text(cu.formatGrams(item.weight), style: cellStyle)
+  Widget _saleWeightCell(int index, InvoiceItem item, TextStyle? cellStyle) => (item.isPiece || _uiLockPriceEdits)
+                    ? Row(
+                        key: Key('sale-weight-locked-$index'),
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (item.isPiece)
+                            const Padding(
+                              padding: EdgeInsets.only(left: 4),
+                              child: Icon(Icons.lock, size: 11),
+                            ),
+                          Text(cu.formatGrams(item.weight), style: cellStyle),
+                        ],
+                      )
                     : InlineNumberCell(
                         key: ObjectKey(item),
                         value: item.weight,
@@ -4432,6 +4480,10 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
   ) async {
     if (_uiLockPriceEdits) {
       _showError('التعديلات مقفلة من إعدادات الفاتورة');
+      return;
+    }
+    if (_items[index].isPiece && (field == 'weight' || field == 'wage')) {
+      _showError('القطعة تُباع بوزنها وأجرة فاتورتها: لا يُعدَّلان');
       return;
     }
 
@@ -5429,7 +5481,11 @@ class InvoiceItem {
   double karat;
   double weight;
   double wage; // أجور المصنعية للجرام الواحد
-  final bool wageLocked; // محدد من التصنيف — غير قابل للتعديل
+  bool wageLocked; // محدد من التصنيف أو من فاتورة القطعة — غير قابل للتعديل
+
+  /// A coded piece (ADR-087): its weight and its wage are its receipt's --
+  /// the server refuses another, so the line does not offer to change them.
+  bool isPiece;
   final int? categoryId;
   final String? categoryName;
   GoldPrices goldPrices;
@@ -5470,6 +5526,7 @@ class InvoiceItem {
     required this.weight,
     required this.wage,
     this.wageLocked = false,
+    this.isPiece = false,
     this.categoryId,
     this.categoryName,
     this.count = 1,

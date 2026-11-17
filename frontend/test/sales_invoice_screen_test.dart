@@ -10,6 +10,7 @@ import 'package:frontend/models/safe_box_model.dart';
 import 'package:frontend/providers/settings_provider.dart';
 import 'package:frontend/screens/invoices_list_screen.dart';
 import 'package:frontend/screens/sales_invoice_screen_v2.dart';
+import 'package:frontend/widgets/inline_number_cell.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -287,6 +288,43 @@ void main() {
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pumpAndSettle();
     }
+
+    // The owner, 18 Nov 2026: «لم يتم تطبيق أجور الفاتورة على القطعة في
+    // فاتورة البيع، ظهرت 0». A piece's wage is its invoice's (ADR-087 §6),
+    // sent by the server per gram: its own, locked, no category's default
+    // over it; its invoice not completed, it is not added, and says why.
+    const coded = {
+      'id': 41, 'item_code': 'KJ-000005', 'barcode': 'KJ-000005', 'name': 'بنجرة الشمس', 'karat': 21,
+      'weight': 15.0, 'wage': 15.0, 'is_piece': true, 'wage_known': true, 'category_id': 1,
+    };
+
+    testWidgets('a coded piece takes its invoice\'s wage, locked, over the category\'s', (tester) async {
+      await open(
+        tester,
+        api: FakeSalesApi(categories: const [{'id': 1, 'name': 'بنجرة ذهب 21', 'karat': 21, 'default_wage': 30}]),
+        items: [coded],
+      );
+      await scan(tester, 'KJ-000005');
+      expect(find.text('1 صنف'), findsWidgets);
+      expect(find.text('15.00'), findsWidgets, reason: 'its invoice\'s 15 a gram, not 0 nor the category\'s 30');
+      expect(find.text('30.00'), findsNothing);
+      expect(find.byIcon(Icons.lock), findsWidgets);
+    });
+
+    testWidgets('a piece line offers no weight nor wage to change', (tester) async {
+      await open(tester, api: FakeSalesApi(), items: [coded]);
+      await scan(tester, 'KJ-000005');
+      expect(find.byKey(const Key('sale-weight-locked-0')), findsOneWidget);
+      expect(find.widgetWithText(InlineNumberCell, '15.000'), findsNothing);
+      expect(find.byIcon(Icons.lock), findsNWidgets(2), reason: 'its weight and its wage');
+    });
+
+    testWidgets('a piece whose invoice is not completed is not added, and says why', (tester) async {
+      await open(tester, api: FakeSalesApi(), items: [{...coded, 'wage': null, 'wage_known': false}]);
+      await scan(tester, 'KJ-000005');
+      expect(find.text('لم تتم إضافة أصناف بعد'), findsOneWidget);
+      expect(find.textContaining('لم تُستكمل فاتورة استلامها'), findsOneWidget);
+    });
 
     testWidgets('a piece scanned twice is in the invoice once', (tester) async {
       await open(tester, api: FakeSalesApi(), items: [piece]);

@@ -213,7 +213,8 @@ def refuse_piece_sales(invoice_type, items) -> None:
     """A sale's lines against the piece's laws, or PieceRefused (ADR-087 R3.2;
     ADR-045; ADR-085 law 3): a piece in the stock -- not sold twice; its
     receipt's invoice completed -- never sold with its wage unknown (law 8);
-    the line its weight; a category tracked by the piece sold by its pieces."""
+    the line its weight and its invoice's wage per gram; a category tracked
+    by the piece sold by its pieces."""
     if (invoice_type or '').strip() != 'بيع':
         return
     for n, line in enumerate(items or [], start=1):
@@ -241,6 +242,17 @@ def refuse_piece_sales(invoice_type, items) -> None:
         if abs(weight - round(float(piece.weight or 0), 3)) > GRAM:
             raise PieceRefused('piece_weight_differs',
                                f'السطر {n}: القطعة {piece.item_code} تُباع بوزنها ({float(piece.weight):.2f} جم)')
+        # its wage is its invoice's (§6), and the sale releases wage x weight
+        # from the wages' stock to the expense: a wage typed is a wrong entry
+        # (the owner, 18 Nov 2026)
+        per_gram = source_wage_per_gram(piece_source(piece))
+        try:
+            sent = float(line.get('wage'))
+        except (TypeError, ValueError):
+            sent = None
+        if sent is None or abs(sent - per_gram) > 0.0005:
+            raise PieceRefused('piece_wage_differs',
+                               f'السطر {n}: القطعة {piece.item_code} تُباع بأجرة فاتورتها ({per_gram:.2f} للجرام)')
 
 
 # ── receiving alone makes a piece (ADR-087 §5, law 3; R3.3) ──────────────────
@@ -429,7 +441,27 @@ def source_wage_per_gram(source):
     """A receipt line's wage per gram once its invoice is completed, a batch's
     as entered -- None while unknown (law 8)."""
     wages = line_wages(source)
-    return None if wages is None else round(float(wages['per_gram']), 2)
+    # unrounded: the sale releases wage x weight, and 12.333 rounded to 12.33
+    # would leave 0.03 of a 10.01 g piece's wage in the wages' stock
+    return None if wages is None else round(float(wages['per_gram']), 6)
+
+
+def wages_per_gram(pieces) -> dict:
+    """{piece id: its wage per gram -- its receipt line's once the invoice is
+    completed, its batch's as entered; None while unknown (law 8)} -- one
+    reading a source, for the lists that show many pieces."""
+    by_source: dict = {}
+    for piece in pieces:
+        key = ('line', piece.receipt_item_id) if piece.receipt_item_id else \
+            ('batch', piece.coding_id) if getattr(piece, 'coding_id', None) else None
+        if key is not None:
+            by_source.setdefault(key, []).append(piece.id)
+    out = {}
+    for (kind, source_id), ids in by_source.items():
+        source = db.session.get(InvoiceItem if kind == 'line' else StockCoding, source_id)
+        per_gram = source_wage_per_gram(source) if source is not None else None
+        out.update({i: per_gram for i in ids})
+    return out
 
 
 WAGE_SAME, WAGE_DIFFERS, WAGE_AWAITING, WAGE_NO_EXPECTED = 'same', 'model_wage_differs', 'awaiting_invoice', \
