@@ -1269,6 +1269,8 @@ class ApiService {
     int? categoryId,
     int? karat,
     int? safeBoxId,
+    String? modelId,
+    String? sizeId,
     String state = 'in_stock',
     String sort = 'number',
     bool ascending = false,
@@ -1281,6 +1283,8 @@ class ApiService {
       if (categoryId != null) 'category_id': '$categoryId',
       if (karat != null) 'karat': '$karat',
       if (safeBoxId != null) 'safe_box_id': '$safeBoxId',
+      if (modelId != null) 'model_id': modelId,
+      if (sizeId != null) 'size_id': sizeId,
       'state': state,
       'sort': sort,
       'dir': ascending ? 'asc' : 'desc',
@@ -1294,6 +1298,13 @@ class ApiService {
     }
     throw _apiError(response);
   }
+
+  /// A piece's words (ADR-093 §5): name, description, model_id, size_id --
+  /// recorded; its book facts stay. `{piece, changed}`.
+  Future<Map<String, dynamic>> updatePiece(int id, Map<String, dynamic> body) => _sizeSystemWrite(
+    () => _authedPatch(Uri.parse('$_baseUrl/pieces/$id'), body: json.encode(body)),
+    'لم يُحفظ التعديل',
+  );
 
   Future<List<dynamic>> getCategories({bool includeInactive = false}) async {
     final response = await _authedGet(Uri.parse(

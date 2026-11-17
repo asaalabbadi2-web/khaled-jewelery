@@ -9,9 +9,13 @@ import '../models/safe_box_model.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_semantic_colors.dart';
 import '../theme/app_tokens.dart';
+import '../utils/display_date.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/app_state_views.dart';
 import 'barcode_print_screen.dart';
+import 'items_screen_enhanced.dart' show showCategoriesManagement;
+import 'piece_models_screen.dart';
+import 'size_systems_screen.dart';
 
 /// The piece states the server says (services/pieces.PIECE_STATES), in the
 /// screen's words -- it adds none of its own.
@@ -50,6 +54,9 @@ class _PiecesScreenState extends State<PiecesScreen> {
   int? _categoryId;
   int? _karat;
   int? _safeBoxId;
+  // a model's or a size's id, or «none» for the pieces without (ADR-093 §4)
+  String? _model;
+  String? _size;
   String _sort = 'number';
   bool _ascending = false;
   int _page = 1;
@@ -62,6 +69,8 @@ class _PiecesScreenState extends State<PiecesScreen> {
 
   List<Map<String, dynamic>> _categories = const [];
   List<SafeBoxModel> _places = const [];
+  List<Map<String, dynamic>> _models = const [];
+  List<Map<String, dynamic>> _systems = const [];
 
   final _grams = NumberFormat('#,##0.00', 'en');
   final _money = NumberFormat('#,##0.##', 'en');
@@ -98,7 +107,32 @@ class _PiecesScreenState extends State<PiecesScreen> {
     } catch (_) {
       // The filters stay at «الكل»; the list itself says if it cannot load.
     }
+    try {
+      final models = await widget.api.getPieceModels(includeInactive: true);
+      final systems = await widget.api.getSizeSystems();
+      if (!mounted) return;
+      setState(() {
+        _models = models;
+        _systems = systems;
+      });
+    } catch (_) {
+      // without them, no model or size filter is offered
+    }
   }
+
+  Map<String, dynamic>? _categoryOf(int? id) =>
+      id == null ? null : _categories.where((c) => c['id'] == id).firstOrNull;
+
+  /// The sizes of a category's size system.
+  List<Map<String, dynamic>> _sizesOf(int? categoryId) {
+    final systemId = _categoryOf(categoryId)?['size_system_id'];
+    final system = systemId == null ? null : _systems.where((s) => s['id'] == systemId).firstOrNull;
+    return [for (final s in (system?['sizes'] as List? ?? const [])) Map<String, dynamic>.from(s as Map)];
+  }
+
+  String _modelOf(Map<String, dynamic> p) => (p['model'] as Map?)?['name']?.toString() ?? '—';
+
+  String _sizeOf(Map<String, dynamic> p) => (p['size'] as Map?)?['label']?.toString() ?? '—';
 
   /// Reads the page asked: a new reading ends the last at once.
   Future<void> _load() async {
@@ -112,6 +146,8 @@ class _PiecesScreenState extends State<PiecesScreen> {
         categoryId: _categoryId,
         karat: _karat,
         safeBoxId: _safeBoxId,
+        modelId: _model,
+        sizeId: _size,
         state: _state,
         sort: _sort,
         ascending: _ascending,
@@ -183,10 +219,7 @@ class _PiecesScreenState extends State<PiecesScreen> {
     return wage is num && weight > 0 ? _grams.format(wage / weight) : null;
   }
 
-  String _date(Object? iso) {
-    final parsed = DateTime.tryParse('${iso ?? ''}');
-    return parsed == null ? '—' : DateFormat('dd/MM/yyyy', 'en').format(parsed);
-  }
+  String _date(Object? iso) => displayDate(iso);
 
   String _receivedFrom(Map<String, dynamic> p) {
     final received = p['received'] as Map?;
@@ -248,42 +281,94 @@ class _PiecesScreenState extends State<PiecesScreen> {
     );
   }
 
+  /// A piece's words (ADR-093 §5): its name, description, model and size --
+  /// descriptions, recorded by the server; its book facts stay.
   Future<void> _editText(Map<String, dynamic> p) async {
     final name = TextEditingController(text: '${p['name'] ?? ''}');
     final description = TextEditingController(text: '${p['description'] ?? ''}');
+    final models = [
+      for (final m in _models)
+        if ((m['category'] as Map?)?['id'] == p['category_id'] && (m['is_active'] != false || m['id'] == (p['model'] as Map?)?['id'])) m,
+    ];
+    int? modelId = (p['model'] as Map?)?['id'] as int?;
+    int? sizeId = (p['size'] as Map?)?['id'] as int?;
+    List<Map<String, dynamic>> offered() {
+      final model = models.where((m) => m['id'] == modelId).firstOrNull;
+      final named = [for (final s in (model?['sizes'] as List? ?? const [])) Map<String, dynamic>.from(s as Map)];
+      return named.isNotEmpty ? named : _sizesOf(p['category_id'] as int?);
+    }
+
     final saved = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('تعديل ${p['item_code']}'),
-        content: SizedBox(
-          width: 420,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                key: const Key('piece-edit-name'),
-                controller: name,
-                decoration: const InputDecoration(labelText: 'الاسم'),
-              ),
-              const SizedBox(height: AppSpace.md),
-              TextField(
-                key: const Key('piece-edit-description'),
-                controller: description,
-                maxLines: 3,
-                decoration: const InputDecoration(labelText: 'الوصف'),
-              ),
-              const SizedBox(height: AppSpace.md),
-              Text(
-                'الوزن والعيار والتصنيف والأحجار والمصنعية حقائق استلامها، فلا تُعدَّل.',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialog) => AlertDialog(
+          title: Text('تعديل ${p['item_code']}'),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  key: const Key('piece-edit-name'),
+                  controller: name,
+                  decoration: const InputDecoration(labelText: 'الاسم'),
+                ),
+                const SizedBox(height: AppSpace.md),
+                TextField(
+                  key: const Key('piece-edit-description'),
+                  controller: description,
+                  maxLines: 3,
+                  decoration: const InputDecoration(labelText: 'الوصف'),
+                ),
+                const SizedBox(height: AppSpace.md),
+                DropdownButtonFormField<int?>(
+                  key: const Key('piece-edit-model'),
+                  initialValue: modelId,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'الموديل'),
+                  items: [
+                    const DropdownMenuItem<int?>(value: null, child: Text('بلا موديل')),
+                    for (final m in models)
+                      DropdownMenuItem<int?>(value: m['id'] as int, child: Text('${m['name']}')),
+                  ],
+                  onChanged: (v) => setDialog(() {
+                    modelId = v;
+                    if (!offered().any((s) => s['id'] == sizeId)) sizeId = null;
+                  }),
+                ),
+                if (offered().isNotEmpty) ...[
+                  const SizedBox(height: AppSpace.md),
+                  DropdownButtonFormField<int?>(
+                    key: ValueKey('piece-edit-size-$modelId'),
+                    initialValue: sizeId,
+                    isExpanded: true,
+                    decoration: const InputDecoration(labelText: 'المقاس'),
+                    items: [
+                      const DropdownMenuItem<int?>(value: null, child: Text('بلا مقاس')),
+                      for (final s in offered())
+                        DropdownMenuItem<int?>(value: s['id'] as int, child: Text('${s['label']}')),
+                    ],
+                    onChanged: (v) => setDialog(() => sizeId = v),
+                  ),
+                ],
+                const SizedBox(height: AppSpace.md),
+                Text(
+                  'الوزن والعيار والتصنيف والأحجار والمصنعية حقائق استلامها، فلا تُعدَّل. '
+                  'الاسم والوصف والموديل والمقاس أوصاف، ويُسجَّل كل تعديل لها.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
           ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('إلغاء')),
+            FilledButton(
+              key: const Key('piece-edit-save'),
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('حفظ'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('إلغاء')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('حفظ')),
-        ],
       ),
     );
     if (saved != true || !mounted) return;
@@ -292,9 +377,14 @@ class _PiecesScreenState extends State<PiecesScreen> {
       return;
     }
     try {
-      await widget.api.updateItem(p['id'] as int, {'name': name.text.trim(), 'description': description.text.trim()});
+      await widget.api.updatePiece(p['id'] as int, {
+        'name': name.text.trim(),
+        'description': description.text.trim(),
+        'model_id': modelId,
+        'size_id': sizeId,
+      });
       if (!mounted) return;
-      AppFeedback.success(context, 'حُفظ اسم القطعة ووصفها');
+      AppFeedback.success(context, 'حُفظ تعديل القطعة ${p['item_code']}');
       _load();
     } catch (error) {
       if (mounted) AppFeedback.error(context, error, title: 'لم يُحفظ التعديل');
@@ -310,7 +400,7 @@ class _PiecesScreenState extends State<PiecesScreen> {
     onSelected: (choice) => choice == 'print' ? _print(p) : _editText(p),
     itemBuilder: (_) => [
       const PopupMenuItem(value: 'print', child: Text('طباعة البطاقة')),
-      if (_canEdit) const PopupMenuItem(value: 'edit', child: Text('تعديل الاسم والوصف')),
+      if (_canEdit) const PopupMenuItem(value: 'edit', child: Text('تعديل الوصف والموديل والمقاس')),
     ],
   );
 
@@ -322,6 +412,8 @@ class _PiecesScreenState extends State<PiecesScreen> {
       karat: _karatChip(p['karat']),
       weight: _weight(p['weight']),
       facts: [
+        ('الموديل', p['model'] == null ? 'بلا موديل' : _modelOf(p)),
+        ('المقاس', p['size'] == null ? 'بلا مقاس' : _sizeOf(p)),
         ('الأحجار', (p['stones_weight'] as num? ?? 0) > 0 ? '${_weight(p['stones_weight'])} جم' : 'بلا أحجار'),
         ('المصنعية', _wage(p) == null ? 'بانتظار الفاتورة' : '${_wage(p)} ر.س · ${_perGram(p)} للجرام'),
         (
@@ -364,7 +456,33 @@ class _PiecesScreenState extends State<PiecesScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('القطع')),
+      appBar: AppBar(
+        title: const Text('القطع'),
+        actions: [
+          IconButton(
+            key: const Key('pieces-models'),
+            tooltip: 'الموديلات',
+            icon: const Icon(Icons.style_outlined),
+            onPressed: () => Navigator.of(context)
+                .push(MaterialPageRoute<void>(builder: (_) => PieceModelsScreen(api: widget.api)))
+                .then((_) => _loadChoices()),
+          ),
+          IconButton(
+            key: const Key('pieces-size-systems'),
+            tooltip: 'أنظمة المقاسات',
+            icon: const Icon(Icons.straighten),
+            onPressed: () => Navigator.of(context)
+                .push(MaterialPageRoute<void>(builder: (_) => SizeSystemsScreen(api: widget.api)))
+                .then((_) => _loadChoices()),
+          ),
+          IconButton(
+            key: const Key('pieces-categories'),
+            tooltip: 'إدارة التصنيفات',
+            icon: const Icon(Icons.category_outlined),
+            onPressed: () => showCategoriesManagement(context, widget.api, onChanged: _loadChoices),
+          ),
+        ],
+      ),
       body: _data == null && _error != null
           ? AppErrorView(title: 'تعذّر تحميل القطع', error: _error!, onRetry: _load)
           : _data == null
@@ -481,9 +599,50 @@ class _PiecesScreenState extends State<PiecesScreen> {
                   child: Text('${c['name']}', overflow: TextOverflow.ellipsis),
                 ),
             ],
-            onChanged: (v) => _filter(() => _categoryId = v),
+            onChanged: (v) => _filter(() {
+              _categoryId = v;
+              _size = null; // a size is its category's system's
+            }),
           ),
         ),
+        if (_models.isNotEmpty)
+          sized(
+            190,
+            DropdownButtonFormField<String?>(
+              key: const Key('pieces-model'),
+              initialValue: _model,
+              isExpanded: true,
+              decoration: box('الموديل'),
+              items: [
+                const DropdownMenuItem<String?>(value: null, child: Text('الكل')),
+                const DropdownMenuItem<String?>(value: 'none', child: Text('بلا موديل')),
+                for (final m in _models)
+                  if (_categoryId == null || (m['category'] as Map?)?['id'] == _categoryId)
+                    DropdownMenuItem<String?>(
+                      value: '${m['id']}',
+                      child: Text('${m['name']}', overflow: TextOverflow.ellipsis),
+                    ),
+              ],
+              onChanged: (v) => _filter(() => _model = v),
+            ),
+          ),
+        if (_sizesOf(_categoryId).isNotEmpty)
+          sized(
+            120,
+            DropdownButtonFormField<String?>(
+              key: const Key('pieces-size'),
+              initialValue: _size,
+              isExpanded: true,
+              decoration: box('المقاس'),
+              items: [
+                const DropdownMenuItem<String?>(value: null, child: Text('الكل')),
+                const DropdownMenuItem<String?>(value: 'none', child: Text('بلا مقاس')),
+                for (final s in _sizesOf(_categoryId))
+                  DropdownMenuItem<String?>(value: '${s['id']}', child: Text('${s['label']}')),
+              ],
+              onChanged: (v) => _filter(() => _size = v),
+            ),
+          ),
         sized(
           120,
           DropdownButtonFormField<int?>(
@@ -548,6 +707,8 @@ class _PiecesScreenState extends State<PiecesScreen> {
     final columns = <(String, String?)>[
       ('رقم القطعة', 'number'),
       ('الاسم', 'name'),
+      ('الموديل', null),
+      ('المقاس', null),
       ('التصنيف', null),
       ('العيار', null),
       ('الوزن', 'weight'),
@@ -599,6 +760,8 @@ class _PiecesScreenState extends State<PiecesScreen> {
                         ),
                       ),
                       DataCell(Text('${p['name'] ?? ''}', style: const TextStyle(fontWeight: FontWeight.w700))),
+                      DataCell(Text(_modelOf(p))),
+                      DataCell(_ltr(_sizeOf(p))),
                       DataCell(Text('${p['category_name'] ?? '—'}')),
                       DataCell(_karatChip(p['karat'])),
                       DataCell(Text('${_weight(p['weight'])} جم', style: const TextStyle(fontWeight: FontWeight.w800))),
@@ -691,6 +854,7 @@ class _PiecesScreenState extends State<PiecesScreen> {
                           ),
                         ),
                         Text('· ${p['category_name'] ?? ''}', style: theme.textTheme.bodySmall),
+                        if (p['size'] != null) Text('· مقاس ${_sizeOf(p)}', style: theme.textTheme.bodySmall),
                       ],
                     ),
                     const SizedBox(height: AppSpace.xs),
@@ -857,7 +1021,7 @@ class _PieceCard extends StatelessWidget {
                 if (onEdit != null) ...[
                   const SizedBox(width: AppSpace.sm),
                   Expanded(
-                    child: OutlinedButton(onPressed: onEdit, child: const Text('تعديل الاسم والوصف')),
+                    child: OutlinedButton(onPressed: onEdit, child: const Text('تعديل الوصف والموديل والمقاس')),
                   ),
                 ],
               ],

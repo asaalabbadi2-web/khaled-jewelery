@@ -16,6 +16,9 @@ its pieces are counted.
 """
 from __future__ import annotations
 
+import json
+import re
+
 from sqlalchemy import func
 
 from models import (Category, Invoice, InvoiceItem, Item, JournalEntry, JournalEntryLine, PIECE_NUMBER,
@@ -288,6 +291,57 @@ def refuse_piece_edit(item: Item, data: dict) -> None:
     for fact in PIECE_FIXED:
         if fact in (data or {}) and not _same(fact, getattr(item, fact), data[fact]):
             raise PieceRefused('piece_fixed', f'لا يُعدَّل في القطعة {item.item_code} إلا اسمها ووصفها')
+
+
+_KEEP = object()
+
+
+def update_piece_words(piece: Item, *, name=_KEEP, description=_KEEP, model_id=_KEEP, size_id=_KEEP,
+                       by: str, now) -> dict:
+    """A piece's words: its name, its description, its model and its size
+    (ADR-093 §5) -- descriptions, edited and recorded; its book facts stay
+    (PIECE_FIXED). Its model and size by model_and_size's laws, against what
+    it will be. Returns what changed, {fact: [before, after]}; the caller commits."""
+    from models import AuditLog, PieceModel, SizeSystemSize
+    if not is_piece(piece):
+        raise PieceRefused('piece_not_found', 'ليست قطعة')
+    category = db.session.get(Category, piece.category_id)
+    new_model = piece.model_id if model_id is _KEEP else (int(model_id) if model_id not in (None, '', 0) else None)
+    new_size = piece.size_id if size_id is _KEEP else (int(size_id) if size_id not in (None, '', 0) else None)
+    if new_model != piece.model_id or new_size != piece.size_id:
+        model_and_size(category, new_model, new_size)
+
+    def label(kind, value):
+        if value is None:
+            return None
+        row = db.session.get(PieceModel if kind == 'model' else SizeSystemSize, value)
+        return getattr(row, 'name' if kind == 'model' else 'label', None)
+
+    changed = {}
+    if name is not _KEEP:
+        text = re.sub(r'\s+', ' ', str(name or '')).strip()
+        if not text:
+            raise PieceRefused('piece_name_empty', 'اكتب اسم القطعة')
+        if text != (piece.name or ''):
+            changed['name'] = [piece.name, text[:100]]
+            piece.name = text[:100]
+    if description is not _KEEP:
+        text = str(description or '').strip()[:200] or None
+        if text != (piece.description or None):
+            changed['description'] = [piece.description, text]
+            piece.description = text
+    if new_model != piece.model_id:
+        changed['model'] = [label('model', piece.model_id), label('model', new_model)]
+        piece.model_id = new_model
+    if new_size != piece.size_id:
+        changed['size'] = [label('size', piece.size_id), label('size', new_size)]
+        piece.size_id = new_size
+    if changed:
+        db.session.flush()
+        AuditLog.log_action(user_name=by, action='piece_words_edited', entity_type='Item', entity_id=piece.id,
+                            entity_number=piece.item_code,
+                            details=json.dumps({'changed': changed, 'at': now.isoformat()}, ensure_ascii=False))
+    return changed
 
 
 def refuse_piece_delete(item: Item) -> None:
@@ -756,8 +810,11 @@ def _received_view(piece: Item) -> dict | None:
     return None
 
 
-def pieces_list(*, q=None, category_id=None, karat=None, safe_box_id=None, state='in_stock', sort='number',
-                descending=True, page=1, per_page=25, today) -> dict:
+NO_MODEL = 'none'      # the filter for the pieces with no model -- or no size (ADR-093 §4)
+
+
+def pieces_list(*, q=None, category_id=None, karat=None, safe_box_id=None, model_id=None, size_id=None,
+                state='in_stock', sort='number', descending=True, page=1, per_page=25, today) -> dict:
     """The pieces -- searched by number, name or a tag read; filtered by
     category, karat, place and state ('all' for every state); sorted and
     paged -- each with its place, state and receipt; and the shop's summary,
@@ -778,6 +835,16 @@ def pieces_list(*, q=None, category_id=None, karat=None, safe_box_id=None, state
         query = query.filter(Item.category_id == int(category_id))
     if karat is not None:
         query = query.filter(Item.karat == str(int(karat)))
+    for column, value in ((Item.model_id, model_id), (Item.size_id, size_id)):
+        if value in (None, ''):
+            continue
+        if str(value) == NO_MODEL:
+            query = query.filter(column.is_(None))
+        else:
+            try:
+                query = query.filter(column == int(value))
+            except (TypeError, ValueError):
+                raise PiecesFilterInvalid('الموديل والمقاس رقمان، أو «none» لما ليس له') from None
     text = str(q or '').strip()
     if text:
         tagged = db.session.query(PieceTag.item_id).filter(PieceTag.value == text.upper(),

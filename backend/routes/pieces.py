@@ -13,8 +13,11 @@ GET  /api/pieces/wage-check       -- line_id or coding_id, model_id: the
 GET  /api/pieces                  -- the pieces' list (the owner, 16 Nov 2026):
      q, category_id, karat, safe_box_id, state (in_stock | sold |
      returned_to_supplier | out | all; in_stock unless asked), sort
-     (number | weight | name), dir (asc | desc), page, per_page -- each
-     piece with its place, state and receipt, and the shop's summary.
+     (number | weight | name), dir (asc | desc), page, per_page, model_id
+     and size_id (a number, or «none» for the pieces without) -- each piece
+     with its place, state and receipt, and the shop's summary.
+PATCH /api/pieces/<id>            -- its words (ADR-093 §5): name, description,
+     model_id, size_id -- recorded; its book facts stay.
 GET  /api/pieces/lookup?code=     -- a piece by its number: its view and
      where it is (the transfer screen, R3.6).
 POST /api/pieces/<id>/tag         -- its tag mounted: by default the number's
@@ -144,13 +147,33 @@ def pieces_index():
         return int(value) if value else None
     try:
         listed = pieces_list(q=args.get('q'), category_id=number('category_id'), karat=number('karat'),
-                             safe_box_id=number('safe_box_id'), state=args.get('state') or 'in_stock',
+                             safe_box_id=number('safe_box_id'), model_id=args.get('model_id'),
+                             size_id=args.get('size_id'), state=args.get('state') or 'in_stock',
                              sort=args.get('sort') or 'number', descending=(args.get('dir') or 'desc') != 'asc',
                              page=args.get('page') or 1, per_page=args.get('per_page') or 25,
                              today=datetime.now())
     except (PiecesFilterInvalid, ValueError) as refused:
         return jsonify({'error': 'pieces_filter_invalid', 'message': str(refused)}), 400
     return jsonify(listed), 200
+
+
+@pieces_bp.route('/pieces/<int:piece_id>', methods=['PATCH'])
+@require_permission('items.edit')
+def piece_words(piece_id: int):
+    """A piece's words (ADR-093 §5): name, description, model_id, size_id --
+    what is given changes, recorded; its book facts stay."""
+    from services.pieces import update_piece_words
+    piece = Item.query.get_or_404(piece_id)
+    data = request.get_json(silent=True) or {}
+    try:
+        changed = update_piece_words(piece, by=_by(), now=datetime.now(),
+                                     **{k: data[k] for k in ('name', 'description', 'model_id', 'size_id')
+                                        if k in data})
+    except PieceRefused as refused:
+        db.session.rollback()
+        return jsonify({'error': refused.code, 'message': refused.message}), 400
+    db.session.commit()
+    return jsonify({'piece': piece_view(piece), 'changed': changed}), 200
 
 
 @pieces_bp.route('/pieces/lookup', methods=['GET'])

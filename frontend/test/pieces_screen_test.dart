@@ -24,7 +24,8 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 Map<String, dynamic> _piece(String code, String name, double weight,
-        {String state = 'in_stock', double? wage, String? tag, double stones = 0, String? place = 'المعرض'}) =>
+        {String state = 'in_stock', double? wage, String? tag, double stones = 0, String? place = 'المعرض',
+        Map<String, dynamic>? model, Map<String, dynamic>? size}) =>
     {
       'id': int.parse(code.substring(3)),
       'item_code': code,
@@ -43,6 +44,8 @@ Map<String, dynamic> _piece(String code, String name, double weight,
       'left_at': state == 'in_stock' ? null : '2026-11-10',
       'category_id': 3,
       'category_name': 'بنجرة ذهب 21',
+      'model': model,
+      'size': size,
       'received': {
         'kind': 'receipt',
         'date': '2027-01-03',
@@ -66,6 +69,8 @@ class _FakeApi extends ApiService {
     int? categoryId,
     int? karat,
     int? safeBoxId,
+    String? modelId,
+    String? sizeId,
     String state = 'in_stock',
     String sort = 'number',
     bool ascending = false,
@@ -74,11 +79,12 @@ class _FakeApi extends ApiService {
     ApiCancelToken? cancel,
   }) async {
     asked.add({'q': q, 'category': categoryId, 'karat': karat, 'place': safeBoxId, 'state': state, 'sort': sort,
-               'asc': ascending, 'page': page});
+               'asc': ascending, 'page': page, 'model': modelId, 'size': sizeId});
     if (fail) throw ApiException.text('الخادم لا يجيب');
     final list = pieces ??
         [
-          _piece('KJ-000241', 'بنجرة حرير', 12.4, wage: 160, tag: 'EPC1'),
+          _piece('KJ-000241', 'بنجرة حرير', 12.4, wage: 160, tag: 'EPC1',
+              model: {'id': 5, 'name': 'بنجرة الشمس'}, size: {'id': 12, 'label': '18'}),
           _piece('KJ-000238', 'طقم شمس بعقد وحلق وتصميم طويل الاسم', 56, wage: 2184, stones: 1.2, tag: 'EPC2'),
           _piece('KJ-000233', 'خاتم وتر', 4.1),
         ];
@@ -93,7 +99,7 @@ class _FakeApi extends ApiService {
 
   @override
   Future<List<dynamic>> getCategories({bool includeInactive = false}) async => [
-        {'id': 3, 'name': 'بنجرة ذهب 21', 'tracking': 'piece'},
+        {'id': 3, 'name': 'بنجرة ذهب 21', 'tracking': 'piece', 'size_system_id': 1},
         {'id': 4, 'name': 'سلسال 21', 'tracking': 'weight'},
       ];
 
@@ -108,10 +114,33 @@ class _FakeApi extends ApiService {
       [SafeBoxModel(id: 7, name: 'المعرض', safeType: 'gold', accountId: 70, stockLocation: 'showroom')];
 
   @override
-  Future<Map<String, dynamic>> updateItem(int id, Map<String, dynamic> itemData) async {
-    edits.add({'id': id, ...itemData});
-    return {'result': 'success'};
+  Future<Map<String, dynamic>> updatePiece(int id, Map<String, dynamic> body) async {
+    edits.add({'id': id, ...body});
+    return {'piece': {}, 'changed': {}};
   }
+
+  @override
+  Future<List<Map<String, dynamic>>> getPieceModels({int? categoryId, String? q, bool includeInactive = false}) async => [
+        {
+          'id': 5, 'name': 'بنجرة الشمس', 'is_active': true, 'category': {'id': 3, 'name': 'بنجرة ذهب 21'},
+          'sizes': [
+            {'id': 11, 'label': '17', 'position': 1},
+            {'id': 12, 'label': '18', 'position': 2},
+          ],
+        },
+      ];
+
+  @override
+  Future<List<Map<String, dynamic>>> getSizeSystems() async => [
+        {
+          'id': 1, 'name': 'مقاسات البناجر', 'categories': [],
+          'sizes': [
+            {'id': 11, 'label': '17', 'position': 1, 'pieces': 0},
+            {'id': 12, 'label': '18', 'position': 2, 'pieces': 0},
+            {'id': 13, 'label': '19', 'position': 3, 'pieces': 0},
+          ],
+        },
+      ];
 
   @override
   Future<List<dynamic>> getItems({bool? inStockOnly, int? categoryId, int? excludeCategoryId}) async => [];
@@ -176,13 +205,13 @@ void main() {
     await _mount(tester, PiecesScreen(api: api));
     expect(find.byKey(const Key('pieces-table')), findsOneWidget);
     expect(api.asked.single, {'q': '', 'category': null, 'karat': null, 'place': null, 'state': 'in_stock',
-                              'sort': 'number', 'asc': false, 'page': 1});
+                              'sort': 'number', 'asc': false, 'page': 1, 'model': null, 'size': null});
     final table = tester.widget<DataTable>(find.byKey(const Key('pieces-table')));
     DataRow row(String code) => table.rows.firstWhere((r) => r.key == ValueKey('piece-row-$code'));
     bool says(DataRow r, String text) => r.cells.any((c) =>
         find.descendant(of: find.byWidget(c.child), matching: find.text(text), matchRoot: true).evaluate().isNotEmpty);
     for (final said in ['KJ-000238', '56.00 جم', '1.20 جم', '2,184 ر.س', '39.00 للجرام', 'المعرض', 'في المخزون',
-                        '03/01/2027', 'المورد أ', 'مربوطة']) {
+                        '2027-01-03', 'المورد أ', 'مربوطة']) {
       expect(says(row('KJ-000238'), said), isTrue, reason: said);
     }
     expect(says(row('KJ-000233'), 'بانتظار الفاتورة'), isTrue);
@@ -238,14 +267,18 @@ void main() {
     for (final said in ['12.40', 'بلا أحجار', '160 ر.س · 12.90 للجرام', 'المعرض', 'مربوطة', 'REC-2027-00012']) {
       expect(find.descendant(of: card, matching: find.text(said)), findsOneWidget, reason: said);
     }
-    await tester.tap(find.text('تعديل الاسم والوصف'));
+    for (final said in ['بنجرة الشمس', '18']) {
+      expect(find.descendant(of: card, matching: find.text(said)), findsOneWidget, reason: said);
+    }
+    await tester.tap(find.text('تعديل الوصف والموديل والمقاس'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('piece-edit-name')), 'بنجرة حرير ناعمة');
     await tester.enterText(find.byKey(const Key('piece-edit-description')), 'نقش يدوي');
-    await tester.tap(find.text('حفظ'));
+    await tester.tap(find.byKey(const Key('piece-edit-save')));
     await tester.pumpAndSettle();
-    expect(api.edits.single, {'id': 241, 'name': 'بنجرة حرير ناعمة', 'description': 'نقش يدوي'},
-        reason: 'its name and description, nothing of its receiving');
+    expect(api.edits.single,
+        {'id': 241, 'name': 'بنجرة حرير ناعمة', 'description': 'نقش يدوي', 'model_id': 5, 'size_id': 12},
+        reason: 'its words, nothing of its receiving');
   });
 
   testWidgets('no pieces yet: it says where a piece is born', (tester) async {
@@ -257,5 +290,49 @@ void main() {
     final api = _FakeApi(fail: true);
     await _mount(tester, PiecesScreen(api: api));
     expect(find.text('تعذّر تحميل القطع'), findsOneWidget);
+  });
+
+  testWidgets('a piece given a model: only the model\'s sizes offered; none takes its size away', (tester) async {
+    final api = _FakeApi(pieces: [_piece('KJ-000250', 'بنجرة ذهب 21', 20.0, wage: 800)]);
+    await _mount(tester, PiecesScreen(api: api));
+    await tester.tap(find.byKey(const Key('piece-actions-KJ-000250')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('تعديل الوصف والموديل والمقاس'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('piece-edit-model')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('بنجرة الشمس').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('piece-edit-size-5')));
+    await tester.pumpAndSettle();
+    expect(find.text('19'), findsNothing, reason: 'the model comes in 17 and 18');
+    await tester.tap(find.text('18').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('piece-edit-save')));
+    await tester.pumpAndSettle();
+    expect((api.edits.single['model_id'], api.edits.single['size_id']), (5, 12));
+  });
+
+  testWidgets('the table says each piece\'s model and size; the list filters by them', (tester) async {
+    final api = _FakeApi();
+    await _mount(tester, PiecesScreen(api: api));
+    final table = tester.widget<DataTable>(find.byKey(const Key('pieces-table')));
+    final labels = [for (final c in table.columns) ((c.label as Text).data)];
+    expect(labels.sublist(1, 4), ['الاسم', 'الموديل', 'المقاس']);
+    expect(find.text('بنجرة الشمس'), findsWidgets);
+    await tester.tap(find.byKey(const Key('pieces-model')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('بلا موديل').last);
+    await tester.pumpAndSettle();
+    expect(api.asked.last['model'], 'none');
+    expect(find.byKey(const Key('pieces-size')), findsNothing, reason: 'a size is its category\'s: choose it first');
+    await tester.tap(find.byKey(const Key('pieces-category')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('بنجرة ذهب 21').last);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('pieces-size')), findsOneWidget);
+    for (final door in ['pieces-models', 'pieces-size-systems', 'pieces-categories']) {
+      expect(find.byKey(Key(door)), findsOneWidget, reason: door);
+    }
   });
 }

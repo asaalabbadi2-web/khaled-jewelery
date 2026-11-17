@@ -1165,6 +1165,18 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
 // 🆕 Widget لإدارة التصنيفات داخل شاشة الأصناف
 // ============================================
 
+/// «إدارة التصنيفات» from any screen -- the pieces' list once receiving works
+/// (the items' list is not shown then; ADR-093 M3).
+Future<void> showCategoriesManagement(BuildContext context, ApiService api, {VoidCallback? onChanged}) =>
+    showDialog<void>(
+      context: context,
+      builder: (_) => _CategoriesManagementDialog(
+        api: api,
+        categories: const [],
+        onCategoriesChanged: onChanged ?? () {},
+      ),
+    );
+
 class _CategoriesManagementDialog extends StatefulWidget {
   final ApiService api;
   final List<Category> categories;
