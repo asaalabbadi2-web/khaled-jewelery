@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../api_service.dart';
+import '../utils/display_date.dart';
 
 class SecuritySessionsScreen extends StatefulWidget {
   const SecuritySessionsScreen({super.key});
@@ -82,8 +83,8 @@ class _SecuritySessionsScreenState extends State<SecuritySessionsScreen> {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
-            Text('الإنشاء: ${s['created_at'] ?? '-'}'),
-            Text('آخر نشاط: ${s['last_activity'] ?? '-'}'),
+            Text('الإنشاء: ${displayDateTime(s['created_at'])}'),
+            Text('آخر نشاط: ${displayDateTime(s['last_activity'])}'),
           ],
         ),
         trailing: Column(

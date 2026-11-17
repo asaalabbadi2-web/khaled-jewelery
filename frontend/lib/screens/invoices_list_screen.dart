@@ -34,6 +34,7 @@ import '../theme/app_breakpoints.dart';
 import '../widgets/karat_weights.dart';
 import '../providers/settings_provider.dart';
 import '../widgets/summary_strip.dart';
+import '../utils/display_date.dart';
 
 /// A sale of scrap gold is saved as «بيع» with gold_type 'scrap'. It is
 /// edited on the screen that made it: the ordinary sale screen sends no
@@ -3459,15 +3460,9 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
     }
   }
 
-  String _formatDate(dynamic date, bool isAr) {
-    try {
-      if (date == null) return isAr ? 'غير محدد' : 'N/A';
-      final dateTime = DateTime.parse(date.toString());
-      return DateFormat('yyyy-MM-dd').format(dateTime);
-    } catch (e) {
-      return isAr ? 'غير محدد' : 'N/A';
-    }
-  }
+  String _formatDate(dynamic date, bool isAr) =>
+      displayDate(date, empty: isAr ? 'غير محدد' : 'N/A');
+
 
   Widget _buildInfoChip({
     required String label,
@@ -4490,8 +4485,8 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                                   .isNotEmpty)
                                 Text(
                                   isAr
-                                      ? 'تاريخ الترحيل: ${invoice['posted_at']}'
-                                      : 'Posted at: ${invoice['posted_at']}',
+                                      ? 'تاريخ الترحيل: ${displayDateTime(invoice['posted_at'])}'
+                                      : 'Posted at: ${displayDateTime(invoice['posted_at'])}',
                                   style: textTheme.bodySmall?.copyWith(
                                     color: colorScheme.onSurface.withValues(
                                       alpha: 0.75,

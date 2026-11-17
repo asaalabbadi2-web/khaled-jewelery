@@ -36,6 +36,9 @@ void expectNoTextVanishesOnDark(WidgetTester tester, {Finder? within}) {
     }
   }
   expect(dark, isEmpty, reason: 'text that vanishes on dark');
+  // And no icon (the owner, 17 Nov 2026): every screen read for its text in
+  // the dark is read for its icons too.
+  expectNoIconVanishesOnDark(tester, within: within);
 }
 
 /// خ٣ (ADR-050): in the dark theme no surface is painted near-white -- the
@@ -77,4 +80,49 @@ void expectNoLightSurfaceOnDark(WidgetTester tester) {
     if (m.type != MaterialType.transparency) check(m.color, 'Material');
   }
   expect(light, isEmpty, reason: 'surfaces near-white in the dark theme');
+}
+
+/// The owner (17 Nov 2026): «الأيقونات في الوضع الداكن تأكد من تباينها --
+/// أيقونة السندات تكاد لا ترى». An icon is a sign, not text: 3:1 against
+/// the card it sits on (WCAG 1.4.11). The vouchers' quick action was
+/// #5D4037 -- a brown fixed for the light theme -- on the dark card, 1.6:1.
+/// A faded icon (opacity under one half) is a disabled one, and not counted.
+List<String> darkIconsTooFaint(WidgetTester tester, {Finder? within}) {
+  final scheme = Theme.of(
+    tester.element(find.byType(Scaffold).first),
+  ).colorScheme;
+  double contrast(Color a, Color b) {
+    final la = a.computeLuminance(), lb = b.computeLuminance();
+    return ((la > lb ? la : lb) + 0.05) / ((la > lb ? lb : la) + 0.05);
+  }
+
+  // The theme's «on…» colors stand on their own fills (onPrimary on the
+  // gold button): pairs theme_contrast_test holds.
+  final paired = {
+    scheme.onPrimary,
+    scheme.onSecondary,
+    scheme.onTertiary,
+    scheme.onError,
+    scheme.onInverseSurface,
+  };
+  final faint = <String>[];
+  final icons = within == null
+      ? find.byType(Icon)
+      : find.descendant(of: within, matching: find.byType(Icon));
+  for (final element in icons.evaluate()) {
+    final icon = element.widget as Icon;
+    final color = icon.color ?? IconTheme.of(element).color;
+    if (color == null || color.a < 0.5 || icon.icon == null) continue;
+    if (paired.contains(color)) continue;
+    if (contrast(color, scheme.surfaceContainerHigh) < 3) {
+      faint.add('${icon.icon!.codePoint.toRadixString(16)} '
+          '${color.toARGB32().toRadixString(16)}');
+    }
+  }
+  return faint;
+}
+
+void expectNoIconVanishesOnDark(WidgetTester tester, {Finder? within}) {
+  expect(darkIconsTooFaint(tester, within: within), isEmpty,
+      reason: 'icons that vanish on dark (icon code point, color)');
 }

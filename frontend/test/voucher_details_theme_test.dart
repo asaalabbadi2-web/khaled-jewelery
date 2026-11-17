@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/providers/auth_provider.dart';
@@ -14,6 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/shots.dart';
 import 'support/dark_text.dart';
+import 'support/machine_date.dart';
 
 /// UI-5 (ADR-049): a voucher's details read in the dark theme too. Its text
 /// was written black (Colors.black87 / black54) and vanished on the dark
@@ -110,6 +112,20 @@ void main() {
       expect(find.text('سداد دفعة للمورد مورد الذهب'), findsWidgets);
       expect(tester.takeException(), isNull);
       await shot(tester, 'voucher_details_$name');
+
+      // Its bar, in the voucher's color, reads (the owner, 17 Nov 2026: in
+      // the dark it was the payment's light lavender under the theme's light
+      // title -- «كأنه غير ملتزم بالثيم»).
+      final bar = tester.widget<AppBar>(find.byType(AppBar));
+      final title = tester.renderObject<RenderParagraph>(find.descendant(
+        of: find.byType(AppBar),
+        matching: find.byType(RichText),
+      ).first);
+      final ink = title.text.style!.color!;
+      final la = ink.computeLuminance(), lb = bar.backgroundColor!.computeLuminance();
+      final ratio = ((la > lb ? la : lb) + 0.05) / ((la > lb ? lb : la) + 0.05);
+      expect(ratio, greaterThanOrEqualTo(4.5), reason: 'the bar\'s title on its color');
+      expectNoMachineDate(tester);
 
       if (theme.brightness == Brightness.dark) {
         expectNoTextVanishesOnDark(tester);

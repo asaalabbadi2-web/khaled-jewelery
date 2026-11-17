@@ -7,6 +7,7 @@ import '../theme/app_tokens.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/app_state_views.dart';
 import '../widgets/record_card.dart';
+import '../utils/display_date.dart';
 
 /// «إقفال الفترات» (ADR-090, law 9): the books closed through a month's last
 /// day -- no entry written, changed or deleted in it, by any path. Closing a
@@ -63,10 +64,10 @@ class _PeriodLockScreenState extends State<PeriodLockScreen> {
   };
 
   String _itemLabel(String kind, Map item) => switch (kind) {
-    'vouchers' => '${item['number']} — ${item['date']}',
+    'vouchers' => '${item['number']} — ${displayDate(item['date'])}',
     'entries' =>
-      '${item['number']} — ${item['date']}${item['draft'] == true ? ' (مسودة)' : ''}',
-    'invoices' => '${item['type'] ?? ''} ${item['number']} — ${item['date']}',
+      '${item['number']} — ${displayDate(item['date'])}${item['draft'] == true ? ' (مسودة)' : ''}',
+    'invoices' => '${item['type'] ?? ''} ${item['number']} — ${displayDate(item['date'])}',
     _ => '${item['description']} — حتى ${item['through']}',
   };
 

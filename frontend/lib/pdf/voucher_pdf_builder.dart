@@ -10,6 +10,7 @@ import '../theme/pdf_print_ink.dart';
 import '../pdf/pdf_sar_cache.dart';
 import '../pdf/pdf_text_utils.dart';
 import '../providers/settings_provider.dart';
+import '../utils/display_date.dart';
 
 // ── PDF colour palette (matches existing voucher/statement design) ───────────
 class VoucherPdfColors {
@@ -218,21 +219,6 @@ class VoucherPdfBuilder {
       }
     }
 
-    String fmtHumanDate(dynamic raw) {
-      if (raw == null) return '';
-      final s = raw.toString();
-      if (s.isEmpty) return '';
-      try {
-        final dt = DateTime.tryParse(s);
-        if (dt == null) return s;
-        // Force Western digits in header dates to avoid mixed Arabic-Indic/Latin
-        // digit rendering issues in PDFs.
-        return DateFormat('yyyy/MM/dd HH:mm', 'en').format(dt);
-      } catch (_) {
-        return s;
-      }
-    }
-
     String partyDisplay(Map<String, dynamic> voucher) {
       final partyName = voucher['party_name']?.toString().trim();
       if (partyName != null && partyName.isNotEmpty) return partyName;
@@ -391,8 +377,10 @@ class VoucherPdfBuilder {
         ? voucher['description'].toString().trim()
         : '—';
     final statusText = webStatus.label;
-    final dateText = fmtHumanDate(voucher['date']);
-    final printDate = fmtHumanDate(DateTime.now().toIso8601String());
+    // One way to show a date (display_date): fmtHumanDate's 'en' locale was
+    // not loaded in a test or an isolate, and it printed the machine's text.
+    final dateText = displayDateTime(voucher['date'], empty: '');
+    final printDate = displayDateTime(DateTime.now());
     final title = options.isArabic ? meta.titleAr : meta.titleEn;
 
     final cashAmt = toDouble(voucher['amount_cash']);

@@ -118,9 +118,13 @@ class QuickActionItem {
 
   /// The action's color: an invoice's from the theme, never the hex a
   /// device kept from before; any other action's its own.
-  Color colorIn(AppSemanticColors tones) {
+  /// [on] the tile it is drawn on: its own color is made to be seen there
+  /// (legibleOn) -- fixed for the light theme, the vouchers' brown vanished
+  /// on the dark tile (the owner, 17 Nov 2026).
+  Color colorIn(AppSemanticColors tones, {Color? on}) {
     final kind = invoiceKind;
-    return kind == null ? getColor() : tones.invoice(kind).fg;
+    if (kind != null) return tones.invoice(kind).fg;
+    return on == null ? getColor() : legibleOn(getColor(), on);
   }
 
   QuickActionItem copyWith({

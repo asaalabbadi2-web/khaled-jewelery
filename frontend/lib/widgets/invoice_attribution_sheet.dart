@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
+import '../utils/display_date.dart';
 
 /// The weight in the voucher's own karat for an amount shown in main-karat
 /// grams. Sending the main-karat figure as the karat's weight under-attributed
@@ -101,7 +101,6 @@ class _InvoiceAttributionSheetState extends State<InvoiceAttributionSheet> {
   String? _error;
   bool _busy = false;
 
-  static final _dateFmt = DateFormat('yyyy/MM/dd');
 
   String _fmt(double v) => v.toStringAsFixed(2);
 
@@ -124,7 +123,7 @@ class _InvoiceAttributionSheetState extends State<InvoiceAttributionSheet> {
     final rows = InvoiceAttributionSheet.ordered(widget.candidates, widget.unattributed);
     if (q.isEmpty) return rows;
     return rows.where((c) {
-      final date = c.date != null ? _dateFmt.format(c.date!) : '';
+      final date = c.date != null ? displayDate(c.date!) : '';
       return c.label.contains(q) || date.contains(q) || '${c.invoiceId}'.contains(q);
     }).toList();
   }
@@ -156,7 +155,7 @@ class _InvoiceAttributionSheetState extends State<InvoiceAttributionSheet> {
         title: const Text('تأكيد النسب'),
         content: Text(
           'نسب ${_fmt(amount)} ${widget.unit} من هذا السند إلى ${c.label}'
-          '${c.date != null ? ' (${_dateFmt.format(c.date!)})' : ''}؟\n'
+          '${c.date != null ? ' (${displayDate(c.date!)})' : ''}؟\n'
           'المتبقي على الفاتورة بعده: ${_fmt(c.open - amount)} ${widget.unit}',
         ),
         actions: [
@@ -297,7 +296,7 @@ class _InvoiceAttributionSheetState extends State<InvoiceAttributionSheet> {
                                         Expanded(
                                           child: Text(
                                             '${c.label}'
-                                            '${c.date != null ? ' · ${_dateFmt.format(c.date!)}' : ''}',
+                                            '${c.date != null ? ' · ${displayDate(c.date!)}' : ''}',
                                             style: const TextStyle(fontWeight: FontWeight.w600),
                                           ),
                                         ),
@@ -394,7 +393,6 @@ class AttributionSummaryCard extends StatelessWidget {
   final bool approved;
   final VoidCallback onOpen;
 
-  static final _dateFmt = DateFormat('yyyy/MM/dd');
 
   @override
   Widget build(BuildContext context) {
@@ -447,7 +445,7 @@ class AttributionSummaryCard extends StatelessWidget {
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        '${r.label}${r.date != null ? ' · ${_dateFmt.format(r.date!)}' : ''}',
+                        '${r.label}${r.date != null ? ' · ${displayDate(r.date!)}' : ''}',
                       ),
                     ),
                     Text('${fmt(r.amount)} $unit', style: const TextStyle(fontWeight: FontWeight.w600)),

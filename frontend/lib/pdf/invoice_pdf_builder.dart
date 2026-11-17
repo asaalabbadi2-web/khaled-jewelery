@@ -13,6 +13,7 @@ import '../pdf/pdf_text_utils.dart';
 import '../providers/settings_provider.dart';
 import '../utils/invoice_saved_facts.dart';
 import '../utils/invoice_type_label.dart';
+import '../utils/display_date.dart';
 
 class InvoicePdfOptions {
   final bool isArabic;
@@ -166,16 +167,6 @@ class InvoicePdfBuilder {
       return double.tryParse(v?.toString() ?? '') ?? 0.0;
     }
 
-    String fmtDate(dynamic raw) {
-      if (raw == null) return '';
-      final s = raw.toString();
-      if (s.isEmpty) return '';
-      final dt = DateTime.tryParse(s);
-      if (dt == null) return s;
-      // Force Western digits (stable for RTL PDFs)
-      return DateFormat('yyyy-MM-dd', 'en').format(dt);
-    }
-
     String weight(dynamic v) => toDouble(v).toStringAsFixed(3);
 
     String safeStr(dynamic v) => (v ?? '').toString().trim();
@@ -190,8 +181,8 @@ class InvoicePdfBuilder {
         ? '#${safeStr(invoice['id'])}'
         : '#—';
 
-    final dateText = fmtDate(invoice['date']);
-    final printDate = fmtDate(DateTime.now().toIso8601String());
+    final dateText = displayDate(invoice['date'], empty: '');
+    final printDate = displayDate(DateTime.now());
 
     // A supplier's invoice names its supplier -- the server sends the
     // supplier's name as customer_name too, so the type decides, not the field.

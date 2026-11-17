@@ -17,6 +17,31 @@ class SemanticTone {
       );
 }
 
+/// [color] made to be seen on [background] at [ratio] -- its hue and its
+/// saturation kept, its lightness moved away from the background's until it
+/// is (the owner, 17 Nov 2026: a quick action's brown, fixed for the light
+/// theme, vanished on the dark tile). A color already seen is returned as is.
+/// The check is against [background] under the color's own [tint], as an
+/// icon sits on a box of its color.
+Color legibleOn(Color color, Color background, {double ratio = 3, double tint = 0.18}) {
+  double contrast(Color a, Color b) {
+    final la = a.computeLuminance(), lb = b.computeLuminance();
+    return ((la > lb ? la : lb) + 0.05) / ((la > lb ? lb : la) + 0.05);
+  }
+
+  bool seen(Color c) =>
+      contrast(c, Color.alphaBlend(c.withValues(alpha: tint), background)) >= ratio;
+  if (seen(color)) return color;
+  final hsl = HSLColor.fromColor(color);
+  final lighter = background.computeLuminance() < 0.5;
+  for (var step = 1; step <= 50; step++) {
+    final l = (hsl.lightness + (lighter ? 0.02 : -0.02) * step).clamp(0.0, 1.0);
+    final c = hsl.withLightness(l).toColor();
+    if (seen(c)) return c;
+  }
+  return lighter ? const Color(0xFFFFFFFF) : const Color(0xFF000000);
+}
+
 /// نوع الفاتورة: لكل نوع لونه وهو في كل شاشاته وفي نافذة مراجعته، ليُعرف
 /// النوع من النظرة الأولى فلا يقع خطأ إدخال بنوع الفاتورة.
 enum InvoiceKind {
@@ -145,12 +170,17 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
   static ({Color background, Color foreground}) invoiceBar(
     BuildContext context,
     InvoiceKind kind,
-  ) {
-    final tone = of(context).invoice(kind);
-    return Theme.of(context).brightness == Brightness.dark
-        ? (background: tone.container, foreground: tone.onContainer)
-        : (background: tone.fg, foreground: const Color(0xFFFFFFFF));
-  }
+  ) => toneBar(context, of(context).invoice(kind));
+
+  /// A bar in a tone -- an invoice's, a voucher's: as [invoiceBar] has it.
+  /// A voucher's details drew the tone's light text color as its bar in the
+  /// dark, under the theme's light title (1.5:1; the owner, 17 Nov 2026).
+  static ({Color background, Color foreground}) toneBar(
+    BuildContext context,
+    SemanticTone tone,
+  ) => Theme.of(context).brightness == Brightness.dark
+      ? (background: tone.container, foreground: tone.onContainer)
+      : (background: tone.fg, foreground: const Color(0xFFFFFFFF));
 
   static AppSemanticColors of(BuildContext context) =>
       Theme.of(context).extension<AppSemanticColors>() ??

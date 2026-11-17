@@ -31,6 +31,7 @@ import '../widgets/app_shortcuts.dart';
 import '../theme/app_breakpoints.dart';
 import '../widgets/karat_weights.dart';
 import '../widgets/summary_strip.dart';
+import '../utils/display_date.dart';
 
 class VouchersListScreen extends StatefulWidget {
   /// The server; a test hands its own.
@@ -2598,21 +2599,8 @@ class _VouchersListScreenState extends State<VouchersListScreen>
     }
   }
 
-  String _formatDate(dynamic value) {
-    if (value == null) {
-      return '—';
-    }
-    final String raw = value.toString();
-    if (raw.isEmpty) {
-      return '—';
-    }
-    try {
-      final DateTime parsed = DateTime.parse(raw);
-      return DateFormat('yyyy/MM/dd', 'ar').format(parsed);
-    } catch (_) {
-      return raw;
-    }
-  }
+  String _formatDate(dynamic value) => displayDate(value);
+
 
   String? _formatCurrency(dynamic value) {
     final double? amount = _toDouble(value);

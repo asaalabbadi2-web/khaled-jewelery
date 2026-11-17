@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import '../api_service.dart';
 import '../models/app_user_model.dart';
@@ -10,6 +9,7 @@ import 'package:provider/provider.dart';
 
 import 'permissions_management_screen.dart';
 import '../widgets/app_feedback.dart';
+import '../utils/display_date.dart';
 
 class UsersScreen extends StatefulWidget {
   final ApiService api;
@@ -96,8 +96,7 @@ class _UsersScreenState extends State<UsersScreen> {
       return isArabic ? 'لم يسجل الدخول بعد' : 'No login yet';
     }
 
-    final formatter = DateFormat('yyyy/MM/dd | HH:mm');
-    return formatter.format(value);
+    return displayDateTime(value);
   }
 
   Widget _buildStatisticsRow(

@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart' hide TextDirection;
 import 'package:provider/provider.dart';
 
 import '../../api_service.dart';
 import '../../providers/auth_provider.dart';
 import 'invoice_approval_screen.dart';
 import '../../utils/invoice_type_label.dart';
+import '../../utils/display_date.dart';
 
 class SystemAlertsScreen extends StatefulWidget {
   final ApiService api;
@@ -73,16 +73,8 @@ class _SystemAlertsScreenState extends State<SystemAlertsScreen> {
     }
   }
 
-  String _formatDate(String? iso) {
-    if (iso == null || iso.isEmpty) return '';
-    try {
-      final dt = DateTime.parse(iso);
-      final fmt = DateFormat('yyyy/MM/dd HH:mm', widget.isArabic ? 'ar' : 'en');
-      return fmt.format(dt);
-    } catch (_) {
-      return iso;
-    }
-  }
+  String _formatDate(String? iso) => displayDateTime(iso, empty: '');
+
 
   double _asDouble(dynamic value) {
     if (value is num) return value.toDouble();

@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
-import 'package:intl/intl.dart' hide TextDirection;
 import 'package:provider/provider.dart';
 
 import '../api_service.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
 import '../utils/invoice_type_label.dart';
+import '../utils/display_date.dart';
 
 /// Unified alerts dialog for the admin dashboard.
 /// Replaces the standalone SystemAlertsScreen + InvoiceApprovalScreen flow.
@@ -240,15 +240,8 @@ class _AlertsDialogState extends State<AlertsDialog> {
     return false;
   }
 
-  String _formatDate(String? iso) {
-    if (iso == null || iso.isEmpty) return '';
-    try {
-      final dt = DateTime.parse(iso);
-      return DateFormat('yyyy/MM/dd HH:mm', 'en').format(dt);
-    } catch (_) {
-      return iso;
-    }
-  }
+  String _formatDate(String? iso) => displayDateTime(iso, empty: '');
+
 
   String _relativeTime(String? iso) {
     if (iso == null || iso.isEmpty) return '';

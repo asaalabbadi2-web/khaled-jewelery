@@ -4793,8 +4793,12 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     required ThemeData theme,
     bool compact = false,
   }) {
-    final color = action.colorIn(_tone);
     final isDark = theme.brightness == Brightness.dark;
+    // Seen on the tile it is drawn on (legibleOn).
+    final color = action.colorIn(
+      _tone,
+      on: isDark ? theme.colorScheme.surfaceContainerHigh : _cs.surfaceContainerLow,
+    );
     final subtitle = compact ? null : _getActionSubtitle(action.route);
     final iconBoxSize = compact ? 32.0 : 38.0;
     final iconSize = compact ? 18.0 : 20.0;

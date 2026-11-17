@@ -15,6 +15,7 @@ import '../utils/invoice_direct_print.dart';
 import '../utils/currency_utils.dart' as cu;
 import '../utils/payment_fee.dart';
 import 'purchase_invoice_screen.dart';
+import '../utils/display_date.dart';
 
 class _ReturnPaymentEntry {
   final int paymentMethodId;
@@ -1384,7 +1385,7 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                 ),
                 if (original['customer_name'] != null)
                   _buildInfoRow('العميل', '${original['customer_name']}'),
-                _buildInfoRow('التاريخ', '${original['date'] ?? 'غير متوفر'}'),
+                _buildInfoRow('التاريخ', displayDate(original['date'], empty: 'غير متوفر')),
                 const Divider(),
                 if (_isLoadingInvoiceDetails)
                   const LinearProgressIndicator(minHeight: 2),

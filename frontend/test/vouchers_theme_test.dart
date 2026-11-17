@@ -15,6 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/fake_voucher_api.dart';
 import 'support/shots.dart';
+import 'support/machine_date.dart';
 
 /// ثيم-٠ (VOUCHER-UX-1، المرحلة ٤): شاشة إضافة السند وقائمة السندات تأخذان
 /// ألوانهما من الثيم، فتُرسمان في الوضعين. الحدّ على الألوان المكتوبة فيهما في
@@ -190,6 +191,7 @@ void main() {
       expect(find.textContaining('RV-2026-00010'), findsWidgets);
       expect(tester.takeException(), isNull);
       await shot(tester, 'voucher_list_$name');
+      expectNoMachineDate(tester);
     });
 
     testWidgets('a list that failed to load says so and tries again, never '

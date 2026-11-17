@@ -17,6 +17,7 @@ import '../utils/currency_utils.dart';
 import '../widgets/voucher_actions.dart';
 import '../widgets/app_state_views.dart';
 import '../utils/invoice_type_label.dart';
+import '../utils/display_date.dart';
 
 Future<bool?> showVoucherDetailsSheet(
   BuildContext context, {
@@ -593,35 +594,40 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
     final double? amountCash = _toDouble(voucher['amount_cash']);
     final double? amountGold = _toDouble(voucher['amount_gold']);
 
-    Color typeColor;
+    // The voucher's tone: its color, and its bar's (toneBar).
+    theme.SemanticTone? typeTone;
     IconData typeIcon;
     String typeText;
 
     switch (voucherType) {
       case 'receipt':
-        typeColor = theme.AppSemanticColors.of(
+        typeTone = theme.AppSemanticColors.of(
           context,
-        ).voucher(theme.VoucherKind.receipt).fg;
+        ).voucher(theme.VoucherKind.receipt);
         typeIcon = Icons.south;
         typeText = 'سند قبض';
         break;
       case 'payment':
-        typeColor = theme.AppSemanticColors.of(
+        typeTone = theme.AppSemanticColors.of(
           context,
-        ).voucher(theme.VoucherKind.payment).fg;
+        ).voucher(theme.VoucherKind.payment);
         typeIcon = Icons.north;
         typeText = 'سند صرف';
         break;
       case 'adjustment':
-        typeColor = _tone.warning.fg;
+        typeTone = _tone.warning;
         typeIcon = Icons.balance;
         typeText = 'سند تسوية';
         break;
       default:
-        typeColor = _cs.onSurfaceVariant;
+        typeTone = null;
         typeIcon = Icons.help;
         typeText = 'غير محدد';
     }
+    final typeColor = typeTone?.fg ?? _cs.onSurfaceVariant;
+    final bar = typeTone == null
+        ? null
+        : theme.AppSemanticColors.toneBar(context, typeTone);
 
     final actions = [
       if (isActive) ...[
@@ -960,7 +966,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
                       _buildInfoRow('الرقم الضريبي', '${vat['supplier_tax_number'] ?? ''}', Icons.badge_outlined),
                       _buildInfoRow(
                         'رقم الفاتورة وتاريخها',
-                        '${vat['invoice_number'] ?? ''} — ${vat['invoice_date'] ?? ''}',
+                        '${vat['invoice_number'] ?? ''} — ${displayDate(vat['invoice_date'], empty: '')}',
                         Icons.tag,
                       ),
                       _buildInfoRow(
@@ -1414,7 +1420,8 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(typeText),
-        backgroundColor: typeColor,
+        backgroundColor: bar?.background,
+        foregroundColor: bar?.foreground,
         actions: actions,
       ),
       body: body,
@@ -1438,18 +1445,8 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
     return null;
   }
 
-  String _formatDateOnly(dynamic value) {
-    if (value == null) return 'غير محدد';
-    final raw = value.toString();
-    if (raw.isEmpty) return 'غير محدد';
-    try {
-      final dt = DateTime.parse(raw);
-      // Use Western digits so date stays stable alongside mixed RTL/LTR text.
-      return DateFormat('yyyy/MM/dd', 'en').format(dt);
-    } catch (_) {
-      return raw;
-    }
-  }
+  String _formatDateOnly(dynamic value) =>
+      displayDate(value, empty: 'غير محدد');
 
   String? _formatEquivalentGold(Map<String, dynamic> voucher) {
     final double? amount = _toDouble(voucher['amount_gold_main_karat']);
@@ -1645,13 +1642,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
     }
   }
 
-  String _formatDateTime(String? dateTime) {
-    if (dateTime == null) return 'غير محدد';
-    try {
-      final dt = DateTime.parse(dateTime);
-      return DateFormat('yyyy-MM-dd HH:mm').format(dt);
-    } catch (e) {
-      return dateTime;
-    }
-  }
+  String _formatDateTime(String? dateTime) =>
+      displayDateTime(dateTime, empty: 'غير محدد');
+
 }
