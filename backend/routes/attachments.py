@@ -1,9 +1,10 @@
 """Attachments' routes (ADR-094): a photo sent, a photo read, a record's photos.
 
-POST /api/attachments              -- multipart: file, role (scrap_gold_photo):
-     kept by its fingerprint, pending under its sender until its invoice is saved.
+POST /api/attachments              -- multipart: file, role (scrap_gold_photo,
+     model_photo, model_thumbnail): kept by its fingerprint, pending under its
+     sender until its record is saved; sent by its kind's right.
 GET  /api/attachments/<id>         -- the file, through the server: the token
-     and invoices.view checked; a pending one its sender's alone.
+     and its kind's right to see checked; a pending one its sender's alone.
 GET  /api/invoices/<id>/attachments -- the photos an invoice was saved with.
 The laws are services/attachments.py's; these only carry them.
 """
@@ -11,26 +12,35 @@ from datetime import datetime
 
 from flask import Blueprint, g, jsonify, request, send_file
 
-from auth_decorators import require_permission
+from auth_decorators import require_any_permission, require_permission
 from models import Attachment, db
-from services.attachments import (INVOICE, MAX_BYTES, SCRAP_GOLD_PHOTO, AttachmentRefused, file_of, of_record,
-                                  store, view)
+from services.attachments import (INVOICE, MAX_BYTES, ROLE_RIGHTS, AttachmentRefused, file_of, of_record, store,
+                                  view)
 
 attachments_bp = Blueprint('attachments', __name__)
 
-ROLES = (SCRAP_GOLD_PHOTO,)
+SEND_RIGHTS = sorted({send for send, _ in ROLE_RIGHTS.values()})
+SEE_RIGHTS = sorted({see for _, see in ROLE_RIGHTS.values()})
 
 
 def _by():
     return getattr(getattr(g, 'current_user', None), 'username', None) or 'system'
 
 
+def _may(code: str) -> bool:
+    """The signed-in user holds *code* (an admin every right) -- a kind's own right."""
+    user = getattr(g, 'current_user', None)
+    return bool(user is not None and (getattr(user, 'is_admin', False) or user.has_permission(code)))
+
+
 @attachments_bp.route('/attachments', methods=['POST'])
-@require_permission('invoices.create')
+@require_any_permission(*SEND_RIGHTS)
 def attachments_upload():
     role = (request.form.get('role') or '').strip()
-    if role not in ROLES:
+    if role not in ROLE_RIGHTS:
         return jsonify({'error': 'attachment_role_invalid', 'message': 'نوع المرفق غير معروف'}), 400
+    if not _may(ROLE_RIGHTS[role][0]):
+        return jsonify({'error': 'permission_denied', 'message': 'لا صلاحية لرفع هذا النوع من الصور'}), 403
     upload = request.files.get('file')
     if upload is None:
         return jsonify({'error': 'attachment_empty', 'message': 'لا ملف في الطلب'}), 400
@@ -45,11 +55,13 @@ def attachments_upload():
 
 
 @attachments_bp.route('/attachments/<int:attachment_id>', methods=['GET'])
-@require_permission('invoices.view')
+@require_any_permission(*SEE_RIGHTS)
 def attachments_read(attachment_id: int):
     row = db.session.get(Attachment, attachment_id)
     if row is None or (row.entity_id is None and row.uploaded_by != _by()):
         return jsonify({'error': 'not_found', 'message': 'الصورة غير موجودة'}), 404
+    if not _may(ROLE_RIGHTS.get(row.role, (None, 'system.settings'))[1]):
+        return jsonify({'error': 'permission_denied', 'message': 'لا صلاحية لعرض هذه الصورة'}), 403
     try:
         path, mime = file_of(row)
     except AttachmentRefused as refused:

@@ -1,11 +1,11 @@
 // «الموديلات» (ADR-093 M1; the owner, 17 Nov 2026): a model its pieces share
 // -- its photo, its expected wage, the sizes it comes in. The photo is sized
-// down on the device with a thumbnail for the lists; the sizes are its
+// down on the device with a thumbnail for the lists, both sent to the
+// attachments' store and named by their ids -- never text (ADR-094); the sizes are its
 // category's size system's; the expected wage is said to be the invoice's
 // comparison, never a piece's wage; once a piece is of it its category stays
 // and it is stopped, not deleted.
 
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -46,6 +46,22 @@ class _FakeApi extends ApiService {
   final Map<String, dynamic>? model;
   final created = <Map<String, dynamic>>[];
   final updated = <Map<String, dynamic>>[];
+  final sent = <String>[];
+
+  @override
+  Future<Map<String, dynamic>> uploadAttachment(List<int> bytes,
+      {String role = 'scrap_gold_photo', String filename = 'photo.jpg'}) async {
+    sent.add(role);
+    return {'id': 60 + sent.length};
+  }
+
+  final read = <int>[];
+
+  @override
+  Future<Uint8List> attachmentBytes(int id) async {
+    read.add(id);
+    return _png(24, 18);
+  }
 
   @override
   Future<List<dynamic>> getCategories({bool includeInactive = false}) async => [_bangles, _sets, _scrap];
@@ -95,10 +111,9 @@ Future<void> _pump(WidgetTester tester, Widget screen) async {
 void main() {
   test('the photo is sized down with a thumbnail; what is not an image is said', () {
     final pair = modelPhotoPair(_png(2400, 1200))!;
-    expect(pair.photo, startsWith('data:image/jpeg;base64,'));
-    Uint8List bytesOf(String uri) => base64Decode(uri.substring(uri.indexOf(',') + 1));
-    final photo = img.decodeImage(bytesOf(pair.photo))!;
-    final thumb = img.decodeImage(bytesOf(pair.thumbnail))!;
+    expect(img.findDecoderForData(pair.photo), isA<img.JpegDecoder>());
+    final photo = img.decodeImage(pair.photo)!;
+    final thumb = img.decodeImage(pair.thumbnail)!;
     expect((photo.width, photo.height), (photoSide, 600));
     expect((thumb.width, thumb.height), (thumbnailSide, 120));
     expect(modelPhotoPair(Uint8List.fromList([1, 2, 3])), isNull);
@@ -134,8 +149,9 @@ void main() {
     final body = api.created.single;
     expect((body['category_id'], body['name'], body['expected_wage_per_gram']), (3, 'بنجرة المفتول', '32'));
     expect((body['size_ids'] as List).toSet(), {12, 13});
-    expect(body['photo'], startsWith('data:image/jpeg;base64,'));
-    expect(body['thumbnail'], startsWith('data:image/jpeg;base64,'));
+    expect(api.sent, ['model_photo', 'model_thumbnail'], reason: 'both sent to the store');
+    expect((body['photo_id'], body['thumbnail_id']), (61, 62));
+    expect(body.values.whereType<String>().where((v) => v.startsWith('data:')), isEmpty, reason: 'never text');
   });
 
   testWidgets('a category with no size system says where to choose one', (tester) async {
@@ -153,6 +169,20 @@ void main() {
     expect(find.byKey(const Key('model-stop')), findsOneWidget);
     await tester.tap(find.byKey(const Key('model-save')));
     await tester.pumpAndSettle();
-    expect(api.updated.single.containsKey('photo'), isFalse, reason: 'an unchanged photo is not sent again');
+    expect(api.updated.single.containsKey('photo_id'), isFalse, reason: 'an unchanged photo is not sent again');
+  });
+
+  testWidgets('a model\'s photo is read through the server, once however often it is shown', (tester) async {
+    ModelImage.forgetRead();
+    final api = _FakeApi();
+    await tester.pumpWidget(MaterialApp(
+      home: Column(children: [
+        SizedBox(height: 120, child: ModelImage(api: api, attachmentId: 62)),
+        SizedBox(height: 120, child: ModelImage(api: api, attachmentId: 62)),
+      ]),
+    ));
+    await tester.pumpAndSettle();
+    expect(api.read, [62]);
+    expect(find.byType(Image), findsNWidgets(2));
   });
 }

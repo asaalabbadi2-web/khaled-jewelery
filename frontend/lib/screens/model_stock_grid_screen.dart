@@ -79,7 +79,7 @@ class _ModelStockGridScreenState extends State<ModelStockGridScreen> {
                   height: 84,
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(AppRadius.control),
-                    child: ModelImage(uri: model?['thumbnail'] as String?),
+                    child: ModelImage(api: widget.api, attachmentId: model?['thumbnail_id'] as int?),
                   ),
                 ),
                 const SizedBox(width: AppSpace.md),

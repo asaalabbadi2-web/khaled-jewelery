@@ -200,6 +200,7 @@ class _PieceModelsScreenState extends State<PieceModelsScreen> {
     final cards = <Widget>[
       for (final m in models)
         _ModelCard(
+          api: widget.api,
           model: m,
           onOpen: () => _open(modelId: m['id'] as int),
           onSizes: board == null ? null : () => _grid(modelId: m['id'] as int, title: '${m['name']}'),
@@ -360,8 +361,9 @@ class _NoModelCard extends StatelessWidget {
 }
 
 class _ModelCard extends StatelessWidget {
-  const _ModelCard({required this.model, required this.onOpen, this.onSizes});
+  const _ModelCard({required this.api, required this.model, required this.onOpen, this.onSizes});
 
+  final ApiService api;
   final Map<String, dynamic> model;
   final VoidCallback onOpen;
   final VoidCallback? onSizes;
@@ -381,7 +383,7 @@ class _ModelCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            ModelImage(uri: model['thumbnail'] as String?, height: 140),
+            ModelImage(api: api, attachmentId: model['thumbnail_id'] as int?, height: 140),
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.all(AppSpace.md),

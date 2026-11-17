@@ -10,13 +10,12 @@ screens. A model is:
   - in sizes of its category's size system only; a size a piece of it holds
     stays; its category fixed once a piece is of it;
   - stopped, never deleted, once a piece is of it;
-  - its photo sized down on the device: here a JPEG, PNG or WebP by its own
-    first bytes, within its size, and a thumbnail with it for the lists.
+  - its photo and thumbnail are files in the attachments' store (ADR-094),
+    sized down on the device and checked there, linked in its own
+    transaction -- never text in the books; a photo replaced stays stored.
 """
 from __future__ import annotations
 
-import base64
-import binascii
 import re
 from decimal import Decimal, InvalidOperation
 
@@ -25,37 +24,12 @@ from services.categories import latin
 
 NAME_MAX = 100
 CODE_MAX = 60
-PHOTO_MAX_BYTES = 600_000          # a photo sized down to 1200 px on the device, with room
-THUMBNAIL_MAX_BYTES = 60_000       # 240 px
-_DATA_URI = re.compile(r'^data:image/(jpeg|png|webp);base64,([A-Za-z0-9+/=\s]+)$')
-_MAGIC = {
-    'jpeg': lambda b: b[:3] == b'\xff\xd8\xff',
-    'png': lambda b: b[:8] == b'\x89PNG\r\n\x1a\n',
-    'webp': lambda b: b[:4] == b'RIFF' and b[8:12] == b'WEBP',
-}
 
 
 class ModelRefused(ValueError):
     def __init__(self, code: str, message: str):
         super().__init__(message)
         self.code, self.message = code, message
-
-
-def _image(uri, *, max_bytes: int, what: str) -> str:
-    """*uri* if it is an image of its type within *max_bytes* -- or ModelRefused."""
-    found = _DATA_URI.match(str(uri or '').strip())
-    if not found:
-        raise ModelRefused('photo_invalid', f'{what}: صورة JPEG أو PNG أو WebP')
-    kind, payload = found.groups()
-    try:
-        raw = base64.b64decode(re.sub(r'\s+', '', payload), validate=True)
-    except (binascii.Error, ValueError):
-        raise ModelRefused('photo_invalid', f'{what}: الملف لا يُقرأ')
-    if not _MAGIC[kind](raw):
-        raise ModelRefused('photo_invalid', f'{what}: الملف ليس صورة {kind.upper()}')
-    if len(raw) > max_bytes:
-        raise ModelRefused('photo_too_large', f'{what}: {len(raw) // 1000} ك.ب، والحد {max_bytes // 1000} ك.ب')
-    return f'data:image/{kind};base64,' + base64.b64encode(raw).decode()
 
 
 def _name(raw) -> str:
@@ -141,16 +115,31 @@ def _set_sizes(model: PieceModel, size_ids) -> None:
     db.session.flush()
 
 
-def _photo_pair(photo, thumbnail):
-    if photo in (None, '') and thumbnail in (None, ''):
+def _photo_ids(photo_id, thumbnail_id, *, by: str):
+    """(photo id, thumbnail id) sent to the attachments' store, both or
+    neither -- each its sender's, pending, of its role (ADR-094); or none."""
+    from services.attachments import MODEL_PHOTO, MODEL_THUMBNAIL, AttachmentRefused, check_linkable
+    if photo_id in (None, '') and thumbnail_id in (None, ''):
         return None, None
-    if photo in (None, '') or thumbnail in (None, ''):
+    if photo_id in (None, '') or thumbnail_id in (None, ''):
         raise ModelRefused('photo_invalid', 'الصورة ومصغّرتها معًا')
-    return (_image(photo, max_bytes=PHOTO_MAX_BYTES, what='الصورة'),
-            _image(thumbnail, max_bytes=THUMBNAIL_MAX_BYTES, what='المصغّرة'))
+    try:
+        check_linkable([photo_id], role=MODEL_PHOTO, by=by)
+        check_linkable([thumbnail_id], role=MODEL_THUMBNAIL, by=by)
+    except AttachmentRefused as refused:
+        raise ModelRefused(refused.code, refused.message) from None
+    return int(photo_id), int(thumbnail_id)
 
 
-def model_view(model: PieceModel, *, photo: bool = False, pieces: int | None = None) -> dict:
+def _link_photo(model: PieceModel, photo_id, thumbnail_id, *, by: str, now) -> None:
+    from services.attachments import MODEL_PHOTO, MODEL_THUMBNAIL, PIECE_MODEL, link
+    if photo_id is not None:
+        link([photo_id], entity_type=PIECE_MODEL, entity_id=model.id, role=MODEL_PHOTO, by=by, now=now)
+        link([thumbnail_id], entity_type=PIECE_MODEL, entity_id=model.id, role=MODEL_THUMBNAIL, by=by, now=now)
+    model.photo_id, model.thumbnail_id = photo_id, thumbnail_id
+
+
+def model_view(model: PieceModel, *, pieces: int | None = None) -> dict:
     category = db.session.get(Category, model.category_id)
     view = {
         'id': model.id, 'name': model.name,
@@ -160,11 +149,9 @@ def model_view(model: PieceModel, *, photo: bool = False, pieces: int | None = N
         if model.expected_wage_per_gram is not None else None,
         'has_stones': bool(model.has_stones), 'is_active': model.is_active is not False,
         'sizes': [{'id': s.id, 'label': s.label, 'position': s.position} for s in model_sizes(model)],
-        'thumbnail': model.thumbnail, 'has_photo': model.photo is not None,
+        'photo_id': model.photo_id, 'thumbnail_id': model.thumbnail_id, 'has_photo': model.photo_id is not None,
         'pieces': pieces if pieces is not None else pieces_of([model.id]).get(model.id, 0),
     }
-    if photo:
-        view['photo'] = model.photo
     return view
 
 
@@ -184,19 +171,20 @@ def list_models(*, category_id=None, q=None, include_inactive=False) -> list:
 
 
 def create_model(*, category_id, name, supplier_code=None, expected_wage_per_gram=None, has_stones=False,
-                 size_ids=(), photo=None, thumbnail=None, by: str, now) -> PieceModel:
-    """A model; the caller commits."""
+                 size_ids=(), photo_id=None, thumbnail_id=None, by: str, now) -> PieceModel:
+    """A model; its photo linked from the attachments' store. The caller commits."""
     category = _category(category_id)
     name = _name(name)
     _name_free(category.id, name)
-    photo, thumbnail = _photo_pair(photo, thumbnail)
+    photo_id, thumbnail_id = _photo_ids(photo_id, thumbnail_id, by=by)
     _check_sizes(category, size_ids)                      # refused before anything is written
     model = PieceModel(category_id=category.id, name=name,
                        supplier_code=(str(supplier_code).strip()[:CODE_MAX] or None) if supplier_code else None,
                        expected_wage_per_gram=_wage(expected_wage_per_gram), has_stones=bool(has_stones),
-                       photo=photo, thumbnail=thumbnail, is_active=True, created_by=by, created_at=now)
+                       is_active=True, created_by=by, created_at=now)
     db.session.add(model)
     db.session.flush()
+    _link_photo(model, photo_id, thumbnail_id, by=by, now=now)
     _set_sizes(model, size_ids)
     return model
 
@@ -204,9 +192,9 @@ def create_model(*, category_id, name, supplier_code=None, expected_wage_per_gra
 _UNSET = object()
 
 
-def update_model(model: PieceModel, *, now, name=None, category_id=_UNSET, supplier_code=_UNSET,
-                 expected_wage_per_gram=_UNSET, has_stones=None, size_ids=None, photo=_UNSET,
-                 thumbnail=_UNSET, is_active=None) -> PieceModel:
+def update_model(model: PieceModel, *, now, by: str = 'system', name=None, category_id=_UNSET,
+                 supplier_code=_UNSET, expected_wage_per_gram=_UNSET, has_stones=None, size_ids=None,
+                 photo_id=_UNSET, thumbnail_id=_UNSET, is_active=None) -> PieceModel:
     """What is given changes; its category fixed once a piece is of it."""
     if category_id is not _UNSET and category_id not in (None, '') and int(category_id) != model.category_id:
         if pieces_of([model.id]).get(model.id):
@@ -223,9 +211,14 @@ def update_model(model: PieceModel, *, now, name=None, category_id=_UNSET, suppl
         model.expected_wage_per_gram = _wage(expected_wage_per_gram)
     if has_stones is not None:
         model.has_stones = bool(has_stones)
-    if photo is not _UNSET or thumbnail is not _UNSET:
-        model.photo, model.thumbnail = _photo_pair(None if photo is _UNSET else photo,
-                                                   None if thumbnail is _UNSET else thumbnail)
+    if photo_id is not _UNSET or thumbnail_id is not _UNSET:
+        photo_id = None if photo_id is _UNSET else photo_id
+        thumbnail_id = None if thumbnail_id is _UNSET else thumbnail_id
+        same = (photo_id in (None, '') and model.photo_id is None) or (
+            photo_id not in (None, '') and int(photo_id) == model.photo_id
+            and thumbnail_id not in (None, '') and int(thumbnail_id) == model.thumbnail_id)
+        if not same:                       # a new photo linked; the old stays in the store, never deleted
+            _link_photo(model, *_photo_ids(photo_id, thumbnail_id, by=by), by=by, now=now)
     if is_active is not None:
         model.is_active = bool(is_active)
     if size_ids is not None:

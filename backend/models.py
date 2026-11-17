@@ -884,9 +884,10 @@ class PieceModel(db.Model):
     # compared with the invoice's at receiving, never given to a piece
     expected_wage_per_gram = db.Column(db.Numeric(10, 2), nullable=True)
     has_stones = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
-    # data URIs: the photo (sized down on the device) and its thumbnail for the lists
-    photo = db.Column(db.Text, nullable=True)
-    thumbnail = db.Column(db.Text, nullable=True)
+    # its photo and thumbnail in the attachments' store (ADR-094) -- files on
+    # the server's disk, never text in the books
+    photo_id = db.Column(db.Integer, db.ForeignKey('attachment.id', ondelete='RESTRICT'), nullable=True)
+    thumbnail_id = db.Column(db.Integer, db.ForeignKey('attachment.id', ondelete='RESTRICT'), nullable=True)
     is_active = db.Column(db.Boolean, nullable=False, default=True, server_default=db.true())
     created_by = db.Column(db.String(100), nullable=False)
     created_at = db.Column(db.DateTime, nullable=False)

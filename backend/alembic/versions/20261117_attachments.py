@@ -36,9 +36,16 @@ def upgrade():
     )
     op.create_index('ix_attachment_sha256', 'attachment', ['sha256'])
     op.create_index('ix_attachment_entity', 'attachment', ['entity_type', 'entity_id'])
+    # a piece model's photo and thumbnail are files here (ADR-093 §7)
+    op.create_foreign_key('fk_piece_model_photo', 'piece_model', 'attachment', ['photo_id'], ['id'],
+                          ondelete='RESTRICT')
+    op.create_foreign_key('fk_piece_model_thumbnail', 'piece_model', 'attachment', ['thumbnail_id'], ['id'],
+                          ondelete='RESTRICT')
 
 
 def downgrade():
+    op.drop_constraint('fk_piece_model_thumbnail', 'piece_model', type_='foreignkey')
+    op.drop_constraint('fk_piece_model_photo', 'piece_model', type_='foreignkey')
     op.drop_index('ix_attachment_entity', table_name='attachment')
     op.drop_index('ix_attachment_sha256', table_name='attachment')
     op.drop_table('attachment')

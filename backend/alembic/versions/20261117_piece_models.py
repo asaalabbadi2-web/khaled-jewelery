@@ -1,7 +1,9 @@
 """piece models: a model its pieces share, the sizes it comes in, a piece's model (ADR-093 M1)
 
 Impact: two new tables, piece_model and piece_model_size, empty -- the owner
-enters the models; item.model_id, nullable, empty. Nothing existing read or
+enters the models; item.model_id, nullable, empty. A model's photo is not
+kept here as text: photo_id and thumbnail_id point at the attachments' store
+(ADR-094) -- amended 18 Nov 2026 before this migration ever ran on production. Nothing existing read or
 changed. Downgrade drops them.
 
 Revision ID: 20261117_piece_models
@@ -26,8 +28,10 @@ def upgrade():
         sa.Column('supplier_code', sa.String(60), nullable=True),
         sa.Column('expected_wage_per_gram', sa.Numeric(10, 2), nullable=True),
         sa.Column('has_stones', sa.Boolean(), nullable=False, server_default=sa.false()),
-        sa.Column('photo', sa.Text(), nullable=True),
-        sa.Column('thumbnail', sa.Text(), nullable=True),
+        # its photo and thumbnail in the attachments' store (ADR-094; their
+        # foreign keys with that table, 20261117_attachments)
+        sa.Column('photo_id', sa.Integer(), nullable=True),
+        sa.Column('thumbnail_id', sa.Integer(), nullable=True),
         sa.Column('is_active', sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column('created_by', sa.String(100), nullable=False),
         sa.Column('created_at', sa.DateTime(), nullable=False),

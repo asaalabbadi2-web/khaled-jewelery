@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -12,43 +11,81 @@ import '../widgets/app_state_views.dart';
 
 /// The photo sized down on the device (ADR-093 §7): at most [photoSide] px,
 /// a JPEG within what the server takes, and its [thumbnailSide] px thumbnail
-/// for the lists -- data URIs; null when the bytes are not an image.
+/// for the lists -- each then sent to the attachments' store (ADR-094); null
+/// when the bytes are not an image.
 const photoSide = 1200;
 const thumbnailSide = 240;
-const _photoMaxBytes = 580000; // under the server's 600 KB
+const _photoMaxBytes = 580000;
 const _thumbnailMaxBytes = 58000;
 
-({String photo, String thumbnail})? modelPhotoPair(Uint8List bytes) {
+({Uint8List photo, Uint8List thumbnail})? modelPhotoPair(Uint8List bytes) {
   final photo = downsizeToJpeg(bytes, side: photoSide, maxBytes: _photoMaxBytes);
   if (photo == null) return null;
-  final thumbnail = downsizeToJpeg(photo, side: thumbnailSide, maxBytes: _thumbnailMaxBytes)!;
-  return (
-    photo: 'data:image/jpeg;base64,${base64Encode(photo)}',
-    thumbnail: 'data:image/jpeg;base64,${base64Encode(thumbnail)}',
-  );
+  return (photo: photo, thumbnail: downsizeToJpeg(photo, side: thumbnailSide, maxBytes: _thumbnailMaxBytes)!);
 }
 
-/// A data URI's image, or a placeholder.
-class ModelImage extends StatelessWidget {
-  const ModelImage({super.key, required this.uri, this.height});
+/// A model's photo: its [bytes] when just chosen, else the attachment
+/// [attachmentId] read through the server (ADR-094) -- each read once, kept
+/// in memory for the screens that show it again; a placeholder when none.
+class ModelImage extends StatefulWidget {
+  const ModelImage({super.key, this.api, this.attachmentId, this.bytes, this.height});
 
-  final String? uri;
+  final ApiService? api;
+  final int? attachmentId;
+  final Uint8List? bytes;
   final double? height;
+
+  static final _read = <int, Future<Uint8List>>{};
+
+  /// For a test: what was read is forgotten.
+  static void forgetRead() => _read.clear();
+
+  @override
+  State<ModelImage> createState() => _ModelImageState();
+}
+
+class _ModelImageState extends State<ModelImage> {
+  Uint8List? _bytes;
+
+  @override
+  void initState() {
+    super.initState();
+    _read();
+  }
+
+  @override
+  void didUpdateWidget(ModelImage old) {
+    super.didUpdateWidget(old);
+    if (old.attachmentId != widget.attachmentId || old.bytes != widget.bytes) _read();
+  }
+
+  Future<void> _read() async {
+    if (widget.bytes != null) {
+      setState(() => _bytes = widget.bytes);
+      return;
+    }
+    final id = widget.attachmentId;
+    final api = widget.api;
+    if (id == null || api == null) {
+      setState(() => _bytes = null);
+      return;
+    }
+    try {
+      final reading = ModelImage._read.putIfAbsent(id, () => api.attachmentBytes(id));
+      final bytes = await reading;
+      if (mounted && widget.attachmentId == id) setState(() => _bytes = bytes);
+    } catch (_) {
+      ModelImage._read.remove(id); // read again next time
+      if (mounted) setState(() => _bytes = null);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final data = uri;
-    Uint8List? bytes;
-    if (data != null && data.contains(',')) {
-      try {
-        bytes = base64Decode(data.substring(data.indexOf(',') + 1));
-      } catch (_) {
-        bytes = null;
-      }
-    }
+    final bytes = _bytes;
     return Container(
-      height: height,
+      height: widget.height,
       color: cs.surfaceContainerHighest,
       alignment: Alignment.center,
       child: bytes == null
@@ -141,9 +178,12 @@ class _PieceModelFormScreenState extends State<PieceModelFormScreen> {
   List<Map<String, dynamic>>? _categories;
   List<Map<String, dynamic>> _systems = const [];
   Map<String, dynamic>? _model;
-  String? _photo;
-  String? _thumbnail;
+  // the photo chosen now, its ids once sent; else the model's ids (ADR-094)
+  Uint8List? _photoBytes;
+  int? _photoId;
+  int? _thumbnailId;
   bool _photoChanged = false;
+  bool _sendingPhoto = false;
   Object? _error;
   bool _saving = false;
 
@@ -189,8 +229,8 @@ class _PieceModelFormScreenState extends State<PieceModelFormScreen> {
           _sizeIds
             ..clear()
             ..addAll([for (final s in model['sizes'] as List) (s as Map)['id'] as int]);
-          _photo = model['photo'] as String?;
-          _thumbnail = model['thumbnail'] as String?;
+          _photoId = model['photo_id'] as int?;
+          _thumbnailId = model['thumbnail_id'] as int?;
         }
       });
     } catch (e) {
@@ -206,22 +246,37 @@ class _PieceModelFormScreenState extends State<PieceModelFormScreen> {
     return id == null ? null : _systems.where((s) => s['id'] == id).firstOrNull;
   }
 
+  /// A photo chosen: sized down here, then the photo and its thumbnail
+  /// sent to the store; the model saved links them.
   Future<void> _choosePhoto() async {
     final bytes = await widget.pickPhoto(context);
     if (bytes == null || !mounted) return;
+    ({Uint8List photo, Uint8List thumbnail})? pair;
     try {
-      final pair = modelPhotoPair(bytes);
-      if (pair == null) {
-        AppFeedback.error(context, 'الملف ليس صورة');
-        return;
-      }
-      setState(() {
-        _photo = pair.photo;
-        _thumbnail = pair.thumbnail;
-        _photoChanged = true;
-      });
+      pair = modelPhotoPair(bytes);
     } on FormatException catch (e) {
       AppFeedback.error(context, e.message);
+      return;
+    }
+    if (pair == null) {
+      AppFeedback.error(context, 'الملف ليس صورة');
+      return;
+    }
+    setState(() => _sendingPhoto = true);
+    try {
+      final photo = await widget.api.uploadAttachment(pair.photo, role: 'model_photo');
+      final thumbnail = await widget.api.uploadAttachment(pair.thumbnail, role: 'model_thumbnail');
+      if (!mounted) return;
+      setState(() {
+        _photoBytes = pair!.photo;
+        _photoId = photo['id'] as int;
+        _thumbnailId = thumbnail['id'] as int;
+        _photoChanged = true;
+      });
+    } catch (e) {
+      if (mounted) AppFeedback.error(context, e, title: 'لم تُرفع الصورة');
+    } finally {
+      if (mounted) setState(() => _sendingPhoto = false);
     }
   }
 
@@ -235,8 +290,8 @@ class _PieceModelFormScreenState extends State<PieceModelFormScreen> {
       'expected_wage_per_gram': _wage.text.trim(),
       'has_stones': _stones,
       'size_ids': _sizeIds.toList(),
-      if (!_editing || _photoChanged) 'photo': _photo,
-      if (!_editing || _photoChanged) 'thumbnail': _thumbnail,
+      if (!_editing || _photoChanged) 'photo_id': _photoId,
+      if (!_editing || _photoChanged) 'thumbnail_id': _thumbnailId,
     };
     try {
       if (_editing) {
@@ -355,23 +410,26 @@ class _PieceModelFormScreenState extends State<PieceModelFormScreen> {
       children: [
         ClipRRect(
           borderRadius: BorderRadius.circular(AppRadius.card),
-          child: ModelImage(uri: _photo ?? _thumbnail, height: 220),
+          child: ModelImage(api: widget.api, bytes: _photoBytes, attachmentId: _photoId, height: 220),
         ),
         const SizedBox(height: AppSpace.sm),
         OutlinedButton.icon(
           key: const Key('model-photo'),
-          onPressed: _saving ? null : _choosePhoto,
-          icon: const Icon(Icons.photo_camera_outlined),
-          label: Text(_photo == null ? 'إضافة صورة' : 'تغيير الصورة'),
+          onPressed: _saving || _sendingPhoto ? null : _choosePhoto,
+          icon: _sendingPhoto
+              ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Icon(Icons.photo_camera_outlined),
+          label: Text(_sendingPhoto ? 'تُرفع الصورة' : (_photoId == null ? 'إضافة صورة' : 'تغيير الصورة')),
         ),
-        if (_photo != null)
+        if (_photoId != null)
           TextButton(
             key: const Key('model-photo-remove'),
             onPressed: _saving
                 ? null
                 : () => setState(() {
-                      _photo = null;
-                      _thumbnail = null;
+                      _photoBytes = null;
+                      _photoId = null;
+                      _thumbnailId = null;
                       _photoChanged = true;
                     }),
             child: const Text('إزالة الصورة'),

@@ -29,7 +29,17 @@ MAX_BYTES = 2_000_000              # a 1600 px JPEG at 80 is far below
 MAX_SIDE = 2048                    # the device sends 1600
 MAX_PER_RECORD = 10                # the owner, 17 Nov 2026
 SCRAP_GOLD_PHOTO = 'scrap_gold_photo'
+MODEL_PHOTO = 'model_photo'             # a piece model's photo and its thumbnail (ADR-093 §7)
+MODEL_THUMBNAIL = 'model_thumbnail'
 INVOICE = 'invoice'
+PIECE_MODEL = 'piece_model'
+# Each kind its right to send it and to see it: a scrap purchase's photos are
+# the invoices', a model's the items'.
+ROLE_RIGHTS = {
+    SCRAP_GOLD_PHOTO: ('invoices.create', 'invoices.view'),
+    MODEL_PHOTO: ('items.edit', 'items.view'),
+    MODEL_THUMBNAIL: ('items.edit', 'items.view'),
+}
 _EXT = {'jpeg': 'jpg', 'png': 'png', 'webp': 'webp'}
 _MIME = {'jpeg': 'image/jpeg', 'png': 'image/png', 'webp': 'image/webp'}
 
