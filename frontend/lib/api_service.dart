@@ -1480,6 +1480,20 @@ class ApiService {
         .cast<Map<String, dynamic>>();
   }
 
+  /// A category's models and their stock size by size, and «بلا موديل» --
+  /// adding up to the category's pieces in stock (ADR-093 §4).
+  Future<Map<String, dynamic>> getModelsBoard(int categoryId) =>
+      _getMap('/piece-models/board?category_id=$categoryId', fallback: 'تعذّر تحميل لوحة الموديلات');
+
+  /// A model's pieces in stock size by size, lightest first -- or a
+  /// category's pieces with no model ([modelId] null).
+  Future<Map<String, dynamic>> getStockGrid({int? modelId, int? categoryId}) => _getMap(
+    modelId != null
+        ? '/piece-models/stock-grid?model_id=$modelId'
+        : '/piece-models/stock-grid?category_id=$categoryId&model_id=none',
+    fallback: 'تعذّر تحميل المقاسات',
+  );
+
   /// One model with its photo.
   Future<Map<String, dynamic>> getPieceModel(int id) async {
     final response = await _authedGet(Uri.parse('$_baseUrl/piece-models/$id'));

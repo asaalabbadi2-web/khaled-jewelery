@@ -770,6 +770,24 @@ def _held_by_piece() -> dict:
     return held
 
 
+def stock_pieces(category_id=None) -> list:
+    """[(piece, its safe box or None)] -- the pieces in stock, of a category or
+    all: their allocations hold more than nothing (the list's reading), their
+    place the one stock safe that holds them."""
+    held = _held_by_piece()
+    query = Item.query.filter((Item.receipt_item_id.isnot(None)) | (Item.coding_id.isnot(None)))
+    if category_id is not None:
+        query = query.filter(Item.category_id == int(category_id))
+    account_of_safe = {s.account_id: s for s in SafeBox.query.filter(SafeBox.account_id.isnot(None))}
+    found = []
+    for piece in query.all():
+        accounts = {a: g for a, g in held.get(piece.id, {}).items() if g > GRAM}
+        if sum(held.get(piece.id, {}).values()) <= GRAM:
+            continue
+        found.append((piece, account_of_safe.get(next(iter(accounts))) if len(accounts) == 1 else None))
+    return found
+
+
 def _last_exits(item_ids) -> dict:
     """{piece id: (day, state)} -- the document that last took each piece out:
     a sale, a return to its supplier, or anything else (out)."""

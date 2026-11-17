@@ -242,3 +242,103 @@ def delete_model(model: PieceModel) -> None:
     PieceModelSize.query.filter_by(model_id=model.id).delete()
     db.session.delete(model)
     db.session.flush()
+
+
+# ── what is in stock, by the model and the size (M4) ───────────────────────
+
+def _tally(rows) -> dict:
+    weights = [float(p.weight or 0.0) for p, _ in rows]
+    return {'count': len(weights), 'weight': round(sum(weights), 3),
+            'lightest': round(min(weights), 3) if weights else None,
+            'heaviest': round(max(weights), 3) if weights else None}
+
+
+def _by_size(rows, offered) -> list:
+    """One row a size: *offered* in their order (none held: zero -- «نفد»),
+    then any other size held, then the pieces with no size."""
+    by_size: dict = {}
+    for piece, place in rows:
+        by_size.setdefault(piece.size_id, []).append((piece, place))
+    labels = {s.id: s for s in SizeSystemSize.query.filter(
+        SizeSystemSize.id.in_([i for i in by_size if i is not None] or [-1]))}
+    order = [s.id for s in offered] + sorted((i for i in by_size if i is not None and i not in
+                                              {s.id for s in offered}),
+                                             key=lambda i: (labels[i].position, i))
+    sized = {s.id: s for s in offered} | labels
+    out = [{'size': {'id': i, 'label': sized[i].label}, **_tally(by_size.get(i, []))} for i in order]
+    if None in by_size:
+        out.append({'size': None, **_tally(by_size[None])})
+    return out
+
+
+def _system_sizes(category: Category) -> list:
+    if category.size_system_id is None:
+        return []
+    return SizeSystemSize.query.filter_by(system_id=category.size_system_id).order_by(
+        SizeSystemSize.position, SizeSystemSize.id).all()
+
+
+def models_board(category_id) -> dict:
+    """A category's models and what is in stock of each, size by size; the
+    pieces with no model in a row of their own -- so the models and «بلا
+    موديل» add up to the category's pieces in stock (ADR-093 §4)."""
+    from services.pieces import stock_pieces
+    category = db.session.get(Category, int(category_id)) if category_id not in (None, '') else None
+    if category is None:
+        raise ModelRefused('model_category_required', 'اختر التصنيف')
+    rows = stock_pieces(category.id)
+    by_model: dict = {}
+    for piece, place in rows:
+        by_model.setdefault(piece.model_id, []).append((piece, place))
+    system = _system_sizes(category)
+    models = PieceModel.query.filter_by(category_id=category.id).order_by(PieceModel.name).all()
+    board = []
+    for model in models:
+        held = by_model.get(model.id, [])
+        if model.is_active is False and not held:
+            continue
+        named = model_sizes(model)
+        sizes = _by_size(held, named or [])
+        board.append({**model_view(model, pieces=len(held)), 'stock': _tally(held), 'by_size': sizes,
+                      'missing': [r['size']['label'] for r in sizes if r['size'] and r['count'] == 0]})
+    loose = by_model.get(None, [])
+    return {
+        'category': {'id': category.id, 'name': category.name, 'size_system_id': category.size_system_id},
+        'sizes': [{'id': s.id, 'label': s.label} for s in system],
+        'in_stock': _tally(rows),
+        'in_models': _tally([r for r in rows if r[0].model_id is not None]),
+        'models_count': len(board),
+        'models': board,
+        'no_model': {**_tally(loose), 'by_size': _by_size(loose, [])},
+    }
+
+
+def stock_grid(*, category_id=None, model_id=None) -> dict:
+    """The pieces in stock of a model -- or of a category with no model --
+    size by size, each size's pieces lightest first with their place: what
+    is asked for at the counter («this shape in 18»)."""
+    from services.pieces import stock_pieces
+    model = None
+    if model_id not in (None, '', 'none'):
+        model = db.session.get(PieceModel, int(model_id))
+        if model is None:
+            raise ModelRefused('model_not_found', 'الموديل غير موجود')
+        category = db.session.get(Category, model.category_id)
+    else:
+        category = db.session.get(Category, int(category_id)) if category_id not in (None, '') else None
+        if category is None:
+            raise ModelRefused('model_category_required', 'اختر التصنيف')
+    rows = [(p, place) for p, place in stock_pieces(category.id) if p.model_id == (model.id if model else None)]
+    offered = model_sizes(model) if model is not None else []
+    grid = _by_size(rows, offered)
+    by_size: dict = {}
+    for piece, place in rows:
+        by_size.setdefault(piece.size_id, []).append((piece, place))
+    for row in grid:
+        held = by_size.get(row['size']['id'] if row['size'] else None, [])
+        row['pieces'] = [{'id': p.id, 'item_code': p.item_code, 'weight': round(float(p.weight or 0.0), 3),
+                          'location': {'id': place.id, 'name': place.name} if place else None}
+                         for p, place in sorted(held, key=lambda r: (float(r[0].weight or 0.0), r[0].item_code))]
+    return {'category': {'id': category.id, 'name': category.name},
+            'model': model_view(model, pieces=len(rows)) if model is not None else None,
+            'stock': _tally(rows), 'by_size': grid}

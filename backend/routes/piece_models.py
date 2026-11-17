@@ -3,6 +3,10 @@
 GET    /api/piece-models          -- ?category_id, q, include_inactive: each
        with its sizes, its thumbnail and how many pieces are of it.
 GET    /api/piece-models/<id>     -- the same with its photo.
+GET    /api/piece-models/board    -- ?category_id: its models and their stock
+       size by size, and «بلا موديل» -- adding up to the category's stock.
+GET    /api/piece-models/stock-grid -- ?model_id, or ?category_id&model_id=none:
+       the pieces in stock size by size, lightest first, with their place.
 POST   /api/piece-models          -- {category_id, name, supplier_code,
        expected_wage_per_gram, has_stones, size_ids, photo, thumbnail}.
 PATCH  /api/piece-models/<id>     -- what is given changes; is_active stops it.
@@ -41,6 +45,28 @@ def _truthy(raw) -> bool:
 def piece_models_index():
     return jsonify(list_models(category_id=request.args.get('category_id'), q=request.args.get('q'),
                                include_inactive=_truthy(request.args.get('include_inactive'))))
+
+
+@piece_models_bp.route('/piece-models/board', methods=['GET'])
+@require_permission('items.view')
+def piece_models_board():
+    """?category_id: its models and their stock size by size, and «بلا موديل»."""
+    from services.piece_models import models_board
+    try:
+        return jsonify(models_board(request.args.get('category_id')))
+    except ModelRefused as refused:
+        return jsonify({'error': refused.code, 'message': refused.message}), 400
+
+
+@piece_models_bp.route('/piece-models/stock-grid', methods=['GET'])
+@require_permission('items.view')
+def piece_models_stock_grid():
+    """?model_id, or ?category_id&model_id=none: the pieces in stock size by size, lightest first."""
+    from services.piece_models import stock_grid
+    try:
+        return jsonify(stock_grid(category_id=request.args.get('category_id'), model_id=request.args.get('model_id')))
+    except ModelRefused as refused:
+        return jsonify({'error': refused.code, 'message': refused.message}), 400
 
 
 @piece_models_bp.route('/piece-models/<int:model_id>', methods=['GET'])
