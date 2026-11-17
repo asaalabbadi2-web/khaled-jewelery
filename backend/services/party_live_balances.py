@@ -385,3 +385,20 @@ def compute_live_customer_balances(customers: Iterable, before=None) -> Dict[int
         )
         out[int(c.id)] = {k: round(float(v or 0.0), 6) for k, v in zip(('cash', '18k', '21k', '22k', '24k'), row)}
     return out
+
+
+def gold_in_main_karat(payload: dict):
+    """A party's gold at the main karat, from its balance by karat
+    (balance_gold_18k ... _24k), by the one conversion
+    (pricing.karat_service). The suppliers' list and the customers' send it
+    as balance_gold_main: their screens each worked it out with a formula of
+    their own (ADR-050 ر٠; the owner, 17 Nov 2026). None while the settings
+    hold no main karat -- the list still loads, the screen says it is unset."""
+    from pricing.gold_price_service import MainKaratNotSet
+    from pricing.karat_service import by_karat_in_main_karat
+    try:
+        return round(by_karat_in_main_karat({
+            f'{k}k': float(payload.get(f'balance_gold_{k}k') or 0.0) for k in (18, 21, 22, 24)
+        }), 3)
+    except MainKaratNotSet:
+        return None

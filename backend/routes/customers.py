@@ -355,7 +355,7 @@ def get_customers():
     customers = Customer.query.all()
     # The balance is the ledger's, read one way (BALANCE-001 B1) -- not the
     # cached columns, which update_balance() moved in nine places only.
-    from services.party_live_balances import compute_live_customer_balances
+    from services.party_live_balances import compute_live_customer_balances, gold_in_main_karat
     live = compute_live_customer_balances(customers)
     rows = []
     for c in customers:
@@ -364,6 +364,8 @@ def get_customers():
         d['balance_cash'] = round(bal.get('cash', 0.0), 2)
         for k in ('18k', '21k', '22k', '24k'):
             d[f'balance_gold_{k}'] = round(bal.get(k, 0.0), 3)
+        # At the main karat, by the one conversion -- as a supplier's.
+        d['balance_gold_main'] = gold_in_main_karat(d)
         d['balance_source'] = 'ledger'
         rows.append(d)
     return jsonify(rows)

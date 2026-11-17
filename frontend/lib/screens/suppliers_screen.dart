@@ -16,8 +16,9 @@ import '../widgets/app_state_views.dart';
 import '../utils/arabic_search.dart';
 import '../widgets/app_shortcuts.dart';
 import 'supplier_settlements_screen.dart';
+import '../widgets/party_table.dart';
 
-enum _SuppliersViewMode { cards, compact }
+enum _SuppliersViewMode { cards, table }
 
 class SuppliersScreen extends StatefulWidget {
   final ApiService api;
@@ -46,7 +47,15 @@ class SuppliersScreenState extends State<SuppliersScreen> {
   bool _onlyClosingOffices = false;
   String _sortBy = 'name';
   bool _sortAscending = true;
-  _SuppliersViewMode _viewMode = _SuppliersViewMode.cards;
+  /// Chosen by the button; until then a table on a wide screen, cards on a
+  /// narrow one (the owner, 17 Nov 2026).
+  _SuppliersViewMode? _chosenView;
+
+  _SuppliersViewMode get _viewMode =>
+      _chosenView ??
+      (MediaQuery.sizeOf(context).width >= partyTableMinWidth
+          ? _SuppliersViewMode.table
+          : _SuppliersViewMode.cards);
 
   // The settings' main karat from the start -- never a fixed one.
   late int _mainKarat = context.read<SettingsProvider>().mainKarat;
@@ -793,6 +802,19 @@ class SuppliersScreenState extends State<SuppliersScreen> {
     // were not seen (ADR-057 ر٢): one row that scrolls sideways instead.
     return LayoutBuilder(
       builder: (context, constraints) {
+        // Wide enough for all on one line: one line, sharing it (the owner,
+        // 17 Nov 2026 -- five cards wrapped to two lines at 1600).
+        if (constraints.maxWidth >= cards.length * 260) {
+          return Row(
+            key: const Key('suppliers-summary-line'),
+            children: [
+              for (final (i, card) in cards.indexed) ...[
+                if (i > 0) const SizedBox(width: 10),
+                Expanded(child: card),
+              ],
+            ],
+          );
+        }
         if (constraints.maxWidth >= 600) {
           return Wrap(spacing: 10, runSpacing: 10, children: cards);
         }
@@ -1349,94 +1371,63 @@ class SuppliersScreenState extends State<SuppliersScreen> {
     );
   }
 
-  Widget _buildCompactRow(Map<String, dynamic> supplier) {
-    final theme = Theme.of(context);
-    final localeName = Localizations.localeOf(context).toString();
-    final moneyFmt = NumberFormat('#,##0.00', localeName);
-    final weightFmt = NumberFormat('#,##0.000', localeName);
-
-    final cash = _cashBalance(supplier);
-    final gold = _goldMainEquivalent(supplier);
-    final active = _isActive(supplier);
-
-    return Material(
-      color: theme.colorScheme.surface,
-      child: InkWell(
-        onTap: () => _openSupplierStatement(supplier),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            border: Border(
-              bottom: BorderSide(
-                color: theme.colorScheme.outline.withValues(alpha: 0.1),
-              ),
-            ),
+  /// The list as a table (party_table): a row a supplier, its balances
+  /// side by side, sorted from its header.
+  Widget _buildTable() => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+    child: PartyTable(
+      partyLabel: widget.isArabic ? 'المورد' : 'Supplier',
+      mainKarat: context.read<SettingsProvider>().mainKarat,
+      rows: [
+        for (final s in _filteredSuppliers)
+          (
+            name: _supplierName(s),
+            code: _supplierCode(s),
+            phone: _supplierPhone(s),
+            active: _isActive(s),
+            cash: _cashBalance(s),
+            gold: _goldMain(s),
           ),
-          child: Row(
-            children: [
-              Expanded(
-                flex: 4,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _supplierName(supplier).isEmpty
-                          ? (widget.isArabic ? 'بدون اسم' : 'Unnamed')
-                          : _supplierName(supplier),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: active ? null : theme.disabledColor,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      _supplierCode(supplier).isEmpty
-                          ? (widget.isArabic ? 'بدون كود' : 'No code')
-                          : _supplierCode(supplier),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurface.withValues(
-                          alpha: 0.62,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                flex: 2,
-                child: context.read<SettingsProvider>().buildText(
-                  '${moneyFmt.format(cash)} $_currencySymbol',
-                  textAlign: TextAlign.end,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: _tone.cash.fg,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                flex: 2,
-                child: Text(
-                  '${weightFmt.format(gold)} ${widget.isArabic ? 'جم' : 'g'}',
-                  textAlign: TextAlign.end,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: _tone.gold.fg,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              _buildSupplierActions(supplier),
-            ],
-          ),
+      ],
+      onOpen: (i) => _openSupplierStatement(_filteredSuppliers[i]),
+      actions: (i) => [
+        (
+          icon: Icons.receipt_long_outlined,
+          label: widget.isArabic ? 'كشف الحساب' : 'Statement',
+          onPressed: () => _openSupplierStatement(_filteredSuppliers[i]),
         ),
-      ),
-    );
-  }
+        (
+          icon: Icons.north_east,
+          label: widget.isArabic ? 'سند صرف' : 'Payment voucher',
+          onPressed: () => _openPaymentVoucher(_filteredSuppliers[i]),
+        ),
+        (
+          icon: Icons.shopping_cart_outlined,
+          label: widget.isArabic ? 'فاتورة شراء جديد' : 'Purchase invoice',
+          onPressed: () => _openPurchaseInvoice(_filteredSuppliers[i]),
+        ),
+      ],
+      menu: (i) => _buildSupplierActions(_filteredSuppliers[i]),
+      onRefresh: _fetchSuppliers,
+      sort: switch (_sortBy) {
+        'cash' => PartyTableSort.cash,
+        'gold' => PartyTableSort.gold,
+        _ => PartyTableSort.name,
+      },
+      ascending: _sortAscending,
+      onSort: (by) {
+        setState(() {
+          if (_sortBy == by.name) {
+            _sortAscending = !_sortAscending;
+          } else {
+            _sortBy = by.name;
+            _sortAscending = true;
+          }
+        });
+        _filterSuppliers();
+      },
+    ),
+  );
 
   Widget _buildBody() {
     // The app's loading, error and empty views (ADR-057 ر١): the error said
@@ -1472,80 +1463,7 @@ class SuppliersScreenState extends State<SuppliersScreen> {
       );
     }
 
-    if (_viewMode == _SuppliersViewMode.compact) {
-      return RefreshIndicator(
-        onRefresh: _fetchSuppliers,
-        child: ListView(
-          controller: _scrollController,
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
-          children: [
-            Container(
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.outline.withValues(alpha: 0.12),
-                ),
-              ),
-              child: Column(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 12,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .surfaceContainerHighest
-                          .withValues(alpha: 0.45),
-                      borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(16),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          flex: 4,
-                          child: Text(
-                            widget.isArabic ? 'المورد' : 'Supplier',
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(fontWeight: FontWeight.w800),
-                          ),
-                        ),
-                        Expanded(
-                          flex: 2,
-                          child: Text(
-                            widget.isArabic ? 'نقد' : 'Cash',
-                            textAlign: TextAlign.end,
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(fontWeight: FontWeight.w800),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          flex: 2,
-                          child: Text(
-                            widget.isArabic ? 'ذهب' : 'Gold',
-                            textAlign: TextAlign.end,
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(fontWeight: FontWeight.w800),
-                          ),
-                        ),
-                        const SizedBox(width: 44),
-                      ],
-                    ),
-                  ),
-                  ..._filteredSuppliers.map(_buildCompactRow),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
-    }
+    if (_viewMode == _SuppliersViewMode.table) return _buildTable();
 
     return RefreshIndicator(
       onRefresh: _fetchSuppliers,
@@ -1574,7 +1492,7 @@ class SuppliersScreenState extends State<SuppliersScreen> {
         actions: [
           IconButton(
             tooltip: _viewMode == _SuppliersViewMode.cards
-                ? (widget.isArabic ? 'عرض مضغوط' : 'Compact view')
+                ? (widget.isArabic ? 'عرض الجدول' : 'Table view')
                 : (widget.isArabic ? 'عرض البطاقات' : 'Cards view'),
             icon: Icon(
               _viewMode == _SuppliersViewMode.cards
@@ -1583,8 +1501,8 @@ class SuppliersScreenState extends State<SuppliersScreen> {
             ),
             onPressed: () {
               setState(() {
-                _viewMode = _viewMode == _SuppliersViewMode.cards
-                    ? _SuppliersViewMode.compact
+                _chosenView = _viewMode == _SuppliersViewMode.cards
+                    ? _SuppliersViewMode.table
                     : _SuppliersViewMode.cards;
               });
             },
