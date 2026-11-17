@@ -143,12 +143,12 @@ class BonusManagementScreenState extends State<BonusManagementScreen> {
             width: 32,
             height: 32,
             decoration: BoxDecoration(
-              color: AppColors.primaryGold.withValues(alpha: 0.15),
+              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Icon(
+            child: Icon(
               Icons.card_giftcard_rounded,
-              color: AppColors.primaryGold,
+              color: Theme.of(context).colorScheme.primary,
               size: 18,
             ),
           ),
@@ -257,7 +257,7 @@ class BonusManagementScreenState extends State<BonusManagementScreen> {
                               t.icon,
                               size: 22,
                               color: isActive
-                                  ? AppColors.primaryGold
+                                  ? Theme.of(context).colorScheme.primary
                                   : theme.hintColor,
                             ),
                             if (t.count != null)
@@ -271,7 +271,7 @@ class BonusManagementScreenState extends State<BonusManagementScreen> {
                                   ),
                                   decoration: BoxDecoration(
                                     color: isActive
-                                        ? AppColors.primaryGold
+                                        ? Theme.of(context).colorScheme.primary
                                         : theme.hintColor,
                                     borderRadius: BorderRadius.circular(6),
                                   ),
@@ -294,7 +294,7 @@ class BonusManagementScreenState extends State<BonusManagementScreen> {
                             fontSize: 10.5,
                             fontWeight: FontWeight.w600,
                             color: isActive
-                                ? AppColors.primaryGold
+                                ? Theme.of(context).colorScheme.primary
                                 : theme.hintColor,
                           ),
                         ),
@@ -304,7 +304,7 @@ class BonusManagementScreenState extends State<BonusManagementScreen> {
                           width: isActive ? 20 : 0,
                           height: 2.5,
                           decoration: BoxDecoration(
-                            color: AppColors.primaryGold,
+                            color: Theme.of(context).colorScheme.primary,
                             borderRadius: BorderRadius.circular(2),
                           ),
                         ),

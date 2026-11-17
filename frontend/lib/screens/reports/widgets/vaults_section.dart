@@ -329,7 +329,7 @@ class _VaultsSectionState extends State<VaultsSection> {
     switch (safeType) {
       case 'gold':
         icon = Icons.auto_awesome;
-        color = AppColors.primaryGold;
+        color = Theme.of(context).colorScheme.primary;
         primaryValue = isExpanded ? physicalTotal : totalMainEffective;
         primaryFormatter = _fmtW;
         subtitle = isAr ? 'ذهب' : 'Gold';
@@ -384,7 +384,7 @@ class _VaultsSectionState extends State<VaultsSection> {
                 children: [
                   buildDetailChip('24k', _fmtW(w24), chipColor: AppColors.karat24),
                   buildDetailChip('22k', _fmtW(w22), chipColor: AppColors.karat22),
-                  buildDetailChip('21k', _fmtW(w21), chipColor: AppColors.karat21),
+                  buildDetailChip('21k', _fmtW(w21), chipColor: AppSemanticColors.of(context).karat(21).fg),
                   buildDetailChip('18k', _fmtW(w18), chipColor: AppColors.karat18),
                 ],
               )
@@ -392,7 +392,7 @@ class _VaultsSectionState extends State<VaultsSection> {
                 spacing: _s(8),
                 runSpacing: _s(8),
                 children: [
-                  buildDetailChip('21k', _fmtW(goldBalance), chipColor: AppColors.karat21),
+                  buildDetailChip('21k', _fmtW(goldBalance), chipColor: AppSemanticColors.of(context).karat(21).fg),
                   buildDetailChip(
                     isAr ? 'ملاحظة' : 'Note',
                     isAr ? 'تفصيل العيارات غير متوفر بعد' : 'Karat breakdown not available yet',

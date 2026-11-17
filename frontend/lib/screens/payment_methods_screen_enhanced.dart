@@ -35,7 +35,7 @@ class _PaymentMethodsScreenEnhancedState
   final Color _successColor = AppColors.success;
   final Color _warningColor = AppColors.warning;
   final Color _errorColor = AppColors.error;
-  final Color _accentColor = AppColors.darkGold;
+  Color get _accentColor => Theme.of(context).colorScheme.primary;
   final Color _infoColor = AppColors.info;
 
   // أيقونات طرق الدفع
@@ -49,7 +49,7 @@ class _PaymentMethodsScreenEnhancedState
   };
 
   // ألوان طرق الدفع
-  final Map<String, Color> _paymentColors = {
+  Map<String, Color> get _paymentColors => {
     'cash': AppColors.success,
     'credit_card': AppColors.info,
     'debit_card': AppColors.info,
@@ -60,10 +60,10 @@ class _PaymentMethodsScreenEnhancedState
     'apple_pay': Color(0xFF455A64),
     'tabby': Color(0xFF6A1B9A),
     'tamara': Color(0xFFAD1457),
-    'bank_transfer': AppColors.darkGold,
+    'bank_transfer': Theme.of(context).colorScheme.primary,
     'check': Color(0xFF795548),
     'online': Color(0xFF00838F),
-    'receivable': AppColors.darkGold,
+    'receivable': Theme.of(context).colorScheme.primary,
   };
 
   bool get _isDark => Theme.of(context).brightness == Brightness.dark;
@@ -343,33 +343,19 @@ class _PaymentMethodsScreenEnhancedState
       appBar: AppBar(
         elevation: 0,
         centerTitle: false,
+        // The bar as every screen's: the theme's colors (the owner, 17 Nov
+        // 2026 -- it was painted gold, its title white).
         title: Row(
           children: [
-            Icon(Icons.payment, color: Colors.white, size: 28),
+            Icon(Icons.payment, size: 28),
             SizedBox(width: 12),
-            Text(
-              'إدارة وسائل الدفع',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 22,
-                color: Colors.white,
-              ),
-            ),
+            Text('إدارة وسائل الدفع'),
           ],
-        ),
-        flexibleSpace: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [AppColors.deepGold, AppColors.darkGold],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
         ),
         actions: [
           IconButton(
             onPressed: _fetchData,
-            icon: Icon(Icons.refresh, color: Colors.white),
+            icon: Icon(Icons.refresh),
             tooltip: 'تحديث',
           ),
         ],
@@ -381,7 +367,7 @@ class _PaymentMethodsScreenEnhancedState
                 children: [
                   CircularProgressIndicator(
                     valueColor: AlwaysStoppedAnimation<Color>(
-                      AppColors.primaryGold,
+                      Theme.of(context).colorScheme.primary,
                     ),
                     strokeWidth: 3,
                   ),
@@ -401,7 +387,7 @@ class _PaymentMethodsScreenEnhancedState
           ? _buildEmptyState()
           : RefreshIndicator(
               onRefresh: _fetchData,
-              color: AppColors.primaryGold,
+              color: Theme.of(context).colorScheme.primary,
               child: Column(
                 children: [
                   _buildSummaryStrip(),
@@ -411,7 +397,7 @@ class _PaymentMethodsScreenEnhancedState
             ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showPaymentMethodDialog(),
-        backgroundColor: AppColors.primaryGold,
+        backgroundColor: Theme.of(context).colorScheme.primary,
         foregroundColor: Colors.black,
         elevation: 3,
         icon: Icon(Icons.add),
@@ -433,13 +419,13 @@ class _PaymentMethodsScreenEnhancedState
             Container(
               padding: EdgeInsets.all(30),
               decoration: BoxDecoration(
-                color: AppColors.primaryGold.withValues(alpha: 0.12),
+                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
                 shape: BoxShape.circle,
               ),
               child: Icon(
                 Icons.payment_outlined,
                 size: 80,
-                color: AppColors.darkGold,
+                color: Theme.of(context).colorScheme.primary,
               ),
             ),
             SizedBox(height: 24),
@@ -466,7 +452,7 @@ class _PaymentMethodsScreenEnhancedState
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primaryGold,
+                backgroundColor: Theme.of(context).colorScheme.primary,
                 foregroundColor: Colors.black,
                 padding: EdgeInsets.symmetric(horizontal: 32, vertical: 16),
                 shape: RoundedRectangleBorder(
@@ -496,7 +482,7 @@ class _PaymentMethodsScreenEnhancedState
         color: _panelColor,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: AppColors.primaryGold.withValues(alpha: 0.25),
+          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.25),
         ),
       ),
       child: Row(
@@ -506,7 +492,7 @@ class _PaymentMethodsScreenEnhancedState
               title: 'الإجمالي',
               value: '$total',
               icon: Icons.layers,
-              color: AppColors.darkGold,
+              color: Theme.of(context).colorScheme.primary,
             ),
           ),
           const SizedBox(width: 10),
@@ -951,13 +937,13 @@ class _PaymentMethodsScreenEnhancedState
     return selectedTypes.map((type) {
       return Chip(
         label: Text(_invoiceTypeLabel(type)),
-        backgroundColor: AppColors.primaryGold.withValues(alpha: 0.12),
+        backgroundColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
         labelStyle: TextStyle(color: _primaryText, fontSize: 12),
         visualDensity: VisualDensity.compact,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(20),
           side: BorderSide(
-            color: AppColors.primaryGold.withValues(alpha: 0.28),
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.28),
           ),
         ),
       );
@@ -1116,14 +1102,10 @@ class _PaymentMethodsScreenEnhancedState
               Container(
                 padding: EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [AppColors.darkGold, AppColors.primaryGold],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
+                  color: Theme.of(context).colorScheme.primary,
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(Icons.payment, color: Colors.white),
+                child: Icon(Icons.payment, color: Theme.of(context).colorScheme.onPrimary),
               ),
               SizedBox(width: 12),
               Text(
@@ -1985,7 +1967,7 @@ class _PaymentMethodsScreenEnhancedState
               icon: Icon(editingMethod == null ? Icons.add : Icons.save),
               label: Text(editingMethod == null ? 'إضافة' : 'حفظ'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primaryGold,
+                backgroundColor: Theme.of(context).colorScheme.primary,
                 foregroundColor: Colors.black,
                 minimumSize: const Size(112, 44),
                 shape: RoundedRectangleBorder(

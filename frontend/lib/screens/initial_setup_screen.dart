@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 
 import '../api_service.dart';
 import '../providers/auth_provider.dart';
-import '../theme/app_theme.dart';
 
 class InitialSetupScreen extends StatefulWidget {
   const InitialSetupScreen({super.key});
@@ -301,10 +300,10 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.diamond,
                         size: 72,
-                        color: AppColors.primaryGold,
+                        color: Theme.of(context).colorScheme.primary,
                       ),
                       const SizedBox(height: 12),
                       Text(

@@ -40,7 +40,7 @@ class _CalculateBonusesScreenState extends State<CalculateBonusesScreen> {
           subtitle: isAr
               ? 'احتساب المكافآت من القواعد المفعّلة'
               : 'Compute bonuses from active rules',
-          color: AppColors.primaryGold,
+          color: Theme.of(context).colorScheme.primary,
         ),
         const SizedBox(height: 12),
         _AutoCalculateContent(api: widget.api, isArabic: isAr),

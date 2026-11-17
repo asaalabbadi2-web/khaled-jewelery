@@ -144,7 +144,7 @@ class _SafeBoxHeroDetailsScreenState extends State<SafeBoxHeroDetailsScreen> {
     switch (safeType) {
       case 'gold':
         icon = Icons.auto_awesome;
-        color = AppColors.primaryGold;
+        color = Theme.of(context).colorScheme.primary;
         subtitle = widget.isArabic ? 'ذهب' : 'Gold';
         break;
       case 'bank':
@@ -318,7 +318,7 @@ class _SafeBoxHeroDetailsScreenState extends State<SafeBoxHeroDetailsScreen> {
                       buildDetailChip(
                         '21k',
                         _weightFmt(w21),
-                        chipColor: AppColors.karat21,
+                        chipColor: AppSemanticColors.of(context).karat(21).fg,
                       ),
                       buildDetailChip(
                         '18k',

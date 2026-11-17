@@ -216,7 +216,7 @@ class _GoldReservationsListScreenState
   Color _statusColor(String? status) {
     switch (status) {
       case 'approved':
-        return AppColors.darkGold;
+        return Theme.of(context).colorScheme.primary;
       case 'completed':
         return AppColors.success;
       case 'partial':
@@ -224,7 +224,7 @@ class _GoldReservationsListScreenState
       case 'cancelled':
         return AppColors.error;
       default:
-        return AppColors.darkGold;
+        return Theme.of(context).colorScheme.primary;
     }
   }
 
@@ -282,9 +282,9 @@ class _GoldReservationsListScreenState
         initiallyExpanded: _filtersExpanded,
         onExpansionChanged: (expanded) =>
             setState(() => _filtersExpanded = expanded),
-        leading: const Icon(
+        leading: Icon(
           Icons.filter_alt_outlined,
-          color: AppColors.darkGold,
+          color: Theme.of(context).colorScheme.primary,
         ),
         tilePadding: const EdgeInsets.symmetric(horizontal: 16),
         childrenPadding: const EdgeInsets.all(16),
@@ -437,7 +437,7 @@ class _GoldReservationsListScreenState
 
   Widget _buildSummaryCard(bool isAr) {
     return Card(
-      color: AppColors.lightGold.withValues(alpha: 0.4),
+      color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.4),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Wrap(
@@ -480,7 +480,7 @@ class _GoldReservationsListScreenState
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, color: AppColors.darkGold),
+        Icon(icon, color: Theme.of(context).colorScheme.primary),
         const SizedBox(width: 8),
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -568,7 +568,7 @@ class _GoldReservationsListScreenState
                 ),
                 _buildChip(
                   icon: Icons.water_drop,
-                  color: AppColors.primaryGold,
+                  color: Theme.of(context).colorScheme.primary,
                   label:
                       '${isAr ? 'العيار' : 'Karat'} ${reservation['karat'] ?? 24}',
                 ),
@@ -579,7 +579,7 @@ class _GoldReservationsListScreenState
                   _buildChip(
                     key: const ValueKey('reservation-executions'),
                     icon: Icons.inventory,
-                    color: AppColors.mediumGold,
+                    color: Theme.of(context).colorScheme.secondary,
                     label:
                         '${isAr ? 'تنفيذات' : 'Executions'} ${reservation['executions_created']}',
                   ),
@@ -743,7 +743,7 @@ class _EmptyState extends StatelessWidget {
       padding: const EdgeInsets.all(32),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.lightGold),
+        border: Border.all(color: Theme.of(context).colorScheme.primaryContainer),
       ),
       child: Column(
         children: [

@@ -1065,7 +1065,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: theme.AppColors.deepGold.withValues(alpha: 0.08),
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
             blurRadius: 16,
             offset: const Offset(0, 6),
           ),
@@ -1079,9 +1079,9 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
             controller: _searchController,
             decoration: InputDecoration(
               hintText: 'البحث برقم الفاتورة، النوع، أو المبلغ...',
-              prefixIcon: const Icon(
+              prefixIcon: Icon(
                 Icons.search,
-                color: theme.AppColors.primaryGold,
+                color: Theme.of(context).colorScheme.primary,
               ),
               suffixIcon: _searchQuery.isNotEmpty
                   ? IconButton(
@@ -1112,7 +1112,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                 Icon(
                   Icons.calendar_today,
                   size: 20,
-                  color: theme.AppColors.darkGold,
+                  color: Theme.of(context).colorScheme.primary,
                 ),
                 const SizedBox(width: 8),
                 _buildFilterChip('الكل', 'all'),
@@ -1144,13 +1144,13 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
           _postedEntriesPage = 1;
         });
       },
-      selectedColor: theme.AppColors.primaryGold,
-      checkmarkColor: Colors.white,
+      selectedColor: Theme.of(context).colorScheme.primary,
+      checkmarkColor: Theme.of(context).colorScheme.onPrimary,
       backgroundColor: Theme.of(context).colorScheme.surface,
       side: BorderSide(
         color: isSelected
-            ? theme.AppColors.primaryGold
-            : theme.AppColors.primaryGold.withValues(alpha: 0.2),
+            ? Theme.of(context).colorScheme.primary
+            : Theme.of(context).colorScheme.primary.withValues(alpha: 0.2),
       ),
       labelStyle: TextStyle(
         color: isSelected
@@ -1173,7 +1173,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: theme.AppColors.deepGold.withValues(alpha: 0.08),
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
             blurRadius: 16,
             offset: const Offset(0, 6),
           ),
@@ -1187,9 +1187,9 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
             controller: _searchController,
             decoration: InputDecoration(
               hintText: 'البحث برقم القيد، الوصف، أو النوع...',
-              prefixIcon: const Icon(
+              prefixIcon: Icon(
                 Icons.search,
-                color: theme.AppColors.primaryGold,
+                color: Theme.of(context).colorScheme.primary,
               ),
               suffixIcon: _searchQuery.isNotEmpty
                   ? IconButton(
@@ -1220,7 +1220,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                 Icon(
                   Icons.calendar_today,
                   size: 20,
-                  color: theme.AppColors.darkGold,
+                  color: Theme.of(context).colorScheme.primary,
                 ),
                 const SizedBox(width: 8),
                 _buildFilterChip('الكل', 'all'),
@@ -1412,7 +1412,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
         side: BorderSide(
-          color: theme.AppColors.primaryGold.withValues(alpha: 0.35),
+          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.35),
           width: 1.5,
         ),
       ),
@@ -1420,8 +1420,8 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
-              theme.AppColors.primaryGold.withValues(alpha: 0.15),
-              theme.AppColors.lightGold.withValues(alpha: 0.08),
+              Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
+              Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.08),
               surfaceColor,
             ],
             begin: AlignmentDirectional.topEnd,
@@ -1446,7 +1446,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
               SizedBox(
                 height: 72,
                 child: VerticalDivider(
-                  color: theme.AppColors.primaryGold.withValues(alpha: 0.4),
+                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4),
                   thickness: 1.2,
                 ),
               ),
@@ -1483,7 +1483,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
 
     return Column(
       children: [
-        Icon(icon, size: 32, color: theme.AppColors.primaryGold),
+        Icon(icon, size: 32, color: Theme.of(context).colorScheme.primary),
         const SizedBox(height: 8),
         Text(title, style: titleStyle),
         const SizedBox(height: 12),
@@ -1494,7 +1494,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
               context,
               'الإجمالي',
               total,
-              theme.AppColors.darkGold,
+              Theme.of(context).colorScheme.primary,
             ),
             _buildStatValue(context, 'مرحلة', posted, theme.AppColors.success),
             _buildStatValue(
@@ -1611,8 +1611,8 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                 icon: const Icon(Icons.done_all, size: 18),
                 label: const Text('ترحيل الكل'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: theme.AppColors.primaryGold,
-                  foregroundColor: Colors.white,
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  foregroundColor: Theme.of(context).colorScheme.onPrimary,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 14,
                     vertical: 8,
@@ -1628,7 +1628,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: theme.AppColors.lightGold.withValues(alpha: 0.35),
+              color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.35),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Row(
@@ -1734,12 +1734,12 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
       margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
       elevation: isSelected ? 6 : 2,
       color: isSelected
-          ? theme.AppColors.lightGold.withValues(alpha: 0.25)
+          ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.25)
           : Theme.of(context).cardColor,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: isSelected
-            ? BorderSide(color: theme.AppColors.primaryGold, width: 1.5)
+            ? BorderSide(color: Theme.of(context).colorScheme.primary, width: 1.5)
             : BorderSide.none,
       ),
       child: ClipRRect(
@@ -1758,7 +1758,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                         )
                       : Checkbox(
                           value: isSelected,
-                          activeColor: theme.AppColors.primaryGold,
+                          activeColor: Theme.of(context).colorScheme.primary,
                           onChanged: (value) {
                             setState(() {
                               if (value == true) {
@@ -1775,7 +1775,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                       fontWeight: FontWeight.bold,
                       color: isPosted
                           ? Theme.of(context).textTheme.bodyLarge?.color
-                          : theme.AppColors.darkGold,
+                          : Theme.of(context).colorScheme.primary,
                     ),
                   ),
                   subtitle: Column(
@@ -1944,8 +1944,8 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                 icon: const Icon(Icons.done_all, size: 18),
                 label: const Text('ترحيل الكل'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: theme.AppColors.primaryGold,
-                  foregroundColor: Colors.white,
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  foregroundColor: Theme.of(context).colorScheme.onPrimary,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 14,
                     vertical: 8,
@@ -1961,7 +1961,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: theme.AppColors.lightGold.withValues(alpha: 0.35),
+              color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.35),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Row(
@@ -2092,12 +2092,12 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
       margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
       elevation: isSelected ? 6 : 2,
       color: isSelected
-          ? theme.AppColors.lightGold.withValues(alpha: 0.25)
+          ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.25)
           : Theme.of(context).cardColor,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: isSelected
-            ? BorderSide(color: theme.AppColors.primaryGold, width: 1.5)
+            ? BorderSide(color: Theme.of(context).colorScheme.primary, width: 1.5)
             : BorderSide.none,
       ),
       child: ClipRRect(
@@ -2116,7 +2116,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                         )
                       : Checkbox(
                           value: isSelected,
-                          activeColor: theme.AppColors.primaryGold,
+                          activeColor: Theme.of(context).colorScheme.primary,
                           onChanged: (value) {
                             setState(() {
                               if (value == true) {
@@ -2338,8 +2338,8 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
-                    theme.AppColors.primaryGold.withValues(alpha: 0.72),
-                    theme.AppColors.darkGold,
+                    Theme.of(context).colorScheme.primary.withValues(alpha: 0.72),
+                    Theme.of(context).colorScheme.primary,
                   ],
                   begin: AlignmentDirectional.centerEnd,
                   end: AlignmentDirectional.centerStart,
@@ -2403,10 +2403,10 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                     setState(() => _autoPostInvoices = value);
                     _saveSettings();
                   },
-                  activeThumbColor: theme.AppColors.primaryGold,
+                  activeThumbColor: Theme.of(context).colorScheme.primary,
                   secondary: Icon(
                     Icons.receipt_long,
-                    color: theme.AppColors.darkGold,
+                    color: Theme.of(context).colorScheme.primary,
                   ),
                 ),
                 const Divider(height: 1),
@@ -2427,8 +2427,8 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                           _saveSettings();
                         }
                       : null,
-                  activeThumbColor: theme.AppColors.primaryGold,
-                  secondary: Icon(Icons.book, color: theme.AppColors.darkGold),
+                  activeThumbColor: Theme.of(context).colorScheme.primary,
+                  secondary: Icon(Icons.book, color: Theme.of(context).colorScheme.primary),
                 ),
               ],
             ),
@@ -2450,10 +2450,10 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                     setState(() => _requireApproval = value);
                     _saveSettings();
                   },
-                  activeThumbColor: theme.AppColors.primaryGold,
+                  activeThumbColor: Theme.of(context).colorScheme.primary,
                   secondary: Icon(
                     Icons.verified_user,
-                    color: theme.AppColors.darkGold,
+                    color: Theme.of(context).colorScheme.primary,
                   ),
                 ),
                 const Divider(height: 1),
@@ -2467,8 +2467,8 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                     setState(() => _allowUnposting = value);
                     _saveSettings();
                   },
-                  activeThumbColor: theme.AppColors.primaryGold,
-                  secondary: Icon(Icons.undo, color: theme.AppColors.darkGold),
+                  activeThumbColor: Theme.of(context).colorScheme.primary,
+                  secondary: Icon(Icons.undo, color: Theme.of(context).colorScheme.primary),
                 ),
               ],
             ),
@@ -2487,10 +2487,10 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                   onChanged: (value) {
                     setState(() => _canPostInvoices = value);
                   },
-                  activeThumbColor: theme.AppColors.primaryGold,
+                  activeThumbColor: Theme.of(context).colorScheme.primary,
                   secondary: Icon(
                     Icons.receipt_long,
-                    color: theme.AppColors.darkGold,
+                    color: Theme.of(context).colorScheme.primary,
                   ),
                 ),
                 const Divider(height: 1),
@@ -2501,10 +2501,10 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                   onChanged: (value) {
                     setState(() => _canPostEntries = value);
                   },
-                  activeThumbColor: theme.AppColors.primaryGold,
+                  activeThumbColor: Theme.of(context).colorScheme.primary,
                   secondary: Icon(
                     Icons.auto_stories,
-                    color: theme.AppColors.darkGold,
+                    color: Theme.of(context).colorScheme.primary,
                   ),
                 ),
                 const Divider(height: 1),
@@ -2515,10 +2515,10 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                   onChanged: (value) {
                     setState(() => _canBatchPostInvoices = value);
                   },
-                  activeThumbColor: theme.AppColors.primaryGold,
+                  activeThumbColor: Theme.of(context).colorScheme.primary,
                   secondary: Icon(
                     Icons.done_all,
-                    color: theme.AppColors.darkGold,
+                    color: Theme.of(context).colorScheme.primary,
                   ),
                 ),
                 const Divider(height: 1),
@@ -2529,10 +2529,10 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                   onChanged: (value) {
                     setState(() => _canBatchPostEntries = value);
                   },
-                  activeThumbColor: theme.AppColors.primaryGold,
+                  activeThumbColor: Theme.of(context).colorScheme.primary,
                   secondary: Icon(
                     Icons.library_books,
-                    color: theme.AppColors.darkGold,
+                    color: Theme.of(context).colorScheme.primary,
                   ),
                 ),
                 const Divider(height: 1),
@@ -2545,10 +2545,10 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                   onChanged: (value) {
                     setState(() => _canUnpostInvoices = value);
                   },
-                  activeThumbColor: theme.AppColors.primaryGold,
+                  activeThumbColor: Theme.of(context).colorScheme.primary,
                   secondary: Icon(
                     Icons.cancel,
-                    color: theme.AppColors.darkGold,
+                    color: Theme.of(context).colorScheme.primary,
                   ),
                 ),
                 const Divider(height: 1),
@@ -2559,10 +2559,10 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                   onChanged: (value) {
                     setState(() => _canUnpostEntries = value);
                   },
-                  activeThumbColor: theme.AppColors.primaryGold,
+                  activeThumbColor: Theme.of(context).colorScheme.primary,
                   secondary: Icon(
                     Icons.remove_circle,
-                    color: theme.AppColors.darkGold,
+                    color: Theme.of(context).colorScheme.primary,
                   ),
                 ),
                 const Divider(height: 1),
@@ -2576,10 +2576,10 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                       _enableScheduledPosting = false;
                     }
                   },
-                  activeThumbColor: theme.AppColors.primaryGold,
+                  activeThumbColor: Theme.of(context).colorScheme.primary,
                   secondary: Icon(
                     Icons.schedule,
-                    color: theme.AppColors.darkGold,
+                    color: Theme.of(context).colorScheme.primary,
                   ),
                 ),
               ],
@@ -2597,8 +2597,8 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
               onChanged: (value) {
                 setState(() => _validateBalance = value);
               },
-              activeThumbColor: theme.AppColors.primaryGold,
-              secondary: Icon(Icons.balance, color: theme.AppColors.darkGold),
+              activeThumbColor: Theme.of(context).colorScheme.primary,
+              secondary: Icon(Icons.balance, color: Theme.of(context).colorScheme.primary),
             ),
           ),
           const SizedBox(height: 24),
@@ -2615,7 +2615,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                       fontWeight: FontWeight.w600,
                       color: !_canSchedulePosting
                           ? Colors.grey
-                          : theme.AppColors.darkGold,
+                          : Theme.of(context).colorScheme.primary,
                     ),
                   ),
                   subtitle: Text(
@@ -2628,13 +2628,13 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                       color: !_canSchedulePosting
                           ? Colors.grey
                           : _enableScheduledPosting
-                          ? theme.AppColors.darkGold
+                          ? Theme.of(context).colorScheme.primary
                           : Colors.grey[600],
                     ),
                   ),
                   value: _enableScheduledPosting,
-                  activeThumbColor: theme.AppColors.primaryGold,
-                  activeTrackColor: theme.AppColors.lightGold.withValues(
+                  activeThumbColor: Theme.of(context).colorScheme.primary,
+                  activeTrackColor: Theme.of(context).colorScheme.primaryContainer.withValues(
                     alpha: 0.6,
                   ),
                   inactiveThumbColor: Colors.grey[400],
@@ -2657,12 +2657,12 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                       color: !_canSchedulePosting
                           ? Colors.grey.shade200
                           : _enableScheduledPosting
-                          ? theme.AppColors.lightGold.withValues(alpha: 0.45)
-                          : theme.AppColors.lightGold.withValues(alpha: 0.2),
+                          ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.45)
+                          : Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.2),
                       border: Border.all(
                         color: !_canSchedulePosting
                             ? Colors.grey.shade400
-                            : theme.AppColors.mediumGold,
+                            : Theme.of(context).colorScheme.secondary,
                       ),
                     ),
                     child: Icon(
@@ -2670,8 +2670,8 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                       color: !_canSchedulePosting
                           ? Colors.grey
                           : _enableScheduledPosting
-                          ? theme.AppColors.primaryGold
-                          : theme.AppColors.darkGold,
+                          ? Theme.of(context).colorScheme.primary
+                          : Theme.of(context).colorScheme.primary,
                     ),
                   ),
                 ),
@@ -2884,8 +2884,8 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
               icon: const Icon(Icons.save),
               label: const Text('حفظ الإعدادات'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: theme.AppColors.darkGold,
-                foregroundColor: Colors.white,
+                backgroundColor: Theme.of(context).colorScheme.primary,
+                foregroundColor: Theme.of(context).colorScheme.onPrimary,
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 textStyle: const TextStyle(
                   fontSize: 18,
@@ -2978,7 +2978,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
         title,
         style: Theme.of(context).textTheme.titleLarge?.copyWith(
           fontWeight: FontWeight.bold,
-          color: theme.AppColors.darkGold,
+          color: Theme.of(context).colorScheme.primary,
         ),
       ),
     );
@@ -2995,7 +2995,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
             value,
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.bold,
-              color: theme.AppColors.darkGold,
+              color: Theme.of(context).colorScheme.primary,
             ),
           ),
         ],

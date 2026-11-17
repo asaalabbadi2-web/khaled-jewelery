@@ -380,7 +380,8 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
       Color(0xFF4D1A1A),
       Color(0xFFFFDADA),
     ),
-    gold: SemanticTone(Color(0xFFE6C24F), Color(0xFF4A3C0E), Color(0xFFFFE08B)),
+    // A muted brass, as the scheme's primary (the owner, 17 Nov 2026).
+    gold: SemanticTone(Color(0xFFCDB06E), Color(0xFF4A3C0E), Color(0xFFEAD8AC)),
     cash: SemanticTone(Color(0xFFA9C7E6), Color(0xFF1F3347), Color(0xFFDDEBF8)),
     // The karats' colours (the owner, 13 Nov 2026): never red or green -- those
     // say a price went down or up. 18 blue, 21 gold, 22 magenta, 24 silver in the dark;
@@ -391,10 +392,12 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
       Color(0xFF13263F),
       Color(0xFF6CB4FF),
     ),
+    // A brass a shade darker than the gold: the 24's silver beside it stays
+    // told apart (ΔE 10.9; the brilliant yellow had it by its chroma alone).
     karat21: SemanticTone(
-      Color(0xFFE6C24F),
+      Color(0xFFBC9F55),
       Color(0xFF3A3112),
-      Color(0xFFE6C24F),
+      Color(0xFFBC9F55),
     ),
     karat22: SemanticTone(
       Color(0xFFF27FC2),

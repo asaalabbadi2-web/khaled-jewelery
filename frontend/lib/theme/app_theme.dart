@@ -11,11 +11,10 @@ export 'app_tokens.dart';
 /// نظام الألوان الذهبي لتطبيق مجوهرات خالد
 class AppColors {
   // ألوان ذهبية - مشتركة بين الوضعين
+  // A screen takes its gold from the theme (colorScheme.primary and its
+  // container): fixed golds ignored the dark theme and glowed in it (the
+  // owner, 17 Nov 2026). This one stays: karatColorFor's fallback.
   static const Color primaryGold = Color(0xFFD4AF37); // ذهبي فاخر
-  static const Color darkGold = Color(0xFFB8860B); // ذهبي داكن
-  static const Color mediumGold = Color(0xFFCD9D3C); // ذهبي متوسط
-  static const Color lightGold = Color(0xFFF4E4C1); // ذهبي فاتح
-  static const Color deepGold = Color(0xFF9A7D0A); // ذهبي عميق
 
   // ألوان الحالة
   static const Color success = Color(0xFF2E7D32); // أخضر للنجاح
@@ -66,10 +65,6 @@ class AppColors {
         return const Color(0xFF5D4037); // dark brown fallback
     }
   }
-
-  /// Gold color safe for text on light backgrounds (dark mode: primaryGold, light mode: darkGold).
-  static Color goldText(BuildContext context) =>
-      Theme.of(context).brightness == Brightness.dark ? primaryGold : darkGold;
 
   // ألوان الفواتير - للتفريق البصري بين أنواع الفواتير
   static const Color invoiceSaleNew = Color(
@@ -165,14 +160,17 @@ class AppSchemes {
 
   static const ColorScheme dark = ColorScheme(
     brightness: Brightness.dark,
-    primary: Color(0xFFD4AF37),
+    // A muted brass, not a glowing yellow (the owner, 17 Nov 2026: «اللون
+    // الأصفر غير مريح بصريًّا»): #D4AF37 had OKLCH chroma 0.14 on a neutral
+    // charcoal. Witness: test/dark_gold_is_calm_test.dart.
+    primary: Color(0xFFC8A96A),
     onPrimary: Color(0xFF1A1A1A),
     primaryContainer: Color(0xFF4F3F06),
-    onPrimaryContainer: Color(0xFFFFE08B),
-    secondary: Color(0xFFC99A2E),
+    onPrimaryContainer: Color(0xFFEAD8AC),
+    secondary: Color(0xFFB8975A),
     onSecondary: Color(0xFF241A00),
     secondaryContainer: Color(0xFF544519),
-    onSecondaryContainer: Color(0xFFF7E1A6),
+    onSecondaryContainer: Color(0xFFE8D9B5),
     tertiary: Color(0xFF82D5C8),
     onTertiary: Color(0xFF003731),
     tertiaryContainer: Color(0xFF005048),
@@ -402,7 +400,9 @@ class DarkTheme {
     scheme: AppSchemes.dark,
     card: AppSchemes.dark.surfaceContainerHigh,
     appBar: AppSchemes.dark.surfaceContainerHigh,
-    onAppBar: AppSchemes.dark.primary,
+    // The bar's title and icons in the text's color; the gold is kept for
+    // what is pressed or matters (the owner, 17 Nov 2026).
+    onAppBar: AppSchemes.dark.onSurface,
     fieldFill: AppSchemes.dark.surfaceContainer,
   );
 }

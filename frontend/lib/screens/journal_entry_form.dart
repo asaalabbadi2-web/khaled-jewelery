@@ -1499,7 +1499,7 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
           group('نقد ($_currencySymbol)', AppColors.info),
           if (layout == _LinesLayout.wide) ...[
             const SizedBox(width: _kGap),
-            group('ذهب (غ · عيار $_mainKarat)', AppColors.goldText(context)),
+            group('ذهب (غ · عيار $_mainKarat)', Theme.of(context).colorScheme.primary),
           ],
           const SizedBox(width: _kActionsWidth),
         ],
@@ -1910,7 +1910,7 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
             visualDensity: VisualDensity.compact,
             materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
             side: BorderSide(
-              color: AppColors.primaryGold.withValues(alpha: 0.5),
+              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5),
             ),
             onPressed: () => setState(() => line.setGoldKaratEnabled(k, true)),
           ),
@@ -2094,13 +2094,13 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
                           Icon(
                             Icons.add,
                             size: 18,
-                            color: AppColors.goldText(context),
+                            color: Theme.of(context).colorScheme.primary,
                           ),
                           const SizedBox(width: 6),
                           Text(
                             'إضافة سطر',
                             style: theme.textTheme.bodyMedium?.copyWith(
-                              color: AppColors.goldText(context),
+                              color: Theme.of(context).colorScheme.primary,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
@@ -2125,7 +2125,7 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
     return theme.dividerTheme.color ?? theme.colorScheme.outlineVariant;
   }
 
-  Color _goldWash(BuildContext context) => AppColors.primaryGold.withValues(
+  Color _goldWash(BuildContext context) => Theme.of(context).colorScheme.primary.withValues(
     alpha: Theme.of(context).brightness == Brightness.dark ? 0.10 : 0.07,
   );
 

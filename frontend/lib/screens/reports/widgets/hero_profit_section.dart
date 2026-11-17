@@ -252,7 +252,7 @@ class HeroProfitSection extends StatelessWidget {
                     _fmtC(cashAvailable)
                         .replaceAll(currencyFormat.currencySymbol, '')
                         .trim(),
-                    AppColors.primaryGold),
+                    Theme.of(context).colorScheme.primary),
               ),
               SizedBox(width: _s(6)),
               Expanded(

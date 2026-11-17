@@ -704,7 +704,7 @@ class _StatusCard extends StatelessWidget {
     final resolvedColor = switch (tone) {
       InvoiceSummaryStatusTone.success => AppColors.success,
       InvoiceSummaryStatusTone.due => AppColors.error,
-      InvoiceSummaryStatusTone.neutral => AppColors.primaryGold,
+      InvoiceSummaryStatusTone.neutral => Theme.of(context).colorScheme.primary,
     };
     final resolvedIcon = switch (tone) {
       InvoiceSummaryStatusTone.success => Icons.check_circle_rounded,
@@ -809,7 +809,7 @@ class _InvoiceSummaryActions<T> extends StatelessWidget {
                         style: OutlinedButton.styleFrom(
                           foregroundColor: colorScheme.onSurface,
                           side: BorderSide(
-                            color: AppColors.primaryGold.withValues(alpha: 0.48),
+                            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.48),
                           ),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(16),
@@ -833,7 +833,7 @@ class _InvoiceSummaryActions<T> extends StatelessWidget {
                   icon: Icon(primary.icon, size: 18),
                   label: Text(primary.label),
                   style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.primaryGold,
+                    backgroundColor: Theme.of(context).colorScheme.primary,
                     foregroundColor: const Color(0xFF2F2400),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
@@ -860,7 +860,7 @@ class _InvoiceSummaryActions<T> extends StatelessWidget {
                     style: OutlinedButton.styleFrom(
                       foregroundColor: colorScheme.onSurface,
                       side: BorderSide(
-                        color: AppColors.primaryGold.withValues(alpha: 0.48),
+                        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.48),
                       ),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16),
