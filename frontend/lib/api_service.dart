@@ -1314,6 +1314,101 @@ class ApiService {
     }
   }
 
+  // ── أنظمة المقاسات (ADR-093 M0) ──────────────────────────────────────────
+
+  /// Every size system: its sizes in their order (each with the pieces it
+  /// holds) and the categories that follow it.
+  Future<List<Map<String, dynamic>>> getSizeSystems() async {
+    final response = await _authedGet(Uri.parse('$_baseUrl/size-systems'));
+    if (response.statusCode != 200) {
+      throw _apiError(response, fallback: 'تعذّر تحميل أنظمة المقاسات');
+    }
+    return (json.decode(utf8.decode(response.bodyBytes)) as List)
+        .cast<Map<String, dynamic>>();
+  }
+
+  Future<Map<String, dynamic>> _sizeSystemWrite(
+    Future<http.Response> Function() send,
+    String fallback,
+  ) async {
+    final response = await send();
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      throw _apiError(response, fallback: fallback);
+    }
+    return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> createSizeSystem({
+    required String name,
+    String? measurementLabel,
+    List<String> sizes = const [],
+  }) => _sizeSystemWrite(
+    () => _authedPost(
+      Uri.parse('$_baseUrl/size-systems'),
+      body: json.encode({
+        'name': name,
+        'measurement_label': measurementLabel,
+        'sizes': sizes,
+      }),
+    ),
+    'تعذّر إنشاء النظام',
+  );
+
+  Future<Map<String, dynamic>> updateSizeSystem(
+    int id, {
+    required String name,
+    String? measurementLabel,
+  }) => _sizeSystemWrite(
+    () => _authedPatch(
+      Uri.parse('$_baseUrl/size-systems/$id'),
+      body: json.encode({'name': name, 'measurement_label': measurementLabel}),
+    ),
+    'تعذّر تعديل النظام',
+  );
+
+  Future<Map<String, dynamic>> deleteSizeSystem(int id) => _sizeSystemWrite(
+    () => _authedDelete(Uri.parse('$_baseUrl/size-systems/$id')),
+    'تعذّر حذف النظام',
+  );
+
+  Future<Map<String, dynamic>> addSize(
+    int systemId, {
+    required String label,
+    String? measurement,
+  }) => _sizeSystemWrite(
+    () => _authedPost(
+      Uri.parse('$_baseUrl/size-systems/$systemId/sizes'),
+      body: json.encode({'label': label, 'measurement': measurement}),
+    ),
+    'تعذّر إضافة المقاس',
+  );
+
+  Future<Map<String, dynamic>> updateSize(
+    int sizeId, {
+    required String label,
+    String? measurement,
+  }) => _sizeSystemWrite(
+    () => _authedPatch(
+      Uri.parse('$_baseUrl/size-system-sizes/$sizeId'),
+      body: json.encode({'label': label, 'measurement': measurement}),
+    ),
+    'تعذّر تعديل المقاس',
+  );
+
+  Future<Map<String, dynamic>> deleteSize(int sizeId) => _sizeSystemWrite(
+    () => _authedDelete(Uri.parse('$_baseUrl/size-system-sizes/$sizeId')),
+    'تعذّر حذف المقاس',
+  );
+
+  Future<Map<String, dynamic>> reorderSizes(int systemId, List<int> ids) =>
+      _sizeSystemWrite(
+        () => _authedPut(
+          Uri.parse('$_baseUrl/size-systems/$systemId/order'),
+          body: json.encode({'ids': ids}),
+        ),
+        'تعذّر ترتيب المقاسات',
+      );
+
   /// حذف تصنيف
   Future<void> deleteCategory(int id) async {
     final response = await _authedDelete(Uri.parse('$_baseUrl/categories/$id'));

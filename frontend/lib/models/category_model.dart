@@ -21,6 +21,8 @@ class Category {
   /// 'weight' or 'piece' -- its gold coded piece by piece (ADR-087 §5).
   final String tracking;
 
+  /// The size system its pieces' sizes come from, or none (ADR-093 §2).
+  final int? sizeSystemId;
 
   bool get byThePiece => tracking == 'piece';
 
@@ -36,6 +38,7 @@ class Category {
     this.isScrap = false,
     this.groupName,
     this.tracking = 'weight',
+    this.sizeSystemId,
   });
 
   /// إنشاء Category من JSON
@@ -54,6 +57,7 @@ class Category {
       isScrap: json['is_scrap'] as bool? ?? false,
       groupName: json['group_name'] as String?,
       tracking: json['tracking'] as String? ?? 'weight',
+      sizeSystemId: json['size_system_id'] as int?,
     );
   }
 
@@ -90,6 +94,7 @@ class Category {
       isScrap: isScrap,
       groupName: groupName,
       tracking: tracking,
+      sizeSystemId: sizeSystemId,
     );
   }
 

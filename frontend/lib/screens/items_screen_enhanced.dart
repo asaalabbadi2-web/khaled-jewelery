@@ -13,6 +13,7 @@ import 'inventory_balance_screen.dart';
 import '../utils.dart';
 import '../utils/currency_utils.dart' as cu;
 import '../theme/app_semantic_colors.dart';
+import 'size_systems_screen.dart';
 
 /// The theme's colours (ADR-038): the scheme and the semantic tones.
 ColorScheme _cs(BuildContext context) => Theme.of(context).colorScheme;
@@ -1333,6 +1334,15 @@ class _CategoriesManagementDialogState
     );
 
     var tracking = category.tracking;
+    // The size systems it may follow (ADR-093 §2); unread, the field is not shown.
+    List<Map<String, dynamic>>? systems;
+    try {
+      systems = await widget.api.getSizeSystems();
+    } catch (_) {
+      systems = null;
+    }
+    var sizeSystemId = category.sizeSystemId;
+    if (!mounted) return;
 
     final result = await showDialog<bool>(
       context: context,
@@ -1402,6 +1412,29 @@ class _CategoriesManagementDialogState
                   onChanged: (v) => setDialog(() => tracking = v ?? tracking),
                 ),
               ],
+              if (systems != null && !category.isScrap) ...[
+                const SizedBox(height: 12),
+                DropdownButtonFormField<int?>(
+                  key: const Key('category-size-system'),
+                  initialValue: sizeSystemId,
+                  decoration: const InputDecoration(
+                    labelText: 'نظام المقاسات',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: [
+                    const DropdownMenuItem<int?>(
+                      value: null,
+                      child: Text('بلا مقاس'),
+                    ),
+                    for (final s in systems)
+                      DropdownMenuItem<int?>(
+                        value: s['id'] as int,
+                        child: Text('${s['name']}'),
+                      ),
+                  ],
+                  onChanged: (v) => setDialog(() => sizeSystemId = v),
+                ),
+              ],
             ],
           ),
           actions: [
@@ -1432,6 +1465,8 @@ class _CategoriesManagementDialogState
               : null,
           'default_wage': wageVal,
           if (tracking != category.tracking) 'tracking': tracking,
+          if (sizeSystemId != category.sizeSystemId)
+            'size_system_id': sizeSystemId,
         });
         final updatedCategory = Category.fromJson(response);
         setState(() {
@@ -1547,6 +1582,16 @@ class _CategoriesManagementDialogState
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    key: const Key('categories-size-systems'),
+                    icon: const Icon(Icons.straighten),
+                    tooltip: 'أنظمة المقاسات',
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => SizeSystemsScreen(api: widget.api),
                       ),
                     ),
                   ),

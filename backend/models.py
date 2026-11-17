@@ -821,6 +821,34 @@ def _category_group_name(name, karat):
     return group_name(name, karat)
 
 
+class SizeSystem(db.Model):
+    """A system of sizes the categories share (ADR-093 §2): «مقاسات البناجر»
+    the bangles' of every karat follow -- the owner enters the shop's own
+    (17, 18, 19 ...); none is written in the code."""
+    __tablename__ = 'size_system'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(60), nullable=False, unique=True)
+    # what a size's optional measurement is, e.g. «القطر الداخلي — مم»
+    measurement_label = db.Column(db.String(60), nullable=True)
+    created_by = db.Column(db.String(100), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False)
+
+
+class SizeSystemSize(db.Model):
+    """One size of a system: text, never a number («2.10» is not «2.1»), one
+    spelling (services/size_systems.normalize_label), in its order; a piece
+    points at it, so a spelling corrected reaches every piece."""
+    __tablename__ = 'size_system_size'
+    __table_args__ = (db.UniqueConstraint('system_id', 'label', name='uq_size_system_size_label'),)
+    id = db.Column(db.Integer, primary_key=True)
+    system_id = db.Column(db.Integer, db.ForeignKey('size_system.id', ondelete='RESTRICT'), nullable=False, index=True)
+    label = db.Column(db.String(20), nullable=False)
+    position = db.Column(db.Integer, nullable=False)
+    measurement = db.Column(db.Numeric(8, 2), nullable=True)
+    created_by = db.Column(db.String(100), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False)
+
+
 class Category(db.Model):
     """تصنيفات الأصناف - لتحسين دقة التقارير"""
     id = db.Column(db.Integer, primary_key=True)
@@ -840,6 +868,9 @@ class Category(db.Model):
     # How it is tracked (ADR-045, ADR-087 §5): 'weight' (every category today)
     # or 'piece' -- its gold registered piece by piece on receiving.
     tracking = db.Column(db.String(10), nullable=False, default='weight', server_default='weight')
+    # The size system its pieces' sizes come from, or none (ADR-093 §2).
+    size_system_id = db.Column(db.Integer, db.ForeignKey('size_system.id', ondelete='RESTRICT'), nullable=True,
+                               index=True)
 
     # العلاقة مع الأصناف
     items = db.relationship('Item', backref='category', lazy=True)
@@ -856,6 +887,7 @@ class Category(db.Model):
             'is_active': self.is_active is not False,
             'is_scrap': bool(self.is_scrap),
             'tracking': self.tracking or 'weight',
+            'size_system_id': self.size_system_id,
             'group_name': _category_group_name(self.name, self.karat),
         }
 
@@ -930,6 +962,9 @@ class Item(db.Model):
     # has one source: a receipt line or a batch.
     coding_id = db.Column(db.Integer, db.ForeignKey('stock_coding.id', use_alter=True, name='fk_item_stock_coding'),
                           nullable=True, index=True)
+    # A piece's size (ADR-093 §3): one of its category's size system's, or none.
+    size_id = db.Column(db.Integer, db.ForeignKey('size_system_size.id', ondelete='RESTRICT'), nullable=True,
+                        index=True)
     invoice_items = db.relationship('InvoiceItem', backref='item', lazy=True,
                                     foreign_keys='InvoiceItem.item_id')
 

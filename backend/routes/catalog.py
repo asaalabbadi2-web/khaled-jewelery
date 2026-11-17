@@ -414,7 +414,7 @@ def create_category():
 def update_category(category_id):
     """Rename, re-karat (only while unused -- its karat is fixed once used),
     describe, set its default wage, stop or restart it; how it is tracked
-    (services/pieces.set_tracking)."""
+    (services/pieces.set_tracking); its size system (services/size_systems)."""
     from services.categories import canonical, is_used
     category = Category.query.get_or_404(category_id)
     data = request.get_json() or {}
@@ -442,6 +442,14 @@ def update_category(category_id):
     except PieceRefused as refused:
         db.session.rollback()
         return jsonify({'error': refused.code, 'message': refused.message}), 400
+    # the size system its pieces' sizes come from (ADR-093 §2) -- its law the sizes'
+    if 'size_system_id' in data:
+        from services.size_systems import SizeRefused, set_category_system
+        try:
+            set_category_system(category, data['size_system_id'])
+        except SizeRefused as refused:
+            db.session.rollback()
+            return jsonify({'error': refused.code, 'message': refused.message}), 400
     db.session.commit()
     return jsonify(category.to_dict())
 
