@@ -31,6 +31,7 @@ services:
       TZ: ${TZ:-Asia/Riyadh}
       # Persist server-side snapshots/audit logs and allow UI download/restore.
       BACKUP_DIR: ${BACKUP_DIR:-/data/backups}
+      MEDIA_ROOT: ${MEDIA_ROOT:-/data/media}   # the photos (ADR-094)
       # Keep this OFF by default; enable only during a controlled maintenance window.
       ALLOW_DANGEROUS_RESETS: ${ALLOW_DANGEROUS_RESETS:-false}
       # Optional: Google Drive backups via Service Account (no browser OAuth)
@@ -43,6 +44,7 @@ services:
         condition: service_healthy
     volumes:
       - backup_data:/data/backups
+      - media_data:/data/media
       - ./secrets/google_drive_sa.json:/run/secrets/google_drive_sa.json:ro
 
   scheduler:
@@ -58,6 +60,7 @@ services:
       BYPASS_AUTH_FOR_DEVELOPMENT: "0"
       YASAR_ENV: ${YASAR_ENV:-production}
       BACKUP_DIR: ${BACKUP_DIR:-/data/backups}
+      MEDIA_ROOT: ${MEDIA_ROOT:-/data/media}   # the photos (ADR-094)
       ALLOW_DANGEROUS_RESETS: ${ALLOW_DANGEROUS_RESETS:-false}
       TZ: ${TZ:-Asia/Riyadh}
       GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE: ${GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE:-/run/secrets/google_drive_sa.json}
@@ -68,6 +71,7 @@ services:
         condition: service_healthy
     volumes:
       - backup_data:/data/backups
+      - media_data:/data/media
       - ./secrets/google_drive_sa.json:/run/secrets/google_drive_sa.json:ro
 
   nginx:
@@ -88,3 +92,4 @@ services:
 volumes:
   postgres_data:
   backup_data:
+  media_data:

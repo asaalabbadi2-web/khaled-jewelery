@@ -136,6 +136,8 @@ class BackupScheduler:
             with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
                 zf.write(tmp_db_path, arcname=("database.dump" if is_pg else "database.sqlite"))
                 zf.writestr("metadata.json", json.dumps(meta, ensure_ascii=False, indent=2))
+                from services.attachments import add_media_to_zip
+                add_media_to_zip(zf)                 # the photos with the books (ADR-094)
 
             return zip_path
         finally:

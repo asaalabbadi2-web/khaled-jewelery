@@ -525,6 +525,8 @@ from routes.size_systems import size_systems_bp
 app.register_blueprint(size_systems_bp, url_prefix='/api')  # أنظمة المقاسات (ADR-093 M0)
 from routes.piece_models import piece_models_bp
 app.register_blueprint(piece_models_bp, url_prefix='/api')  # الموديلات (ADR-093 M1)
+from routes.attachments import attachments_bp
+app.register_blueprint(attachments_bp, url_prefix='/api')  # المرفقات: صور شراء الكسر (ADR-094)
 app.register_blueprint(admin_bp, url_prefix='/api')     # Admin & temp-pdf domain
 app.register_blueprint(system_bp, url_prefix='/api')    # System domain (debug, settings, reset, backup)
 app.register_blueprint(vat_returns_bp, url_prefix='/api')  # VAT returns (ADR-043 rule 5)

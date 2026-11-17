@@ -78,3 +78,6 @@ gold-jewelry-pos/
 
 # graphify knowledge-graph output: generated locally, not source
 graphify-out/
+
+# the photos kept in development (ADR-094); production keeps them in the media_data volume
+backend/media_data/

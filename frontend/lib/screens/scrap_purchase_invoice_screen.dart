@@ -7,6 +7,9 @@ import '../widgets/inline_number_cell.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import '../utils/photo_resize.dart';
+import '../widgets/gold_photos.dart';
 import '../api_service.dart';
 import '../theme/app_breakpoints.dart';
 import '../theme/app_theme.dart';
@@ -71,12 +74,17 @@ class ScrapPurchaseInvoiceScreen extends StatefulWidget {
   /// The server; a test hands its own.
   final ApiService? apiService;
 
+  /// How photos are taken or chosen (camera true): the device's picker; a
+  /// test hands its bytes.
+  final Future<List<Uint8List>> Function(bool camera)? pickGoldPhotos;
+
   const ScrapPurchaseInvoiceScreen({
     super.key,
     required this.customers,
     this.editInvoiceId,
     this.editInvoiceData,
     this.apiService,
+    this.pickGoldPhotos,
   });
 
   @override
@@ -152,8 +160,8 @@ class _ScrapPurchaseInvoiceScreenState
   // ignore: unused_field
   final bool _showAdvancedPaymentOptions = false; // 🎯 للتحكم في إظهار الخزائن
 
-  // 🆕 صور الذهب المشترى
-  final List<File> _goldImages = [];
+  // صور الذهب المشترى (ADR-094): تُرفع كل صورة لحظة التقاطها
+  final List<GoldPhoto> _goldPhotos = [];
   final ImagePicker _imagePicker = ImagePicker();
 
   // 🆕 الملاحظات وحالة الذهب
@@ -181,7 +189,7 @@ class _ScrapPurchaseInvoiceScreenState
       _smartInputController.clear();
       _customAmountController.clear();
       _targetAmountController.clear();
-      _goldImages.clear();
+      _goldPhotos.clear();
       _purchaseNotesController.clear();
       _goldCondition = _goldConditionOptions[1];
     });
@@ -948,8 +956,98 @@ class _ScrapPurchaseInvoiceScreenState
   }
 
   // ==================== Image Picking Methods ====================
+  /// Photos taken or chosen: sized down here, each sent at once (ADR-094).
+  Future<void> _addGoldPhotos(List<Uint8List> picked) async {
+    for (final raw in picked) {
+      if (_goldPhotos.length >= goldPhotosMax) {
+        _showError('$goldPhotosMax صور على الأكثر للفاتورة');
+        return;
+      }
+      Uint8List? sized;
+      try {
+        sized = downsizeToJpeg(raw, side: goldPhotoSide, maxBytes: goldPhotoMaxBytes);
+      } on FormatException catch (e) {
+        _showError(e.message);
+        continue;
+      }
+      if (sized == null) {
+        _showError('الملف ليس صورة');
+        continue;
+      }
+      final photo = GoldPhoto(sized);
+      setState(() => _goldPhotos.add(photo));
+      _sendGoldPhoto(photo);
+    }
+  }
+
+  Future<void> _sendGoldPhoto(GoldPhoto photo) async {
+    if (photo.sending || photo.sent) return;
+    setState(() {
+      photo.sending = true;
+      photo.error = null;
+    });
+    try {
+      final sent = await _api.uploadAttachment(photo.bytes);
+      if (!mounted) return;
+      setState(() => photo.id = sent['id'] as int);
+    } catch (e) {
+      if (mounted) setState(() => photo.error = e);
+    } finally {
+      if (mounted) setState(() => photo.sending = false);
+    }
+  }
+
+  /// Before the save: photos still sending are waited for; a photo not sent
+  /// is asked about -- never lost in silence.
+  Future<bool> _goldPhotosReady() async {
+    final state = goldPhotosToSave(_goldPhotos);
+    if (state.sending > 0) {
+      _showError('تُرفع ${state.sending} صورة: انتظر حتى تنتهي ثم احفظ');
+      return false;
+    }
+    if (state.failed == 0) return true;
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('${state.failed} صورة لم تُرفع'),
+        content: const Text('إن حفظت الآن تُحفظ الفاتورة بدونها، ولا تُرفق بها بعد ذلك.'),
+        actions: [
+          TextButton(
+            key: const Key('gold-photos-back'),
+            onPressed: () => Navigator.pop(context, 'back'),
+            child: const Text('رجوع'),
+          ),
+          OutlinedButton(
+            key: const Key('gold-photos-retry'),
+            onPressed: () => Navigator.pop(context, 'retry'),
+            child: const Text('إعادة الرفع'),
+          ),
+          FilledButton(
+            key: const Key('gold-photos-save-without'),
+            onPressed: () => Navigator.pop(context, 'without'),
+            child: const Text('حفظ بدونها'),
+          ),
+        ],
+      ),
+    );
+    if (choice == 'retry') {
+      for (final p in List.of(_goldPhotos)) {
+        if (!p.sent) _sendGoldPhoto(p);
+      }
+      return false;
+    }
+    return choice == 'without';
+  }
+
+
   Future<void> _pickImageFromCamera() async {
-    if (!(Platform.isAndroid || Platform.isIOS)) {
+    if (widget.pickGoldPhotos != null) {
+      await _addGoldPhotos(await widget.pickGoldPhotos!(true));
+      return;
+    }
+    // On the web the camera is the browser's file input with capture; a
+    // desktop with no camera opens its files. Platform is not read on the web.
+    if (!kIsWeb && !(Platform.isAndroid || Platform.isIOS)) {
       _showError(
         'التقاط الصورة مدعوم فقط على الهواتف. استخدم خيار المعرض على هذا الجهاز.',
       );
@@ -963,26 +1061,24 @@ class _ScrapPurchaseInvoiceScreenState
         imageQuality: 85,
       );
 
-      if (image != null) {
-        setState(() {
-          _goldImages.add(File(image.path));
-        });
-      }
+      if (image != null) await _addGoldPhotos([await image.readAsBytes()]);
     } catch (e) {
       _showError(e, title: 'فشل التقاط الصورة');
     }
   }
 
   Future<void> _pickImagesFromGallery() async {
+    if (widget.pickGoldPhotos != null) {
+      await _addGoldPhotos(await widget.pickGoldPhotos!(false));
+      return;
+    }
     try {
       final List<XFile> images = await _imagePicker.pickMultiImage(
         imageQuality: 85,
       );
 
       if (images.isNotEmpty) {
-        setState(() {
-          _goldImages.addAll(images.map((xFile) => File(xFile.path)));
-        });
+        await _addGoldPhotos([for (final x in images) await x.readAsBytes()]);
       }
     } catch (e) {
       _showError(e, title: 'فشل اختيار الصور');
@@ -1120,6 +1216,8 @@ class _ScrapPurchaseInvoiceScreenState
     final paid = _totalPayments;
     final remaining = total - paid;
 
+    if (!_isEditMode && !await _goldPhotosReady()) return;
+
     final proceed = await _showPreSaveInvoiceSummary(
       customerLabel: customerLabel,
       itemsCount: _items.length,
@@ -1127,7 +1225,7 @@ class _ScrapPurchaseInvoiceScreenState
       totalWeight: totalWeight,
       paid: paid,
       remaining: remaining,
-      imagesCount: _goldImages.length,
+      imagesCount: goldPhotosToSave(_goldPhotos).ids.length,
     );
     if (!proceed) return;
 
@@ -1275,7 +1373,8 @@ class _ScrapPurchaseInvoiceScreenState
         // 🆕 بيانات شراء الكسر
         'notes': _purchaseNotesController.text.trim(),
         'gold_condition': _goldCondition,
-        'gold_images_count': _goldImages.length,
+        // the photos sent as they were taken, linked with the invoice (ADR-094)
+        if (!_isEditMode) 'attachment_ids': goldPhotosToSave(_goldPhotos).ids,
       };
 
       final response = _isEditMode
@@ -3139,7 +3238,7 @@ class _ScrapPurchaseInvoiceScreenState
   Widget _buildExtrasSection() {
     final theme = Theme.of(context);
     final held = [
-      if (_goldImages.isNotEmpty) '${_goldImages.length} صورة',
+      if (_goldPhotos.isNotEmpty) '${_goldPhotos.length} صورة',
       if (_purchaseNotesController.text.trim().isNotEmpty) 'ملاحظة',
       if (_goldCondition != _goldConditionOptions[1]) 'الحالة: $_goldCondition',
     ];
@@ -3190,10 +3289,18 @@ class _ScrapPurchaseInvoiceScreenState
               ],
             ),
             const SizedBox(height: 16),
+            if (_isEditMode)
+              Text(
+                'الصور تُرفق عند إنشاء الفاتورة، وتظهر في معاينتها من قائمة الفواتير.',
+                key: const Key('gold-photos-edit-note'),
+                style: theme.textTheme.bodySmall,
+              )
+            else
             Row(
               children: [
                 Expanded(
                   child: FilledButton.tonalIcon(
+                    key: const Key('gold-photo-camera'),
                     onPressed: _pickImageFromCamera,
                     icon: const Icon(Icons.camera_alt),
                     label: const Text('التقاط صورة'),
@@ -3202,6 +3309,7 @@ class _ScrapPurchaseInvoiceScreenState
                 const SizedBox(width: 16),
                 Expanded(
                   child: FilledButton.tonalIcon(
+                    key: const Key('gold-photo-gallery'),
                     onPressed: _pickImagesFromGallery,
                     icon: const Icon(Icons.photo_library),
                     label: const Text('اختيار من المعرض'),
@@ -3209,57 +3317,20 @@ class _ScrapPurchaseInvoiceScreenState
                 ),
               ],
             ),
-            if (_goldImages.isNotEmpty) ...[
+            if (_goldPhotos.isNotEmpty) ...[
               const SizedBox(height: 16),
               Text(
-                'الصور المختارة: ${_goldImages.length}',
+                'الصور: ${_goldPhotos.length} من $goldPhotosMax',
+                key: const Key('gold-photos-count'),
                 style: theme.textTheme.bodyMedium?.copyWith(
                   fontWeight: FontWeight.w500,
                 ),
               ),
               const SizedBox(height: 12),
-              SizedBox(
-                height: 120,
-                child: ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: _goldImages.length,
-                  itemBuilder: (context, index) {
-                    return Padding(
-                      padding: const EdgeInsets.only(left: 8.0),
-                      child: Stack(
-                        children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: Image.file(
-                              _goldImages[index],
-                              width: 120,
-                              height: 120,
-                              fit: BoxFit.cover,
-                            ),
-                          ),
-                          Positioned(
-                            top: 4,
-                            left: 4,
-                            child: IconButton.filled(
-                              onPressed: () {
-                                setState(() {
-                                  _goldImages.removeAt(index);
-                                });
-                              },
-                              icon: const Icon(Icons.close, size: 18),
-                              style: IconButton.styleFrom(
-                                backgroundColor: _cs.error,
-                                foregroundColor: _cs.onError,
-                                minimumSize: const Size(28, 28),
-                                padding: EdgeInsets.zero,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
+              GoldPhotoStrip(
+                photos: _goldPhotos,
+                onRemove: (i) => setState(() => _goldPhotos.removeAt(i)),
+                onRetry: (i) => _sendGoldPhoto(_goldPhotos[i]),
               ),
             ],
           ],

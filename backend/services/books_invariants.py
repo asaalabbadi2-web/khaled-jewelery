@@ -82,6 +82,7 @@ PERIOD_EXPENSE_LEDGER_DRIFT = 'PERIOD_EXPENSE_LEDGER_DRIFT'
 PERIOD_EXPENSE_MONTH_MISSING = 'PERIOD_EXPENSE_MONTH_MISSING'
 CASH_SAFE_HOLDS_GOLD = 'CASH_SAFE_HOLDS_GOLD'
 GROUP_ACCOUNT_POSTED = 'GROUP_ACCOUNT_POSTED'
+ATTACHMENT_LEFT_PENDING = 'ATTACHMENT_LEFT_PENDING'
 
 KINDS = (
     ORPHAN_POSTED_ENTRY,
@@ -106,6 +107,7 @@ KINDS = (
     PERIOD_EXPENSE_MONTH_MISSING,
     CASH_SAFE_HOLDS_GOLD,
     GROUP_ACCOUNT_POSTED,
+    ATTACHMENT_LEFT_PENDING,
 )
 
 # An invoice in one of these states is retracted: its entries must not count
@@ -815,6 +817,23 @@ def check_group_accounts_posted() -> list:
     return facts
 
 
+def check_attachments_left_pending() -> list:
+    """A photo sent and never saved with its invoice (ADR-094): sent a day or
+    more before the books' last posted entry -- their own clock, no other --
+    and pending still. Never deleted: said, so its sender can tell why.
+    Keyed 'attachment:<id>'; the metric is its bytes."""
+    from datetime import timedelta
+    from models import Attachment, JournalEntry, db
+    last = db.session.query(func.max(JournalEntry.date)).filter(JournalEntry.is_posted.is_(True)).scalar()
+    if last is None:
+        return []
+    return [Fact(ATTACHMENT_LEFT_PENDING, f'attachment:{a.id}', float(a.bytes),
+                 {'uploaded_by': a.uploaded_by, 'uploaded_at': a.uploaded_at.isoformat(), 'role': a.role})
+            for a in Attachment.query.filter(Attachment.entity_id.is_(None),
+                                             Attachment.uploaded_at < last - timedelta(days=1))
+            .order_by(Attachment.id).all()]
+
+
 CHECKS = {
     ORPHAN_POSTED_ENTRY: check_orphan_posted_entries,
     UNPOSTED_ENTRY_IN_LIMBO: check_unposted_entries_in_limbo,
@@ -839,6 +858,7 @@ CHECKS = {
     PERIOD_EXPENSE_MONTH_MISSING: check_period_expense_months_missing,
     CASH_SAFE_HOLDS_GOLD: check_cash_safes_hold_no_gold,
     GROUP_ACCOUNT_POSTED: check_group_accounts_posted,
+    ATTACHMENT_LEFT_PENDING: check_attachments_left_pending,
 }
 
 

@@ -44,6 +44,7 @@ services:
       BYPASS_AUTH_FOR_DEVELOPMENT: "0"
       YASAR_ENV: ${YASAR_ENV:-production}
       BACKUP_DIR: ${BACKUP_DIR:-/data/backups}
+      MEDIA_ROOT: ${MEDIA_ROOT:-/data/media}   # the photos (ADR-094)
       ALLOW_DANGEROUS_RESETS: ${ALLOW_DANGEROUS_RESETS:-false}
       LOG_STARTUP_IMPORTS: ${LOG_STARTUP_IMPORTS:-0}
     depends_on:
@@ -51,6 +52,7 @@ services:
         condition: service_healthy
     volumes:
       - backup_data:/data/backups
+      - media_data:/data/media
 
   scheduler:
     image: registry.gitlab.com/sasalabbadi/khaledjewels/backend:${IMAGE_TAG:-latest}
@@ -63,6 +65,7 @@ services:
       BYPASS_AUTH_FOR_DEVELOPMENT: "0"
       YASAR_ENV: ${YASAR_ENV:-production}
       BACKUP_DIR: ${BACKUP_DIR:-/data/backups}
+      MEDIA_ROOT: ${MEDIA_ROOT:-/data/media}   # the photos (ADR-094)
       ALLOW_DANGEROUS_RESETS: ${ALLOW_DANGEROUS_RESETS:-false}
     command: ["python", "backend/run_schedulers.py"]
     depends_on:
@@ -70,6 +73,7 @@ services:
         condition: service_healthy
     volumes:
       - backup_data:/data/backups
+      - media_data:/data/media
 
   nginx:
     image: registry.gitlab.com/sasalabbadi/khaledjewels/web:${IMAGE_TAG:-latest}
@@ -85,3 +89,4 @@ services:
 volumes:
   postgres_data:
   backup_data:
+  media_data:

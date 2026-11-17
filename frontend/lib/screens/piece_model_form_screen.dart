@@ -2,11 +2,11 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 
 import '../api_service.dart';
 import '../theme/app_tokens.dart';
+import '../utils/photo_resize.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/app_state_views.dart';
 
@@ -19,34 +19,12 @@ const _photoMaxBytes = 580000; // under the server's 600 KB
 const _thumbnailMaxBytes = 58000;
 
 ({String photo, String thumbnail})? modelPhotoPair(Uint8List bytes) {
-  img.Image? read;
-  try {
-    read = img.decodeImage(bytes);
-  } catch (_) {
-    read = null; // a damaged file throws in the decoder: it is not an image
-  }
-  if (read == null) return null;
-  final decoded = read;
-  img.Image fit(int side) {
-    if (decoded.width <= side && decoded.height <= side) return decoded;
-    return decoded.width >= decoded.height
-        ? img.copyResize(decoded, width: side)
-        : img.copyResize(decoded, height: side);
-  }
-
-  String jpeg(img.Image image, int maxBytes) {
-    for (final quality in const [80, 65, 50, 35]) {
-      final out = img.encodeJpg(image, quality: quality);
-      if (out.length <= maxBytes) {
-        return 'data:image/jpeg;base64,${base64Encode(out)}';
-      }
-    }
-    throw const FormatException('الصورة كبيرة حتى بعد تصغيرها');
-  }
-
+  final photo = downsizeToJpeg(bytes, side: photoSide, maxBytes: _photoMaxBytes);
+  if (photo == null) return null;
+  final thumbnail = downsizeToJpeg(photo, side: thumbnailSide, maxBytes: _thumbnailMaxBytes)!;
   return (
-    photo: jpeg(fit(photoSide), _photoMaxBytes),
-    thumbnail: jpeg(fit(thumbnailSide), _thumbnailMaxBytes),
+    photo: 'data:image/jpeg;base64,${base64Encode(photo)}',
+    thumbnail: 'data:image/jpeg;base64,${base64Encode(thumbnail)}',
   );
 }
 

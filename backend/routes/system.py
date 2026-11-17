@@ -71,6 +71,7 @@ from auth_decorators import require_permission, require_any_permission
 
 from pricing.gold_price_service import configured_main_karat
 from services.stock_ledger import StockAllocationError, spread
+from services.attachments import add_media_to_zip, restore_media_from_zip
 from pricing.karat_service import get_main_karat
 from accounting.voucher_engine import (
     post_entry_of_approved_voucher,
@@ -456,6 +457,7 @@ def _create_pre_restore_snapshot_zip() -> str:
             with zipfile.ZipFile(out_zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
                 zf.write(dump_path, arcname='database.dump')
                 zf.write(meta_path, arcname='metadata.json')
+                add_media_to_zip(zf)                 # the photos with the books (ADR-094)
 
         return out_zip_path
 
@@ -475,6 +477,7 @@ def _create_pre_restore_snapshot_zip() -> str:
         with zipfile.ZipFile(out_zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
             zf.write(db_path, arcname='database.sqlite')
             zf.write(meta_path, arcname='metadata.json')
+            add_media_to_zip(zf)
 
     return out_zip_path
 
@@ -2094,6 +2097,7 @@ def system_backup_download():
         with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
             zf.write(db_path, arcname=archive_name)
             zf.write(meta_path, arcname='metadata.json')
+            add_media_to_zip(zf)                     # the photos with the books (ADR-094)
 
         with open(zip_path, 'rb') as f:
             data = f.read()
@@ -2244,6 +2248,7 @@ def system_backup_drive_upload():
         with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
             zf.write(db_path, arcname=archive_name)
             zf.write(meta_path, arcname='metadata.json')
+            add_media_to_zip(zf)                     # the photos with the books (ADR-094)
 
         with open(zip_path, 'rb') as f:
             data = f.read()
@@ -2493,6 +2498,9 @@ def system_backup_restore():
                 _restore_postgres_from_backup_file(extracted_path)
             else:
                 _restore_sqlite_from_backup_file(extracted_path)
+            # the photos come back with the books (ADR-094): what is missing written
+            with zipfile.ZipFile(zip_path, 'r') as zf:
+                restore_media_from_zip(zf)
         except Exception as exc:
             try:
                 db.session.rollback()

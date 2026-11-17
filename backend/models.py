@@ -821,6 +821,27 @@ def _category_group_name(name, karat):
     return group_name(name, karat)
 
 
+class Attachment(db.Model):
+    """A file on the server's disk and its record here (ADR-094): named by its
+    content's fingerprint, linked to the record it belongs to once that is
+    saved -- pending until then, under its sender. services/attachments.py
+    is its one writer."""
+    __tablename__ = 'attachment'
+    __table_args__ = (db.Index('ix_attachment_entity', 'entity_type', 'entity_id'),)
+    id = db.Column(db.Integer, primary_key=True)
+    sha256 = db.Column(db.String(64), nullable=False, index=True)
+    kind = db.Column(db.String(10), nullable=False)              # jpeg | png | webp
+    bytes = db.Column(db.Integer, nullable=False)
+    width = db.Column(db.Integer, nullable=True)
+    height = db.Column(db.Integer, nullable=True)
+    role = db.Column(db.String(40), nullable=False)              # scrap_gold_photo, ...
+    entity_type = db.Column(db.String(30), nullable=True)        # invoice, ... -- none while pending
+    entity_id = db.Column(db.Integer, nullable=True)
+    uploaded_by = db.Column(db.String(100), nullable=False)
+    uploaded_at = db.Column(db.DateTime, nullable=False)
+    linked_at = db.Column(db.DateTime, nullable=True)
+
+
 class SizeSystem(db.Model):
     """A system of sizes the categories share (ADR-093 §2): «مقاسات البناجر»
     the bangles' of every karat follow -- the owner enters the shop's own

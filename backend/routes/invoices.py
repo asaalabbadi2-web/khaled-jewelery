@@ -3584,6 +3584,22 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
     except PieceRefused as refused:
         return jsonify({'error': refused.code, 'message': refused.message}), 400
 
+    # The photos it is saved with (ADR-094): a customer's scrap purchase's,
+    # each its sender's and pending -- checked before anything is written,
+    # linked in its own transaction below.
+    from services.attachments import INVOICE as _ATTACHED_TO, SCRAP_GOLD_PHOTO, AttachmentRefused, \
+        check_linkable, link as _link_attachments
+    _attachment_ids = data.get('attachment_ids') or []
+    _attaching_by = getattr(current_user, 'username', None) or 'system'
+    if _attachment_ids:
+        if invoice_type != 'شراء من عميل':
+            return jsonify({'error': 'attachments_not_allowed',
+                            'message': 'الصور تُحفظ مع شراء الكسر من العميل وحده'}), 400
+        try:
+            check_linkable(_attachment_ids, role=SCRAP_GOLD_PHOTO, by=_attaching_by)
+        except AttachmentRefused as refused:
+            return jsonify({'error': refused.code, 'message': refused.message}), 400
+
     # A payment and a weight are never below nothing (ADR-062): a negative
     # payment line was added to the check and skipped at the posting -- -200 and
     # 1,200 paid a 1,000 sale and put 1,200 in the safe -- and a negative line
@@ -4995,6 +5011,9 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
         new_invoice.manufacturing_wage_mode_snapshot = wage_mode_snapshot
         db.session.add(new_invoice)
         db.session.flush()
+        if _attachment_ids:
+            _link_attachments(_attachment_ids, entity_type=_ATTACHED_TO, entity_id=new_invoice.id,
+                              role=SCRAP_GOLD_PHOTO, by=_attaching_by, now=datetime.now())
 
         # --- Approval gates (sales) ---
         # Allow saving but prevent posting/safebox effects until approved.

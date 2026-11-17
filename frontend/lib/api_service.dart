@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart'
     show
@@ -1324,6 +1325,47 @@ class ApiService {
     } else {
       throw _apiError(response);
     }
+  }
+
+  // ── المرفقات: صور شراء الكسر (ADR-094) ───────────────────────────────────
+
+  /// A photo sent as it is taken: kept by the server, pending under its
+  /// sender until its invoice is saved with it. `{id, kind, bytes, ...}`.
+  Future<Map<String, dynamic>> uploadAttachment(
+    List<int> bytes, {
+    String role = 'scrap_gold_photo',
+    String filename = 'photo.jpg',
+  }) async {
+    final response = await _authedMultipartPost(
+      Uri.parse('$_baseUrl/attachments'),
+      fields: {'role': role},
+      fileBytes: bytes,
+      fileField: 'file',
+      filename: filename,
+    );
+    if (response.statusCode != 201) {
+      throw _apiError(response, fallback: 'تعذّر رفع الصورة');
+    }
+    return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+  }
+
+  /// A photo's bytes, read through the server with the user's token -- never
+  /// a bare link: /api is open on port 80.
+  Future<Uint8List> attachmentBytes(int id) async {
+    final response = await _authedGet(Uri.parse('$_baseUrl/attachments/$id'));
+    if (response.statusCode != 200) {
+      throw _apiError(response, fallback: 'تعذّر تحميل الصورة');
+    }
+    return response.bodyBytes;
+  }
+
+  /// The photos an invoice was saved with.
+  Future<List<Map<String, dynamic>>> invoiceAttachments(int invoiceId) async {
+    final response = await _authedGet(Uri.parse('$_baseUrl/invoices/$invoiceId/attachments'));
+    if (response.statusCode != 200) {
+      throw _apiError(response, fallback: 'تعذّر تحميل صور الفاتورة');
+    }
+    return (json.decode(utf8.decode(response.bodyBytes)) as List).cast<Map<String, dynamic>>();
   }
 
   /// إضافة تصنيف جديد

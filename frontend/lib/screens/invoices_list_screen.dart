@@ -35,6 +35,7 @@ import '../widgets/karat_weights.dart';
 import '../providers/settings_provider.dart';
 import '../widgets/summary_strip.dart';
 import '../utils/display_date.dart';
+import '../widgets/gold_photos.dart';
 
 /// A sale of scrap gold is saved as «بيع» with gold_type 'scrap'. It is
 /// edited on the screen that made it: the ordinary sale screen sends no
@@ -3866,6 +3867,12 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                     ),
 
                     const SizedBox(height: 12),
+
+                    // the gold's photos a scrap purchase was saved with (ADR-094)
+                    if ('${invoice['invoice_type'] ?? ''}'.trim() == 'شراء من عميل' && invoice['id'] is int) ...[
+                      InvoicePhotos(api: _apiService, invoiceId: invoice['id'] as int),
+                      const SizedBox(height: 12),
+                    ],
 
                     // Items table preview
                     Text(

@@ -32,6 +32,7 @@ services:
       BYPASS_AUTH_FOR_DEVELOPMENT: "0"
       YASAR_ENV: ${YASAR_ENV:-production}
       BACKUP_DIR: ${BACKUP_DIR:-/data/backups}
+      MEDIA_ROOT: ${MEDIA_ROOT:-/data/media}   # the photos (ADR-094)
       ALLOW_DANGEROUS_RESETS: ${ALLOW_DANGEROUS_RESETS:-false}
       # Set to "1" to print a DEBUG line for each module imported at startup.
       # Useful for diagnosing "Missing backend dependencies" container crashes.
@@ -41,6 +42,7 @@ services:
         condition: service_healthy
     volumes:
       - backup_data:/data/backups
+      - media_data:/data/media
       # Optional: bind-mount external disk/folder for backups (Windows example: D:/YasarGoldBackups)
       # Uncomment and set your path:
       # - "D:/YasarGoldBackups:/data/backups"
@@ -55,6 +57,7 @@ services:
       BYPASS_AUTH_FOR_DEVELOPMENT: "0"
       YASAR_ENV: ${YASAR_ENV:-production}
       BACKUP_DIR: ${BACKUP_DIR:-/data/backups}
+      MEDIA_ROOT: ${MEDIA_ROOT:-/data/media}   # the photos (ADR-094)
       ALLOW_DANGEROUS_RESETS: ${ALLOW_DANGEROUS_RESETS:-false}
     command: ["python", "backend/run_schedulers.py"]
     depends_on:
@@ -62,6 +65,7 @@ services:
         condition: service_healthy
     volumes:
       - backup_data:/data/backups
+      - media_data:/data/media
       # Optional: bind-mount external disk/folder for backups (same as backend)
       # - "D:/YasarGoldBackups:/data/backups"
 
@@ -77,3 +81,4 @@ services:
 volumes:
   postgres_data:
   backup_data:
+  media_data:
