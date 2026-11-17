@@ -81,6 +81,7 @@ KARAT_CONVERSION_ADRIFT = 'KARAT_CONVERSION_ADRIFT'
 PERIOD_EXPENSE_LEDGER_DRIFT = 'PERIOD_EXPENSE_LEDGER_DRIFT'
 PERIOD_EXPENSE_MONTH_MISSING = 'PERIOD_EXPENSE_MONTH_MISSING'
 CASH_SAFE_HOLDS_GOLD = 'CASH_SAFE_HOLDS_GOLD'
+GROUP_ACCOUNT_POSTED = 'GROUP_ACCOUNT_POSTED'
 
 KINDS = (
     ORPHAN_POSTED_ENTRY,
@@ -104,6 +105,7 @@ KINDS = (
     PERIOD_EXPENSE_LEDGER_DRIFT,
     PERIOD_EXPENSE_MONTH_MISSING,
     CASH_SAFE_HOLDS_GOLD,
+    GROUP_ACCOUNT_POSTED,
 )
 
 # An invoice in one of these states is retracted: its entries must not count
@@ -775,6 +777,44 @@ def check_cash_safes_hold_no_gold() -> list:
     return facts
 
 
+def check_group_accounts_posted() -> list:
+    """A revenue or expense group that holds riyals or grams of its own -- a
+    line booked on the group, not on an account under it (the owner, 17 Nov
+    2026: 1,000 riyals of salaries on «5 المصروفات»). Gram profit counts it
+    (ADR-092), but no report says what it was. The trading groups are not
+    judged: the sales were posted on 41 itself until April 2026. Keyed
+    'account:<id>'; the metric is its own riyals, debit less credit."""
+    from accounting.balances import counted_line_filters
+    from models import Account, JournalEntry, JournalEntryLine, db
+    from services.gram_profit_accounts import COUNTED, EXCLUDED, gram_profit_standing
+    standing = gram_profit_standing()
+    parents = {p for (p,) in db.session.query(Account.parent_id).filter(Account.parent_id.isnot(None)).distinct()}
+    groups = [i for i in parents if i in standing and standing[i].state in (COUNTED, EXCLUDED)]
+    if not groups:
+        return []
+    karats = ('18k', '21k', '22k', '24k')
+
+    def net(col):
+        return func.coalesce(func.sum(func.coalesce(getattr(JournalEntryLine, f'debit_{col}'), 0)
+                                      - func.coalesce(getattr(JournalEntryLine, f'credit_{col}'), 0)), 0)
+    rows = (db.session.query(JournalEntryLine.account_id, func.count(), *[net(k) for k in karats],
+                             func.coalesce(func.sum(func.coalesce(JournalEntryLine.cash_debit, 0)
+                                                    - func.coalesce(JournalEntryLine.cash_credit, 0)), 0))
+            .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+            .filter(*counted_line_filters(), JournalEntryLine.account_id.in_(groups))
+            .group_by(JournalEntryLine.account_id).all())
+    names = {a.id: a for a in Account.query.filter(Account.id.in_([r[0] for r in rows] or [-1]))}
+    facts = []
+    for account_id, lines, *by_karat, cash in rows:
+        grams = {k: round(float(v or 0), 3) for k, v in zip(karats, by_karat)}
+        if abs(float(cash or 0)) > 0.005 or any(abs(v) > 0.0005 for v in grams.values()):
+            a = names[account_id]
+            facts.append(Fact(GROUP_ACCOUNT_POSTED, f'account:{account_id}', round(float(cash or 0), 2),
+                              {'account_number': a.account_number, 'account_name': a.name, 'lines': int(lines),
+                               'grams': grams}))
+    return facts
+
+
 CHECKS = {
     ORPHAN_POSTED_ENTRY: check_orphan_posted_entries,
     UNPOSTED_ENTRY_IN_LIMBO: check_unposted_entries_in_limbo,
@@ -798,6 +838,7 @@ CHECKS = {
     PERIOD_EXPENSE_LEDGER_DRIFT: check_period_expense_ledger_drift,
     PERIOD_EXPENSE_MONTH_MISSING: check_period_expense_months_missing,
     CASH_SAFE_HOLDS_GOLD: check_cash_safes_hold_no_gold,
+    GROUP_ACCOUNT_POSTED: check_group_accounts_posted,
 }
 
 

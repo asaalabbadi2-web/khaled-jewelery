@@ -636,9 +636,15 @@ def get_accounts():
         subtree = subtree_balances({int(a.id): a.parent_id for a in accounts},
                                    {int(k): v for k, v in live_by_id.items()})
 
+    # Each account's standing in gram profit, and what decided it (ADR-092).
+    from services.gram_profit_accounts import gram_profit_standing, standing_view
+    standing = gram_profit_standing()
+    by_id = {a.id: a for a in accounts}
+
     result = []
     for acc in accounts:
         account_dict = acc.to_dict()
+        account_dict['gram_profit'] = standing_view(acc.id, standing, by_id)
         if int(acc.id) in subtree:
             account_dict['subtree_balances'] = subtree[int(acc.id)]
             own = live_by_id.get(int(acc.id)) or {}
@@ -719,6 +725,9 @@ def get_account(id):
     """Fetch a single account by id."""
     account = Account.query.get_or_404(id)
     payload = account.to_dict()
+    from services.gram_profit_accounts import gram_profit_standing, standing_view
+    payload['gram_profit'] = standing_view(account.id, gram_profit_standing(),
+                                           {a.id: a for a in Account.query.all()})
 
     try:
         sb = (

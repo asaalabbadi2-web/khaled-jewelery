@@ -440,7 +440,7 @@ def get_admin_dashboard():
             return round(sum(by_owner.values()), 3), {k: round(v, 3) for k, v in by_owner.items() if abs(v) >= 0.0005}
 
         def _build_revenues_summary(start, end):
-            """The revenues the gram profit counts -- the owner's marks (ADR-048) --
+            """The revenues the gram profit counts (ADR-092: every revenue but trading and the excluded) --
             in riyals and in grams (DASH-3, the owner 30 Oct 2026)."""
             try:
                 from accounting.balances import counted_line_filters

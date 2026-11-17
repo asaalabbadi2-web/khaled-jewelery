@@ -114,6 +114,55 @@ class AccountSearchField extends StatelessWidget {
   }
 }
 
+/// What the account form says of an account in gram profit, from the
+/// server's standing (ADR-092) -- null for a new account, which counts when
+/// it is a revenue or an expense unless excluded. [excludedHere]: the
+/// switch as it is now, before it is saved.
+({String? line, bool canSwitch, bool decidedElsewhere, String switchNote})
+gramProfitSaying(Map<String, dynamic>? standing, {required bool excludedHere}) {
+  const general = 'كل حساب إيراد أو مصروف يدخل، إلا حسابات المتاجرة وما تستثنيه';
+  if (standing == null) {
+    return (line: null, canSwitch: true, decidedElsewhere: false, switchNote: general);
+  }
+  final via = standing['via'];
+  final viaName = via is Map
+      ? '«${normalizeNumber(via['account_number']?.toString())} ${via['name'] ?? ''}»'
+      : null;
+  final side = standing['side'] == 'revenue' ? 'إيرادًا' : 'مصروفًا';
+  switch (standing['state']) {
+    case 'trading':
+      return (
+        line: viaName != null
+            ? 'لا يدخل: نظير $viaName، والمتاجرة تُقرأ من الفواتير'
+            : 'لا يدخل: حساب متاجرة، يُقرأ من الفواتير',
+        canSwitch: false,
+        decidedElsewhere: false,
+        switchNote: general,
+      );
+    case 'excluded' when viaName != null:
+      return (
+        line: 'مستثنى، لأن $viaName مستثنى',
+        canSwitch: true,
+        decidedElsewhere: true,
+        switchNote: 'يُعاد من $viaName',
+      );
+    case 'excluded' || 'counted':
+      return (
+        line: excludedHere ? 'مستثنى من ربح الجرام' : 'يدخل في ربح الجرام $side',
+        canSwitch: true,
+        decidedElsewhere: false,
+        switchNote: 'يُستثنى معه كل ما تحته ونظيره الوزني',
+      );
+    default:
+      return (
+        line: 'لا يدخل: ليس حساب إيراد أو مصروف',
+        canSwitch: false,
+        decidedElsewhere: false,
+        switchNote: general,
+      );
+  }
+}
+
 /// Add a root account, a child of [parent], or edit [editing]. True when saved.
 Future<bool> showAccountForm(
   BuildContext context, {
@@ -162,7 +211,7 @@ class _AccountFormState extends State<_AccountForm> {
       : widget.parent;
   late String _type =
       (widget.editing?['type'] ?? widget.parent?['type'] ?? 'Asset').toString();
-  late bool _gramProfit = widget.editing?['include_in_gram_profit'] == true;
+  late bool _excluded = widget.editing?['exclude_from_gram_profit'] == true;
   bool _parallel = false;
   String? _parallelNumber;
   bool _suggesting = false;
@@ -260,7 +309,7 @@ class _AccountFormState extends State<_AccountForm> {
         'account_number': number,
         'type': _type,
         'parent_id': parent?['id'],
-        'include_in_gram_profit': _gramProfit,
+        'exclude_from_gram_profit': _excluded,
       };
       if (_editing) {
         await widget.api.updateAccount(widget.editing!['id'] as int, data);
@@ -291,6 +340,39 @@ class _AccountFormState extends State<_AccountForm> {
         if (!_editing) _suggest();
       },
     );
+  }
+
+  /// Gram profit, as the server says it (ADR-092): every revenue and expense
+  /// counts but trading and what the owner excludes -- an account with all
+  /// under it. The switch is the exclusion; a line says where the account
+  /// stands and what decided it.
+  List<Widget> _gramProfitTiles() {
+    final standing = widget.editing?['gram_profit'];
+    final said = gramProfitSaying(
+      standing is Map ? Map<String, dynamic>.from(standing) : null,
+      excludedHere: _excluded,
+    );
+    return [
+      if (said.line != null)
+        ListTile(
+          key: const Key('account-form-gram-profit'),
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          title: const Text('ربح الجرام'),
+          subtitle: Text(said.line!),
+        ),
+      if (said.canSwitch)
+        SwitchListTile.adaptive(
+          key: const Key('account-form-gram-profit-exclude'),
+          contentPadding: EdgeInsets.zero,
+          value: _excluded,
+          title: const Text('استثنِ من ربح الجرام'),
+          subtitle: Text(said.switchNote),
+          onChanged: said.decidedElsewhere
+              ? null
+              : (v) => setState(() => _excluded = v),
+        ),
+    ];
   }
 
   @override
@@ -368,15 +450,7 @@ class _AccountFormState extends State<_AccountForm> {
                     trailing: Text(accountTypeLabel(_type)),
                     subtitle: const Text('من الحساب الأصلي'),
                   ),
-                SwitchListTile.adaptive(
-                  contentPadding: EdgeInsets.zero,
-                  value: _gramProfit,
-                  title: const Text('يدخل في تقرير ربح الجرام'),
-                  subtitle: const Text(
-                    'يُحسب ضمن الربح الوزني إيرادًا أو مصروفًا',
-                  ),
-                  onChanged: (v) => setState(() => _gramProfit = v),
-                ),
+                ..._gramProfitTiles(),
                 if (!_editing && !isMemo) ...[
                   const Divider(height: 24),
                   SwitchListTile.adaptive(
