@@ -849,6 +849,39 @@ class SizeSystemSize(db.Model):
     created_at = db.Column(db.DateTime, nullable=False)
 
 
+class PieceModel(db.Model):
+    """A model its pieces share (ADR-093 §1): their shape, their expected wage,
+    their stones, a photo -- a description, never a balance (its stock is
+    counted from its pieces) and never a source of a wage (a piece's is its
+    receipt line's, ADR-087 §6). Stopped, never deleted, once a piece is of it."""
+    __tablename__ = 'piece_model'
+    __table_args__ = (db.UniqueConstraint('category_id', 'name', name='uq_piece_model_category_name'),)
+    id = db.Column(db.Integer, primary_key=True)
+    category_id = db.Column(db.Integer, db.ForeignKey('category.id', ondelete='RESTRICT'), nullable=False, index=True)
+    name = db.Column(db.String(100), nullable=False)
+    supplier_code = db.Column(db.String(60), nullable=True)
+    # compared with the invoice's at receiving, never given to a piece
+    expected_wage_per_gram = db.Column(db.Numeric(10, 2), nullable=True)
+    has_stones = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
+    # data URIs: the photo (sized down on the device) and its thumbnail for the lists
+    photo = db.Column(db.Text, nullable=True)
+    thumbnail = db.Column(db.Text, nullable=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True, server_default=db.true())
+    created_by = db.Column(db.String(100), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False)
+    updated_at = db.Column(db.DateTime, nullable=True)
+
+
+class PieceModelSize(db.Model):
+    """A size a model comes in: one of its category's size system's (ADR-093 §2)."""
+    __tablename__ = 'piece_model_size'
+    __table_args__ = (db.UniqueConstraint('model_id', 'size_id', name='uq_piece_model_size'),)
+    id = db.Column(db.Integer, primary_key=True)
+    model_id = db.Column(db.Integer, db.ForeignKey('piece_model.id', ondelete='CASCADE'), nullable=False, index=True)
+    size_id = db.Column(db.Integer, db.ForeignKey('size_system_size.id', ondelete='RESTRICT'), nullable=False,
+                        index=True)
+
+
 class Category(db.Model):
     """تصنيفات الأصناف - لتحسين دقة التقارير"""
     id = db.Column(db.Integer, primary_key=True)
@@ -965,6 +998,9 @@ class Item(db.Model):
     # A piece's size (ADR-093 §3): one of its category's size system's, or none.
     size_id = db.Column(db.Integer, db.ForeignKey('size_system_size.id', ondelete='RESTRICT'), nullable=True,
                         index=True)
+    # A piece's model (ADR-093 §1): of its category, or none -- a description.
+    model_id = db.Column(db.Integer, db.ForeignKey('piece_model.id', ondelete='RESTRICT'), nullable=True,
+                         index=True)
     invoice_items = db.relationship('InvoiceItem', backref='item', lazy=True,
                                     foreign_keys='InvoiceItem.item_id')
 

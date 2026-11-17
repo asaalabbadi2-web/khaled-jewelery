@@ -1327,6 +1327,7 @@ class ApiService {
         .cast<Map<String, dynamic>>();
   }
 
+  /// One write of the size systems or the models: its reply, or its refusal.
   Future<Map<String, dynamic>> _sizeSystemWrite(
     Future<http.Response> Function() send,
     String fallback,
@@ -1408,6 +1409,63 @@ class ApiService {
         ),
         'تعذّر ترتيب المقاسات',
       );
+
+  // ── الموديلات (ADR-093 M1) ────────────────────────────────────────────────
+
+  /// The models: each with its sizes, its thumbnail and its pieces' count.
+  Future<List<Map<String, dynamic>>> getPieceModels({
+    int? categoryId,
+    String? q,
+    bool includeInactive = false,
+  }) async {
+    final query = <String, String>{
+      if (categoryId != null) 'category_id': '$categoryId',
+      if (q != null && q.trim().isNotEmpty) 'q': q.trim(),
+      if (includeInactive) 'include_inactive': '1',
+    };
+    final response = await _authedGet(
+      Uri.parse('$_baseUrl/piece-models').replace(queryParameters: query),
+    );
+    if (response.statusCode != 200) {
+      throw _apiError(response, fallback: 'تعذّر تحميل الموديلات');
+    }
+    return (json.decode(utf8.decode(response.bodyBytes)) as List)
+        .cast<Map<String, dynamic>>();
+  }
+
+  /// One model with its photo.
+  Future<Map<String, dynamic>> getPieceModel(int id) async {
+    final response = await _authedGet(Uri.parse('$_baseUrl/piece-models/$id'));
+    if (response.statusCode != 200) {
+      throw _apiError(response, fallback: 'تعذّر تحميل الموديل');
+    }
+    return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> createPieceModel(Map<String, dynamic> body) =>
+      _sizeSystemWrite(
+        () => _authedPost(
+          Uri.parse('$_baseUrl/piece-models'),
+          body: json.encode(body),
+        ),
+        'تعذّر حفظ الموديل',
+      );
+
+  Future<Map<String, dynamic>> updatePieceModel(
+    int id,
+    Map<String, dynamic> body,
+  ) => _sizeSystemWrite(
+    () => _authedPatch(
+      Uri.parse('$_baseUrl/piece-models/$id'),
+      body: json.encode(body),
+    ),
+    'تعذّر حفظ الموديل',
+  );
+
+  Future<Map<String, dynamic>> deletePieceModel(int id) => _sizeSystemWrite(
+    () => _authedDelete(Uri.parse('$_baseUrl/piece-models/$id')),
+    'تعذّر حذف الموديل',
+  );
 
   /// حذف تصنيف
   Future<void> deleteCategory(int id) async {

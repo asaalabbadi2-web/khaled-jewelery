@@ -1,0 +1,91 @@
+"""«الموديلات» (ADR-093 M1): the piece models' routes.
+
+GET    /api/piece-models          -- ?category_id, q, include_inactive: each
+       with its sizes, its thumbnail and how many pieces are of it.
+GET    /api/piece-models/<id>     -- the same with its photo.
+POST   /api/piece-models          -- {category_id, name, supplier_code,
+       expected_wage_per_gram, has_stones, size_ids, photo, thumbnail}.
+PATCH  /api/piece-models/<id>     -- what is given changes; is_active stops it.
+DELETE /api/piece-models/<id>     -- one no piece is of.
+The laws are services/piece_models.py's; these only carry them.
+"""
+from datetime import datetime
+
+from flask import Blueprint, g, jsonify, request
+
+from auth_decorators import require_permission
+from models import PieceModel, db
+from services.piece_models import ModelRefused, create_model, delete_model, list_models, model_view, update_model
+
+piece_models_bp = Blueprint('piece_models', __name__)
+
+_FIELDS = ('name', 'category_id', 'supplier_code', 'expected_wage_per_gram', 'has_stones', 'size_ids', 'photo',
+           'thumbnail', 'is_active')
+
+
+def _by():
+    return getattr(getattr(g, 'current_user', None), 'username', None) or 'system'
+
+
+def _refused(refused: ModelRefused):
+    db.session.rollback()
+    return jsonify({'error': refused.code, 'message': refused.message}), 400
+
+
+def _truthy(raw) -> bool:
+    return (raw or '').strip().lower() in ('1', 'true', 'yes')
+
+
+@piece_models_bp.route('/piece-models', methods=['GET'])
+@require_permission('items.view')
+def piece_models_index():
+    return jsonify(list_models(category_id=request.args.get('category_id'), q=request.args.get('q'),
+                               include_inactive=_truthy(request.args.get('include_inactive'))))
+
+
+@piece_models_bp.route('/piece-models/<int:model_id>', methods=['GET'])
+@require_permission('items.view')
+def piece_models_show(model_id):
+    return jsonify(model_view(PieceModel.query.get_or_404(model_id), photo=True))
+
+
+@piece_models_bp.route('/piece-models', methods=['POST'])
+@require_permission('items.edit')
+def piece_models_create():
+    data = request.get_json(silent=True) or {}
+    try:
+        model = create_model(category_id=data.get('category_id'), name=data.get('name'),
+                             supplier_code=data.get('supplier_code'),
+                             expected_wage_per_gram=data.get('expected_wage_per_gram'),
+                             has_stones=bool(data.get('has_stones')), size_ids=data.get('size_ids') or (),
+                             photo=data.get('photo'), thumbnail=data.get('thumbnail'), by=_by(),
+                             now=datetime.now())
+    except ModelRefused as refused:
+        return _refused(refused)
+    db.session.commit()
+    return jsonify(model_view(model, photo=True)), 201
+
+
+@piece_models_bp.route('/piece-models/<int:model_id>', methods=['PATCH'])
+@require_permission('items.edit')
+def piece_models_update(model_id):
+    model = PieceModel.query.get_or_404(model_id)
+    data = request.get_json(silent=True) or {}
+    try:
+        update_model(model, now=datetime.now(), **{k: data[k] for k in _FIELDS if k in data})
+    except ModelRefused as refused:
+        return _refused(refused)
+    db.session.commit()
+    return jsonify(model_view(model, photo=True))
+
+
+@piece_models_bp.route('/piece-models/<int:model_id>', methods=['DELETE'])
+@require_permission('items.edit')
+def piece_models_delete(model_id):
+    model = PieceModel.query.get_or_404(model_id)
+    try:
+        delete_model(model)
+    except ModelRefused as refused:
+        return _refused(refused)
+    db.session.commit()
+    return jsonify({'deleted': model_id})

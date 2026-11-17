@@ -13,6 +13,7 @@ import 'inventory_balance_screen.dart';
 import '../utils.dart';
 import '../utils/currency_utils.dart' as cu;
 import '../theme/app_semantic_colors.dart';
+import 'piece_models_screen.dart';
 import 'size_systems_screen.dart';
 
 /// The theme's colours (ADR-038): the scheme and the semantic tones.
@@ -285,6 +286,17 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
             icon: const Icon(Icons.category_outlined),
             tooltip: 'إدارة التصنيفات',
             onPressed: _showCategoriesManagementDialog,
+          ),
+          // The models the pieces share (ADR-093 M1).
+          IconButton(
+            key: const Key('items-piece-models'),
+            icon: const Icon(Icons.style_outlined),
+            tooltip: 'الموديلات',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => PieceModelsScreen(api: widget.api),
+              ),
+            ),
           ),
           IconButton(
             icon: const Icon(Icons.filter_list),

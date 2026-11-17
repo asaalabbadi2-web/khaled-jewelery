@@ -8,8 +8,9 @@ The owner (17 Nov 2026): «مقاسات البناجر عندنا تكون 17، 
   - a size is text, never a number («2.10» is not «2.1»), in one spelling:
     Arabic digits written Latin, a comma a point, spaces gone; unique in its
     system, in its order, with an optional measurement;
-  - a size a piece holds is never taken out, and a category whose pieces
-    hold sizes keeps its system; a system a category follows stays;
+  - a size a piece holds or a model comes in is never taken out, and a
+    category whose pieces or models hold sizes keeps its system; a system a
+    category follows stays;
   - none is written in the code: the owner enters the shop's own.
 """
 from __future__ import annotations
@@ -195,6 +196,11 @@ def delete_size(size: SizeSystemSize) -> None:
     held = pieces_holding([size.id]).get(size.id, 0)
     if held:
         raise SizeRefused('size_in_use', f'المقاس {size.label} تحمله {held} قطعة')
+    from models import PieceModel, PieceModelSize
+    model = (PieceModel.query.join(PieceModelSize, PieceModelSize.model_id == PieceModel.id)
+             .filter(PieceModelSize.size_id == size.id).first())
+    if model is not None:
+        raise SizeRefused('size_in_model', f'المقاس {size.label} من مقاسات الموديل «{model.name}»: أخرجه منه أولًا')
     system = db.session.get(SizeSystem, size.system_id)
     db.session.delete(size)
     db.session.flush()
@@ -213,4 +219,10 @@ def set_category_system(category: Category, system_id) -> None:
     if sized:
         raise SizeRefused('size_system_in_use',
                           f'«{category.name}» فيه {sized} قطعة لها مقاس: يبقى نظامه حتى تُغيَّر مقاساتها')
+    from models import PieceModel, PieceModelSize
+    model = (PieceModel.query.join(PieceModelSize, PieceModelSize.model_id == PieceModel.id)
+             .filter(PieceModel.category_id == category.id).first())
+    if model is not None:
+        raise SizeRefused('size_system_in_use',
+                          f'موديل «{model.name}» في «{category.name}» له مقاسات من نظامه: أخرجها أولًا')
     category.size_system_id = new
