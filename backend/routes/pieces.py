@@ -6,8 +6,10 @@ GET  /api/pieces/lines/<line_id>  -- a line and its pieces, each with its wage
      (read from its line, §6) or «بانتظار الفاتورة».
 GET  /api/pieces/codings/<id>     -- a batch of existing stock and its pieces.
 POST /api/pieces                  -- a piece under a line (line_id) or a batch
-     (coding_id): weight, stones_weight, request_key -- the save attempt's
-     key: pressed twice, one.
+     (coding_id): weight, stones_weight, model_id, size_id (ADR-093),
+     request_key -- the save attempt's key: pressed twice, one.
+GET  /api/pieces/wage-check       -- line_id or coding_id, model_id: the
+     source's wage per gram against the model's expected one -- a warning.
 GET  /api/pieces/lookup?code=     -- a piece by its number: its view and
      where it is (the transfer screen, R3.6).
 POST /api/pieces/<id>/tag         -- its tag mounted: by default the number's
@@ -92,6 +94,7 @@ def station_register():
     try:
         with db.session.begin_nested():
             piece = register_piece(line, weight=data.get('weight'), stones_weight=data.get('stones_weight'),
+                                   model_id=data.get('model_id'), size_id=data.get('size_id'),
                                    by=_by(), now=datetime.now(), request_key=key)
     except PieceRefused as refused:
         db.session.rollback()
@@ -105,6 +108,24 @@ def station_register():
         return saved
     db.session.commit()
     return jsonify({'piece': piece_view(piece), 'line': _view(line)}), 201
+
+
+@pieces_bp.route('/pieces/wage-check', methods=['GET'])
+@require_permission('items.view')
+def station_wage_check():
+    """A line's or a batch's wage per gram against a model's expected one
+    (ADR-093 §1): line_id or coding_id, model_id -- a warning, never a refusal."""
+    from models import PieceModel
+    from services.pieces import wage_check
+    try:
+        source = (db.session.get(StockCoding, int(request.args['coding_id'])) if request.args.get('coding_id')
+                  else db.session.get(InvoiceItem, int(request.args.get('line_id'))))
+        model = db.session.get(PieceModel, int(request.args.get('model_id')))
+    except (TypeError, ValueError):
+        source = model = None
+    if source is None or model is None:
+        return jsonify({'error': 'not_found', 'message': 'السطر أو الموديل غير موجود'}), 404
+    return jsonify(wage_check(source, model))
 
 
 @pieces_bp.route('/pieces/lookup', methods=['GET'])

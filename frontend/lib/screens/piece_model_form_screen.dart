@@ -74,19 +74,21 @@ class ModelImage extends StatelessWidget {
       color: cs.surfaceContainerHighest,
       alignment: Alignment.center,
       child: bytes == null
-          ? Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.image_outlined, size: 40, color: cs.onSurfaceVariant),
-                const SizedBox(height: AppSpace.xs),
-                Text(
-                  'لا صورة بعد',
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodySmall
-                      ?.copyWith(color: cs.onSurfaceVariant),
-                ),
-              ],
+          ? LayoutBuilder(
+              // small (a list's leading box): the icon alone, the words with room
+              builder: (context, box) => box.maxHeight < 96
+                  ? Icon(Icons.image_outlined, color: cs.onSurfaceVariant, semanticLabel: 'لا صورة بعد')
+                  : Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.image_outlined, size: 40, color: cs.onSurfaceVariant),
+                        const SizedBox(height: AppSpace.xs),
+                        Text(
+                          'لا صورة بعد',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                        ),
+                      ],
+                    ),
             )
           : Image.memory(bytes, fit: BoxFit.cover, width: double.infinity),
     );

@@ -5644,6 +5644,18 @@ class ApiService {
   Future<Map<String, dynamic>> registerPiece(Map<String, dynamic> body) =>
       _postJson('/pieces', body, fallback: 'تعذّر تسجيل القطعة');
 
+  /// A line's or a batch's wage per gram against a model's expected one
+  /// (ADR-093 §1): `{state, invoice_per_gram, expected_per_gram}` -- a
+  /// warning, never a refusal.
+  Future<Map<String, dynamic>> pieceWageCheck({
+    int? lineId,
+    int? codingId,
+    required int modelId,
+  }) => _getMap(
+    '/pieces/wage-check?${codingId != null ? 'coding_id=$codingId' : 'line_id=$lineId'}&model_id=$modelId',
+    fallback: 'تعذّر قراءة الأجرة',
+  );
+
   // ── «تصحيح فاتورة» (ADR-056) ──────────────────────────────────────────
 
   /// The invoice's corrections and the safe a correction starts from -- the

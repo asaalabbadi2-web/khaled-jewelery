@@ -103,14 +103,42 @@ def _source_of(source):
     return line, category, int(round(float(line.karat or 0)))
 
 
-def register_piece(source, *, weight, stones_weight=0.0, by: str, now, request_key=None) -> Item:
-    """One piece under a posted receipt's line or a batch of stock -- or PieceRefused."""
+def model_and_size(category: Category, model_id=None, size_id=None):
+    """A piece's model and size (ADR-093 §3), or PieceRefused: the model of its
+    category and running; the size of its category's size system, and of the
+    model's sizes when the model names its sizes."""
+    from models import PieceModel, PieceModelSize, SizeSystemSize
+    model = size = None
+    if model_id not in (None, '', 0, '0'):
+        model = db.session.get(PieceModel, int(model_id))
+        if model is None:
+            raise PieceRefused('model_not_found', 'الموديل غير موجود')
+        if model.category_id != category.id:
+            raise PieceRefused('model_category_differs', f'الموديل «{model.name}» ليس من «{category.name}»')
+        if model.is_active is False:
+            raise PieceRefused('model_stopped', f'الموديل «{model.name}» موقوف')
+    if size_id not in (None, '', 0, '0'):
+        size = db.session.get(SizeSystemSize, int(size_id))
+        if size is None or category.size_system_id is None or size.system_id != category.size_system_id:
+            raise PieceRefused('size_not_in_category', f'المقاس ليس من نظام مقاسات «{category.name}»')
+        if model is not None:
+            sizes = {r.size_id for r in PieceModelSize.query.filter_by(model_id=model.id)}
+            if sizes and size.id not in sizes:
+                raise PieceRefused('size_not_in_model', f'المقاس {size.label} ليس من مقاسات «{model.name}»')
+    return model, size
+
+
+def register_piece(source, *, weight, stones_weight=0.0, model_id=None, size_id=None, by: str, now,
+                   request_key=None) -> Item:
+    """One piece under a posted receipt's line or a batch of stock -- or PieceRefused.
+    Its model and size describe it (ADR-093); its wage stays its source's (§6)."""
     from services.stock_ledger import allocate
 
     source, category, karat = _source_of(source)
     batch = isinstance(source, StockCoding)
     if category is None or (category.tracking or 'weight') != 'piece':
         raise PieceRefused('piece_category_by_weight', 'تصنيف السطر يُتابَع بالوزن: لا تُسجَّل فيه قطع')
+    model, size = model_and_size(category, model_id, size_id)
     try:
         weight = round(float(weight), 3)
         stones = round(float(stones_weight or 0.0), 3)
@@ -136,7 +164,9 @@ def register_piece(source, *, weight, stones_weight=0.0, by: str, now, request_k
 
     number = db.session.execute(PIECE_NUMBER.next_value()).scalar()
     code = f'KJ-{int(number):06d}'
-    piece = Item(item_code=code, barcode=code, name=category.name, category_id=category.id, karat=str(karat),
+    piece = Item(item_code=code, barcode=code, name=model.name if model else category.name,
+                 category_id=category.id, karat=str(karat), model_id=model.id if model else None,
+                 size_id=size.id if size else None,
                  weight=weight, has_stones=stones > GRAM, stones_weight=stones, price=0.0, stock=1, count=1,
                  receipt_item_id=None if batch else source.id, coding_id=source.id if batch else None,
                  created_at=now, created_by=by, request_key=request_key or None)
@@ -341,6 +371,32 @@ def piece_source(piece: Item):
     return None
 
 
+def source_wage_per_gram(source):
+    """A receipt line's wage per gram once its invoice is completed, a batch's
+    as entered -- None while unknown (law 8)."""
+    wages = line_wages(source)
+    return None if wages is None else round(float(wages['per_gram']), 2)
+
+
+WAGE_SAME, WAGE_DIFFERS, WAGE_AWAITING, WAGE_NO_EXPECTED = 'same', 'model_wage_differs', 'awaiting_invoice', \
+    'no_expected'
+
+
+def wage_check(source, model) -> dict:
+    """The source's wage per gram against the model's expected one (ADR-093
+    §1) -- a warning, never a refusal: the piece's wage is its source's."""
+    expected = float(model.expected_wage_per_gram) if model is not None and \
+        model.expected_wage_per_gram is not None else None
+    actual = source_wage_per_gram(source)
+    if expected is None:
+        state = WAGE_NO_EXPECTED
+    elif actual is None:
+        state = WAGE_AWAITING
+    else:
+        state = WAGE_DIFFERS if abs(actual - expected) > 0.005 else WAGE_SAME
+    return {'state': state, 'invoice_per_gram': actual, 'expected_per_gram': expected}
+
+
 def piece_wage(piece: Item):
     """A piece's wage, from its source -- None while unknown (law 8)."""
     source = piece_source(piece)
@@ -366,13 +422,20 @@ def line_view(line: InvoiceItem) -> dict:
             'supplier_name': getattr(supplier, 'name', None),
             'category_id': line.category_id, 'category_name': getattr(category, 'name', None),
             'karat': int(round(float(line.karat or 0))), 'weight': round(float(line.weight or 0.0), 3),
+            'size_system_id': getattr(category, 'size_system_id', None),
+            'wage_per_gram': source_wage_per_gram(line),
             'pieces': len(pieces), 'pieces_weight': coded, 'rest': round(float(line.weight or 0.0) - coded, 3)}
 
 
 def piece_view(piece: Item) -> dict:
+    from models import PieceModel, SizeSystemSize
     wage = piece_wage(piece)
     tag = active_tag(piece)
+    model = db.session.get(PieceModel, piece.model_id) if getattr(piece, 'model_id', None) else None
+    size = db.session.get(SizeSystemSize, piece.size_id) if getattr(piece, 'size_id', None) else None
     return {'id': piece.id, 'item_code': piece.item_code, 'barcode': piece.barcode, 'name': piece.name,
+            'model': {'id': model.id, 'name': model.name} if model else None,
+            'size': {'id': size.id, 'label': size.label} if size else None,
             'karat': piece.karat, 'weight': round(float(piece.weight or 0.0), 3),
             'stones_weight': round(float(piece.stones_weight or 0.0), 3), 'line_id': piece.receipt_item_id,
             'coding_id': piece.coding_id,
@@ -409,6 +472,7 @@ def coding_view(batch: StockCoding) -> dict:
             'supplier_name': None, 'safe_box_id': batch.safe_box_id, 'safe_name': getattr(safe, 'name', None),
             'category_id': batch.category_id, 'category_name': getattr(category, 'name', None),
             'karat': int(batch.karat), 'weight': round(float(batch.weight), 3),
+            'size_system_id': getattr(category, 'size_system_id', None),
             'wage_per_gram': float(batch.wage_per_gram), 'note': batch.note,
             'pieces': len(pieces), 'pieces_weight': coded, 'rest': round(float(batch.weight) - coded, 3)}
 

@@ -10,6 +10,7 @@ import '../widgets/app_feedback.dart';
 import '../widgets/app_state_views.dart';
 import '../widgets/confirm_financial_action.dart';
 import '../widgets/inline_number_cell.dart' show readTypedNumber;
+import 'piece_model_form_screen.dart' show ModelImage;
 
 /// «محطة ترميز القطع» (ADR-087 R3.4): the pieces of a received line, one by
 /// one -- each weighed (typed until the scale is linked, R5), numbered by the
@@ -40,6 +41,15 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
   final _weight = TextEditingController();
   final _stones = TextEditingController();
   final _weightFocus = FocusNode();
+
+  // The model and the size (ADR-093 M2): the model chosen once for the line,
+  // the size kept for the next piece; both optional.
+  List<Map<String, dynamic>> _models = const [];
+  List<Map<String, dynamic>> _systemSizes = const [];
+  bool _modelsFailed = false;
+  Map<String, dynamic>? _model;
+  int? _sizeId;
+  Map<String, dynamic>? _wageCheck;
 
   @override
   void initState() {
@@ -86,8 +96,94 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
       _requestKey = null;
       _weight.clear();
       _stones.clear();
+      _model = null;
+      _sizeId = null;
+      _wageCheck = null;
     });
     _weightFocus.requestFocus();
+    _loadModels(body['line'] as Map<String, dynamic>);
+  }
+
+  /// The line's category's models and its size system's sizes.
+  Future<void> _loadModels(Map<String, dynamic> line) async {
+    try {
+      final models = await _api.getPieceModels(categoryId: line['category_id'] as int?);
+      final systemId = line['size_system_id'];
+      var sizes = const <Map<String, dynamic>>[];
+      if (systemId != null) {
+        final systems = await _api.getSizeSystems();
+        final system = systems.where((s) => s['id'] == systemId).firstOrNull;
+        sizes = [for (final s in (system?['sizes'] as List? ?? const [])) Map<String, dynamic>.from(s as Map)];
+      }
+      if (!mounted || _line?['category_id'] != line['category_id']) return;
+      setState(() {
+        _models = models;
+        _systemSizes = sizes;
+        _modelsFailed = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _modelsFailed = true);
+    }
+  }
+
+  /// The sizes offered: the model's when it names them, else its category's system's.
+  List<Map<String, dynamic>> get _offeredSizes {
+    final named = [for (final s in (_model?['sizes'] as List? ?? const [])) Map<String, dynamic>.from(s as Map)];
+    return named.isNotEmpty ? named : _systemSizes;
+  }
+
+  Future<void> _chooseModel() async {
+    final chosen = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            ListTile(
+              key: const Key('station-model-none'),
+              leading: const Icon(Icons.block),
+              title: const Text('بلا موديل'),
+              onTap: () => Navigator.pop(context, const <String, dynamic>{}),
+            ),
+            for (final m in _models)
+              ListTile(
+                key: Key('station-model-${m['id']}'),
+                leading: SizedBox(
+                  width: 56,
+                  height: 56,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: ModelImage(uri: m['thumbnail'] as String?),
+                  ),
+                ),
+                title: Text('${m['name']}'),
+                subtitle: Text('${m['supplier_code'] ?? ''}'),
+                onTap: () => Navigator.pop(context, m),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (chosen == null || !mounted) return;
+    setState(() {
+      _model = chosen.isEmpty ? null : chosen;
+      _wageCheck = null;
+      if (!_offeredSizes.any((s) => s['id'] == _sizeId)) _sizeId = null;
+    });
+    final line = _line;
+    final model = _model;
+    if (line == null || model == null) return;
+    try {
+      final check = await _api.pieceWageCheck(
+        lineId: _isBatch(line) ? null : line['line_id'] as int,
+        codingId: _isBatch(line) ? line['coding_id'] as int : null,
+        modelId: model['id'] as int,
+      );
+      if (mounted && _model?['id'] == model['id']) setState(() => _wageCheck = check);
+    } catch (_) {
+      // the warning is a help: without it the piece is still its invoice's
+    }
   }
 
   void _replacePiece(Map<String, dynamic> piece) {
@@ -175,6 +271,8 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
           'line_id': line['line_id'],
         'weight': weight,
         'stones_weight': readTypedNumber(_stones.text) ?? 0,
+        if (_model != null) 'model_id': _model!['id'],
+        if (_sizeId != null) 'size_id': _sizeId,
         'request_key': _requestKey,
       });
       if (!mounted) return;
@@ -298,6 +396,76 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
   static String _g(Object? v) =>
       formatGrams((v as num? ?? 0).toDouble(), decimals: 2);
 
+  /// The line's model (optional) and the wage warning: the invoice's wage per
+  /// gram against the model's expected one -- the piece keeps the invoice's.
+  Widget _modelSection(BuildContext context) {
+    final theme = Theme.of(context);
+    final model = _model;
+    final check = _wageCheck;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Card(
+          child: ListTile(
+            key: const Key('station-model'),
+            leading: SizedBox(
+              width: 56,
+              height: 56,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: ModelImage(uri: model?['thumbnail'] as String?),
+              ),
+            ),
+            title: Text(model == null ? 'بلا موديل' : '${model['name']}'),
+            subtitle: Text(
+              _modelsFailed
+                  ? 'تعذّر تحميل الموديلات: القطعة تُسجَّل بلا موديل'
+                  : _models.isEmpty
+                      ? 'لا موديلات لهذا التصنيف'
+                      : 'الموديل (اختياري)',
+            ),
+            trailing: _models.isEmpty
+                ? null
+                : OutlinedButton(
+                    key: const Key('station-model-change'),
+                    onPressed: _chooseModel,
+                    child: Text(model == null ? 'اختيار' : 'تغيير'),
+                  ),
+          ),
+        ),
+        if (check != null && check['state'] == 'model_wage_differs')
+          Card(
+            key: const Key('station-wage-differs'),
+            color: theme.colorScheme.tertiaryContainer,
+            child: ListTile(
+              leading: Icon(Icons.warning_amber_rounded, color: theme.colorScheme.onTertiaryContainer),
+              title: Text(
+                'أجرة الفاتورة تختلف عن الموديل',
+                style: TextStyle(color: theme.colorScheme.onTertiaryContainer),
+              ),
+              subtitle: Text(
+                'الفاتورة ${formatAmount((check['invoice_per_gram'] as num).toDouble())} للجرام · '
+                'الموديل ${formatAmount((check['expected_per_gram'] as num).toDouble())}. '
+                'القطع تأخذ أجرة الفاتورة.',
+                style: TextStyle(color: theme.colorScheme.onTertiaryContainer),
+              ),
+            ),
+          ),
+        if (check != null && check['state'] == 'awaiting_invoice')
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              'أجرة الفاتورة لم تُكتب بعد. أجرة الموديل المتوقّعة '
+              '${formatAmount((check['expected_per_gram'] as num).toDouble())} للجرام، وتُقارَن حين تُكمَل الفاتورة.',
+              key: const Key('station-wage-awaiting'),
+              style: theme.textTheme.bodySmall,
+            ),
+          ),
+        const SizedBox(height: 12),
+      ],
+    );
+  }
+
   Widget _station(BuildContext context, Map<String, dynamic> line) {
     final theme = Theme.of(context);
     final rest = (line['rest'] as num? ?? 0).toDouble();
@@ -319,7 +487,26 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
           ),
         ),
         const SizedBox(height: 12),
+        _modelSection(context),
         if (rest > 0.0005) ...[
+          if (_offeredSizes.isNotEmpty) ...[
+            Text('المقاس', style: theme.textTheme.titleSmall),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final s in _offeredSizes)
+                  ChoiceChip(
+                    key: Key('station-size-${s['id']}'),
+                    selected: _sizeId == s['id'],
+                    label: Text('${s['label']}', textDirection: TextDirection.ltr),
+                    onSelected: (on) => setState(() => _sizeId = on ? s['id'] as int : null),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+          ],
           Row(
             children: [
               Expanded(
@@ -399,7 +586,9 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
             ),
             subtitle: Text(
               '${_g(p['weight'])} جم'
-              '${((p['stones_weight'] as num?) ?? 0) > 0 ? ' · فصوص ${_g(p['stones_weight'])} جم' : ''}',
+              '${((p['stones_weight'] as num?) ?? 0) > 0 ? ' · فصوص ${_g(p['stones_weight'])} جم' : ''}'
+              '${p['size'] == null ? '' : ' · مقاس ${(p['size'] as Map)['label']}'}'
+              '${p['model'] == null ? '' : ' · ${(p['model'] as Map)['name']}'}',
             ),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
