@@ -56,12 +56,19 @@ class FakeSalesApi extends ApiService {
     {'id': 1, 'name': 'الفرع الرئيسي'},
   ];
 
+  /// What the server holds in the stock, as it answers the sales screen.
+  List<Map<String, dynamic>> stockItems = const [];
+  final itemsAskedInStock = <bool?>[];
+
   @override
   Future<List<dynamic>> getItems({
     bool? inStockOnly,
     int? categoryId,
     int? excludeCategoryId,
-  }) async => [];
+  }) async {
+    itemsAskedInStock.add(inStockOnly);
+    return stockItems;
+  }
 
   @override
   Future<List<dynamic>> getActivePaymentMethods({String? invoiceType}) async {

@@ -576,9 +576,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
     _availableItems = widget.items
         .map((item) => Map<String, dynamic>.from(item))
         .toList();
-    if (_availableItems.isEmpty) {
-      _loadAvailableItems();
-    }
+    // Always asked of the server: what it holds in the stock now -- a piece
+    // sold since the list was handed is not offered (the owner, 18 Nov 2026).
+    _loadAvailableItems();
     _loadInvoiceUiSettingsFromPrefs();
     _loadSettings();
     // The price strip, live; the lines keep the price they were added at (PRICE-LIVE-1).
@@ -864,7 +864,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
 
       if (mounted) {
         setState(() {
-          _availableItems = normalized;
+          _availableItems = _inStock(_availableItems, normalized);
           _markPieces();
         });
       }
@@ -2126,6 +2126,21 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
   }
 
   // ==================== Item Actions ====================
+  /// What may be sold: the server's in-stock list; of the list handed, the
+  /// catalogue's items stay, and a piece the server does not hold now goes.
+  static List<Map<String, dynamic>> _inStock(
+    List<Map<String, dynamic>> handed,
+    List<Map<String, dynamic>> held,
+  ) {
+    final heldIds = {for (final i in held) i['id']};
+    return [
+      for (final i in handed)
+        if (i['is_piece'] != true || heldIds.contains(i['id'])) i,
+      for (final i in held)
+        if (!handed.any((h) => h['id'] == i['id'])) i,
+    ];
+  }
+
   /// The lines that are coded pieces, as the items' list says: their weight
   /// and wage locked -- a line read back from an invoice being edited too.
   void _markPieces() {

@@ -36,3 +36,23 @@ def test_the_items_list_sends_a_piece_its_invoices_wage_per_gram(auth_headers, w
     _complete(auth_headers, world, invoice, line, 15.0)
     after = _listed(auth_headers, piece.id)
     assert (after['wage_known'], after['wage'], after['manufacturing_wage_per_gram']) == (True, 15.0, 15.0)
+
+
+def test_a_piece_out_of_the_stock_is_not_offered_for_sale(auth_headers, world, roles, showroom, bangles_by_the_piece):
+    """The owner, 18 Nov 2026: a sold piece was offered by the sales screen and
+    refused only at the save. Asked for what is in the stock, the list leaves
+    it out; asked for everything, it is there."""
+    from app import app as flask_app
+    from tests.test_pieces_list import _out
+    invoice, line = _received(auth_headers, world, 30.0)
+    bangles_by_the_piece(line)
+    kept = register_piece(line, weight=10.0, by='t', now=NOW)
+    sold = register_piece(line, weight=8.0, by='t', now=NOW)
+    _out(sold, showroom, invoice, invoice_type='بيع', when=NOW)
+
+    def ids(query=''):
+        g.pop('current_user', None)
+        return {r['id'] for r in flask_app.test_client().get(f'/api/items{query}', headers=auth_headers).get_json()}
+    offered = ids('?in_stock_only=true')
+    assert kept.id in offered and sold.id not in offered
+    assert {kept.id, sold.id} <= ids(), 'asked for everything, the sold one is listed'

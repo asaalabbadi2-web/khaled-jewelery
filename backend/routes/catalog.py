@@ -99,6 +99,14 @@ def get_items():
             return jsonify({'error': 'exclude_category_id غير صالح'}), 400
 
     items = query.all()
+    # ?in_stock_only=true -- the sales screen's: a piece out of the stock (sold,
+    # returned to its supplier) is not offered, its allocations the reading
+    # (the owner, 18 Nov 2026). A catalogue item's count is typed by hand: it
+    # is offered as before.
+    if (request.args.get('in_stock_only') or '').strip().lower() in ('1', 'true', 'yes'):
+        from services.pieces import is_piece, stock_pieces
+        held = {p.id for p, _ in stock_pieces()}
+        items = [i for i in items if not is_piece(i) or i.id in held]
     # A piece's wage is its source's, never kept on it (ADR-087 §6): sent here
     # per gram, as the sale line reads a wage, with whether it is known yet.
     from services.pieces import is_piece, wages_per_gram

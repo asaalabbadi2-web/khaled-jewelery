@@ -301,7 +301,8 @@ void main() {
     testWidgets('a coded piece takes its invoice\'s wage, locked, over the category\'s', (tester) async {
       await open(
         tester,
-        api: FakeSalesApi(categories: const [{'id': 1, 'name': 'بنجرة ذهب 21', 'karat': 21, 'default_wage': 30}]),
+        api: FakeSalesApi(categories: const [{'id': 1, 'name': 'بنجرة ذهب 21', 'karat': 21, 'default_wage': 30}])
+          ..stockItems = [coded],
         items: [coded],
       );
       await scan(tester, 'KJ-000005');
@@ -312,15 +313,26 @@ void main() {
     });
 
     testWidgets('a piece line offers no weight nor wage to change', (tester) async {
-      await open(tester, api: FakeSalesApi(), items: [coded]);
+      await open(tester, api: FakeSalesApi()..stockItems = [coded], items: [coded]);
       await scan(tester, 'KJ-000005');
       expect(find.byKey(const Key('sale-weight-locked-0')), findsOneWidget);
       expect(find.widgetWithText(InlineNumberCell, '15.000'), findsNothing);
       expect(find.byIcon(Icons.lock), findsNWidgets(2), reason: 'its weight and its wage');
     });
 
+    testWidgets('a piece sold since the list was handed is not offered', (tester) async {
+      final api = FakeSalesApi()..stockItems = const [];
+      await open(tester, api: api, items: [coded, piece]);
+      expect(api.itemsAskedInStock, contains(true), reason: 'asked of the server, in stock only');
+      await scan(tester, 'KJ-000005');
+      expect(find.text('لم تتم إضافة أصناف بعد'), findsOneWidget);
+      await scan(tester, 'YAS000005');
+      expect(find.text('1 صنف'), findsWidgets, reason: 'a catalogue item stays as it was offered');
+    });
+
     testWidgets('a piece whose invoice is not completed is not added, and says why', (tester) async {
-      await open(tester, api: FakeSalesApi(), items: [{...coded, 'wage': null, 'wage_known': false}]);
+      final waiting = {...coded, 'wage': null, 'wage_known': false};
+      await open(tester, api: FakeSalesApi()..stockItems = [waiting], items: [waiting]);
       await scan(tester, 'KJ-000005');
       expect(find.text('لم تتم إضافة أصناف بعد'), findsOneWidget);
       expect(find.textContaining('لم تُستكمل فاتورة استلامها'), findsOneWidget);
