@@ -179,6 +179,18 @@ def returned_of_lines(original, *, but=None) -> dict:
     return out
 
 
+def _coded_from(item_id, line_id: int) -> bool:
+    """Whether *item_id* names a piece coded from the receipt line *line_id*."""
+    if not item_id:
+        return False
+    from models import Item, db
+    try:
+        piece = db.session.get(Item, int(item_id))
+    except (TypeError, ValueError):
+        return False
+    return piece is not None and piece.receipt_item_id == int(line_id)
+
+
 def refuse_return_lines(original, invoice_type: str, items: list) -> None:
     """A return of *original* sending *items*, or ReturnRefused: a customer's
     return needs a posted original; each line names a line of it; and of each
@@ -215,7 +227,10 @@ def refuse_return_lines(original, invoice_type: str, items: list) -> None:
             raise ReturnRefused('return_line_empty',
                                 f'السطر {n} بلا وزن ولا قيمة: يُحذف من المرتجع', line_index=n)
         grams, pieces = asked.get(line_id, (0.0, 0))
-        asked[line_id] = (grams + weight, pieces + abs(int(_f(item.get('quantity', 1)) or 1)))
+        # A piece coded from the line is counted by its pieces' law (supplier_return_pieces:
+        # whole, once) -- not by the line's count, a received line's 1 for its 200 g.
+        coded = _coded_from(item.get('item_id'), line_id)
+        asked[line_id] = (grams + weight, pieces + (0 if coded else abs(int(_f(item.get('quantity', 1)) or 1))))
     piece_weights = keeps_a_piece_s_weight(original)
     # A customer's return gives gold back: money back with none is a correction
     # -- «تصحيح فاتورة» (3399, 3442; the owner, 11 Nov 2026: «يرفض»). Where the
@@ -295,6 +310,73 @@ def sale_return_lines(original, invoice_type: str, items: list) -> None:
                                 line=line.name, original_invoice_item_id=line.id, item_code=piece.item_code,
                                 piece_grams=round(sold, 3), requested_grams=round(_f(item.get('weight')), 3))
 
+
+
+# ── A coded line goes back to its supplier by its pieces (18 Nov 2026) ─────
+#
+# Probed on a copy of the 17 Nov production, a receipt line of 200 g coded
+# into ten pieces: a return of 44 g sent as the purchase screen sends it (the
+# line, no piece) took the grams out of the category under no piece -- nine
+# pieces held 187 g, the category 143 g; a sold piece named was returned too,
+# leaving the books −13 g of it. A supplier's return of a coded line names
+# its pieces; what it returns under no piece is the line's rest.
+
+
+def supplier_return_pieces(original, items: list, *, stock_account_id) -> None:
+    """A supplier's return's lines against the pieces of the lines they return,
+    or ReturnRefused: a piece named is of that line, in the stock, whole, named
+    once, and held where the return takes its gold from (*stock_account_id*,
+    None when it is not known); a coded line's grams under no piece no more
+    than its rest (services/pieces.line_rest)."""
+    from models import Item, SafeBox, db
+    from services.pieces import line_rest, piece_held, piece_location, pieces_weight
+    originals = {l.id: l for l in (original.items or [])}
+    named, loose = set(), {}
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            line = originals.get(int(item.get('original_invoice_item_id')))
+        except (TypeError, ValueError):
+            line = None
+        if line is None:
+            continue                       # refuse_return_lines says it
+        grams = _f(item.get('weight'))
+        if item.get('item_id'):
+            piece = db.session.get(Item, int(item['item_id']))
+            code = getattr(piece, 'item_code', item['item_id'])
+            if piece is None or piece.receipt_item_id != line.id:
+                raise ReturnRefused('piece_not_of_line', f'القطعة {code} ليست من سطر «{line.name}» في هذه الفاتورة',
+                                    line=line.name, original_invoice_item_id=line.id, item_id=item['item_id'])
+            if piece.id in named:
+                raise ReturnRefused('piece_repeated', f'القطعة {code} مذكورة مرتين في المرتجع', item_code=code)
+            named.add(piece.id)
+            if piece_held(piece.id) <= GRAM:
+                raise ReturnRefused('piece_not_in_stock', f'القطعة {code} ليست في المخزون: لا تُرجَع للمورد',
+                                    item_code=code)
+            if abs(grams - _f(piece.weight)) > GRAM:
+                raise ReturnRefused('piece_returned_whole',
+                                    f'القطعة {code} تُرجَع كاملة ({_f(piece.weight):.3f} جم) أو لا تُرجَع',
+                                    item_code=code, piece_grams=round(_f(piece.weight), 3),
+                                    requested_grams=round(grams, 3))
+            where = piece_location(piece)
+            if stock_account_id is not None and (where is None or where.account_id != stock_account_id):
+                home = SafeBox.query.filter_by(account_id=stock_account_id).first()
+                raise ReturnRefused('piece_not_where_returned',
+                                    f'القطعة {code} في «{getattr(where, "name", "غير معروف")}»، والمرتجع يُخرج '
+                                    f'من «{getattr(home, "name", "المخزون")}»: تُنقل إليه أولًا',
+                                    item_code=code, safe_box_name=getattr(where, 'name', None))
+        elif pieces_weight(line) > GRAM:
+            loose[line.id] = loose.get(line.id, 0.0) + grams
+    for line_id, grams in loose.items():
+        line = originals[line_id]
+        rest = max(line_rest(line), 0.0)
+        if grams > rest + GRAM:
+            raise ReturnRefused('coded_line_returned_by_pieces',
+                                f'«{line.name}» رُمّز قطعًا: الباقي منه بلا ترميز {rest:.3f} جم، والمطلوب '
+                                f'{grams:.3f} جم — اختر القطع المرتجعة',
+                                line=line.name, original_invoice_item_id=line.id, rest_grams=round(rest, 3),
+                                requested_grams=round(grams, 3))
 
 # ── What a line comes back for (the owner, 11 Nov 2026) ─────────────────────
 #

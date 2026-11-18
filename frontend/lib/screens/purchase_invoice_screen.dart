@@ -3460,7 +3460,12 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
           .whereType<Map<String, dynamic>>()
           .toList();
 
-      final mapped = _mapOriginalInvoiceItemsToReturnInlineItems(items);
+      final coded = ((await _api.getInvoiceCodedLines(invoiceId))['lines'] as Map?) ?? const {};
+      if (!mounted) return;
+      final mapped = _mapOriginalInvoiceItemsToReturnInlineItems(
+        items,
+        coded: {for (final e in coded.entries) '${e.key}': Map<String, dynamic>.from(e.value as Map)},
+      );
 
       setState(() {
         _selectedOriginalInvoice = merged;
@@ -3495,8 +3500,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
   }
 
   List<PurchaseInlineItem> _mapOriginalInvoiceItemsToReturnInlineItems(
-    List<Map<String, dynamic>> items,
-  ) {
+    List<Map<String, dynamic>> items, {
+    Map<String, Map<String, dynamic>> coded = const {},
+  }) {
     final result = <PurchaseInlineItem>[];
 
     for (final item in items) {
@@ -3534,6 +3540,36 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
       final hasStones = item['has_stones'] == true;
       final stonesWeight = _toDouble(item['stones_weight']);
       final stonesValue = _toDouble(item['stones_value']);
+
+      // A coded line goes back by its pieces in the stock, each whole, and its
+      // rest under no piece (the owner, 18 Nov 2026; the server's law).
+      final pieces = coded['$origItemId'];
+      if (pieces != null) {
+        final line = PurchaseInlineItem(
+          name: name,
+          karat: karat <= 0 ? context.read<SettingsProvider>().mainKarat.toDouble() : karat,
+          weightGrams: 0,
+          wagePerGram: wagePerGram,
+          category: categoryName,
+          categoryId: categoryId,
+          entryType: PurchaseInlineEntryType.item,
+          originalInvoiceItemId: origItemId,
+        );
+        for (final p in (pieces['pieces'] as List? ?? const []).whereType<Map>()) {
+          final grams = _toDouble(p['weight']);
+          result.add(PurchaseInlineItem(
+            name: line.name, karat: line.karat, weightGrams: grams, wagePerGram: wagePerGram,
+            category: categoryName, categoryId: categoryId, entryType: PurchaseInlineEntryType.item,
+            originalInvoiceItemId: origItemId, maxWeightGrams: grams,
+            itemCode: p['item_code']?.toString(), pieceId: _parseId(p['id']),
+          ));
+        }
+        final rest = _toDouble(pieces['rest']);
+        if (rest > 0.0005) {
+          result.add(line.copyWith(weightGrams: rest, maxWeightGrams: rest));
+        }
+        continue;
+      }
 
       for (int i = 0; i < quantity; i++) {
         result.add(
@@ -4636,14 +4672,16 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
         Text('نوع: تصنيف فقط', style: Theme.of(context).textTheme.bodySmall),
       if (item.category?.isNotEmpty ?? false)
         Text('تصنيف: ${item.category}', style: Theme.of(context).textTheme.bodySmall),
-      if (item.entryType == PurchaseInlineEntryType.item && (item.itemCode?.isNotEmpty ?? false))
+      if (item.pieceId != null)
+        Text('القطعة ${item.itemCode ?? ''} تُرجَع كاملة', style: Theme.of(context).textTheme.bodySmall)
+      else if (item.entryType == PurchaseInlineEntryType.item && (item.itemCode?.isNotEmpty ?? false))
         Text('كود: ${item.itemCode}', style: Theme.of(context).textTheme.bodySmall),
       if (item.entryType == PurchaseInlineEntryType.item && (item.barcode?.isNotEmpty ?? false))
         Text('باركود: ${item.barcode}', style: Theme.of(context).textTheme.bodySmall),
     ],
   );
 
-  Widget _lineWeightCell(PurchaseInlineItem item, int index) => _isCompletion
+  Widget _lineWeightCell(PurchaseInlineItem item, int index) => (_isCompletion || item.pieceId != null)
       // the weight received, read: a difference is the receipt's correction
       ? Text(
           formatAmount(item.weightGrams, decimals: 3),
@@ -4686,11 +4724,13 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
       // A receipt's lines are not edited nor removed while its invoice is
       // completed: a difference is the receipt's correction.
       if (!_isCompletion) ...[
-        IconButton(
-          icon: const Icon(Icons.tune),
-          tooltip: 'تفاصيل',
-          onPressed: () => _editInlineItem(index),
-        ),
+        // a piece goes back whole: removed when it stays, never edited
+        if (_inlineItems[index].pieceId == null)
+          IconButton(
+            icon: const Icon(Icons.tune),
+            tooltip: 'تفاصيل',
+            onPressed: () => _editInlineItem(index),
+          ),
         IconButton(
           icon: Icon(Icons.delete, color: _cs.error),
           tooltip: 'حذف',
@@ -6256,6 +6296,11 @@ class PurchaseInlineItem {
   final int? categoryId;
   final PurchaseInlineEntryType entryType;
 
+  /// A supplier's return of a coded receipt line goes back by its pieces
+  /// (the owner, 18 Nov 2026): the piece this line returns, whole -- its
+  /// weight not typed, the line not edited, removed when it stays.
+  final int? pieceId;
+
   const PurchaseInlineItem({
     required this.name,
     required this.karat,
@@ -6273,6 +6318,7 @@ class PurchaseInlineItem {
     this.category,
     this.categoryId,
     this.entryType = PurchaseInlineEntryType.item,
+    this.pieceId,
   });
 
   PurchaseInlineItem copyWith({
@@ -6311,6 +6357,7 @@ class PurchaseInlineItem {
       category: category ?? this.category,
       categoryId: categoryId ?? this.categoryId,
       entryType: entryType ?? this.entryType,
+      pieceId: pieceId,
     );
   }
 
@@ -6330,6 +6377,7 @@ class PurchaseInlineItem {
       if (originalInvoiceItemId != null)
         'original_invoice_item_id': originalInvoiceItemId,
       if (originalInvoiceItemId != null) 'quantity': 1,
+      if (pieceId != null) 'item_id': pieceId,
       'manufacturing_wage_per_gram': wagePerGram,
       'wage_per_gram': wagePerGram,
       'wage_total': weightGrams * wagePerGram,

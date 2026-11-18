@@ -1704,6 +1704,19 @@ class ApiService {
     }
   }
 
+  /// A receipt's lines coded into pieces: each line's pieces in the stock and
+  /// its rest -- what its supplier's return takes back by piece (the owner,
+  /// 18 Nov 2026): by line id, its rest in grams and its pieces.
+  Future<Map<String, dynamic>> getInvoiceCodedLines(int invoiceId) async {
+    final response = await _authedGet(
+      Uri.parse('$_baseUrl/pieces/invoices/$invoiceId/coded-lines'),
+    );
+    if (response.statusCode == 200) {
+      return json.decode(utf8.decode(response.bodyBytes));
+    }
+    throw _apiError(response);
+  }
+
   /// Get invoice details by ID (includes items and payments)
   Future<Map<String, dynamic>> getInvoiceById(int invoiceId) async {
     final response = await _authedGet(

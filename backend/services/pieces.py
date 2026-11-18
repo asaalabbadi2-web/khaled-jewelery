@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import re
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from models import (Category, Invoice, InvoiceItem, Item, JournalEntry, JournalEntryLine, PIECE_NUMBER,
                     PieceTag, SafeBox, StockCoding, StockLineAllocation, db)
@@ -48,6 +48,24 @@ def pieces_weight(source) -> float:
     """The grams of the pieces registered under a receipt line, or a batch."""
     return round(float(db.session.query(func.coalesce(func.sum(Item.weight), 0.0))
                        .filter(_source_filter(source)).scalar() or 0.0), 3)
+
+
+def returned_loose(line) -> float:
+    """The grams of a receipt line its supplier returns took back under no
+    piece -- every return not rejected (the owner, 18 Nov 2026)."""
+    return round(float(db.session.query(func.coalesce(func.sum(InvoiceItem.weight), 0.0))
+                       .join(Invoice, Invoice.id == InvoiceItem.invoice_id)
+                       .filter(InvoiceItem.original_invoice_item_id == line.id, InvoiceItem.item_id.is_(None),
+                               Invoice.invoice_type == 'مرتجع شراء (مورد)',
+                               or_(Invoice.status.is_(None), Invoice.status != 'rejected'))
+                       .scalar() or 0.0), 3)
+
+
+def line_rest(line) -> float:
+    """What of a receipt line is neither a piece nor returned to its supplier
+    loose: what may still be coded, or returned under no piece -- one reading
+    for both, so gold returned is not coded and a piece's gold not returned."""
+    return round(float(line.weight or 0.0) - pieces_weight(line) - returned_loose(line), 3)
 
 
 def _receipt_stock_allocations(line: InvoiceItem, karat: int):
@@ -149,7 +167,7 @@ def register_piece(source, *, weight, stones_weight=0.0, model_id=None, size_id=
         raise PieceRefused('piece_weight_invalid', 'وزن القطعة غير مفهوم') from None
     if weight <= GRAM or stones < 0 or stones >= weight:
         raise PieceRefused('piece_weight_invalid', 'وزن القطعة أكبر من صفر، وفصوصها أقل منه')
-    rest = round(float(source.weight or 0.0) - pieces_weight(source), 3)
+    rest = (round(float(source.weight or 0.0) - pieces_weight(source), 3) if batch else line_rest(source))
     if weight > rest + GRAM:
         raise PieceRefused('piece_heavier_than_rest',
                            f'القطعة ({weight:.2f} جم) أثقل من باقي {"الدفعة" if batch else "السطر"} ({rest:.2f} جم)')
@@ -510,7 +528,8 @@ def line_view(line: InvoiceItem) -> dict:
             'karat': int(round(float(line.karat or 0))), 'weight': round(float(line.weight or 0.0), 3),
             'size_system_id': getattr(category, 'size_system_id', None),
             'wage_per_gram': source_wage_per_gram(line),
-            'pieces': len(pieces), 'pieces_weight': coded, 'rest': round(float(line.weight or 0.0) - coded, 3)}
+            'pieces': len(pieces), 'pieces_weight': coded, 'returned_loose': returned_loose(line),
+            'rest': line_rest(line)}
 
 
 def piece_view(piece: Item) -> dict:
@@ -528,6 +547,20 @@ def piece_view(piece: Item) -> dict:
             'wage': wage, 'wage_known': wage is not None, 'in_stock': piece_held(piece.id) > GRAM,
             'created_at': piece.created_at.isoformat() if piece.created_at else None,
             'created_by': piece.created_by, 'tag': tag.value if tag is not None else None}
+
+
+def coded_lines(invoice_id: int) -> dict:
+    """{line id: its rest and its pieces in the stock} for a receipt's lines
+    coded into pieces -- what its supplier's return may take back, by piece
+    or as the rest (the owner, 18 Nov 2026). A line not coded is not here."""
+    out = {}
+    for line in InvoiceItem.query.filter_by(invoice_id=int(invoice_id)).order_by(InvoiceItem.id):
+        pieces = line_pieces(line)
+        if not pieces:
+            continue
+        out[line.id] = {'rest': max(line_rest(line), 0.0),
+                        'pieces': [v for v in (piece_view(p) for p in pieces) if v['in_stock']]}
+    return out
 
 
 def pending_lines() -> list[dict]:

@@ -37,7 +37,7 @@ from sqlalchemy.exc import IntegrityError
 
 from auth_decorators import require_permission
 from models import Category, InvoiceItem, Item, SafeBox, StockCoding, db
-from services.pieces import (PieceRefused, coding_view, free_grams, line_pieces, line_view, open_coding,
+from services.pieces import (PieceRefused, coded_lines, coding_view, free_grams, line_pieces, line_view, open_coding,
                              pending_lines, piece_source, piece_view, register_piece, reserved_grams)
 
 pieces_bp = Blueprint('pieces', __name__)
@@ -60,6 +60,14 @@ def station_line(line_id: int):
     if line is None:
         return jsonify({'error': 'not_found', 'message': 'سطر الاستلام غير موجود'}), 404
     return jsonify({'line': line_view(line), 'pieces': [piece_view(p) for p in line_pieces(line)]}), 200
+
+
+@pieces_bp.route('/pieces/invoices/<int:invoice_id>/coded-lines', methods=['GET'])
+@require_permission('invoices.view')
+def invoice_coded_lines(invoice_id: int):
+    """A receipt's lines coded into pieces: what its supplier's return takes
+    back by piece, and the rest (services/return_lines.supplier_return_pieces)."""
+    return jsonify({'lines': {str(k): v for k, v in coded_lines(invoice_id).items()}}), 200
 
 
 @pieces_bp.route('/pieces/codings/<int:coding_id>', methods=['GET'])

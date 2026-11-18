@@ -28,6 +28,12 @@ class FakePurchaseApi extends ApiService {
   Map<String, dynamic> saveAnswer = const {};
   Completer<void>? hold;
 
+  /// A receipt's lines coded into pieces, as the server sends them; none by default.
+  Map<String, dynamic> codedLines = const {};
+
+  @override
+  Future<Map<String, dynamic>> getInvoiceCodedLines(int invoiceId) async => {'lines': codedLines};
+
   @override
   Future<List<Map<String, dynamic>>> getBranches({
     bool activeOnly = false,

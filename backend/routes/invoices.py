@@ -3376,6 +3376,18 @@ def _saved_under_key(request_key):
     return Invoice.query.filter_by(request_key=request_key).first() if request_key else None
 
 
+def _supplier_return_stock_account_id(gold_type) -> int:
+    """The weight account a supplier's return takes its gold from: the gold
+    inventory's twin, else the sold gold's weight account, else the inventory
+    itself -- the posting's one reading, and the pieces' law's (a piece is
+    returned from where it is held). AccountNotMapped when no inventory is."""
+    inventory_acc_id = _resolve_inventory_account_id_for_invoice('شراء', gold_type)
+    inventory = Account.query.get(inventory_acc_id)
+    return ((inventory.memo_account_id if inventory is not None else None)
+            or get_account_id_for_mapping('افتراضي', 'gold_cost_of_sales_weight')
+            or inventory_acc_id)
+
+
 @invoices_bp.route('/invoices', methods=['POST'])
 @require_permission('invoices.create')
 def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_invoice_type_id=None,
@@ -3887,6 +3899,21 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             pass
     if gold_type not in ['new', 'scrap']:
         return jsonify({'error': 'gold_type must be either "new" or "scrap"'}), 400
+
+    # A supplier's return of a coded receipt line is by its pieces (the owner,
+    # 18 Nov 2026): each a piece of that line, in the stock, whole, where the
+    # return takes its gold from; the rest no more than is not coded.
+    if invoice_type == 'مرتجع شراء (مورد)' and original_invoice is not None:
+        from services import return_lines as _return_lines
+        try:
+            _stock_account_id = _supplier_return_stock_account_id(gold_type)
+        except AccountNotMapped:
+            _stock_account_id = None          # the posting refuses it, said there
+        try:
+            _return_lines.supplier_return_pieces(original_invoice, data.get('items') or [],
+                                                 stock_account_id=_stock_account_id)
+        except _return_lines.ReturnRefused as refused:
+            return jsonify({'error': refused.code, 'message': refused.message, **refused.detail}), 400
 
     # A supplier's purchase line is a category of its karat, never an item
     # (the owner, 8 Nov 2026): a piece is registered on receiving.
@@ -8272,18 +8299,8 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             # حساب مذكرة المورد الوزني
             supplier_weight_acc_id = memo_party_account.id if memo_party_account else acc_id
 
-            # حساب مذكرة المخزون الوزني
-            weight_inventory_acc_id = None
-            try:
-                inv_acc_obj = Account.query.get(inventory_acc_id)
-                if inv_acc_obj and inv_acc_obj.memo_account_id:
-                    weight_inventory_acc_id = inv_acc_obj.memo_account_id
-            except Exception:
-                weight_inventory_acc_id = None
-            if not weight_inventory_acc_id:
-                weight_inventory_acc_id = get_account_id_for_mapping('افتراضي', 'gold_cost_of_sales_weight')
-            if not weight_inventory_acc_id:
-                weight_inventory_acc_id = inventory_acc_id  # last resort fallback
+            # حساب مذكرة المخزون الوزني -- the one reading, which the pieces' law reads too
+            weight_inventory_acc_id = _supplier_return_stock_account_id(gold_type)
 
             has_gold_weight = any(float(v or 0) > 0 for v in gold_by_karat.values())
 

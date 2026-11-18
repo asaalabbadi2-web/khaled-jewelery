@@ -104,4 +104,50 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('920.81', findRichText: true), findsWidgets, reason: '72.22 g × 12.75');
   });
+
+  // «القطعة ترجع كاملة» -- a coded line goes back to its supplier by its
+  // pieces in the stock, each whole, and its rest (the owner, 18 Nov 2026).
+  testWidgets('a coded line goes back by its pieces, each whole, and its rest', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    tester.view.physicalSize = const Size(1440, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final api = _OriginalApi()
+      ..codedLines = {
+        '4922': {
+          'rest': 2.22,
+          'pieces': [
+            {'id': 40, 'item_code': 'KJ-000004', 'weight': 44.0},
+            {'id': 41, 'item_code': 'KJ-000005', 'weight': 26.0},
+          ],
+        },
+      };
+    await tester.pumpWidget(MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider(create: (_) => SettingsProvider()),
+      ],
+      child: MaterialApp(
+        theme: LightTheme.theme,
+        home: Directionality(
+          textDirection: TextDirection.rtl,
+          child: PurchaseInvoiceScreen(apiService: api, supplierReturnMode: true, originalInvoiceId: 3470),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('القطعة KJ-000004 تُرجَع كاملة'), findsOneWidget);
+    expect(find.text('القطعة KJ-000005 تُرجَع كاملة'), findsOneWidget);
+    expect(find.byTooltip('تفاصيل'), findsOneWidget, reason: 'only the rest is edited; a piece is removed or kept');
+    expect(tester.widget(find.byKey(const ValueKey('weight-0'))), isA<Text>(), reason: 'a piece\'s weight is read, not typed');
+    expect(tester.widget(find.byKey(const ValueKey('weight-2'))), isNot(isA<Text>()), reason: 'the rest is typed');
+    await tester.tap(find.text('حفظ المرتجع', findRichText: true).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('حفظ الفاتورة').last);   // the review's
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    final lines = [for (final i in (api.added.single['items'] as List)) (i['item_id'], i['weight'])];
+    expect(lines, [(40, 44.0), (41, 26.0), (null, 2.22)]);
+  });
 }
