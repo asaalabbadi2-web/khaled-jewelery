@@ -536,5 +536,30 @@ void main() {
       expect(find.text('اختر الأصناف المرتجعة'), findsOneWidget);
       expect(find.textContaining('يبقى منه 1.000 جم'), findsOneWidget);
     });
+
+    // «القطعة ترجع كاملة وأجرتها من بيعها» (the owner, 18 Nov 2026): the line
+    // names its piece, which comes back whole -- its weight is not typed.
+    testWidgets('a piece comes back whole, named', (tester) async {
+      final api = await open(tester, api: FakeSalesApi(invoices: {10: original}, returnLines: {
+        10: {
+          'invoice_id': 10, 'returned_before': false, 'refundable': 1000.0,
+          'lines': [
+            {'id': 100, 'name': 'بنجرة', 'karat': 21, 'sold_grams': 13.0, 'remaining_grams': 13.0,
+             'sold_pieces': 1, 'remaining_pieces': 1, 'sold_amount': 1000.0, 'remaining_amount': 1000.0,
+             'item_id': 43, 'item_code': 'KJ-000007', 'is_piece': true},
+          ],
+        },
+      }));
+      await tester.tap(find.text('إرجاع جزء فقط'));
+      await tester.pumpAndSettle();
+      expect(find.text('القطعة KJ-000007 تُرجَع كاملة'), findsOneWidget);
+      final weight = find.descendant(of: find.byKey(const ValueKey('weight-100-0')), matching: find.byType(EditableText));
+      expect(tester.widget<EditableText>(weight).readOnly, isTrue);
+      await tester.enterText(find.byKey(const ValueKey('amount-100-0')), '1000');
+      await tester.pumpAndSettle();
+      await toReview(tester);
+      final line = ((await save(tester, api))['items'] as List).single as Map;
+      expect((line['item_id'], line['weight']), (43, 13.0));
+    });
   });
 }

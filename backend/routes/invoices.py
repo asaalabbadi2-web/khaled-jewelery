@@ -3857,6 +3857,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
         if original_invoice is not None:
             from services import return_lines as _return_lines
             try:
+                _return_lines.sale_return_lines(original_invoice, invoice_type, data.get('items') or [])
                 _return_lines.refuse_return_lines(original_invoice, invoice_type, data.get('items') or [])
                 _return_lines.refuse_return_amounts(
                     original_invoice, invoice_type, data.get('items') or [], data.get('total'),

@@ -89,6 +89,12 @@ class ReturnItemRow {
   final double soldTotal;
   final double originalWage;
 
+  /// A piece comes back whole, its sale's wage -- the server's law (the
+  /// owner, 18 Nov 2026: «القطعة ترجع كاملة وأجرتها من بيعها»): its weight is
+  /// not typed.
+  final bool isPiece;
+  final String? itemCode;
+
   bool isSelected;
   double weight;
   int quantity;
@@ -107,6 +113,8 @@ class ReturnItemRow {
     required this.originalTotal,
     double? soldTotal,
     this.originalWage = 0,
+    this.isPiece = false,
+    this.itemCode,
     this.isSelected = true,
   }) : soldTotal = soldTotal ?? originalTotal,
        weight = originalWeight,
@@ -123,6 +131,7 @@ class ReturnItemRow {
       : originalTotal;
 
   void updateWeight(double newWeight) {
+    if (isPiece) return;
     weight = newWeight.clamp(0, originalWeight);
   }
 
@@ -369,6 +378,9 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
   /// (GET /invoices/{id}/return-lines) -- the reading its save is held by.
   ReturnItemRow _rowFromReturnLine(Map<String, dynamic> line) => ReturnItemRow(
     originalItemId: _parseOptionalInt(line['id']),
+    itemId: _parseOptionalInt(line['item_id']),
+    isPiece: line['is_piece'] == true,
+    itemCode: line['item_code'] as String?,
     itemName: (line['name'] as String?)?.trim().isNotEmpty == true ? line['name'] : 'صنف بدون اسم',
     karat: _parseDouble(line['karat'], 21),
     originalWeight: _parseDouble(line['remaining_grams']),
@@ -1731,10 +1743,12 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                                 'weight-${item.originalItemId}-$index',
                               ),
                               initialValue: item.weight.toStringAsFixed(3),
+                              readOnly: item.isPiece,
                               decoration: InputDecoration(
                                 labelText: 'الوزن المرتجع (جم)',
-                                helperText:
-                                    'الأقصى ${item.originalWeight.toStringAsFixed(3)} جم',
+                                helperText: item.isPiece
+                                    ? 'القطعة ${item.itemCode ?? ''} تُرجَع كاملة'
+                                    : 'الأقصى ${item.originalWeight.toStringAsFixed(3)} جم',
                                 border: const OutlineInputBorder(),
                               ),
                               keyboardType:

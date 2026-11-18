@@ -83,6 +83,7 @@ PERIOD_EXPENSE_MONTH_MISSING = 'PERIOD_EXPENSE_MONTH_MISSING'
 CASH_SAFE_HOLDS_GOLD = 'CASH_SAFE_HOLDS_GOLD'
 GROUP_ACCOUNT_POSTED = 'GROUP_ACCOUNT_POSTED'
 ATTACHMENT_LEFT_PENDING = 'ATTACHMENT_LEFT_PENDING'
+PIECES_BEYOND_CATEGORY = 'PIECES_BEYOND_CATEGORY'
 
 KINDS = (
     ORPHAN_POSTED_ENTRY,
@@ -108,6 +109,7 @@ KINDS = (
     CASH_SAFE_HOLDS_GOLD,
     GROUP_ACCOUNT_POSTED,
     ATTACHMENT_LEFT_PENDING,
+    PIECES_BEYOND_CATEGORY,
 )
 
 # An invoice in one of these states is retracted: its entries must not count
@@ -834,6 +836,42 @@ def check_attachments_left_pending() -> list:
             .order_by(Attachment.id).all()]
 
 
+def check_pieces_beyond_category() -> list:
+    """A category tracked by the piece holds less on a stock safe than its
+    pieces there (the owner, 18 Nov 2026): its grams under no piece below zero.
+    Each piece's grams carry its number, so what carries none is the category's
+    rest; it went below zero when gold left without its pieces -- a supplier's
+    return of a coded receipt line (44 g of 5467 on the 17 Nov copy: nine
+    pieces held 187 g, the category 143 g). Keyed
+    'safe_box:<id>:<k>k:category:<id>', the metric the grams below zero."""
+    from accounting.balances import counted_line_filters
+    from models import Category, JournalEntry, JournalEntryLine, StockLineAllocation
+    from services.stock_ledger import TOLERANCE
+    piece_categories = {c.id: c.name for c in Category.query.filter(Category.tracking == 'piece')}
+    if not piece_categories:
+        return []
+    safes = {b.account_id: b for b in SafeBox.query.filter(SafeBox.stock_location.isnot(None))}
+    rows = (db.session.query(JournalEntryLine.account_id, StockLineAllocation.karat, StockLineAllocation.category_id,
+                             func.sum(StockLineAllocation.grams))
+            .join(JournalEntryLine, JournalEntryLine.id == StockLineAllocation.journal_entry_line_id)
+            .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+            .filter(StockLineAllocation.item_id.is_(None),
+                    StockLineAllocation.category_id.in_(list(piece_categories)),
+                    JournalEntryLine.account_id.in_(list(safes) or [-1]), *counted_line_filters())
+            .group_by(JournalEntryLine.account_id, StockLineAllocation.karat, StockLineAllocation.category_id).all())
+    facts = []
+    for account_id, karat, category_id, grams in rows:
+        grams = round(float(grams or 0.0), 3)
+        if grams >= -TOLERANCE:
+            continue
+        box = safes[account_id]
+        facts.append(Fact(PIECES_BEYOND_CATEGORY, f'safe_box:{box.id}:{karat}k:category:{category_id}', grams,
+                          {'safe_box_id': box.id, 'safe_box_name': box.name, 'karat': int(karat),
+                           'category_id': int(category_id), 'category_name': piece_categories[category_id],
+                           'grams_under_no_piece': grams}))
+    return facts
+
+
 CHECKS = {
     ORPHAN_POSTED_ENTRY: check_orphan_posted_entries,
     UNPOSTED_ENTRY_IN_LIMBO: check_unposted_entries_in_limbo,
@@ -859,6 +897,7 @@ CHECKS = {
     CASH_SAFE_HOLDS_GOLD: check_cash_safes_hold_no_gold,
     GROUP_ACCOUNT_POSTED: check_group_accounts_posted,
     ATTACHMENT_LEFT_PENDING: check_attachments_left_pending,
+    PIECES_BEYOND_CATEGORY: check_pieces_beyond_category,
 }
 
 

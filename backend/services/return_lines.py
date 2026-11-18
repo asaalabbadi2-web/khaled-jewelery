@@ -255,6 +255,47 @@ def refuse_return_lines(original, invoice_type: str, items: list) -> None:
 
 
 
+# ── A sold line comes back as it was sold (the owner, 18 Nov 2026) ──────────
+#
+# «القطعة ترجع كاملة وأجرتها من بيعها». The return screen built its lines
+# from the lines it may give back, and sent no piece and a wage of 0: a piece
+# sold came back as grams of its category -- the piece still sold, never
+# offered again -- and no return gave back the wages its sale had released
+# to the expense (every customer return from 398706068; 13 and 15 Nov carried
+# them). A sale return's line takes its sale line's piece and wage, whatever
+# the screen sent; a piece comes back whole.
+
+
+def sale_return_lines(original, invoice_type: str, items: list) -> None:
+    """Each line of a sale return takes its original line's piece and wage per
+    gram -- the share of the wage its sale released (wage x weight) in the
+    grams it gives back -- or ReturnRefused: a piece comes back whole."""
+    if invoice_type != 'مرتجع بيع':
+        return
+    from models import Item, db
+    from services.pieces import is_piece
+    piece_weights = keeps_a_piece_s_weight(original)
+    originals = {l.id: l for l in (original.items or [])}
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            line = originals.get(int(item.get('original_invoice_item_id')))
+        except (TypeError, ValueError):
+            line = None
+        if line is None:
+            continue                       # refuse_return_lines says it
+        sold = line_grams(line, piece_weights)
+        item['item_id'] = line.item_id
+        item['wage'] = round(_f(line.wage) * _f(line.weight) / sold, 6) if sold > GRAM else 0.0
+        piece = db.session.get(Item, line.item_id) if line.item_id else None
+        if is_piece(piece) and abs(_f(item.get('weight')) - sold) > GRAM:
+            raise ReturnRefused('piece_returned_whole',
+                                f'القطعة {piece.item_code} تُرجَع كاملة ({sold:.3f} جم) أو لا تُرجَع',
+                                line=line.name, original_invoice_item_id=line.id, item_code=piece.item_code,
+                                piece_grams=round(sold, 3), requested_grams=round(_f(item.get('weight')), 3))
+
+
 # ── What a line comes back for (the owner, 11 Nov 2026) ─────────────────────
 #
 # «الوزن والمبلغ المرتجع يكتب يدويا فلا يحكم مبلغ السطر الاصلي سعر المرتجع»:
@@ -341,8 +382,12 @@ def return_lines_of(original) -> dict:
     piece_weights = keeps_a_piece_s_weight(original)
     values = line_values(original)
     before = returned_of_lines(original)
+    from models import Item, db
+    from services.pieces import is_piece
     lines = []
     for line in original.items or []:
+        piece = db.session.get(Item, line.item_id) if line.item_id else None
+        piece = piece if is_piece(piece) else None
         sold_grams = round(line_grams(line, piece_weights), 3)
         sold_pieces = max(int(line.quantity or 1), 1)
         grams, pieces, amount = before.get(line.id, (0.0, 0, 0.0))
@@ -353,6 +398,8 @@ def return_lines_of(original) -> dict:
             'remaining_grams': round(max(sold_grams - grams, 0.0), 3),
             'remaining_pieces': max(sold_pieces - pieces, 0) if sold_grams <= GRAM else sold_pieces,
             'remaining_amount': round(max(values.get(line.id, 0.0) - amount, 0.0), 2),
+            # a piece comes back whole, its sale's wage (sale_return_lines)
+            'item_id': line.item_id, 'item_code': piece.item_code if piece else None, 'is_piece': piece is not None,
         })
     returns = [r for r in Invoice.query.filter(Invoice.original_invoice_id == original.id,
                                                Invoice.invoice_type.in_(RETURN_TYPES)).all()
