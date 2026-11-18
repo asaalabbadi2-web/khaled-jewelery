@@ -43,8 +43,9 @@ def _account(parent_id, kind='Expense'):
 
 
 def _booked_on_the_group(**group_line):
+    """Booked, then an account put under it -- as on production; a group takes
+    no posting since (parent_account_guard, 18 Nov 2026)."""
     group = _account(role_account_id(EXPENSES_ROOT))
-    salaries = _account(group.id)
     cash = _account(None, 'Asset')
     je = JournalEntry(entry_number=f'JE-EG-{uuid.uuid4().hex[:6]}', date=dt.datetime(2026, 5, 15, 13, 0),
                       description='نقد', entry_type='عادي', is_posted=True, is_draft=False, is_deleted=False,
@@ -54,6 +55,7 @@ def _booked_on_the_group(**group_line):
     db.session.add_all([JournalEntryLine(journal_entry_id=je.id, account_id=group.id, cash_debit=1000.0, **group_line),
                         JournalEntryLine(journal_entry_id=je.id, account_id=cash.id, cash_credit=1000.0)])
     db.session.flush()
+    salaries = _account(group.id)
     return je, group, salaries
 
 

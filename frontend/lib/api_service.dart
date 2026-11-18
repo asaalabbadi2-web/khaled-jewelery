@@ -2531,6 +2531,21 @@ class ApiService {
     throw _apiError(response);
   }
 
+  /// Move a group account's own balance to an account under it, entry by
+  /// entry at their dates (the owner, 18 Nov 2026). The server refuses, saying
+  /// why, what cannot be moved at once.
+  Future<Map<String, dynamic>> moveGroupOwnBalance(int groupId, int toAccountId) async {
+    final response = await _authedPost(
+      Uri.parse('$_baseUrl/accounts/$groupId/move-own-balance'),
+      headers: {'Content-Type': 'application/json; charset=UTF-8'},
+      body: json.encode({'to_account_id': toAccountId}),
+    );
+    if (response.statusCode == 200) {
+      return json.decode(utf8.decode(response.bodyBytes));
+    }
+    throw _apiError(response);
+  }
+
   Future<Map<String, dynamic>> getNextAccountNumber(String parentNumber) async {
     final response = await _authedGet(
       Uri.parse('$_baseUrl/accounts/next-number/$parentNumber'),

@@ -67,12 +67,16 @@ def _child(root, tag, weight=True, kind='Asset'):
 
 
 def _entry(month, day, lines):
+    """The year before the transition, as the old model wrote it -- 2100's
+    riyals among them, a group's own balance on production: written as old rows
+    are, past the guards a writer meets today (parent_account_guard, 18 Nov 2026)."""
     je = JournalEntry(entry_number=f'JE-B-{uuid.uuid4().hex[:8]}', date=datetime(2032, month, day, 10),
                       description='اختبار', entry_type='عادي', is_posted=True, is_draft=False, created_by='t')
     db.session.add(je)
     db.session.flush()
     for account, cols in lines:
-        db.session.add(JournalEntryLine(journal_entry_id=je.id, account_id=account.id, description='اختبار', **cols))
+        db.session.execute(JournalEntryLine.__table__.insert().values(
+            journal_entry_id=je.id, account_id=account.id, description='اختبار', is_deleted=False, **cols))
     db.session.flush()
     return je
 

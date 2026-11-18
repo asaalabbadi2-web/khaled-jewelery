@@ -52,6 +52,7 @@ try:
 	from models import db
 	from pricing.gold_price_service import MainKaratNotSet
 	from period_lock_guard import PeriodClosed, answered_readably as _period_lock_answered_readably
+	from parent_account_guard import GroupAccountPosted, answered_readably as _group_guard_answered_readably
 	from pricing.karat_service import LineKaratMissing
 	from services.gold_cost_postings import GoldCostRefused
 	from routes import api
@@ -317,6 +318,22 @@ def _period_expense_refused(exc):
 	its two accounts not mapped -- saying why."""
 	db.session.rollback()
 	return jsonify({'error': exc.code, 'message': exc.message}), 400
+
+
+@app.errorhandler(GroupAccountPosted)
+def _group_account_posted(exc):
+	"""A posting on an account with accounts under it (the owner, 18 Nov 2026):
+	refused, saying to post on one of them."""
+	db.session.rollback()
+	return jsonify({'error': exc.code, 'message': exc.message}), 400
+
+
+@app.after_request
+def _group_account_posted_readably(response):
+	"""Whatever a route made of a refusal by the group guard (a 500 from a broad
+	except, a rolled-back session), the request answers 400 group_account_posted
+	with the refusal's words (the owner, 18 Nov 2026)."""
+	return _group_guard_answered_readably(response, logger=app.logger)
 
 
 @app.errorhandler(PeriodClosed)

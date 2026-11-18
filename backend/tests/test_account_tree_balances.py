@@ -62,10 +62,12 @@ def test_an_account_type_is_one_of_five_however_it_is_spelled():
 def test_a_parents_balance_is_its_own_and_all_under_it(auth_headers):
     root = _account('جذر اختبار')
     parent = _account('أب له قيوده', parent=root)
+    other = _account('مقابل')
+    # the parent's own, posted before accounts were put under it -- a group
+    # takes no posting since (parent_account_guard, 18 Nov 2026)
+    _post([(parent, {'cash_debit': 100}), (other, {'cash_credit': 100})])
     child = _account('ابن', parent=parent)
     gold = _account('ابن وزني', parent=parent, weight=True)
-    other = _account('مقابل')
-    _post([(parent, {'cash_debit': 100}), (other, {'cash_credit': 100})])          # the parent's own
     _post([(child, {'cash_debit': 50}), (other, {'cash_credit': 50})])
     _post([(gold, {'debit_18k': 7}), (other, {'credit_18k': 7})])                  # 6 g at the main karat
 

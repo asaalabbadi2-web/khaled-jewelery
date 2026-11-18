@@ -7234,6 +7234,10 @@ _period_lock_guard.register(JournalEntry, JournalEntryLine)
 # zero (the owner, 14 Nov 2026; nightly CASH_SAFE_HOLDS_GOLD).
 import cash_safe_gold_guard as _cash_safe_gold_guard  # noqa: E402
 _cash_safe_gold_guard.register(JournalEntryLine)
+# An account with accounts under it takes no posting: no line moves its own
+# balance away from zero (the owner, 18 Nov 2026; nightly GROUP_ACCOUNT_POSTED).
+import parent_account_guard as _parent_account_guard  # noqa: E402
+_parent_account_guard.register(JournalEntryLine)
 db.event.listen(JournalEntryLine.__table__, 'after_create',
                 _DDL(_PERIOD_LOCK_ENTRY_SQL.replace('%', '%%')).execute_if(dialect='postgresql'))
 db.event.listen(PeriodLock.__table__, 'after_create',

@@ -456,6 +456,10 @@ class _AccountsScreenState extends State<AccountsScreen> {
       const PopupMenuItem(value: 'locate', child: Text('إظهار في الشجرة')),
     const PopupMenuDivider(),
     const PopupMenuItem(value: 'add_child', child: Text('إضافة حساب فرعي')),
+    // a group holding a balance of its own -- the server's has_own_balance
+    if (account['has_own_balance'] == true &&
+        _allAccounts.any((a) => a['parent_id'] == account['id']))
+      const PopupMenuItem(value: 'move_own', child: Text('نقل رصيده الخاص إلى فرع')),
     const PopupMenuItem(value: 'edit', child: Text('تعديل')),
     const PopupMenuItem(value: 'delete', child: Text('حذف')),
     PopupMenuItem(
@@ -492,6 +496,8 @@ class _AccountsScreenState extends State<AccountsScreen> {
           editing: account,
         ),
       );
+    } else if (value == 'move_own') {
+      _manage(moveOwnBalanceFlow(context, api: _api, account: account, accounts: _allAccounts));
     } else if (value == 'delete') {
       _manage(deleteAccountFlow(context, api: _api, account: account));
     }

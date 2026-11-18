@@ -58,6 +58,11 @@ def approved_bonus(phase2_accounts):
     """ينشئ مكافأة بحالة approved جاهزة للعكس."""
     with app.app_context():
         emp = Employee.query.first()
+        # the employee's own bonus account, as on production (2310 has one per
+        # employee and was never posted to itself): a group takes no posting
+        # (parent_account_guard, 18 Nov 2026)
+        from services.employee_accounts import ensure_payable_account
+        ensure_payable_account(emp, 'bonus_payable')
         b = EmployeeBonus(
             employee_id=emp.id,
             bonus_type='fixed',

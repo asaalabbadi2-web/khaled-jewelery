@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, date, time
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, g, request, jsonify
 
 import logging
 
@@ -728,6 +728,11 @@ def get_account(id):
     from services.gram_profit_accounts import gram_profit_standing, standing_view
     payload['gram_profit'] = standing_view(account.id, gram_profit_standing(),
                                            {a.id: a for a in Account.query.all()})
+    # A group's balance of its own -- posted before an account was put under
+    # it -- and what may be done with it (services/group_balance).
+    from services.group_balance import _has_children, own_balance
+    if _has_children(account.id):
+        payload['own_balance'] = own_balance(account)
 
     try:
         sb = (
@@ -1253,8 +1258,38 @@ def add_account():
     # يساعد Flutter على عرض الاقتراح الصحيح عند إضافة حساب ابن لاحقاً:
     result['parent_has_parallel'] = parent_account is not None and parent_account.memo_account_id is not None
     result['suggested_parallel_number'] = twin_number(account_number) if not is_memo_account else None
+    # Put under an account with a balance of its own: said, with its move (the owner, 18 Nov 2026).
+    if parent_account is not None:
+        from services.group_balance import own_balance
+        held = own_balance(parent_account)
+        if held['any']:
+            result['parent_own_balance'] = {**held, 'account_id': parent_account.id,
+                                            'account_number': parent_account.account_number,
+                                            'name': parent_account.name}
 
     return jsonify(result), 201
+
+
+@accounts_bp.route('/accounts/<int:id>/move-own-balance', methods=['POST'])
+@require_permission('accounts.edit')
+def move_own_balance(id):
+    """Move a group account's own balance to an account under it, entry by
+    entry at their dates (services/group_balance; the owner, 18 Nov 2026)."""
+    from datetime import datetime
+    from services.group_balance import GroupBalanceRefused, move
+    data = request.get_json(silent=True) or {}
+    try:
+        to_id = int(data.get('to_account_id'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'to_account_required', 'message': 'اختر الحساب الذي يُنقل إليه الرصيد'}), 400
+    by = getattr(getattr(g, 'current_user', None), 'username', None) or 'system'
+    try:
+        result = move(id, to_id, by=by, now=datetime.now())
+        db.session.commit()
+    except GroupBalanceRefused as refused:
+        db.session.rollback()
+        return jsonify({'error': refused.code, 'message': refused.message}), 400
+    return jsonify(result), 200
 
 
 @accounts_bp.route('/accounts/<int:id>', methods=['PUT'])

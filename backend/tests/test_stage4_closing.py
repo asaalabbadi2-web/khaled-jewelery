@@ -59,12 +59,16 @@ def _account(number=None, name='حساب', type_='Asset'):
 
 
 def _entry(lines, *, ref_type, ref_id, date=datetime(2026, 2, 17)):
+    """The books as stage 4 found them -- a return split over the parent 1200
+    among them: written as old rows are, past the guards a writer meets today
+    (parent_account_guard, 18 Nov 2026)."""
     je = JournalEntry(entry_number=f'JE-T-{_uid()}', date=date, description='t', entry_type='عادي',
                       reference_type=ref_type, reference_id=ref_id, is_posted=True, is_draft=False, created_by='t')
     db.session.add(je)
     db.session.flush()
     for spec in lines:
-        db.session.add(JournalEntryLine(journal_entry_id=je.id, **spec))
+        db.session.execute(JournalEntryLine.__table__.insert().values(
+            journal_entry_id=je.id, is_deleted=False, **spec))
     db.session.flush()
     return je
 

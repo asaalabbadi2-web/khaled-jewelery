@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../api_service.dart';
 import '../utils.dart';
 import '../utils/arabic_search.dart';
+import '../utils/currency_utils.dart';
 import '../web_file_io.dart' as web_io;
 
 /// Managing the chart -- add, edit, delete, export, import (CHART-UI-1).
@@ -314,7 +315,18 @@ class _AccountFormState extends State<_AccountForm> {
       if (_editing) {
         await widget.api.updateAccount(widget.editing!['id'] as int, data);
       } else {
-        await widget.api.addAccount({...data, 'create_parallel': _parallel});
+        final created = await widget.api.addAccount({...data, 'create_parallel': _parallel});
+        // Put under an account with a balance of its own: said, with its move
+        // (the owner, 18 Nov 2026).
+        final held = created['parent_own_balance'];
+        if (held is Map && mounted) {
+          await offerOwnBalanceMove(
+            context,
+            api: widget.api,
+            held: Map<String, dynamic>.from(held),
+            to: created,
+          );
+        }
       }
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
@@ -483,6 +495,142 @@ class _AccountFormState extends State<_AccountForm> {
       ],
     );
   }
+}
+
+/// What a group's own balance is, in words: its riyals and grams, and how many
+/// entries it was posted in.
+String ownBalanceWords(Map<String, dynamic> held) {
+  final cash = (held['cash'] as num?)?.toDouble() ?? 0.0;
+  final grams = <String>[
+    for (final e in ((held['grams'] as Map?) ?? const {}).entries)
+      if (e.key != 'weight' && ((e.value as num?)?.toDouble() ?? 0.0).abs() > 0.0005)
+        '${formatAmount((e.value as num).toDouble(), decimals: 3)} جم عيار ${e.key.toString().replaceAll('k', '')}',
+  ];
+  final parts = [
+    if (cash.abs() > 0.005) '${formatAmount(cash)} ر.س',
+    ...grams,
+  ];
+  return '${parts.join(' و')} في ${held['entries']} قيد';
+}
+
+/// «الحساب الأصلي عليه رصيد خاص»: offered after an account is put under one
+/// that was posted to -- move it there, or later from the parent's menu.
+Future<bool> offerOwnBalanceMove(
+  BuildContext context, {
+  required ApiService api,
+  required Map<String, dynamic> held,
+  required Map<String, dynamic> to,
+}) async {
+  final from = '${held['account_number']} «${held['name']}»';
+  final target = '${to['account_number']} «${to['name']}»';
+  final move = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      key: const Key('own-balance-offer'),
+      title: const Text('الحساب الأصلي عليه رصيد خاص'),
+      content: Text(
+        '$from قُيّد عليه هو ${ownBalanceWords(held)}، وصار حسابًا رئيسيًا لا يُقيَّد عليه. '
+        'انقل رصيده إلى $target؟ يُنقل كل قيد بتاريخه.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(false),
+          child: const Text('لاحقًا'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(dialogContext).pop(true),
+          child: const Text('انقل الرصيد'),
+        ),
+      ],
+    ),
+  );
+  if (move != true || !context.mounted) return false;
+  return _move(context, api: api, groupId: held['account_id'] as int, toId: to['id'] as int, target: target);
+}
+
+Future<bool> _move(
+  BuildContext context, {
+  required ApiService api,
+  required int groupId,
+  required int toId,
+  required String target,
+}) async {
+  try {
+    final done = await api.moveGroupOwnBalance(groupId, toId);
+    if (context.mounted) {
+      _say(context, 'نُقل الرصيد إلى $target في ${done['moved']} قيد تصحيح، كلٌّ بتاريخ قيده');
+    }
+    return true;
+  } catch (e) {
+    if (context.mounted) _say(context, _message(e), error: true);
+    return false;
+  }
+}
+
+/// A group's own balance moved from its menu: the account under it chosen,
+/// then moved (services/group_balance).
+Future<bool> moveOwnBalanceFlow(
+  BuildContext context, {
+  required ApiService api,
+  required Map<String, dynamic> account,
+  required List<Map<String, dynamic>> accounts,
+}) async {
+  final details = await api.getAccountById(account['id'] as int);
+  final held = details['own_balance'];
+  if (!context.mounted) return false;
+  if (held is! Map || held['any'] != true) {
+    _say(context, 'لا رصيد خاص على «${account['name']}»: كل قيوده على فروعه');
+    return false;
+  }
+  // the detail accounts under it, at any depth
+  final parents = {for (final a in accounts) a['parent_id']};
+  bool under(Map<String, dynamic> a) {
+    var p = a['parent_id'];
+    final seen = <Object?>{};
+    while (p != null && seen.add(p)) {
+      if (p == account['id']) return true;
+      p = accounts.firstWhere((x) => x['id'] == p, orElse: () => const {})['parent_id'];
+    }
+    return false;
+  }
+  final choices = [for (final a in accounts) if (under(a) && !parents.contains(a['id'])) a];
+  Map<String, dynamic>? chosen;
+  final go = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (context, setState) => AlertDialog(
+        key: const Key('own-balance-move'),
+        title: Text('نقل رصيد «${account['name']}» الخاص'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('عليه هو ${ownBalanceWords(Map<String, dynamic>.from(held))}. يُنقل كل قيد بتاريخه إلى:'),
+            const SizedBox(height: 12),
+            AccountSearchField(
+              fieldKey: const Key('own-balance-target'),
+              accounts: choices,
+              selected: chosen,
+              label: 'الحساب الفرعي',
+              hint: 'ابحث برقم أو اسم',
+              clearTooltip: 'مسح',
+              onChanged: (a) => setState(() => chosen = a),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('إلغاء')),
+          FilledButton(
+            onPressed: chosen == null ? null : () => Navigator.of(dialogContext).pop(true),
+            child: const Text('انقل الرصيد'),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (go != true || chosen == null || !context.mounted) return false;
+  return _move(context, api: api, groupId: account['id'] as int, toId: chosen!['id'] as int,
+      target: '${chosen!['account_number']} «${chosen!['name']}»');
 }
 
 /// Delete [account] -- the server refuses what would break something, and

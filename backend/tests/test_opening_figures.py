@@ -43,12 +43,16 @@ def rollback_after_each(app, db_fence):
 
 
 def _post(lines):
+    """The books as found -- a group's own balance among them, as on production:
+    written as old rows are, past the guards a writer meets today
+    (parent_account_guard, 18 Nov 2026), so the opening reads what is there."""
     je = JournalEntry(entry_number=f'JE-OP-{uuid.uuid4().hex[:8]}', date=NOW, description='رصيد', entry_type='عادي',
                       is_posted=True, is_draft=False, created_by='t')
     db.session.add(je)
     db.session.flush()
     for account, cols in lines:
-        db.session.add(JournalEntryLine(journal_entry_id=je.id, account_id=account.id, description='رصيد', **cols))
+        db.session.execute(JournalEntryLine.__table__.insert().values(
+            journal_entry_id=je.id, account_id=account.id, description='رصيد', is_deleted=False, **cols))
     db.session.flush()
 
 
