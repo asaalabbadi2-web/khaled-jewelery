@@ -2900,6 +2900,29 @@ class ApiService {
     throw _apiError(response);
   }
 
+  /// The models' movement in a period (ADR-093): each model and size -- what
+  /// was, came in, went out by which document, and what is left.
+  Future<Map<String, dynamic>> getModelMovement({
+    required String startDate,
+    required String endDate,
+    String by = 'model_size',
+    int? categoryId,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/reports/model-movement').replace(
+      queryParameters: {
+        'start_date': startDate,
+        'end_date': endDate,
+        'by': by,
+        if (categoryId != null) 'category_id': '$categoryId',
+      },
+    );
+    final response = await _authedGet(uri);
+    if (response.statusCode == 200) {
+      return json.decode(utf8.decode(response.bodyBytes));
+    }
+    throw _apiError(response);
+  }
+
   /// Purchases analysis in the reports' contract (REPORTS ت4-4أ): in the
   /// books' riyals and in grams, by kind, party, employee, day, month or karat.
   Future<Map<String, dynamic>> getPurchasesAnalysis({

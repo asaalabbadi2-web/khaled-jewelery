@@ -1033,6 +1033,27 @@ def get_sales_analysis():
     return jsonify(sales_analysis(start=start, end=end, by=by, compare=compare, now=datetime.now()).to_dict())
 
 
+@reports_bp.route('/reports/model-movement', methods=['GET'])
+@require_permission('reports.financial')
+def get_model_movement():
+    """The models' movement in a period (services/reports/model_movement.py,
+    ADR-093): start_date / end_date (both needed), category_id, by (model |
+    model_size)."""
+    from services.reports.model_movement import BY, model_movement
+    try:
+        start, end = _report_date('start_date'), _report_date('end_date')
+    except ValueError:
+        return jsonify({'error': 'invalid_date', 'message': 'start_date و end_date بصيغة YYYY-MM-DD'}), 400
+    if start is None or end is None:
+        return jsonify({'error': 'invalid_date', 'message': 'الحركة لفترة: start_date و end_date'}), 400
+    by = request.args.get('by', 'model_size')
+    if by not in BY:
+        return jsonify({'error': 'invalid_by', 'message': f'by: {" | ".join(BY)}'}), 400
+    category = request.args.get('category_id')
+    return jsonify(model_movement(start=start, end=end, by=by, now=datetime.now(),
+                                  category_id=int(category) if category else None).to_dict())
+
+
 @reports_bp.route('/reports/weight-position', methods=['GET'])
 @require_permission('reports.financial')
 def get_weight_position():

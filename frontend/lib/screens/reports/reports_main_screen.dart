@@ -1,5 +1,6 @@
 import 'reconciliation_findings_screen.dart';
 import 'vat_returns_screen.dart';
+import 'model_movement_report_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../api_service.dart';
@@ -51,6 +52,8 @@ Widget? reportDestination(String route, ApiService api, bool isArabic) {
       return SupplierAgingReportScreen(api: api);
     case 'sales_analysis':
       return SalesAnalysisReportScreen(api: api);
+    case 'model_movement':
+      return ModelMovementReportScreen(api: api);
     case 'purchases_analysis':
       return PurchasesAnalysisReportScreen(api: api);
     case 'income_statement':

@@ -140,9 +140,12 @@ void main() {
     for (final (label, by) in [
       ('التصنيف', 'category'),
       ('الصنف', 'item'),
+      ('الموديل', 'model'),
+      ('المقاس', 'size'),
       ('العيار', 'karat'),
       ('نوع الذهب', 'gold_type'),
     ]) {
+      await tester.ensureVisible(find.text(label).first);
       await tester.tap(find.text(label).first);
       await _settle(tester);
       expect(server.asked.last.by, by);

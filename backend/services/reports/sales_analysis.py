@@ -17,7 +17,10 @@ halala), so a document's value is shared on its lines by their net -- the
 value the books agree with stays the document's -- each line's grams in the
 main karat; a line with no category is «بلا تصنيف». By item: the piece a
 line sold -- from 2027, as piece tracking opens category by category (ADR-045,
-the owner 4 Nov 2026); a line sold by weight is «بلا صنف (بالوزن)». By gold type, the
+the owner 4 Nov 2026); a line sold by weight is «بلا صنف (بالوزن)». By model
+or size (ADR-093, the owner 18 Nov 2026): the piece's model and size now --
+«بلا موديل» / «بلا مقاس» for a piece without and a line sold by weight; and
+the pieces sold, less those returned. By gold type, the
 document's own. A document counts once in each group it touches. By customer
 or category, each row says its last sale.
 """
@@ -28,13 +31,15 @@ import datetime as dt
 
 from services.reports.contract import Chart, Check, Column, Report
 
-BY = ('employee', 'customer', 'day', 'month', 'gold_type', 'category', 'item', 'karat')
-LINES = ('category', 'item', 'karat')
-LAST = ('customer', 'category', 'item')
+BY = ('employee', 'customer', 'day', 'month', 'gold_type', 'category', 'item', 'model', 'size', 'karat')
+LINES = ('category', 'item', 'model', 'size', 'karat')
+LAST = ('customer', 'category', 'item', 'model', 'size')
+PIECES = ('item', 'model', 'size')          # a line naming a piece counts one piece sold
 SALE, SALE_RETURN = 'بيع', 'مرتجع بيع'
 # their net credit: the returns' debits take themselves off
 SALES_ROLES = (('بيع', 'revenue'), ('بيع', 'sales_gold_scrap'), ('مرتجع بيع', 'sales_returns'))
 NO_SELLER, NO_CUSTOMER, NO_CATEGORY, NO_ITEM = 'بلا بائع', 'بلا عميل', 'بلا تصنيف', 'بلا صنف (بالوزن)'
+NO_MODEL, NO_SIZE = 'بلا موديل', 'بلا مقاس'
 GOLD_TYPES = {'new': 'ذهب جديد', 'scrap': 'كسر'}
 
 
@@ -121,6 +126,9 @@ def _line_group(line, by: str, names: dict) -> tuple:
         return line.category_id, names['category'].get(line.category_id, NO_CATEGORY), None
     if by == 'item':
         return line.item_id, names['item'].get(line.item_id, NO_ITEM), None
+    if by in ('model', 'size'):
+        # the piece's model and size now (ADR-093) -- a line sold by weight has none
+        return names[by].get(line.item_id, (None, NO_MODEL if by == 'model' else NO_SIZE)) + (None,)
     karat = int(round(float(line.karat))) if line.karat else None
     return karat, f'عيار {karat}' if karat else 'عيار غير محدد', None
 
@@ -135,8 +143,9 @@ def _parts(documents, by: str, names: dict):
         lines = list(inv.items or []) if by in LINES else []
         if not lines:
             group = (_group(inv, by, names) if by not in LINES
-                     else (None, {'category': NO_CATEGORY, 'item': NO_ITEM}.get(by, 'عيار غير محدد'), None))
-            yield (inv, sign, *group, value, grams)
+                     else (None, {'category': NO_CATEGORY, 'item': NO_ITEM, 'model': NO_MODEL,
+                                  'size': NO_SIZE}.get(by, 'عيار غير محدد'), None))
+            yield (inv, sign, *group, value, grams, None)
             continue
         nets = [float(line.net or 0.0) for line in lines]
         weights = [float(line.weight or 0.0) * float(line.karat or main) / main for line in lines]
@@ -144,15 +153,18 @@ def _parts(documents, by: str, names: dict):
         whole = sum(basis)
         for line, share, line_grams in zip(lines, basis, weights):
             part = share / whole if whole else 1.0 / len(lines)
-            yield (inv, sign, *_line_group(line, by, names), value * part, sign * line_grams)
+            yield (inv, sign, *_line_group(line, by, names), value * part, sign * line_grams, line)
 
 
 def _sums(documents, by, names) -> dict:
     sums = collections.OrderedDict()
-    for inv, sign, group_id, label, drill, value, grams in _parts(documents, by, names):
+    for inv, sign, group_id, label, drill, value, grams, line in _parts(documents, by, names):
         s = sums.setdefault(group_id, {'group_id': group_id, 'group': label, 'drill': drill, 'sales': set(),
-                                       'return_docs': set(), 'value': 0.0, 'weight': 0.0, 'last': None})
+                                       'return_docs': set(), 'value': 0.0, 'weight': 0.0, 'last': None,
+                                       'pieces': 0})
         s['sales' if sign > 0 else 'return_docs'].add(inv.id)
+        if line is not None and line.item_id and line.item_id in names['piece']:
+            s['pieces'] += 1 if sign > 0 else -1           # sold less returned
         s['value'] += value
         s['weight'] += grams
         if sign > 0:
@@ -168,7 +180,20 @@ def _names(documents) -> dict:
     customers = {inv.customer_id for inv, *_ in documents if inv.customer_id}
     categories = {line.category_id for inv, *_ in documents for line in (inv.items or []) if line.category_id}
     items = {line.item_id for inv, *_ in documents for line in (inv.items or []) if line.item_id}
-    return {'employee': {e.id: e.name for e in Employee.query.filter(Employee.id.in_(employees or {-1}))},
+    from models import PieceModel, SizeSystem, SizeSystemSize
+    from services.pieces import is_piece
+    pieces = {i.id: i for i in Item.query.filter(Item.id.in_(items or {-1})) if is_piece(i)}
+    model_names = {m.id: m.name for m in PieceModel.query.filter(
+        PieceModel.id.in_({p.model_id for p in pieces.values() if p.model_id} or {-1}))}
+    size_rows = {z.id: z for z in SizeSystemSize.query.filter(
+        SizeSystemSize.id.in_({p.size_id for p in pieces.values() if p.size_id} or {-1}))}
+    systems = {y.id: y.name for y in SizeSystem.query.filter(
+        SizeSystem.id.in_({z.system_id for z in size_rows.values()} or {-1}))}
+    return {
+            'piece': set(pieces),
+            'model': {i: (p.model_id, model_names[p.model_id]) for i, p in pieces.items() if p.model_id},
+            'size': {i: (p.size_id, f'{size_rows[p.size_id].label} ({systems[size_rows[p.size_id].system_id]})')
+                     for i, p in pieces.items() if p.size_id},'employee': {e.id: e.name for e in Employee.query.filter(Employee.id.in_(employees or {-1}))},
             'customer': {c.id: c.name for c in Customer.query.filter(Customer.id.in_(customers or {-1}))},
             'category': {c.id: c.name for c in Category.query.filter(Category.id.in_(categories or {-1}))},
             'item': {i.id: f'{i.name} ({i.item_code})' for i in Item.query.filter(Item.id.in_(items or {-1}))}}
@@ -212,6 +237,8 @@ def sales_analysis(*, now: dt.datetime, start: dt.date | None = None, end: dt.da
                'drill': s['drill']}
         if by in ('gold_type', *LINES):
             row['per_gram'] = round(s['value'] / s['weight'], 2) if abs(s['weight']) > 0.0005 else None
+        if by in PIECES:
+            row['pieces'] = s['pieces']
         if by in LAST:
             row['last'] = s['last'].date().isoformat() if s['last'] else None
         if compared:
@@ -231,12 +258,15 @@ def sales_analysis(*, now: dt.datetime, start: dt.date | None = None, end: dt.da
         totals['change'] = round((total_value - prev_total) / prev_total * 100, 2) if prev_total else None
 
     label = {'employee': 'الموظف', 'customer': 'العميل', 'day': 'اليوم', 'month': 'الشهر',
-             'gold_type': 'نوع الذهب', 'category': 'التصنيف', 'item': 'الصنف', 'karat': 'العيار'}[by]
+             'gold_type': 'نوع الذهب', 'category': 'التصنيف', 'item': 'الصنف', 'model': 'الموديل',
+             'size': 'المقاس', 'karat': 'العيار'}[by]
     columns = [Column('group', label), Column('invoices', 'الفواتير', 'count'), Column('returns', 'المرتجعات', 'count'),
                Column('value', 'القيمة', 'money'), Column('weight', 'الوزن', 'grams'),
                Column('average', 'متوسط الفاتورة', 'money'), Column('share', 'الحصة', 'percent')]
     if by in ('gold_type', *LINES):
         columns.append(Column('per_gram', 'سعر الجرام', 'money'))
+    if by in PIECES:
+        columns.insert(3, Column('pieces', 'القطع', 'count'))
     if compared:
         columns += [Column('prev_value', 'الفترة السابقة', 'money'),
                     Column('change', 'التغيّر', 'percent', signed=True)]

@@ -93,6 +93,16 @@ class ReportCatalog {
             ],
           ),
           ReportDescriptor(
+            id: 'model_movement',
+            icon: Icons.style_outlined,
+            titleAr: 'حركة الموديلات',
+            titleEn: 'Models\' Movement',
+            descriptionAr: 'كل موديل ومقاس: ما استُلم وما بيع وما بقي',
+            descriptionEn: 'Each model and size: received, sold, left',
+            route: 'model_movement',
+            keywords: ['موديل', 'مقاس', 'قطع', 'حركة', 'بيع', 'استلام', 'مخزون', 'نافد'],
+          ),
+          ReportDescriptor(
             id: 'purchases_analysis',
             icon: Icons.shopping_basket,
             titleAr: 'تحليل المشتريات',

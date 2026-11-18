@@ -56,6 +56,9 @@ class SalesAnalysisReportScreen extends StatelessWidget {
           ('month', 'الشهر'),
           ('category', 'التصنيف'),
           ('item', 'الصنف'),
+          // a piece's model and size (ADR-093): from 2027, as pieces are sold
+          ('model', 'الموديل'),
+          ('size', 'المقاس'),
           ('karat', 'العيار'),
           ('gold_type', 'نوع الذهب'),
         ]),

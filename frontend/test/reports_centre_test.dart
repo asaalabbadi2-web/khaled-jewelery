@@ -65,6 +65,7 @@ void main() {
         'income_statement',
         'cash_flow',
         'sales_analysis',
+        'model_movement',
         'purchases_analysis',
         'gold_price_history',
       ],
