@@ -60,7 +60,7 @@ void main() {
         c.nameAr: [for (final r in c.reports) r.id],
     };
     expect(sections, {
-      'أين نقف اليوم؟': ['balance_sheet', 'gold_by_place', 'weight_position'],
+      'أين نقف اليوم؟': ['balance_sheet', 'gold_by_place', 'model_reorder', 'slow_pieces', 'weight_position'],
       'كيف كان أداؤنا؟': [
         'income_statement',
         'cash_flow',

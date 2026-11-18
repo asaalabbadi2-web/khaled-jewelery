@@ -2900,6 +2900,24 @@ class ApiService {
     throw _apiError(response);
   }
 
+  /// The pieces that sit (ADR-093): in the stock on [asOf], past [minDays].
+  Future<Map<String, dynamic>> getSlowPieces({required String asOf, int minDays = 90, String by = 'piece'}) async {
+    final uri = Uri.parse('$_baseUrl/reports/slow-pieces')
+        .replace(queryParameters: {'as_of': asOf, 'min_days': '$minDays', 'by': by});
+    final response = await _authedGet(uri);
+    if (response.statusCode == 200) return json.decode(utf8.decode(response.bodyBytes));
+    throw _apiError(response);
+  }
+
+  /// What to ask the supplier for (ADR-093): the pace of the [days] before [asOf].
+  Future<Map<String, dynamic>> getModelReorder({required String asOf, int days = 30}) async {
+    final uri = Uri.parse('$_baseUrl/reports/model-reorder')
+        .replace(queryParameters: {'as_of': asOf, 'days': '$days'});
+    final response = await _authedGet(uri);
+    if (response.statusCode == 200) return json.decode(utf8.decode(response.bodyBytes));
+    throw _apiError(response);
+  }
+
   /// The models' movement in a period (ADR-093): each model and size -- what
   /// was, came in, went out by which document, and what is left.
   Future<Map<String, dynamic>> getModelMovement({

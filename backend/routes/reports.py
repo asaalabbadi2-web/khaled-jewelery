@@ -1054,6 +1054,49 @@ def get_model_movement():
                                   category_id=int(category) if category else None).to_dict())
 
 
+def _whole(name: str, default: int, choices: tuple) -> int:
+    value = int(request.args.get(name, default))
+    if value not in choices:
+        raise ValueError(f'{name}: {" | ".join(map(str, choices))}')
+    return value
+
+
+@reports_bp.route('/reports/slow-pieces', methods=['GET'])
+@require_permission('reports.financial')
+def get_slow_pieces():
+    """The pieces that sit (services/reports/model_stock.py, ADR-093): as_of (today
+    if none), min_days (30 | 60 | 90 | 180), by (piece | model), category_id."""
+    from services.reports.model_stock import SLOW_BY, slow_pieces
+    try:
+        as_of = _report_date('as_of', datetime.now().date())
+        min_days = _whole('min_days', 90, (30, 60, 90, 180))
+    except ValueError as e:
+        return jsonify({'error': 'invalid_request', 'message': str(e)}), 400
+    by = request.args.get('by', 'piece')
+    if by not in SLOW_BY:
+        return jsonify({'error': 'invalid_by', 'message': f'by: {" | ".join(SLOW_BY)}'}), 400
+    category = request.args.get('category_id')
+    return jsonify(slow_pieces(now=datetime.now(), as_of=as_of, min_days=min_days, by=by,
+                               category_id=int(category) if category else None).to_dict())
+
+
+@reports_bp.route('/reports/model-reorder', methods=['GET'])
+@require_permission('reports.financial')
+def get_model_reorder():
+    """What to ask the supplier for (services/reports/model_stock.py, ADR-093):
+    as_of (today if none), days -- the pace read and the span to last (30 | 60 |
+    90), category_id."""
+    from services.reports.model_stock import model_reorder
+    try:
+        as_of = _report_date('as_of', datetime.now().date())
+        days = _whole('days', 30, (30, 60, 90))
+    except ValueError as e:
+        return jsonify({'error': 'invalid_request', 'message': str(e)}), 400
+    category = request.args.get('category_id')
+    return jsonify(model_reorder(now=datetime.now(), as_of=as_of, days=days,
+                                 category_id=int(category) if category else None).to_dict())
+
+
 @reports_bp.route('/reports/weight-position', methods=['GET'])
 @require_permission('reports.financial')
 def get_weight_position():
