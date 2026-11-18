@@ -309,6 +309,22 @@ def _terminate_postgres_connections(parts: dict, env: dict) -> None:
     )
     _run_postgres_psql_command(parts, env, sql=sql)
 
+NEWER_ARCHIVE = ('هذه النسخة كتبتها أداة نسخ أحدث من نسخة قاعدة البيانات، فلا تقرؤها أدوات الخادم، '
+                 'ولم يُكتب شيء. تُستعاد بأداة PostgreSQL 17 خارج التطبيق، أو تُستعمل نسخة أحدث '
+                 'أخذها الخادم بعد إصلاح أدواته.')
+
+
+def _restore_refusal(stderr: str):
+    """What a refused pg_restore says to the owner -- None when it is not one we
+    know. A backup written by a newer pg_dump (17: every production backup from
+    January to 18 Nov 2026) is refused by the database's own tools before
+    anything is written; said, not left in pg_restore's English."""
+    lower = (stderr or '').lower()
+    if 'unsupported version' in lower and 'file header' in lower:
+        return NEWER_ARCHIVE
+    return None
+
+
 def _restore_postgres_from_backup_file(src_backup_path: str) -> None:
     if not _is_postgres_database():
         raise RuntimeError('PostgreSQL backend is not active')
@@ -369,6 +385,10 @@ def _restore_postgres_from_backup_file(src_backup_path: str) -> None:
         if 'text format dump' in lower or 'please use psql' in lower:
             _run_psql()
             return
+
+        said = _restore_refusal(stderr)
+        if said:
+            raise RuntimeError(said) from exc
 
         raise RuntimeError(
             'فشل استعادة PostgreSQL عبر pg_restore.'

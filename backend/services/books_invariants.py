@@ -84,6 +84,7 @@ CASH_SAFE_HOLDS_GOLD = 'CASH_SAFE_HOLDS_GOLD'
 GROUP_ACCOUNT_POSTED = 'GROUP_ACCOUNT_POSTED'
 ATTACHMENT_LEFT_PENDING = 'ATTACHMENT_LEFT_PENDING'
 PIECES_BEYOND_CATEGORY = 'PIECES_BEYOND_CATEGORY'
+BACKUP_TOOLS_MISMATCH = 'BACKUP_TOOLS_MISMATCH'
 
 KINDS = (
     ORPHAN_POSTED_ENTRY,
@@ -110,6 +111,7 @@ KINDS = (
     GROUP_ACCOUNT_POSTED,
     ATTACHMENT_LEFT_PENDING,
     PIECES_BEYOND_CATEGORY,
+    BACKUP_TOOLS_MISMATCH,
 )
 
 # An invoice in one of these states is retracted: its entries must not count
@@ -872,6 +874,40 @@ def check_pieces_beyond_category() -> list:
     return facts
 
 
+def _tool_major(tool: str):
+    """The major version of a PostgreSQL tool on the PATH -- None when it is not there."""
+    import re
+    import shutil
+    import subprocess
+    if shutil.which(tool) is None:
+        return None
+    out = subprocess.run([tool, '--version'], capture_output=True, text=True, timeout=10).stdout
+    found = re.search(r'(\d+)(?:\.\d+)?', out or '')
+    return int(found.group(1)) if found else None
+
+
+def check_backup_tools_mismatch(tool_major=_tool_major) -> list:
+    """The backup tools are the database's major (the owner, 18 Nov 2026).
+
+    Every production backup since January was written by pg_dump 17 from a 16
+    server -- the image's distro client -- and pg_restore 17 on 16 exits 1 on
+    transaction_timeout: the in-app restore restored every row, said it had
+    failed, and never reached the photos (ADR-094). The image now installs its
+    database's major (tests/test_backup_tools_match_the_database.py); this says
+    so the day either moves. Keyed 'tool:<name>'; the metric the tool's major."""
+    from sqlalchemy import text
+    if db.engine.url.get_backend_name() != 'postgresql':
+        return []
+    server = int(db.session.execute(text('SHOW server_version_num')).scalar()) // 10000
+    facts = []
+    for tool in ('pg_dump', 'pg_restore'):
+        major = tool_major(tool)
+        if major is not None and major != server:
+            facts.append(Fact(BACKUP_TOOLS_MISMATCH, f'tool:{tool}', float(major),
+                              {'tool': tool, 'tool_major': major, 'server_major': server}))
+    return facts
+
+
 CHECKS = {
     ORPHAN_POSTED_ENTRY: check_orphan_posted_entries,
     UNPOSTED_ENTRY_IN_LIMBO: check_unposted_entries_in_limbo,
@@ -898,6 +934,7 @@ CHECKS = {
     GROUP_ACCOUNT_POSTED: check_group_accounts_posted,
     ATTACHMENT_LEFT_PENDING: check_attachments_left_pending,
     PIECES_BEYOND_CATEGORY: check_pieces_beyond_category,
+    BACKUP_TOOLS_MISMATCH: check_backup_tools_mismatch,
 }
 
 
