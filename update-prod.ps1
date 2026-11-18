@@ -23,6 +23,10 @@
           prints the rollback command.
     Rollback:  .\update-prod.bat -Tag <previous tag> -Deploy -Rollback
 
+  A deploy reads its compose file and this script from the commit it deploys:
+  it fetches, and stops before anything changes when the checkout's copies are
+  not that commit's -- «git pull», then run again. A rollback is not held.
+
   -DryRun prints every step and changes nothing.
 
   Written for Windows PowerShell 5.1: no syntax newer than that.
@@ -104,6 +108,31 @@ function Images-Exist([string]$t) {
     Say "  images ${Registry}/{backend,web}:$t exist"
 }
 
+# The files a deploy reads from this folder, not from the images: they must be
+# the release's own (the owner, 18 Nov 2026 -- the media volume was missed
+# because the checkout was fetched before the release was pushed).
+$DeployFiles = @($ComposeFile, 'update-prod.ps1', 'update-prod.bat')
+
+function Deploy-Files-Are([string]$t) {
+    if ($DryRun) {
+        Say "  [dry-run] git fetch; git diff --quiet $t -- $($DeployFiles -join ' ')"
+        Say "  deploy files not checked (dry run)"
+        return
+    }
+    & git fetch --quiet
+    if ($LASTEXITCODE -ne 0) { Fail "git fetch failed in $Root -- the release's files cannot be checked. Check the connection, then run again." }
+    # stderr not redirected: in Windows PowerShell 5.1 a redirected native stderr
+    # under ErrorActionPreference Stop is a terminating error, before Fail says why
+    & git cat-file -e "$t^{commit}"
+    if ($LASTEXITCODE -ne 0) { Fail "commit $t is not in this checkout. Has it been pushed? Run:  git pull   then run again." }
+    & git diff --quiet $t -- @DeployFiles
+    if ($LASTEXITCODE -ne 0) {
+        $differ = (& git diff --name-only $t -- @DeployFiles) -join ', '
+        Fail "these files here are not $t's: $differ`n  Run:  git pull   then run again."
+    }
+    Say "  deploy files are ${t}'s ($($DeployFiles -join ', '))"
+}
+
 function Http-Status([string]$url) {
     $code = & $Curl -s -o $NullDevice -w '%{http_code}' $url
     return "$code".Trim()
@@ -165,6 +194,11 @@ if (-not ($Rehearsed -or $Rollback)) {
     Fail "a release is deployed only after a GREEN rehearsal on a fresh backup:`n  .\update-prod.bat -Tag $Tag -Backup   (then rehearse on the Mac)`n  .\update-prod.bat -Tag $Tag -Deploy -Rehearsed"
 }
 if ($Tag -eq $current) { Fail "production already runs $Tag" }
+
+if (-not $Rollback) {
+    Say "[0/6] checking this folder's deploy files against $Tag..."
+    Deploy-Files-Are $Tag
+}
 
 Say '[1/6] checking the release images...'
 Images-Exist $Tag

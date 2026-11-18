@@ -38,6 +38,14 @@ cd C:\Projects\khaledjewels
 
 `-Deploy` refuses without `-Rehearsed`, refuses the tag already running, stops before any change if an image is missing, writes `IMAGE_TAG` and reads it back, migrates before anything restarts (a failed migration puts the old tag back and restarts nothing), then checks the running image tags, `401` for an anonymous `/api/invoices` and `200` for `/api/auth/check-setup`. `-DryRun` prints every step and changes nothing. Backups go to the external drive `D:\yasargold-recovery` (`-BackupDir`; the owner's choice, 29 Sep 2026), never the production disk: if the drive is not connected the script stops before dumping, and a copy that does not start with `PGDMP` is refused. Proven against a fake `docker` by `backend/tests/test_update_prod_script.py` (16 tests; the rehearsal gate, the tag restore and the boot wait witnessed red by breaking them). Every command it prints is the `.bat` form: a stock Windows client refuses to run a `.ps1` directly. It pulls and restarts `backend`, `scheduler` and `nginx` only — never the database: `postgres:16` is a moving tag. The database was still recreated by both deploys of 29 Sep 2026 — it read `.env.production` whole, so each new `IMAGE_TAG` changed its environment; `db` and `nginx` no longer read that file (`tests/test_production_compose.py`). Verification waits for the backend (up to `-SettleSeconds`, default 90) instead of a fixed pause.
 
+**The deploy files are the release's (the owner, 18 Nov 2026).**
+- `-Deploy -Rehearsed` starts with `git fetch`, then compares this folder's `docker-compose.prod.gitlab.yml`, `update-prod.ps1` and `update-prod.bat` with those of the commit it deploys.
+- If they differ, or the commit is not there, it stops before anything changes and says `git pull`.
+- The 18 Nov deploy missed the photos' volume because the checkout was fetched before the release was pushed.
+- `-Rollback` is not held: it goes back to an older release, so the checkout is newer than it by design.
+- `-DryRun` says the check and fetches nothing.
+- Proven against a fake `git` in the same test file; the real `git` commands were checked in a scratch repository.
+
 The CI job `deploy-production` is manual only: a runner registered one day must not turn a push into a deploy.
 
 ## Restart policy — every container comes back on its own

@@ -14,6 +14,10 @@ C:\\Projects\\khaledjewels -- so each rule is proven without touching Docker:
 - -DryRun changes nothing; -Rollback needs no rehearsal
 - -Backup dumps with the database server's own pg_dump and prints the
   rehearsal command
+- a deploy reads its compose file and its own script from the commit it
+  deploys: a checkout behind it stops before anything changes, and says
+  «git pull» (the owner, 18 Nov 2026: the media volume missed on 18 Nov
+  because the checkout was fetched before the push)
 
 Skipped where pwsh is not installed.
 
@@ -78,6 +82,24 @@ FAKE_CURL = textwrap.dedent(r'''
 ''').lstrip()
 
 
+FAKE_GIT = textwrap.dedent(r'''
+    #!/bin/bash
+    echo "$*" >> "$FAKE_LOG.git"
+    case "$1" in
+      fetch) exit "${FAKE_GIT_FETCH_EXIT:-0}" ;;
+      cat-file) [ "${FAKE_GIT_HAS_COMMIT:-1}" = "1" ] && exit 0 || exit 1 ;;
+      diff)
+        if [ "${FAKE_GIT_DIFFERS:-}" != "" ]; then
+          case "$*" in *--name-only*) printf "%s\n" $FAKE_GIT_DIFFERS; exit 0 ;; esac
+          exit 1
+        fi
+        exit 0 ;;
+    esac
+    echo "fake git: unexpected call: $*" >&2
+    exit 97
+''').lstrip()
+
+
 @pytest.fixture
 def prod(tmp_path):
     root = tmp_path / 'khaledjewels'
@@ -86,7 +108,7 @@ def prod(tmp_path):
     (root / '.env.production').write_text('POSTGRES_USER=yasargold\nIMAGE_TAG=98ea5220\nJWT_SECRET_KEY=x\n')
     bin_dir = tmp_path / 'bin'
     bin_dir.mkdir()
-    for name, body in (('docker', FAKE_DOCKER), ('curl', FAKE_CURL)):
+    for name, body in (('docker', FAKE_DOCKER), ('curl', FAKE_CURL), ('git', FAKE_GIT)):
         path = bin_dir / name
         path.write_text(body)
         path.chmod(path.stat().st_mode | stat.S_IEXEC)
@@ -111,7 +133,11 @@ def prod(tmp_path):
         return next(line.split('=', 1)[1] for line in (root / '.env.production').read_text().splitlines()
                     if line.startswith('IMAGE_TAG='))
 
-    run.root, run.tag, run.recovery = root, tag, recovery
+    def git_calls():
+        path = pathlib.Path(f'{log}.git')
+        return [line for line in path.read_text().splitlines() if line] if path.exists() else []
+
+    run.root, run.tag, run.recovery, run.git = root, tag, recovery, git_calls
     return run
 
 
@@ -287,3 +313,50 @@ def test_a_backup_with_the_external_drive_missing_stops_before_dumping(prod, tmp
 def test_a_copy_that_is_not_a_postgres_dump_is_refused(prod):
     result, _ = prod('-Tag', '99e86008', '-Backup', FAKE_DUMP_BYTES='garbage')
     assert result.returncode != 0 and 'not a PostgreSQL dump' in result.stdout
+
+
+# ── the deploy files are the commit's (the owner, 18 Nov 2026) ─────────────
+
+DEPLOY_FILES = ('docker-compose.prod.gitlab.yml', 'update-prod.ps1', 'update-prod.bat')
+
+
+def test_a_deploy_reads_its_files_from_the_commit_it_deploys(prod):
+    result, _ = prod('-Tag', '99e86008', '-Deploy', '-Rehearsed')
+    assert result.returncode == 0, result.stdout + result.stderr
+    git = prod.git()
+    assert git[0].startswith('fetch'), git
+    assert any(c.startswith('diff --quiet 99e86008 --') and all(f in c for f in DEPLOY_FILES) for c in git), git
+    assert 'deploy files are 99e86008' in result.stdout
+
+
+def test_a_checkout_behind_the_release_stops_before_anything_changes(prod):
+    result, calls = prod('-Tag', '99e86008', '-Deploy', '-Rehearsed',
+                         FAKE_GIT_DIFFERS='docker-compose.prod.gitlab.yml')
+    assert result.returncode != 0
+    assert 'git pull' in result.stdout and 'docker-compose.prod.gitlab.yml' in result.stdout, result.stdout
+    assert prod.tag() == '98ea5220' and calls == [], 'not even the images were asked'
+
+
+def test_a_release_whose_commit_is_not_fetched_is_refused(prod):
+    result, calls = prod('-Tag', '99e86008', '-Deploy', '-Rehearsed', FAKE_GIT_HAS_COMMIT='0')
+    assert result.returncode != 0 and '99e86008' in result.stdout and 'git pull' in result.stdout
+    assert prod.tag() == '98ea5220' and calls == []
+
+
+def test_a_fetch_that_fails_is_refused(prod):
+    result, calls = prod('-Tag', '99e86008', '-Deploy', '-Rehearsed', FAKE_GIT_FETCH_EXIT='128')
+    assert result.returncode != 0 and 'git fetch' in result.stdout
+    assert prod.tag() == '98ea5220' and calls == []
+
+
+def test_a_rollback_is_never_held_by_the_checkout(prod):
+    """A rollback goes back to an older release: the checkout is newer than it by design."""
+    result, _ = prod('-Tag', '11111111', '-Deploy', '-Rollback', FAKE_GIT_DIFFERS='update-prod.ps1')
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert prod.git() == []
+
+
+def test_a_dry_run_says_the_check_and_fetches_nothing(prod):
+    result, _ = prod('-Tag', '99e86008', '-Deploy', '-Rehearsed', '-DryRun')
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert prod.git() == [] and 'deploy files not checked (dry run)' in result.stdout
