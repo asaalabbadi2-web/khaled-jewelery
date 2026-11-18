@@ -202,10 +202,15 @@ class _WeightPositionScreenState extends State<WeightPositionScreen> {
     );
   }
 
+  /// Riyals waiting with no grams sold against them: a revenue's, or an expense's
+  /// taken back (the owner, 19 Nov 2026) -- named by their own reference, not a sale.
+  static bool _notASale(Map<String, dynamic> lot) =>
+      lot['kind'] == 'revenue' || lot['kind'] == 'expense_back';
+
   /// «33 بيعًا و13 يوم إيرادات» -- what the open lots are, counted for the label.
   static String _counts(Map<String, dynamic> p) {
     final lots = ((p['lots'] as List?) ?? const []).cast<Map<String, dynamic>>();
-    final revenues = lots.where((l) => l['kind'] == 'revenue').length;
+    final revenues = lots.where(_notASale).length;
     final sales = lots.length - revenues;
     return revenues == 0 ? '$sales بيعًا' : '$sales بيعًا و$revenues يوم إيرادات';
   }
@@ -260,6 +265,29 @@ class _WeightPositionScreenState extends State<WeightPositionScreen> {
     };
   }
 
+  /// Riyals spent with no sale's riyals waiting to take (cash from before
+  /// turned into gold, or spent), and returns after their sale was closed:
+  /// outside the weight profit by design (ADR-048), said beside it.
+  List<Widget> _setAside(Map<String, dynamic> period, TextTheme text) {
+    final out = (period['set_aside'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final cash = _d(out['cash']);
+    final late = (out['returns_after_closing'] as num?)?.toInt() ?? 0;
+    if (cash <= 0.005 && late == 0) return const [];
+    return [
+      const SizedBox(height: 8),
+      Text(
+        [
+          if (cash > 0.005)
+            'خارج الربح الوزني: ${_money.format(cash)} ر.س صُرفت ولا مبيعات منتظرة تأخذها '
+                '(اشترت ${_g(out['grams'])})',
+          if (late > 0) 'ومرتجعات جاءت بعد تسكير بيعها: $late',
+        ].join(' · '),
+        key: const ValueKey('wp-set-aside'),
+        style: text.bodySmall,
+      ),
+    ];
+  }
+
   Widget _performanceSection(BuildContext context) {
     final text = Theme.of(context).textTheme;
     final period = (_performance['period'] as Map?)?.cast<String, dynamic>() ?? const {};
@@ -308,6 +336,8 @@ class _WeightPositionScreenState extends State<WeightPositionScreen> {
                   key: const ValueKey('wp-period-total'),
                   style: text.titleSmall),
             ]),
+            // What the queue left out, said -- not in silence (the audit, 19 Nov 2026)
+            ..._setAside(period, text),
           ]),
         ),
       ),
@@ -367,7 +397,7 @@ class _WeightPositionScreenState extends State<WeightPositionScreen> {
         Card(
           child: ListTile(
             key: ValueKey('wp-lot-${lot['invoice_id'] ?? lot['ref']}'),
-            title: Text(lot['kind'] == 'revenue'
+            title: Text(_notASale(lot)
                 ? '${lot['ref']}'
                 : 'بيع #${lot['invoice_number'] ?? '—'} — ${lot['customer'] ?? ''}'),
             subtitle: Text('${'${lot['date']}'.split('T').first} · '
@@ -403,7 +433,7 @@ class _WeightPositionScreenState extends State<WeightPositionScreen> {
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(lot['kind'] == 'revenue' ? '${lot['ref']}' : 'بيع #${lot['invoice_number']} — ${lot['customer'] ?? ''}',
+            Text(_notASale(lot) ? '${lot['ref']}' : 'بيع #${lot['invoice_number']} — ${lot['customer'] ?? ''}',
                 style: Theme.of(ctx).textTheme.titleMedium),
             const SizedBox(height: 8),
             Text('التاريخ: ${'${lot['date']}'.split('T').first} (منذ ${lot['age_days']} يوم)'),
@@ -422,7 +452,12 @@ class _WeightPositionScreenState extends State<WeightPositionScreen> {
 
   // ── 5: what closed lately ─────────────────────────────────────────────────
 
-  static const _closingKinds = {'customer': 'شراء كسر', 'office': 'شراء كسر من مكتب', 'expense': 'مصروفات اليوم'};
+  static const _closingKinds = {
+    'customer': 'شراء كسر',
+    'office': 'شراء كسر من مكتب',
+    'expense': 'مصروفات اليوم',
+    'revenue_back': 'نقص إيرادات اليوم',
+  };
 
   Widget _recentClosings(BuildContext context) {
     final text = Theme.of(context).textTheme;

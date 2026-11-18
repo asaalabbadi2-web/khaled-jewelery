@@ -32,6 +32,13 @@ PURCHASE, SUPPLIER_RETURN = 'شراء', 'مرتجع شراء (مورد)'
 CUSTOMER, OFFICE, EXPENSE = 'customer', 'office', 'expense'
 # What opens: a sale (or gold given back to a customer for riyals), a marked revenue.
 SOLD, REVENUE = 'sold', 'revenue'
+# A day's marked expenses less than nothing -- an expense booked too much, taken
+# back (the owner, 19 Nov 2026: JE-2026-07814, 63,676.73 off 510): riyals that
+# never left, back to waiting with no grams sold, as a revenue's are; and a day's
+# marked revenues less than nothing: riyals that never came, out of waiting.
+EXPENSE_BACK, REVENUE_BACK = 'expense_back', 'revenue_back'
+# The queue of riyals with no grams sold against them.
+NO_GRAMS_SOLD = (REVENUE, EXPENSE_BACK)
 # A weight line's side.
 REVENUE_SIDE, EXPENSE_SIDE = 'revenue', 'expense'
 PURCHASE_PRICE_DAYS = 7          # the window of what the shop paid, shown beside (the owner, 16 Oct 2026)
@@ -125,6 +132,7 @@ class Replay:
     month_end: dict                                   # month -> (open riyals, open grams sold)
     unmatched: list                                   # closings with no open riyals to take
     anomalies: collections.Counter
+    late_returns: list = field(default_factory=list)  # returns that came after their sale was closed
 
     @property
     def open_lots(self):
@@ -162,6 +170,8 @@ def replay(events: Events) -> Replay:
     by_kind = collections.defaultdict(collections.Counter)
     by_month = collections.defaultdict(collections.Counter)
     month_end, unmatched, slices, anomalies = {}, [], [], collections.Counter()
+    given_back = []          # the lots a restore opens: waiting as the others, seen as them (audit, 19 Nov 2026)
+    late_returns = []
     current = None
 
     def snapshot(m):
@@ -177,9 +187,9 @@ def replay(events: Events) -> Replay:
             by_month[m]['direct'] += item[1]
             by_kind['direct']['result'] += item[1]
         elif what == 'restore':
-            _restore(item, slices, queues, anomalies, by_month, by_kind)
+            given_back += _restore(item, slices, queues, anomalies, by_month, by_kind)
         elif what == 'open':
-            queues[REVENUE if item.kind == REVENUE else SOLD].append(item)
+            queues[REVENUE if item.kind in NO_GRAMS_SOLD else SOLD].append(item)
             by_month[m]['opened_cash'] += item.cash
             by_month[m]['opened_grams'] += item.grams
             if item.price_at_sale:
@@ -188,6 +198,7 @@ def replay(events: Events) -> Replay:
             lot = by_invoice.get(item.original_invoice_id)
             if lot is None or lot.cash_open < item.cash - 0.01:
                 anomalies['a return of a sale already closed, or outside the period'] += 1
+                late_returns.append(item)
             if lot is not None:
                 cash_open, grams_open = lot.cash_open, lot.grams_open
                 lot.cash_open = max(lot.cash_open - item.cash, 0.0)
@@ -224,8 +235,24 @@ def replay(events: Events) -> Replay:
     if current is not None:
         snapshot(current)
     slices = _dated_by_their_months(slices, events.draws, by_month, by_kind)
-    return Replay(list(events.openings), slices, sorted(events.direct, key=lambda d: d[0]), by_kind, by_month,
-                  month_end, unmatched, anomalies)
+    return Replay(list(events.openings) + given_back, slices, sorted(events.direct, key=lambda d: d[0]), by_kind,
+                  by_month, month_end, unmatched, anomalies, late_returns)
+
+
+def set_aside(result: Replay, lo: dt.datetime, hi: dt.datetime) -> dict:
+    """What the queue left out of the weight profit between *lo* and *hi*,
+    said beside it (the audit, 19 Nov 2026): riyals spent with no sale's open
+    to take -- cash from before turned into gold, or spent -- and returns that
+    came after their sale was closed. Left out by design (ADR-048), never in
+    silence: 142,293.58 riyals of them on the 19 Nov copy were in no report."""
+    out = [c for c in result.unmatched if lo <= c.when <= hi]
+    by_kind = collections.Counter()
+    for c in out:
+        by_kind[c.kind] += c.cash
+    late = [r for r in result.late_returns if lo <= r.when <= hi]
+    return {'cash': round(sum(c.cash for c in out), 2), 'grams': round(sum(c.grams for c in out), 3),
+            'count': len(out), 'by_kind': {k: round(v, 2) for k, v in by_kind.items()},
+            'returns_after_closing': len(late), 'returns_after_closing_cash': round(sum(r.cash for r in late), 2)}
 
 
 # A prepaid piece no month has drawn yet: spent, its grams waiting for the
@@ -243,12 +270,14 @@ def _count(by_month, by_kind, piece, sign: float) -> None:
         bucket['result'] += sign * piece.result
 
 
-def _restore(item, slices, queues, anomalies, by_month, by_kind) -> None:
+def _restore(item, slices, queues, anomalies, by_month, by_kind) -> list:
     """A period expense's riyals back to waiting (a payment cancelled, an
     accrual taken back): taken off its latest pieces, each back as the lot it
-    came from, with the grams it took -- as if they had never left."""
+    came from, with the grams it took -- as if they had never left. Returns
+    the lots it opened: the replay's lots hold them, or what waits misses them."""
     when, tag, cash = item
     remaining = cash
+    opened = []
     for piece in reversed(slices):
         if remaining <= 0.005:
             break
@@ -263,9 +292,11 @@ def _restore(item, slices, queues, anomalies, by_month, by_kind) -> None:
         _count(by_month, by_kind, piece, +1)
         lot = Lot(f'استرداد مصروف فترة #{tag[0]}', when, take, grams_back, None, piece.lot_invoice_id,
                   kind=piece.lot_kind)
-        queues[REVENUE if lot.kind == REVENUE else SOLD].append(lot)
+        queues[REVENUE if lot.kind in NO_GRAMS_SOLD else SOLD].append(lot)
+        opened.append(lot)
     if remaining > 0.005:
         anomalies['a period expense\'s riyals back with none of its pieces to take them from'] += 1
+    return opened
 
 
 def _dated_by_their_months(slices, draws, by_month, by_kind):
@@ -332,10 +363,14 @@ def sale_view(result: Replay, events: Events, invoice_id: int, price: float) -> 
     lot = next((lot for lot in result.lots if lot.invoice_id == invoice_id), None)
     if lot is None:
         return None
+    # its riyals a period expense gave back wait in lots of their own: still its
+    back = [l for l in result.lots if l.invoice_id == invoice_id and l is not lot]
+    lot_open = lot.cash_open + sum(l.cash_open for l in back)
+    lot_grams_open = lot.grams_open + sum(l.grams_open for l in back)
     returned = [r for r in events.returns if r.original_invoice_id == invoice_id]
     taken = [piece for piece in result.slices if piece.lot_invoice_id == invoice_id]
     closed_cash = sum(piece.cash for piece in taken)
-    waiting = lot.cash_open > 0.005
+    waiting = lot_open > 0.005
     status = ('partially_closed' if waiting and taken else 'open' if waiting
               else 'closed' if taken else 'cancelled')
     return {
@@ -346,17 +381,17 @@ def sale_view(result: Replay, events: Events, invoice_id: int, price: float) -> 
         # into gold took none of them, and is shown apart (as 881 on the copy).
         'returned_cash': round(lot.returned_cash, 2), 'returned_grams': round(lot.returned_grams, 3),
         'returned_after_closing_cash': round(max(sum(r.cash for r in returned) - lot.returned_cash, 0.0), 2),
-        'closed_cash': round(closed_cash, 2), 'cash_open': round(lot.cash_open, 2),
+        'closed_cash': round(closed_cash, 2), 'cash_open': round(lot_open, 2),
         # Each part's share of the sale's riyals -- the card's bar.
         'shares': {name: (round(part / lot.cash, 4) if lot.cash else 0.0) for name, part in
-                   (('closed', closed_cash), ('returned', lot.returned_cash), ('open', lot.cash_open))},
-        'grams_open': round(lot.grams_open, 3),
+                   (('closed', closed_cash), ('returned', lot.returned_cash), ('open', lot_open))},
+        'grams_open': round(lot_grams_open, 3),
         'closings': [{'date': piece.happened.isoformat(), 'kind': piece.kind, 'invoice_id': piece.invoice_id,
                       'cash': round(piece.cash, 2), 'grams_in': round(piece.grams_in, 3),
                       'grams_out': round(piece.grams_out, 3), 'result': round(piece.result, 3)}
                      for piece in taken],
         'realized': round(sum(piece.result for piece in taken), 3),
-        'unrealized': round(unrealized(lot.cash_open, lot.grams_open, price), 3),
+        'unrealized': round(unrealized(lot_open, lot_grams_open, price), 3),
     }
 
 
@@ -378,23 +413,27 @@ def split_layers(slices, direct, price_on=None) -> dict:
     spent, as before. The whole is the same either way: only the layers read
     differently.
     """
-    layers = {
-        'trading': sum(s.result for s in slices if s.kind != EXPENSE and s.lot_kind != REVENUE),
-        'revenue_converted': sum(s.result for s in slices if s.kind != EXPENSE and s.lot_kind == REVENUE),
-        'revenue_direct': sum(d[1] for d in direct if d[2] == REVENUE_SIDE),
-        'expense_direct': sum(d[1] for d in direct if d[2] == EXPENSE_SIDE),
-        'expense_cash': 0.0,
-    }
+    def lot_layer(kind):
+        # riyals of what was sold read in ①, a revenue's in ②, an expense's taken back in ④
+        return {REVENUE: 'revenue_converted', EXPENSE_BACK: 'expense_cash'}.get(kind, 'trading')
+
+    spent = (EXPENSE, REVENUE_BACK)        # riyals out with no grams bought: valued at the day's price
+    layers = {'trading': 0.0, 'revenue_converted': 0.0,
+              'revenue_direct': sum(d[1] for d in direct if d[2] == REVENUE_SIDE),
+              'expense_direct': sum(d[1] for d in direct if d[2] == EXPENSE_SIDE),
+              'expense_cash': 0.0}
     for s in slices:
-        if s.kind != EXPENSE:
+        if s.kind not in spent:
+            layers[lot_layer(s.lot_kind)] += s.result
             continue
+        own = 'expense_cash' if s.kind == EXPENSE else 'revenue_converted'
         price = price_on(s.happened.date())[0] if price_on is not None else 0.0
         if not price:
-            layers['expense_cash'] += s.result
+            layers[own] += s.result
             continue
         at_price = s.cash / price
-        layers['expense_cash'] -= at_price
-        layers['revenue_converted' if s.lot_kind == REVENUE else 'trading'] += at_price - s.grams_out
+        layers[own] -= at_price
+        layers[lot_layer(s.lot_kind)] += at_price - s.grams_out
     return layers
 
 
@@ -429,7 +468,7 @@ def _until(events: Events, moment: dt.datetime) -> Events:
 def collect_events(start: dt.datetime, end: dt.datetime) -> Events:
     """Sources and uses from the posted books between *start* and *end*."""
     from accounting.balances import counted_line_filters
-    from models import Account, Invoice, JournalEntry, JournalEntryLine, db
+    from models import Invoice, JournalEntry, JournalEntryLine, db
     from pricing.karat_service import get_main_karat
     from routes import _invoice_weight_in_main_karat
     from services.gold_allocation_service import RETRACTED_INVOICE_STATUSES
@@ -481,8 +520,6 @@ def collect_events(start: dt.datetime, end: dt.datetime) -> Events:
     revenue_ids, expense_ids = gram_profit_accounts()
     marked = revenue_ids | expense_ids
     main_karat = float(get_main_karat())
-    weight_accounts = {a.id for a in Account.query.filter(Account.id.in_(marked or {-1}),
-                                                          Account.tracks_weight.is_(True))}
     rows = (db.session.query(JournalEntry.date, JournalEntryLine)
             .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
             .filter(*counted_line_filters())
@@ -497,18 +534,24 @@ def collect_events(start: dt.datetime, end: dt.datetime) -> Events:
             per_day[_day(when)]['revenue'] += credit_less_debit      # riyals in, no grams sold
         else:
             per_day[_day(when)]['expense'] -= credit_less_debit      # riyals out, no grams bought
-        # A weight line is a weight result at once: credit adds, debit takes.
-        karats = (18, 21, 22, 24) if line.account_id in weight_accounts else (21,)
+        # A weight line is a weight result at once: credit adds, debit takes --
+        # every karat at its purity, on a weight account or a cash one (read in
+        # 21k alone, a cash account's 18k was dropped: a karat fixed in the code;
+        # the audit, 19 Nov 2026).
         grams = sum((float(getattr(line, f'credit_{k}k', 0) or 0) - float(getattr(line, f'debit_{k}k', 0) or 0))
-                    * k / main_karat for k in karats)
+                    * k / main_karat for k in (18, 21, 22, 24))
         if abs(grams) > 1e-6:
             events.direct.append((when, grams, REVENUE_SIDE if line.account_id in revenue_ids else EXPENSE_SIDE))
     for day, amounts in per_day.items():
         when = dt.datetime.combine(day, dt.time(23, 59))
         if amounts['revenue'] > 0.005:
             events.openings.append(Lot(f'إيرادات {day}', when, amounts['revenue'], 0.0, kind=REVENUE))
+        elif amounts['revenue'] < -0.005:       # it was dropped: «لما لم يؤثر اخر قيد» (19 Nov 2026)
+            events.closings.append(Closing(when, REVENUE_BACK, -amounts['revenue']))
         if amounts['expense'] > 0.005:
             events.closings.append(Closing(when, EXPENSE, amounts['expense']))
+        elif amounts['expense'] < -0.005:
+            events.openings.append(Lot(f'نقص مصروفات {day}', when, -amounts['expense'], 0.0, kind=EXPENSE_BACK))
     _period_expense_events(events, start, end, expense_ids)
     return events
 
@@ -1017,4 +1060,5 @@ def performance(start: dt.date, end: dt.date, events: Events = None, prices=None
         'price_effect_parts': {'waiting_sales': round(sales_after - sales_before, 3),
                                'price': round(price_after - price_before, 3)},
         'valuation_price': round(price, 4), 'valuation_price_source': source,
+        'set_aside': set_aside(result, lo, hi),
     }

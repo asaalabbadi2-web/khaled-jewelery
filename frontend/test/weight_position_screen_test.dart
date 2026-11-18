@@ -21,10 +21,16 @@ Map<String, dynamic> _position() => {
         {'ref': 'إيرادات 2026-10-14', 'kind': 'revenue', 'invoice_id': null, 'invoice_number': null,
          'customer': null, 'date': '2026-10-14T23:59:00', 'age_days': 1, 'cash': 500.0, 'cash_open': 500.0,
          'grams_open': 0.0, 'expected_at_sale': null, 'unrealized': 1.2},
+        // an expense booked too much and taken back (the owner, 19 Nov 2026)
+        {'ref': 'نقص مصروفات 2026-11-19', 'kind': 'expense_back', 'invoice_id': null, 'invoice_number': null,
+         'customer': null, 'date': '2026-11-19T23:59:00', 'age_days': 0, 'cash': 63676.73, 'cash_open': 63676.73,
+         'grams_open': 0.0, 'expected_at_sale': null, 'unrealized': 151.5},
       ],
       'recent_closings': [
         {'kind': 'customer', 'invoice_id': 3400, 'date': '2026-10-15T10:00:00', 'cash': 4164.4, 'grams_in': 10.0,
          'grams_out': 7.0, 'result': 3.0},
+        {'kind': 'revenue_back', 'invoice_id': null, 'date': '2026-11-19T23:59:00', 'cash': 86231.27, 'grams_in': 0.0,
+         'grams_out': 0.0, 'result': 0.0},
       ],
       'where_the_riyals_are': {'in_hand': 390696.01, 'with_customers': 0.0, 'with_employees': 90576.0},
     };
@@ -45,7 +51,8 @@ class _FakeApi extends ApiService {
   Future<Map<String, dynamic>> getWeightPerformance({required DateTime startDate, required DateTime endDate}) async {
     performanceCalls.add('${startDate.month}-${startDate.day}');
     return {
-      'period': {'weight_profit': 2627.0, 'layers': _layers(2627.0)},
+      'period': {'weight_profit': 2627.0, 'layers': _layers(2627.0),
+        'set_aside': {'cash': 142293.58, 'grams': 298.378, 'count': 20, 'returns_after_closing': 4}},
       'months': [
         {'month': '2026-09', 'weight_profit': 274.4, 'layers': _layers(274.4)},
         {'month': '2026-10', 'weight_profit': 266.5, 'layers': _layers(266.5)},
@@ -114,6 +121,16 @@ void main() {
     await _pump(tester);
     expect(find.text('بيع #1618 — عميل نقدي'), findsOneWidget);
     expect(find.text('إيرادات 2026-10-14'), findsOneWidget);
+    expect(find.text('نقص مصروفات 2026-11-19'), findsOneWidget, reason: 'by its name, not «بيع #—»');
+    expect(find.text('بيع #— — '), findsNothing);
+  });
+
+  // the audit, 19 Nov 2026: what the queue left out is said, not left in silence
+  testWidgets('what is outside the weight profit is said beside it', (tester) async {
+    await _pump(tester);
+    final said = tester.widget<Text>(find.byKey(const ValueKey('wp-set-aside'))).data!;
+    expect(said, contains('142,294 ر.س'), reason: 'the screen\'s riyals, whole');
+    expect(said, contains('مرتجعات جاءت بعد تسكير بيعها: 4'));
   });
 
   testWidgets('another period asks the server again', (tester) async {
