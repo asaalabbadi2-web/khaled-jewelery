@@ -114,3 +114,27 @@ def test_an_approval_that_would_change_a_karat_is_refused(app, roles):
     with pytest.raises(ValueError) as refused:
         S.approve_session(session, approved_by='المدير', now=NOW)
     assert 'لا يُغيّر وزن العيار' in str(refused.value)
+
+
+def test_its_entry_says_its_reason_in_arabic(app, roles):
+    """«فروق جرد — الجلسة #7 — classification» on the 19 Nov copy: a reason's
+    code is the machine's word; the entry the accountant reads says its label."""
+    box, bangles = _safe(), _category()
+    _stock(box, 500.0)
+    session = _open(box)
+    _weigh(session, box, bangles, 120.0)
+    S.close_session(session, now=NOW)
+    _, entry = S.approve_session(session, approved_by='المدير', now=NOW, adjustment_reason='classification')
+    assert 'تصنيف المخزون' in entry.description and 'classification' not in entry.description
+
+
+def test_a_periodic_counts_reason_is_its_label_too(app, roles):
+    box, bangles = _safe(), _category()
+    _stock(box, 100.0, bangles)
+    session = S.open_session(branch_id=None, safe_box_id=box.id, opened_by='t', now=NOW)
+    S.populate_lines(session)
+    _weigh(session, box, bangles, 99.0)
+    S.close_session(session, force=True, now=NOW)
+    _, entry = S.approve_session(session, approved_by='المدير', now=NOW, adjustment_reason='LOSS',
+                                 adjustment_note='قطعة مفقودة')
+    assert entry.description.endswith('— فاقد — قطعة مفقودة'), entry.description

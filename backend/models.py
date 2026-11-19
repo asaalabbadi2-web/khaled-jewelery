@@ -1017,6 +1017,11 @@ class Item(db.Model):
     # has one source: a receipt line or a batch.
     coding_id = db.Column(db.Integer, db.ForeignKey('stock_coding.id', use_alter=True, name='fk_item_stock_coding'),
                           nullable=True, index=True)
+    # The wage written for a piece coded from the stock on hand, riyals for the
+    # whole piece (ADR-096 §4; the owner, 19 Nov 2026: «سنكتب اجور كل قطعه»):
+    # once, at its coding, by register_piece -- never at a sale. A receipt's
+    # piece has none: its wage is its invoice's line (ADR-087 §6).
+    coded_wage = db.Column(db.Float, nullable=True)
     # A piece's size (ADR-093 §3): one of its category's size system's, or none.
     size_id = db.Column(db.Integer, db.ForeignKey('size_system_size.id', ondelete='RESTRICT'), nullable=True,
                         index=True)
@@ -6175,9 +6180,9 @@ class StockCoding(db.Model):
 
     No entry: the gold does not move. Its pieces take their share of the
     category's grams the location holds not yet pieced (its allocations);
-    their weights add to no more than the batch's. Its wage is entered by
-    hand, per gram (the owner, 9 Nov 2026) -- a piece's wage its share, as a
-    receipt line's (§6). services/pieces is its one writer.
+    their weights add to no more than the batch's. It takes no wage: each
+    piece is registered with its own (Item.coded_wage; ADR-096 §4, the owner,
+    19 Nov 2026). services/pieces is its one writer.
     """
     __tablename__ = 'stock_coding'
 
@@ -6186,7 +6191,6 @@ class StockCoding(db.Model):
     category_id = db.Column(db.Integer, db.ForeignKey('category.id', ondelete='RESTRICT'), nullable=False)
     karat = db.Column(db.Integer, nullable=False)
     weight = db.Column(db.Float, nullable=False)
-    wage_per_gram = db.Column(db.Float, nullable=False)
     note = db.Column(db.String(200), nullable=True)
     created_at = db.Column(db.DateTime, nullable=False)
     created_by = db.Column(db.String(100), nullable=True)

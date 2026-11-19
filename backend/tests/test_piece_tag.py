@@ -41,9 +41,9 @@ def _pieces(*weights):
     _holds(box, 21, 60.0)
     line = JournalEntryLine.query.filter_by(account_id=box.account_id).order_by(JournalEntryLine.id.desc()).first()
     allocate(line, 21, category.id, 60.0, by='t', now=NOW)
-    batch = open_coding(safe_box_id=box.id, category_id=category.id, weight=sum(weights), wage_per_gram=10,
+    batch = open_coding(safe_box_id=box.id, category_id=category.id, weight=sum(weights),
                         by='t', now=NOW)
-    return [register_piece(batch, weight=w, by='t', now=NOW) for w in weights]
+    return [register_piece(batch, weight=w, wage=10, by='t', now=NOW) for w in weights]
 
 
 def test_the_value_is_the_numbers():

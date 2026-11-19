@@ -1,12 +1,13 @@
 """«ترميز من المخزون الموجود» (ADR-087 R3.5): a location's stock coded piece by piece.
 
 A batch: a stock location, a category tracked by the piece, the weight to
-code, its wage per gram entered by hand (the owner, 9 Nov 2026). No entry --
+code; each piece its own wage, written (ADR-096 §4; the owner, 19 Nov 2026,
+tests/test_piece_wage_written_at_coding.py). No entry --
 the gold does not move: a piece takes its share of the category's grams the
 location holds not yet pieced, outside the receipts (a receipt's grams are
 its own lines', their wage its invoice's). A batch weighs no more than that,
 less what open batches have yet to code; its pieces no more than it. Its
-pieces' wage is known at once -- they are sold; law 5 to the halala.
+pieces' wage is known at once -- they are sold.
 
 Run:
     python -m pytest tests/test_stock_coding.py -v
@@ -57,8 +58,8 @@ def _stock(safe, category, grams):
     return line
 
 
-def _open(safe, category, weight, wage=15.0):
-    return open_coding(safe_box_id=safe.id, category_id=category.id, weight=weight, wage_per_gram=wage,
+def _open(safe, category, weight):
+    return open_coding(safe_box_id=safe.id, category_id=category.id, weight=weight,
                        note='بناجر المعرض', by='t', now=NOW)
 
 
@@ -73,8 +74,8 @@ def test_a_batch_codes_the_stock_without_moving_it(app, world, roles, showroom, 
     _stock(showroom, bangles, 50.0)
     held = category_held(showroom, 21, bangles.id)
     batch = _open(showroom, bangles, 40.0)
-    a = register_piece(batch, weight=14.37, by='t', now=NOW)
-    b = register_piece(batch, weight=12.05, by='t', now=NOW)
+    a = register_piece(batch, weight=14.37, wage=15, by='t', now=NOW)
+    b = register_piece(batch, weight=12.05, wage=15, by='t', now=NOW)
     assert category_held(showroom, 21, bangles.id) == held, 'the category holds what it held: nothing moved'
     assert (piece_held(a.id), piece_held(b.id)) == (14.37, 12.05)
     assert free_grams(showroom, 21, bangles.id) == round(50.0 - 14.37 - 12.05, 3)
@@ -83,12 +84,12 @@ def test_a_batch_codes_the_stock_without_moving_it(app, world, roles, showroom, 
 
 def test_its_pieces_wage_is_known_and_they_are_sold(app, world, roles, showroom, bangles, receiving):
     _stock(showroom, bangles, 30.0)
-    batch = _open(showroom, bangles, 30.0, wage=12.333)
-    pieces = [register_piece(batch, weight=w, by='t', now=NOW) for w in (10.01, 10.01, 9.98)]
+    batch = _open(showroom, bangles, 30.0)
+    pieces = [register_piece(batch, weight=w, wage=12.333, by='t', now=NOW) for w in (10.01, 10.01, 9.98)]
     assert [piece_wage(p) for p in pieces[:2]] == [round(12.333 * 10.01, 2)] * 2
     wages = line_wages(batch)
-    assert round(sum(wages['pieces'].values()), 2) == wages['line'] == round(12.333 * 30.0, 2), 'law 5'
-    # sold at its batch's wage per gram, unrounded (the owner, 18 Nov 2026) -- not refused
+    assert round(sum(wages['pieces'].values()), 2) == wages['line']
+    # sold at its own wage per gram, unrounded (the owner, 18 Nov 2026) -- not refused
     refuse_piece_sales('بيع', [{'item_id': pieces[0].id, 'weight': 10.01, 'karat': 21, 'wage': 12.333}])
     with pytest.raises(PieceRefused) as refused:
         refuse_piece_sales('بيع', [{'item_id': pieces[0].id, 'weight': 10.01, 'karat': 21, 'wage': 12.33}])
@@ -110,9 +111,9 @@ def test_a_batch_weighs_no_more_than_the_location_holds(app, world, roles, showr
 def test_its_pieces_weigh_no_more_than_it(app, world, roles, showroom, bangles, receiving):
     _stock(showroom, bangles, 50.0)
     batch = _open(showroom, bangles, 20.0)
-    register_piece(batch, weight=14.0, by='t', now=NOW)
+    register_piece(batch, weight=14.0, wage=15, by='t', now=NOW)
     with pytest.raises(PieceRefused) as refused:
-        register_piece(batch, weight=6.5, by='t', now=NOW)
+        register_piece(batch, weight=6.5, wage=15, by='t', now=NOW)
     assert refused.value.code == 'piece_heavier_than_rest'
 
 
@@ -129,7 +130,7 @@ def test_a_receipts_grams_are_its_own(app, auth_headers, world, roles, showroom,
     assert refused.value.code == 'coding_more_than_held'
     _stock(showroom, category, 8.0)
     batch = _open(showroom, category, 8.0)
-    piece = register_piece(batch, weight=8.0, by='t', now=NOW)
+    piece = register_piece(batch, weight=8.0, wage=15, by='t', now=NOW)
     on_receipt = StockLineAllocation.query.filter_by(item_id=piece.id).all()
     assert all(db.session.get(JournalEntryLine, r.journal_entry_line_id).description == 'افتتاح'
                for r in on_receipt), 'its share is the opening stock, not the receipt'
@@ -140,13 +141,12 @@ def test_the_batch_laws(app, world, roles, showroom, bangles, receiving):
     weights = Category(name=f'خواتم {uuid.uuid4().hex[:6]} 21', karat='21')
     db.session.add(weights)
     db.session.flush()
-    base = dict(safe_box_id=showroom.id, category_id=bangles.id, weight=10.0, wage_per_gram=15.0, by='t', now=NOW)
+    base = dict(safe_box_id=showroom.id, category_id=bangles.id, weight=10.0, by='t', now=NOW)
     assert _code({**base, 'category_id': weights.id}) == 'piece_category_by_weight'
-    assert _code({**base, 'wage_per_gram': None}) == 'coding_figures_invalid', 'the wage entered, by hand'
-    assert _code({**base, 'wage_per_gram': -1}) == 'coding_figures_invalid'
     assert _code({**base, 'weight': 0}) == 'coding_figures_invalid'
+    assert _code({**base, 'weight': None}) == 'coding_figures_invalid'
     assert _code({**base, 'safe_box_id': 999999}) == 'coding_location_invalid'
-    assert not isinstance(_code({**base, 'wage_per_gram': 0}), str), 'zero is a wage'
+    assert not isinstance(_code(base), str)
 
 
 def test_before_receiving_works_no_batch(app, world, roles, showroom, bangles):
@@ -164,13 +164,13 @@ def test_the_station_opens_a_batch_and_codes_it(app, auth_headers, world, roles,
     r = c.get(f'/api/stock-codings/free?safe_box_id={showroom.id}&category_id={bangles.id}', headers=auth_headers)
     assert r.status_code == 200 and r.get_json()['room'] == 30.0, r.get_data(as_text=True)
     r = c.post('/api/stock-codings', headers=auth_headers,
-               json={'safe_box_id': showroom.id, 'category_id': bangles.id, 'weight': 25, 'wage_per_gram': 14})
+               json={'safe_box_id': showroom.id, 'category_id': bangles.id, 'weight': 25})
     assert r.status_code == 201, r.get_data(as_text=True)
     batch = r.get_json()['line']
     assert (batch['kind'], batch['rest'], batch['safe_name']) == ('stock', 25.0, showroom.name)
     pending = c.get('/api/pieces/pending', headers=auth_headers).get_json()['lines']
     assert any(l['coding_id'] == batch['coding_id'] for l in pending)
-    body = {'coding_id': batch['coding_id'], 'weight': 14.37, 'request_key': 'sc-1'}
+    body = {'coding_id': batch['coding_id'], 'weight': 14.37, 'wage': 14, 'request_key': 'sc-1'}
     r1 = c.post('/api/pieces', headers=auth_headers, json=body)
     r2 = c.post('/api/pieces', headers=auth_headers, json=body)
     assert r1.status_code == 201 and r2.get_json()['already_saved'] is True, r1.get_data(as_text=True)

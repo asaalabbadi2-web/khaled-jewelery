@@ -6,7 +6,8 @@ GET  /api/pieces/lines/<line_id>  -- a line and its pieces, each with its wage
      (read from its line, §6) or «بانتظار الفاتورة».
 GET  /api/pieces/codings/<id>     -- a batch of existing stock and its pieces.
 POST /api/pieces                  -- a piece under a line (line_id) or a batch
-     (coding_id): weight, stones_weight, model_id, size_id (ADR-093),
+     (coding_id): weight, stones_weight, model_id, size_id (ADR-093), a
+     batch's piece its wage (per gram, or the whole with wage_whole: true),
      request_key -- the save attempt's key: pressed twice, one.
 GET  /api/pieces/wage-check       -- line_id or coding_id, model_id: the
      source's wage per gram against the model's expected one -- a warning.
@@ -27,7 +28,8 @@ GET  /api/pieces/by-tag/<value>   -- the piece a reader read.
 GET  /api/stock-codings/free      -- what a location holds of a category not
      yet pieced nor promised to an open batch (safe_box_id, category_id).
 POST /api/stock-codings           -- «ترميز من المخزون الموجود»: a batch --
-     safe_box_id, category_id, weight, wage_per_gram (by hand), note.
+     safe_box_id, category_id, weight, note; no wage: each of its pieces is
+     sent with its own (wage, wage_whole; ADR-096 §4).
 The laws are services/pieces.py's; these only carry them.
 """
 from datetime import datetime
@@ -111,6 +113,7 @@ def station_register():
         with db.session.begin_nested():
             piece = register_piece(line, weight=data.get('weight'), stones_weight=data.get('stones_weight'),
                                    model_id=data.get('model_id'), size_id=data.get('size_id'),
+                                   wage=data.get('wage'), wage_whole=data.get('wage_whole') is True,
                                    by=_by(), now=datetime.now(), request_key=key)
     except PieceRefused as refused:
         db.session.rollback()
@@ -262,10 +265,12 @@ def stock_coding_free():
 @require_permission('items.create')
 def stock_coding_open():
     data = request.get_json(silent=True) or {}
+    if data.get('wage_per_gram') is not None:
+        return jsonify({'error': 'coding_wage_by_piece',
+                        'message': 'الدفعة بلا أجرة: تُكتب أجرة كل قطعة عند تسجيلها'}), 400
     try:
         batch = open_coding(safe_box_id=data.get('safe_box_id'), category_id=data.get('category_id'),
-                            weight=data.get('weight'), wage_per_gram=data.get('wage_per_gram'),
-                            note=data.get('note'), by=_by(), now=datetime.now())
+                            weight=data.get('weight'), note=data.get('note'), by=_by(), now=datetime.now())
     except PieceRefused as refused:
         db.session.rollback()
         return jsonify({'error': refused.code, 'message': refused.message}), 400

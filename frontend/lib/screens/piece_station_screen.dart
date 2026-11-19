@@ -17,8 +17,9 @@ import 'piece_model_form_screen.dart' show ModelImage;
 /// server «KJ-», its wage read from its line or awaiting the invoice. The
 /// pieces of a line weigh no more than it; the rest stays weight in its
 /// category. A batch of the stock a location already holds is coded the same
-/// way (R3.5): its wage entered by hand. The laws are the server's: this
-/// screen sends and says.
+/// way (R3.5), and takes no wage: each of its pieces is written its own, per
+/// gram or the piece's whole (ADR-096 §4; the owner, 19 Nov 2026). The laws
+/// are the server's: this screen sends and says.
 class PieceStationScreen extends StatefulWidget {
   const PieceStationScreen({super.key, this.api});
   final ApiService? api;
@@ -41,6 +42,11 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
   final _weight = TextEditingController();
   final _stones = TextEditingController();
   final _weightFocus = FocusNode();
+  // A batch's piece: its own wage, per gram or its whole -- the way kept for
+  // the next piece, the figure not.
+  final _wage = TextEditingController();
+  final _wageFocus = FocusNode();
+  bool _wageWhole = false;
 
   // The model and the size (ADR-093 M2): the model chosen once for the line,
   // the size kept for the next piece; both optional.
@@ -62,6 +68,8 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
     _weight.dispose();
     _stones.dispose();
     _weightFocus.dispose();
+    _wage.dispose();
+    _wageFocus.dispose();
     super.dispose();
   }
 
@@ -258,6 +266,13 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
       _weightFocus.requestFocus();
       return;
     }
+    final byPiece = _wageByPiece(line);
+    final wage = byPiece ? readTypedNumber(_wage.text) : null;
+    if (byPiece && (wage == null || wage < 0)) {
+      AppFeedback.warning(context, 'أدخل أجرة القطعة: صفر أو أكثر');
+      _wageFocus.requestFocus();
+      return;
+    }
     // One attempt, one key: sent again after a lost answer, the same piece.
     // 0x7fffffff, not 1 << 32: on the web a shift is 32-bit.
     _requestKey ??=
@@ -273,6 +288,7 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
         'stones_weight': readTypedNumber(_stones.text) ?? 0,
         if (_model != null) 'model_id': _model!['id'],
         if (_sizeId != null) 'size_id': _sizeId,
+        if (byPiece) ...{'wage': wage, 'wage_whole': _wageWhole},
         'request_key': _requestKey,
       });
       if (!mounted) return;
@@ -285,6 +301,7 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
         _saving = false;
         _weight.clear();
         _stones.clear();
+        _wage.clear();
       });
       _weightFocus.requestFocus();
     } on ApiException catch (e) {
@@ -383,6 +400,47 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
             ),
         ],
       ),
+    );
+  }
+
+  /// A batch's pieces are each written their own wage (ADR-096 §4).
+  static bool _wageByPiece(Map<String, dynamic> l) => l['wage_by_piece'] == true;
+
+  /// How the piece's wage is written: per gram or its whole -- kept for the
+  /// next piece.
+  Widget _wageKind() => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: SegmentedButton<bool>(
+        key: const Key('piece-wage-kind'),
+        segments: const [
+          ButtonSegment(value: false, label: Text('أجرة الجرام')),
+          ButtonSegment(value: true, label: Text('أجرة القطعة كلها')),
+        ],
+        selected: {_wageWhole},
+        onSelectionChanged: (v) => setState(() => _wageWhole = v.first),
+      ),
+    ),
+  );
+
+  /// The piece's wage, written after its weight, and the model's expected
+  /// one under it -- a help, not a figure filled in.
+  Widget _wageField() {
+    final expected = _wageCheck?['expected_per_gram'] as num?;
+    return TextField(
+      key: const Key('piece-wage'),
+      controller: _wage,
+      focusNode: _wageFocus,
+      textDirection: TextDirection.ltr,
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      decoration: InputDecoration(
+        labelText: _wageWhole ? 'أجرة القطعة كلها' : 'أجرة الجرام',
+        helperText: expected == null
+            ? null
+            : 'الموديل: ${formatAmount(expected.toDouble())} للجرام',
+      ),
+      onSubmitted: (_) => _register(),
     );
   }
 
@@ -507,6 +565,7 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
             ),
             const SizedBox(height: 12),
           ],
+          if (_wageByPiece(line)) _wageKind(),
           Row(
             children: [
               Expanded(
@@ -540,6 +599,10 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
                   onSubmitted: (_) => _register(),
                 ),
               ),
+              if (_wageByPiece(line)) ...[
+                const SizedBox(width: 12),
+                Expanded(child: _wageField()),
+              ],
               const SizedBox(width: 12),
               FilledButton.icon(
                 key: const Key('piece-register'),
@@ -623,9 +686,9 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
 }
 
 /// A batch of a location's stock to code (R3.5): the location, the category
-/// tracked by the piece, what it holds not yet coded (the server's), the
-/// weight to code and its wage -- per gram, or the batch's whole divided by
-/// its weight (the owner, 9 Nov 2026). Returns the request's body.
+/// tracked by the piece, what it holds not yet coded (the server's) and the
+/// weight to code. No wage: each piece is written its own (ADR-096 §4).
+/// Returns the request's body.
 class _FromStockDialog extends StatefulWidget {
   const _FromStockDialog({required this.api});
   final ApiService api;
@@ -641,11 +704,9 @@ class _FromStockDialogState extends State<_FromStockDialog> {
   int? _safeId;
   int? _categoryId;
   double? _room;
-  bool _wageWhole = false;
   String? _problem;
 
   final _weight = TextEditingController();
-  final _wage = TextEditingController();
   final _note = TextEditingController();
 
   @override
@@ -657,7 +718,6 @@ class _FromStockDialogState extends State<_FromStockDialog> {
   @override
   void dispose() {
     _weight.dispose();
-    _wage.dispose();
     _note.dispose();
     super.dispose();
   }
@@ -707,19 +767,15 @@ class _FromStockDialogState extends State<_FromStockDialog> {
 
   void _submit() {
     final weight = readTypedNumber(_weight.text) ?? 0;
-    final wage = readTypedNumber(_wage.text);
     if (_safeId == null || _categoryId == null) {
       setState(() => _problem = 'اختر الموقع والتصنيف');
     } else if (weight <= 0) {
       setState(() => _problem = 'أدخل وزن الدفعة');
-    } else if (wage == null || wage < 0) {
-      setState(() => _problem = 'أدخل الأجرة: صفر أو أكثر');
     } else {
       Navigator.of(context).pop(<String, dynamic>{
         'safe_box_id': _safeId,
         'category_id': _categoryId,
         'weight': weight,
-        'wage_per_gram': _wageWhole ? wage / weight : wage,
         if (_note.text.trim().isNotEmpty) 'note': _note.text.trim(),
       });
     }
@@ -797,32 +853,11 @@ class _FromStockDialogState extends State<_FromStockDialog> {
                         labelText: 'وزن الدفعة (جم)',
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    SegmentedButton<bool>(
-                      segments: const [
-                        ButtonSegment(value: false, label: Text('أجرة الجرام')),
-                        ButtonSegment(
-                          value: true,
-                          label: Text('أجرة الدفعة كلها'),
-                        ),
-                      ],
-                      selected: {_wageWhole},
-                      onSelectionChanged: (v) =>
-                          setState(() => _wageWhole = v.first),
-                    ),
                     const SizedBox(height: 8),
-                    TextField(
-                      key: const Key('coding-wage'),
-                      controller: _wage,
-                      textDirection: TextDirection.ltr,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: InputDecoration(
-                        labelText: _wageWhole
-                            ? 'أجرة الدفعة كلها'
-                            : 'أجرة الجرام',
-                      ),
+                    Text(
+                      'لا أجرة للدفعة: تُكتب أجرة كل قطعة عند تسجيلها.',
+                      key: const Key('coding-wage-by-piece'),
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
                     const SizedBox(height: 12),
                     TextField(

@@ -2,7 +2,9 @@
 // code; a line opened, each piece typed and sent with its attempt's key --
 // the server's number shown to write on its tag, the counter moved, the
 // wage «بانتظار الفاتورة» until the invoice. Refused, the server's words are
-// said and the next attempt is a new key; a lost answer keeps the key.
+// said and the next attempt is a new key; a lost answer keeps the key. A
+// batch of the stock on hand takes no wage: each of its pieces is sent with
+// its own, per gram or whole (ADR-096 §4; the owner, 19 Nov 2026).
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,6 +13,13 @@ import 'package:frontend/models/safe_box_model.dart';
 import 'package:frontend/screens/piece_station_screen.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+Map<String, dynamic> _batch({int pieces = 0, double coded = 0}) => {
+  'kind': 'stock', 'line_id': null, 'coding_id': 5, 'invoice_number': 'ترميز مخزون #5',
+  'safe_name': 'المعرض', 'category_name': 'بنجرة ذهب 21', 'karat': 21, 'weight': 50.0,
+  'wage_per_gram': null, 'wage_by_piece': true, 'pieces': pieces, 'pieces_weight': coded,
+  'rest': double.parse((50.0 - coded).toStringAsFixed(3)),
+};
 
 Map<String, dynamic> _line({int pieces = 0, double coded = 0}) => {
   'line_id': 7, 'invoice_id': 900, 'invoice_number': 'PUR-2027-00001', 'stage': 'received',
@@ -48,12 +57,7 @@ class _Api extends ApiService {
   @override
   Future<Map<String, dynamic>> openStockCoding(Map<String, dynamic> body) async {
     opened.add(body);
-    return {
-      'line': {'kind': 'stock', 'line_id': null, 'coding_id': 5, 'invoice_number': 'ترميز مخزون #5',
-               'safe_name': 'المعرض', 'category_name': 'بنجرة ذهب 21', 'karat': 21, 'weight': 50.0,
-               'pieces': 0, 'pieces_weight': 0.0, 'rest': 50.0},
-      'pieces': [],
-    };
+    return {'line': _batch(), 'pieces': []};
   }
 
   ApiException? refuseNext;
@@ -95,7 +99,7 @@ class _Api extends ApiService {
     return {
       'piece': {'id': 100 + _n, 'item_code': 'KJ-00012$_n', 'weight': w, 'stones_weight': 0,
                 'wage': null, 'wage_known': false},
-      'line': _line(pieces: _n, coded: w),
+      'line': body.containsKey('coding_id') ? _batch(pieces: _n, coded: w) : _line(pieces: _n, coded: w),
     };
   }
 }
@@ -126,6 +130,8 @@ void main() {
         findsOneWidget);
     expect(find.textContaining('الباقي 15.63 جم'), findsOneWidget);
     expect(find.text('بانتظار الفاتورة'), findsOneWidget);
+    expect(find.byKey(const Key('piece-wage')), findsNothing, reason: 'a receipt\'s piece takes its invoice\'s wage');
+    expect(api.sent.single.containsKey('wage'), isFalse);
   });
 
   testWidgets('refused, the words said and the next attempt a new key', (tester) async {
@@ -164,7 +170,7 @@ void main() {
     expect(api.sent, isEmpty);
   });
 
-  testWidgets('from the stock a location holds: a batch opened, its wage by hand, coded here', (tester) async {
+  testWidgets('from the stock a location holds: a batch opened with no wage, each piece its own', (tester) async {
     final api = _Api();
     SharedPreferences.setMockInitialValues({'jwt_token': 't'});
     tester.view.physicalSize = const Size(1400, 1800);
@@ -186,17 +192,35 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('المتاح للترميز: 120.00'), findsOneWidget);
     await tester.enterText(find.byKey(const Key('coding-weight')), '50');
-    await tester.tap(find.text('أجرة الدفعة كلها'));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const Key('coding-wage')), '750');
+    expect(find.byKey(const Key('coding-wage')), findsNothing, reason: 'a batch takes no wage');
+    expect(find.byKey(const Key('coding-wage-by-piece')), findsOneWidget);
     await tester.tap(find.byKey(const Key('coding-open')));
     await tester.pumpAndSettle();
-    expect(api.opened.single, {'safe_box_id': 3, 'category_id': 28, 'weight': 50.0, 'wage_per_gram': 15.0});
-    await tester.enterText(find.byKey(const Key('piece-weight')), '14.37');
+    expect(api.opened.single, {'safe_box_id': 3, 'category_id': 28, 'weight': 50.0});
+
+    // no wage, nothing sent
+    await tester.enterText(find.byKey(const Key('piece-weight')), '12.4');
+    await tester.tap(find.byKey(const Key('piece-register')));
+    await tester.pumpAndSettle();
+    expect(api.sent, isEmpty);
+
+    // per gram
+    await tester.enterText(find.byKey(const Key('piece-wage')), '20');
     await tester.tap(find.byKey(const Key('piece-register')));
     await tester.pumpAndSettle();
     expect(api.sent.single['coding_id'], 5);
     expect(api.sent.single.containsKey('line_id'), isFalse);
+    expect((api.sent.single['wage'], api.sent.single['wage_whole']), (20.0, false));
+    expect(find.byKey(const Key('piece-wage')), findsOneWidget, reason: 'the next piece writes its own');
+
+    // the piece's whole
+    await tester.tap(find.text('أجرة القطعة كلها'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('piece-weight')), '10');
+    await tester.enterText(find.byKey(const Key('piece-wage')), '300');
+    await tester.tap(find.byKey(const Key('piece-register')));
+    await tester.pumpAndSettle();
+    expect((api.sent.last['wage'], api.sent.last['wage_whole']), (300.0, true));
   });
 
   testWidgets('a piece\'s tag is recorded once written; then it is replaced, not doubled', (tester) async {

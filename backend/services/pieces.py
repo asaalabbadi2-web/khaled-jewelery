@@ -149,10 +149,27 @@ def model_and_size(category: Category, model_id=None, size_id=None):
     return model, size
 
 
-def register_piece(source, *, weight, stones_weight=0.0, model_id=None, size_id=None, by: str, now,
-                   request_key=None) -> Item:
+def _written_wage(wage, wage_whole, weight: float) -> float:
+    """The wage written for a piece coded from the stock on hand, riyals for
+    the whole piece -- per gram times its weight, or the whole as written; or
+    PieceRefused. Zero is a wage, none is not."""
+    if wage is None or (isinstance(wage, str) and not wage.strip()):
+        raise PieceRefused('piece_wage_required', 'اكتب أجرة القطعة: بالجرام أو للقطعة كلها')
+    try:
+        wage = float(wage)
+    except (TypeError, ValueError):
+        raise PieceRefused('piece_wage_invalid', 'أجرة القطعة غير مفهومة') from None
+    if wage < 0:
+        raise PieceRefused('piece_wage_invalid', 'أجرة القطعة صفر أو أكثر')
+    return round(wage if wage_whole else wage * weight, 2)
+
+
+def register_piece(source, *, weight, stones_weight=0.0, model_id=None, size_id=None, wage=None,
+                   wage_whole=False, by: str, now, request_key=None) -> Item:
     """One piece under a posted receipt's line or a batch of stock -- or PieceRefused.
-    Its model and size describe it (ADR-093); its wage stays its source's (§6)."""
+    Its model and size describe it (ADR-093). A receipt's piece takes its
+    invoice's wage (§6): none is written for it. A batch's piece is written its
+    own -- `wage` per gram, or the piece's whole with `wage_whole` (ADR-096 §4)."""
     from services.stock_ledger import allocate
 
     source, category, karat = _source_of(source)
@@ -167,6 +184,10 @@ def register_piece(source, *, weight, stones_weight=0.0, model_id=None, size_id=
         raise PieceRefused('piece_weight_invalid', 'وزن القطعة غير مفهوم') from None
     if weight <= GRAM or stones < 0 or stones >= weight:
         raise PieceRefused('piece_weight_invalid', 'وزن القطعة أكبر من صفر، وفصوصها أقل منه')
+    if batch:
+        coded_wage = _written_wage(wage, wage_whole, weight)
+    elif wage is not None and not (isinstance(wage, str) and not wage.strip()):
+        raise PieceRefused('piece_wage_from_invoice', 'قطعة الاستلام تأخذ أجرة فاتورتها: لا تُكتب لها أجرة')
     rest = (round(float(source.weight or 0.0) - pieces_weight(source), 3) if batch else line_rest(source))
     if weight > rest + GRAM:
         raise PieceRefused('piece_heavier_than_rest',
@@ -190,6 +211,7 @@ def register_piece(source, *, weight, stones_weight=0.0, model_id=None, size_id=
                  size_id=size.id if size else None,
                  weight=weight, has_stones=stones > GRAM, stones_weight=stones, price=0.0, stock=1, count=1,
                  receipt_item_id=None if batch else source.id, coding_id=source.id if batch else None,
+                 coded_wage=coded_wage if batch else None,
                  created_at=now, created_by=by, request_key=request_key or None)
     db.session.add(piece)
     db.session.flush()
@@ -263,7 +285,7 @@ def refuse_piece_sales(invoice_type, items) -> None:
         # its wage is its invoice's (§6), and the sale releases wage x weight
         # from the wages' stock to the expense: a wage typed is a wrong entry
         # (the owner, 18 Nov 2026)
-        per_gram = source_wage_per_gram(piece_source(piece))
+        per_gram = piece_wage_per_gram(piece)
         try:
             sent = float(line.get('wage'))
         except (TypeError, ValueError):
@@ -281,7 +303,7 @@ BORN_ON_RECEIVING = 'القطعة تولد في الاستلام وحده: سج�
 # share of the line's (§6, law 5). Its name and description are words, edited
 # from the catalogue; these are not.
 PIECE_FIXED = ('item_code', 'barcode', 'weight', 'stones_weight', 'karat', 'category_id', 'count', 'stock',
-               'wage', 'manufacturing_wage_per_gram', 'price')
+               'wage', 'manufacturing_wage_per_gram', 'price', 'coded_wage')
 
 
 def refuse_inline_items(items) -> None:
@@ -303,7 +325,7 @@ def _same(fact, before, after) -> bool:
     if after in (None, '') and before in (None, ''):
         return True
     if fact in ('weight', 'stones_weight', 'count', 'stock', 'karat', 'wage', 'manufacturing_wage_per_gram',
-                'price'):
+                'price', 'coded_wage'):
         try:
             return abs(float(str(after)) - float(before or 0)) <= GRAM
         except (TypeError, ValueError):
@@ -411,7 +433,7 @@ def set_tracking(category: Category, *, tracking=None) -> None:
     category.tracking = tracking
 
 
-# ── the wage: read, never kept (§6) ──────────────────────────────────────────
+# ── the wage: a receipt's piece reads its line's (§6); a batch's keeps its own ─
 
 def line_pieces(source):
     """The pieces of a receipt line or a batch, in their order."""
@@ -434,13 +456,15 @@ def _shares(source, per_gram: float):
 
 
 def line_wages(source):
-    """The source's wage and its shares (law 5) -- or None while unknown. The
-    wage is per gram, always (the owner, 9 Nov 2026): bullion's too -- its
-    line's wage given whole is divided by its weight, one line per bar size.
-    A receipt line's is its invoice's, unknown until it is completed; a
-    batch's is entered by hand when it is opened (the owner, 9 Nov 2026)."""
+    """The source's wage and its shares (law 5) -- or None while unknown. A
+    receipt line's is its invoice's, per gram always (the owner, 9 Nov 2026):
+    bullion's too -- its line's wage given whole is divided by its weight, one
+    line per bar size; unknown until the invoice is completed. A batch's is
+    its pieces' own, each written at its coding (ADR-096 §4): no wage per
+    gram, nothing left over."""
     if isinstance(source, StockCoding):
-        return _shares(source, float(source.wage_per_gram))
+        shares = {p.id: round(float(p.coded_wage or 0.0), 2) for p in line_pieces(source)}
+        return {'line': round(sum(shares.values()), 2), 'pieces': shares, 'rest': 0.0, 'per_gram': None}
     invoice = db.session.get(Invoice, source.invoice_id)
     if invoice is None or getattr(invoice, 'receiving_stage', None) != 'invoiced':
         return None
@@ -456,34 +480,47 @@ def piece_source(piece: Item):
 
 
 def source_wage_per_gram(source):
-    """A receipt line's wage per gram once its invoice is completed, a batch's
-    as entered -- None while unknown (law 8)."""
+    """A receipt line's wage per gram once its invoice is completed -- None
+    while unknown (law 8), and for a batch, whose pieces each have their own."""
     wages = line_wages(source)
+    if wages is None or wages['per_gram'] is None:
+        return None
     # unrounded: the sale releases wage x weight, and 12.333 rounded to 12.33
     # would leave 0.03 of a 10.01 g piece's wage in the wages' stock
-    return None if wages is None else round(float(wages['per_gram']), 6)
+    return round(float(wages['per_gram']), 6)
+
+
+def piece_wage_per_gram(piece: Item):
+    """A piece's wage per gram, as a sale line reads it: its receipt line's,
+    or its own over its weight, unrounded -- None while unknown (law 8)."""
+    source = piece_source(piece)
+    if isinstance(source, StockCoding):
+        weight = float(piece.weight or 0.0)
+        return None if piece.coded_wage is None or weight <= GRAM else round(float(piece.coded_wage) / weight, 6)
+    return source_wage_per_gram(source) if source is not None else None
 
 
 def wages_per_gram(pieces) -> dict:
     """{piece id: its wage per gram -- its receipt line's once the invoice is
-    completed, its batch's as entered; None while unknown (law 8)} -- one
-    reading a source, for the lists that show many pieces."""
-    by_source: dict = {}
-    for piece in pieces:
-        key = ('line', piece.receipt_item_id) if piece.receipt_item_id else \
-            ('batch', piece.coding_id) if getattr(piece, 'coding_id', None) else None
-        if key is not None:
-            by_source.setdefault(key, []).append(piece.id)
+    completed, a batch's piece its own; None while unknown (law 8)} -- one
+    reading a receipt line, for the lists that show many pieces."""
+    by_line: dict = {}
     out = {}
-    for (kind, source_id), ids in by_source.items():
-        source = db.session.get(InvoiceItem if kind == 'line' else StockCoding, source_id)
-        per_gram = source_wage_per_gram(source) if source is not None else None
+    for piece in pieces:
+        if piece.receipt_item_id:
+            by_line.setdefault(piece.receipt_item_id, []).append(piece.id)
+        elif getattr(piece, 'coding_id', None):
+            out[piece.id] = piece_wage_per_gram(piece)
+    for line_id, ids in by_line.items():
+        line = db.session.get(InvoiceItem, line_id)
+        per_gram = source_wage_per_gram(line) if line is not None else None
         out.update({i: per_gram for i in ids})
     return out
 
 
 WAGE_SAME, WAGE_DIFFERS, WAGE_AWAITING, WAGE_NO_EXPECTED = 'same', 'model_wage_differs', 'awaiting_invoice', \
     'no_expected'
+WAGE_BY_PIECE = 'by_piece'      # a batch: each piece its own wage, the model's expected beside it
 
 
 def wage_check(source, model) -> dict:
@@ -491,6 +528,8 @@ def wage_check(source, model) -> dict:
     §1) -- a warning, never a refusal: the piece's wage is its source's."""
     expected = float(model.expected_wage_per_gram) if model is not None and \
         model.expected_wage_per_gram is not None else None
+    if isinstance(source, StockCoding):
+        return {'state': WAGE_BY_PIECE, 'invoice_per_gram': None, 'expected_per_gram': expected}
     actual = source_wage_per_gram(source)
     if expected is None:
         state = WAGE_NO_EXPECTED
@@ -527,7 +566,7 @@ def line_view(line: InvoiceItem) -> dict:
             'category_id': line.category_id, 'category_name': getattr(category, 'name', None),
             'karat': int(round(float(line.karat or 0))), 'weight': round(float(line.weight or 0.0), 3),
             'size_system_id': getattr(category, 'size_system_id', None),
-            'wage_per_gram': source_wage_per_gram(line),
+            'wage_per_gram': source_wage_per_gram(line), 'wage_by_piece': False,
             'pieces': len(pieces), 'pieces_weight': coded, 'returned_loose': returned_loose(line),
             'rest': line_rest(line)}
 
@@ -592,7 +631,7 @@ def coding_view(batch: StockCoding) -> dict:
             'category_id': batch.category_id, 'category_name': getattr(category, 'name', None),
             'karat': int(batch.karat), 'weight': round(float(batch.weight), 3),
             'size_system_id': getattr(category, 'size_system_id', None),
-            'wage_per_gram': float(batch.wage_per_gram), 'note': batch.note,
+            'wage_per_gram': None, 'wage_by_piece': True, 'note': batch.note,
             'pieces': len(pieces), 'pieces_weight': coded, 'rest': round(float(batch.weight) - coded, 3)}
 
 
@@ -602,11 +641,11 @@ def reserved_grams(safe_box_id: int, karat: int, category_id: int) -> float:
     return round(sum(max(float(b.weight) - pieces_weight(b), 0.0) for b in batches), 3)
 
 
-def open_coding(*, safe_box_id, category_id, weight, wage_per_gram, note=None, by: str, now) -> StockCoding:
+def open_coding(*, safe_box_id, category_id, weight, note=None, by: str, now) -> StockCoding:
     """A batch of a location's stock of a category to code -- or PieceRefused.
     Its weight no more than the location holds of it not yet pieced nor
-    promised to an open batch; its wage per gram entered (zero is a wage,
-    none is not)."""
+    promised to an open batch. It takes no wage: each piece is written its
+    own (ADR-096 §4)."""
     from services.receiving import coding_on
     if not coding_on(now):
         raise PieceRefused('coding_not_open', 'الترميز من المخزون الموجود لم يُفتح: يفتحه المدير من الإعدادات')
@@ -622,11 +661,10 @@ def open_coding(*, safe_box_id, category_id, weight, wage_per_gram, note=None, b
         raise PieceRefused('piece_category_by_weight', 'التصنيف غير موجود أو موقوف أو يُتابَع بالوزن')
     try:
         weight = round(float(weight), 3)
-        wage = round(float(wage_per_gram), 6)
     except (TypeError, ValueError):
-        raise PieceRefused('coding_figures_invalid', 'الوزن وأجرة الجرام مطلوبان') from None
-    if weight <= GRAM or wage < 0:
-        raise PieceRefused('coding_figures_invalid', 'الوزن أكبر من صفر، وأجرة الجرام صفر فأكثر')
+        raise PieceRefused('coding_figures_invalid', 'وزن الدفعة مطلوب') from None
+    if weight <= GRAM:
+        raise PieceRefused('coding_figures_invalid', 'وزن الدفعة أكبر من صفر')
     karat = int(round(float(category.karat or 0)))
     room = round(free_grams(safe, karat, category.id) - reserved_grams(safe.id, karat, category.id), 3)
     if weight > room + GRAM:
@@ -634,7 +672,7 @@ def open_coding(*, safe_box_id, category_id, weight, wage_per_gram, note=None, b
                            f'في «{safe.name}» من «{category.name}» خارج الاستلامات وبلا ترميز '
                            f'{max(room, 0.0):.2f} جم فقط')
     batch = StockCoding(safe_box_id=safe.id, category_id=category.id, karat=karat, weight=weight,
-                        wage_per_gram=wage, note=(str(note).strip()[:200] or None) if note else None,
+                        note=(str(note).strip()[:200] or None) if note else None,
                         created_at=now, created_by=by)
     db.session.add(batch)
     db.session.flush()

@@ -40,7 +40,7 @@ def fenced(app, db_fence):
 
 def _refusal(**kw):
     try:
-        open_coding(**{'safe_box_id': -1, 'category_id': -1, 'weight': 10.0, 'wage_per_gram': 15.0, 'by': 't',
+        open_coding(**{'safe_box_id': -1, 'category_id': -1, 'weight': 10.0, 'by': 't',
                        'now': NOW, **kw})
     except PieceRefused as refused:
         return refused.code

@@ -37,12 +37,8 @@ from models import db, Category, InventoryCountLine, InventoryCountReturn, Inven
 # After 3–5 Pilot cycles, run:
 #   SELECT reason, COUNT(*) FROM inventory_adjustment GROUP BY reason ORDER BY 2 DESC
 # to see the distribution and decide whether SKU/Barcode investment is justified.
-ADJUSTMENT_REASONS: list[dict] = [
-    {'code': 'COUNT_ERROR', 'label': 'خطأ عدّ',       'requires_note': False},
-    {'code': 'LOSS',        'label': 'فاقد',           'requires_note': True},
-    {'code': 'NEW_ITEM',    'label': 'قطعة جديدة',     'requires_note': False},
-    {'code': 'OTHER',       'label': 'سبب آخر',        'requires_note': True},
-]
+# The list lives with the entry that says its labels (services/inventory_accounting_service).
+from services.inventory_accounting_service import ADJUSTMENT_REASONS, CLASSIFICATION_REASON  # noqa: E402
 _VALID_REASON_CODES = {r['code'] for r in ADJUSTMENT_REASONS}
 _REASON_REQUIRES_NOTE = {r['code']: r['requires_note'] for r in ADJUSTMENT_REASONS}
 
@@ -360,7 +356,7 @@ def approve_count_session(session_id: int):
 
     if reason_code is None:
         # a classification moves grams between categories: its reason is itself (19 Nov 2026)
-        reason_code = 'classification' if getattr(s, 'session_type', '') == 'classify' else 'OTHER'
+        reason_code = CLASSIFICATION_REASON if getattr(s, 'session_type', '') == 'classify' else 'OTHER'
 
     try:
         session, entry = InventoryCountService.approve_session(

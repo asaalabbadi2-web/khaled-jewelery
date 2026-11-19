@@ -149,13 +149,13 @@ def main(argv=None):
                        'net': 4000.0, 'quantity': 1, 'wage': 0, 'selling_price': 4000.0}]})
         check('   its category not sold by weight', st == 400 and b.get('error') == 'piece_category_sold_by_piece')
 
-        # coded from stock, its wage by hand
+        # coded from stock, each piece its wage written (ADR-096 §4)
         sal = Category.query.filter(Category.name.like('سلسال 21%')).first()
         call('put', f'/api/categories/{sal.id}', json={'tracking': 'piece'})
         st, b = call('post', '/api/stock-codings', json={'safe_box_id': showroom.id, 'category_id': sal.id,
-                                                        'weight': 20.0, 'wage_per_gram': 15.0})
+                                                        'weight': 20.0})
         cid = b['line']['coding_id']
-        st, b = call('post', '/api/pieces', json={'coding_id': cid, 'weight': 11.11})
+        st, b = call('post', '/api/pieces', json={'coding_id': cid, 'weight': 11.11, 'wage': 15.0})
         check('coded from stock, its wage known at once', st == 201 and b['piece']['wage'] == round(15 * 11.11, 2),
               f"{b['piece']['item_code']} {b['piece']['wage']}")
 

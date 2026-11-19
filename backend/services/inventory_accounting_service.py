@@ -15,6 +15,24 @@ a difference is a count, and a count is an entry.
 """
 from __future__ import annotations
 
+# A count's adjustment reasons: the code the machine keeps, the label the
+# client lists (GET /inventory/adjustment-reasons) and the entry says -- an
+# accountant reads «فاقد», not «LOSS». A classification's reason is itself.
+ADJUSTMENT_REASONS: list[dict] = [
+    {'code': 'COUNT_ERROR', 'label': 'خطأ عدّ',       'requires_note': False},
+    {'code': 'LOSS',        'label': 'فاقد',           'requires_note': True},
+    {'code': 'NEW_ITEM',    'label': 'قطعة جديدة',     'requires_note': False},
+    {'code': 'OTHER',       'label': 'سبب آخر',        'requires_note': True},
+]
+CLASSIFICATION_REASON = 'classification'
+_REASON_LABELS = {**{r['code']: r['label'] for r in ADJUSTMENT_REASONS}, CLASSIFICATION_REASON: 'تصنيف المخزون'}
+
+
+def reason_label(reason) -> str:
+    """A reason's label -- its code's, or the words as they came."""
+    return _REASON_LABELS.get(reason, reason) if reason else ''
+
+
 ROLE_SHORTAGE = 'inventory_count_shortage'
 ROLE_SURPLUS = 'inventory_count_surplus'
 REFERENCE_TYPE = 'inventory_count'
@@ -65,7 +83,8 @@ class InventoryAccountingService:
         accounts = {int(s.id): int(s.account_id) for s in SafeBox.query.filter(
             SafeBox.id.in_([g[0] for g in groups])).all()}
 
-        description = f'فروق جرد — الجلسة #{session.id}' + (f' — {reason}' if reason else '') + (f' — {note}' if note else '')
+        description = f'فروق جرد — الجلسة #{session.id}' + (f' — {reason_label(reason)}' if reason else '') + \
+            (f' — {note}' if note else '')
         entry = JournalEntry(
             entry_number=generate_journal_entry_number('JE', entry_date=now), date=now,
             description=description[:200], entry_type='عادي', reference_type=REFERENCE_TYPE,
