@@ -85,6 +85,8 @@ GROUP_ACCOUNT_POSTED = 'GROUP_ACCOUNT_POSTED'
 ATTACHMENT_LEFT_PENDING = 'ATTACHMENT_LEFT_PENDING'
 PIECES_BEYOND_CATEGORY = 'PIECES_BEYOND_CATEGORY'
 BACKUP_TOOLS_MISMATCH = 'BACKUP_TOOLS_MISMATCH'
+WAGES_NOT_ALLOCATED = 'WAGES_NOT_ALLOCATED'
+WAGE_POOL_NEGATIVE = 'WAGE_POOL_NEGATIVE'
 
 KINDS = (
     ORPHAN_POSTED_ENTRY,
@@ -112,6 +114,8 @@ KINDS = (
     ATTACHMENT_LEFT_PENDING,
     PIECES_BEYOND_CATEGORY,
     BACKUP_TOOLS_MISMATCH,
+    WAGES_NOT_ALLOCATED,
+    WAGE_POOL_NEGATIVE,
 )
 
 # An invoice in one of these states is retracted: its entries must not count
@@ -874,6 +878,38 @@ def check_pieces_beyond_category() -> list:
     return facts
 
 
+def check_wages_not_allocated() -> list:
+    """A line on the wages' stock (1320), from wage_pools_from, whose
+    allocations to categories and pieces are not the line (ADR-096 ت1): a
+    writer that left it -- the commit's guard refuses a new one, this sees
+    what got past it. Keyed 'journal_entry_line:<id>', the metric the riyals
+    not allocated. Nothing before wage_pools_from (2026's books)."""
+    from services.wage_ledger import unallocated_lines
+    return [Fact(WAGES_NOT_ALLOCATED, f'journal_entry_line:{line.id}', round(riyals - taken, 2),
+                 {'journal_entry_id': line.journal_entry_id, 'line_id': line.id, 'riyals': riyals,
+                  'allocated': taken})
+            for line, riyals, taken in unallocated_lines()]
+
+
+def check_wage_pools_negative() -> list:
+    """A category's pool of wages below zero (ADR-096 §7): more released than
+    put in. Keyed 'wage_pool:<k>k:category:<id or none>', the metric its
+    riyals. Nothing before wage_pools_from."""
+    from services.wage_ledger import CENT, pools, wage_pools_from
+    if wage_pools_from() is None:
+        return []
+    from models import Category
+    facts = []
+    for (karat, category_id), pool in sorted(pools().items(), key=lambda kv: (kv[0][0], kv[0][1] or 0)):
+        if pool['riyals'] >= -CENT:
+            continue
+        name = getattr(db.session.get(Category, category_id), 'name', None) if category_id else 'بلا تصنيف'
+        facts.append(Fact(WAGE_POOL_NEGATIVE, f'wage_pool:{karat}k:category:{category_id or "none"}',
+                          pool['riyals'], {'karat': karat, 'category_id': category_id, 'category_name': name,
+                                           'riyals': pool['riyals'], 'grams': pool['grams']}))
+    return facts
+
+
 def _tool_major(tool: str):
     """The major version of a PostgreSQL tool on the PATH -- None when it is not there."""
     import re
@@ -935,6 +971,8 @@ CHECKS = {
     ATTACHMENT_LEFT_PENDING: check_attachments_left_pending,
     PIECES_BEYOND_CATEGORY: check_pieces_beyond_category,
     BACKUP_TOOLS_MISMATCH: check_backup_tools_mismatch,
+    WAGES_NOT_ALLOCATED: check_wages_not_allocated,
+    WAGE_POOL_NEGATIVE: check_wage_pools_negative,
 }
 
 

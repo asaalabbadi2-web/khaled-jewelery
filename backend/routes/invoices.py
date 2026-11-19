@@ -8944,6 +8944,9 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
         from services.stock_ledger import allocate_invoice
         assign_scrap_categories(new_invoice)      # a customer's scrap: its karat's «كسر» (ADR-045 B)
         allocate_invoice(new_invoice, by=new_invoice.posted_by, now=now)
+        # The wages' stock by category and piece (ADR-096 ت1): its lines allocated, or no invoice.
+        from services.wage_ledger import allocate_invoice_wages
+        allocate_invoice_wages(new_invoice, by=new_invoice.posted_by, now=now)
 
         # Audit: large discount (sales)
         try:

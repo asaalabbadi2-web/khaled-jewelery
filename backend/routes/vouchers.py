@@ -1478,6 +1478,8 @@ def _reverse_voucher_journal_entry(voucher, cancelled_by='system', reason=None):
     db.session.flush()
     from services.stock_ledger import mirror_allocations
     mirror_allocations(pairs, now=datetime.now(), by=cancelled_by)
+    from services.wage_ledger import mirror_wage_allocations      # and the wages' pools (ADR-096 ت1)
+    mirror_wage_allocations(pairs, now=datetime.now(), by=cancelled_by)
 
     return reversal_entry
 

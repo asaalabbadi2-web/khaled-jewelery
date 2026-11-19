@@ -2988,6 +2988,11 @@ class Settings(db.Model):
     # the pieces coded before the 31 Dec count (the owner, 19 Nov 2026). NULL:
     # with receiving, as before. Set to the server's day when it is turned on.
     coding_from = db.Column(db.Date, nullable=True)
+    # From which day every line on the wages' stock (1320) is allocated to a
+    # category or a piece, and none is written by hand (ADR-096 ت1; the owner,
+    # 19 Nov 2026: from 2027's opening). NULL in 2026's books; the transition
+    # writes 2027's first day (services/transition_2027.opening_settings).
+    wage_pools_from = db.Column(db.Date, nullable=True)
     # A receipt line's supplier weight against its weight received, in grams:
     # within it the difference goes on the count's roles; above it, approved
     # by the owner or the manager (ADR-087 §4; the owner, 8 Nov 2026: 0.10).
@@ -6149,6 +6154,32 @@ class StockLineAllocation(db.Model):
     created_by = db.Column(db.String(100), nullable=True)
 
 
+class WageAllocation(db.Model):
+    """A category's -- or a piece's -- share of a line on the wages' stock (ADR-096 ت1).
+
+    The wages' stock is the posted lines on 1320 «مخزون أجور المصنعية» -- no
+    second ledger, as the gold's stock is its safes' lines (StockLineAllocation,
+    ADR-045). An entry writes one line on 1320 for a whole invoice; this says
+    how much of it was which category's pool, or which piece's own wage. A
+    category's pool: its riyals here (no piece), its grams the stock's.
+    category_id NULL: the karat's «بلا تصنيف». riyals carries the line's sign.
+    Law (services/wage_ledger, the one writer): a line's allocations add up to
+    the line, to the halala, from Settings.wage_pools_from on. The database
+    deletes a line's allocations with the line.
+    """
+    __tablename__ = 'wage_allocation'
+
+    id = db.Column(db.Integer, primary_key=True)
+    journal_entry_line_id = db.Column(
+        db.Integer, db.ForeignKey('journal_entry_line.id', ondelete='CASCADE'), nullable=False, index=True)
+    karat = db.Column(db.Integer, nullable=False)
+    category_id = db.Column(db.Integer, db.ForeignKey('category.id', ondelete='RESTRICT'), nullable=True, index=True)
+    item_id = db.Column(db.Integer, db.ForeignKey('item.id', ondelete='RESTRICT'), nullable=True, index=True)
+    riyals = db.Column(db.Float, nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False)
+    created_by = db.Column(db.String(100), nullable=True)
+
+
 class PieceTag(db.Model):
     """A piece's RFID tag (ADR-087 §7; ADR-085): its value, its technology,
     when it was mounted and when stopped. A piece has its tags over time --
@@ -7247,6 +7278,9 @@ _cash_safe_gold_guard.register(JournalEntryLine)
 # balance away from zero (the owner, 18 Nov 2026; nightly GROUP_ACCOUNT_POSTED).
 import parent_account_guard as _parent_account_guard  # noqa: E402
 _parent_account_guard.register(JournalEntryLine)
+# ADR-096 ت1: from wage_pools_from, no line on 1320 is left not allocated.
+import wage_allocation_guard as _wage_allocation_guard  # noqa: E402
+_wage_allocation_guard.register(JournalEntryLine)
 db.event.listen(JournalEntryLine.__table__, 'after_create',
                 _DDL(_PERIOD_LOCK_ENTRY_SQL.replace('%', '%%')).execute_if(dialect='postgresql'))
 db.event.listen(PeriodLock.__table__, 'after_create',

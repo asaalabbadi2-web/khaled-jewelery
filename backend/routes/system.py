@@ -3222,6 +3222,11 @@ def _melting_renewal(*, preview: bool):
                           + (l['stones_weight'] if with_stones and l['stones_kind'] == 'as_gold' else 0.0))
                          for l in op_lines if l['karat'] == karat]
                 spread(on_account, karat, parts, now=voucher_dt, by=created_by, what=f'{op_label} {voucher_number}')
+        # The wage lost with it from its categories' pools, by their grams (ADR-096 ت1).
+        from services.wage_ledger import allocate_entry_wages
+        allocate_entry_wages(journal_entry, [(int(l['karat']), l[left_cat], None, float(l['gold_weight']))
+                                             for l in op_lines],
+                             now=voucher_dt, by=created_by, what=f'{op_label} {voucher_number}')
 
         # stones_weight: معلوماتي فقط — لا يؤثر على رصيد الوزن الذهبي
         _stones_raw = data.get('stones') or {}

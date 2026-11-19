@@ -2170,6 +2170,9 @@ def post_invoice_document(invoice: Invoice, posted_by: str) -> None:
     from services.stock_ledger import allocate_invoice
     assign_scrap_categories(invoice)      # a customer's scrap: its karat's «كسر» (ADR-045 B)
     allocate_invoice(invoice, by=invoice.posted_by, now=now)
+    # The wages' stock by category and piece (ADR-096 ت1): its lines allocated, or no posting.
+    from services.wage_ledger import allocate_invoice_wages
+    allocate_invoice_wages(invoice, by=invoice.posted_by, now=now)
 
     try:
         SystemAlert.query.filter_by(entity_type='Invoice', entity_id=invoice.id, is_reviewed=False).update(

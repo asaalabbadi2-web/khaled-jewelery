@@ -137,6 +137,19 @@ KIND_INFO: dict = {
                           'تعيد الصور — كما كانت كل نسخ الإنتاج من يناير إلى نوفمبر 2026 (أداة 17 وقاعدة 16). '
                           'يُصلح بصورة الخادم: تثبّت أدوات نسخة القاعدة.',
     },
+    'WAGES_NOT_ALLOCATED': {
+        'rank': 23,
+        'title_ar': 'أجور في المخزون غير موزَّعة على تصنيف',
+        'explanation_ar': 'سطر على «مخزون أجور المصنعية» لا يُعرف لأي تصنيف أو قطعة أجوره: كتبه كاتب لم يوزّعه. '
+                          'القيد اليدوي على هذا الحساب يُرفض منذ تشغيل أوعية الأجور، فهذا ما فات الحارس. يُصحَّح '
+                          'بتوزيع السطر على تصنيفات أصنافه.',
+    },
+    'WAGE_POOL_NEGATIVE': {
+        'rank': 24,
+        'title_ar': 'وعاء أجور تصنيف تحت الصفر',
+        'explanation_ar': 'أُطلق من أجور تصنيف أكثر مما دخله: بِيع منه أكثر مما اشتُري، أو صُنِّف ذهبه في غير '
+                          'تصنيفه. تكلفة الأجرة عند البيع تُقرأ من هذا الوعاء، فيُصحَّح تصنيف الذهب.',
+    },
     'PIECES_BEYOND_CATEGORY': {
         'rank': 22,
         'title_ar': 'قطع أكثر مما يحمل تصنيفها',
@@ -215,6 +228,7 @@ _SUBJECTS = {
     'gold_pool': 'مخزن',
     'account': 'حساب رقم',
     'period_expense': 'مصروف فترة رقم',
+    'journal_entry_line': 'سطر قيد رقم',
 }
 
 
@@ -228,6 +242,10 @@ def subject_label(subject_key: Optional[str]) -> str:
     if kind == 'bonus_run':                        # 'bonus_run:daily' -- a bonus run's period
         return {'daily': 'احتساب المكافآت اليومي', 'weekly': 'احتساب المكافآت الأسبوعي',
                 'monthly': 'احتساب المكافآت الشهري'}.get(ident, f'احتساب المكافآت ({ident})')
+    if kind == 'wage_pool':                        # 'wage_pool:21k:category:28' -- a category's wages (ADR-096)
+        karat, _, rest = ident.partition(':')
+        category = rest.partition(':')[2]
+        return f'أجور عيار {karat[:-1]} — ' + ('بلا تصنيف' if category == 'none' else f'تصنيف رقم {category}')
     prefix = _SUBJECTS.get(kind)
     if kind == 'karat' and ident.endswith('k'):   # 'karat:21k' -- a karat of the whole stock
         return f'{prefix} {ident[:-1]}'

@@ -336,6 +336,13 @@ def correct_line(invoice: Invoice, *, line_id, lines, safe_box_id, reason: str, 
     for written_line, karat, category_id, grams in stock_lines:
         if category_id:
             allocate(written_line, karat, category_id, grams, now=now, by=by)
+    if sale:
+        # The old line's wage back into its category, the right lines' out of theirs (ADR-096 ت1).
+        from services.wage_ledger import allocate_entry_wages
+        allocate_entry_wages(entry, [(before_line['karat'], before_line['category_id'], None,
+                                      _f(old.wage) * before_line['weight'])]
+                             + [(l['karat'], l['category_id'], None, -_f(old.wage) * l['weight']) for l in new],
+                             now=now, by=by, what=f'تصحيح فاتورة #{invoice.id}', net=True)
     _rebuild_safe_box_transactions_for_journal_entry(
         entry, JournalEntryLine.query.filter_by(journal_entry_id=entry.id, is_deleted=False).all(), created_by=by)
 
@@ -526,6 +533,12 @@ def _correct_received_line(invoice: Invoice, old: InvoiceItem, raw, safe, *, rea
     for written_line, karat, category_id, grams in stock_lines:
         if category_id:
             allocate(written_line, karat, category_id, grams, now=now, by=by)
+    # The old line's wage out of its category, the right lines' in (ADR-096 ت1); their VAT on 1320 with them.
+    from services.wage_ledger import allocate_entry_wages
+    allocate_entry_wages(entry, [(before['karat'], before['category_id'], None,
+                                  -before['wage_per_gram'] * before['weight'])]
+                         + [(l['karat'], l['category_id'], None, l['wage_per_gram'] * l['weight']) for l in new],
+                         now=now, by=by, what=f'تصحيح استلام #{invoice.id}', net=True)
     _rebuild_safe_box_transactions_for_journal_entry(
         entry, JournalEntryLine.query.filter_by(journal_entry_id=entry.id, is_deleted=False).all(), created_by=by)
 
@@ -666,6 +679,11 @@ def cancel_receipt(invoice: Invoice, *, safe_box_id, reason: str, by: str, now) 
     for written_line, karat, category_id, grams in stock_lines:
         if category_id:
             allocate(written_line, karat, category_id, grams, now=now, by=by)
+    # The receipt's wages out of the categories they came into (ADR-096 ت1).
+    from services.wage_ledger import allocate_entry_wages
+    allocate_entry_wages(entry, [(l['karat'], l['category_id'], None, l['wage_per_gram'] * l['weight'])
+                                 for l in lines],
+                         now=now, by=by, what=f'إلغاء استلام #{invoice.id}')
     _rebuild_safe_box_transactions_for_journal_entry(
         entry, JournalEntryLine.query.filter_by(journal_entry_id=entry.id, is_deleted=False).all(), created_by=by)
 

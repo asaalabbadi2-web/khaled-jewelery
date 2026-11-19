@@ -53,6 +53,7 @@ try:
 	from pricing.gold_price_service import MainKaratNotSet
 	from period_lock_guard import PeriodClosed, answered_readably as _period_lock_answered_readably
 	from parent_account_guard import GroupAccountPosted, answered_readably as _group_guard_answered_readably
+	from wage_allocation_guard import answered_readably as _wage_guard_answered_readably
 	from pricing.karat_service import LineKaratMissing
 	from services.gold_cost_postings import GoldCostRefused
 	from routes import api
@@ -334,6 +335,13 @@ def _group_account_posted_readably(response):
 	except, a rolled-back session), the request answers 400 group_account_posted
 	with the refusal's words (the owner, 18 Nov 2026)."""
 	return _group_guard_answered_readably(response, logger=app.logger)
+
+
+@app.after_request
+def _wage_not_allocated_readably(response):
+	"""A commit refused by the wages' guard (ADR-096 ت1) answers 400
+	wage_not_allocated with the refusal's words, whatever the route made of it."""
+	return _wage_guard_answered_readably(response, logger=app.logger)
 
 
 @app.errorhandler(PeriodClosed)

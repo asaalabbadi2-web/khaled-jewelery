@@ -281,7 +281,8 @@ def _skip(table, row, ex) -> bool:
 def opening_settings(row: dict, *, opens_on) -> dict:
     """2026's settings as 2027 opens with them: the gold's cost from its first
     day (ADR-042), receiving from its first day (ADR-087), no boot seeding."""
-    return {**row, 'gold_cost_from': opens_on, 'receiving_from': opens_on, 'disable_startup_bootstrap': True}
+    return {**row, 'gold_cost_from': opens_on, 'receiving_from': opens_on,
+            'wage_pools_from': opens_on, 'disable_startup_bootstrap': True}
 
 
 def carry_master_data(source_engine, *, opens_on, accounts: '_Accounts | None' = None) -> dict:

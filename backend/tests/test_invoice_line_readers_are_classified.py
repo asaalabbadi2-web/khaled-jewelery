@@ -36,6 +36,7 @@ READERS = {
     'posting_routes.py': 'write',                    # invoice_gold_plan, safe rows at posting
     'routes/office_reservations.py': 'write',        # the reservation's purchase invoice
     'services/stock_ledger.py': 'write',             # allocate_invoice at posting
+    'services/wage_ledger.py': 'write',              # allocate_invoice_wages at posting; the correction its own (ADR-096 ت1)
     'services/purchase_stones.py': 'write',          # a supplier line's stones at posting
     'services/sale_stones.py': 'write',              # a sale line's stones sold by their value (ت6ج)
     'services/gold_allocation_service.py': 'write',  # the supplier's gold owed (ت-4: from the corrected lines)
