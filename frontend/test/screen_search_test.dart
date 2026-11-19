@@ -253,6 +253,28 @@ void main() {
     expect(result('مرتجع بيع'), findsOneWidget);
   });
 
+  // The stock on hand coded before the 31 Dec count, on its own day (the
+  // owner, 19 Nov 2026): the station is there once coding is open, with
+  // receiving still off.
+  testWidgets('the coding station opens with coding, receiving still off', (tester) async {
+    await openHome(tester, prefs: {
+      'app_settings': jsonEncode({'main_karat': 21, 'coding_active': true, 'receiving_active': false}),
+    });
+    await tester.tap(find.byKey(const Key('screen-search-open')));
+    await settle(tester);
+    await search(tester, 'ترميز');
+    expect(result('محطة ترميز القطع'), findsOneWidget);
+    expect(result('استلام ذهب من مورد'), findsNothing, reason: 'receiving keeps its own day');
+  });
+
+  testWidgets('closed, the coding station is not there', (tester) async {
+    await openHome(tester);
+    await tester.tap(find.byKey(const Key('screen-search-open')));
+    await settle(tester);
+    await search(tester, 'ترميز');
+    expect(result('محطة ترميز القطع'), findsNothing);
+  });
+
   testWidgets('a seller finds only what a seller may open', (tester) async {
     await openHome(tester, auth: _Seller());
     await tester.tap(find.byKey(const Key('screen-search-open')));

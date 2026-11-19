@@ -607,9 +607,9 @@ def open_coding(*, safe_box_id, category_id, weight, wage_per_gram, note=None, b
     Its weight no more than the location holds of it not yet pieced nor
     promised to an open batch; its wage per gram entered (zero is a wage,
     none is not)."""
-    from services.receiving import receiving_on
-    if not receiving_on(now):
-        raise PieceRefused('coding_not_open', 'الترميز من المخزون يبدأ مع الاستلام (أول 2027)')
+    from services.receiving import coding_on
+    if not coding_on(now):
+        raise PieceRefused('coding_not_open', 'الترميز من المخزون الموجود لم يُفتح: يفتحه المدير من الإعدادات')
     try:
         safe = db.session.get(SafeBox, int(safe_box_id))
         category = db.session.get(Category, int(category_id))

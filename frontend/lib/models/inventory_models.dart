@@ -200,7 +200,7 @@ class CountSession {
   final int? linesTotal;
   final int? linesCounted;
   final String status; // open | counting | closed | approved | cancelled
-  final String sessionType; // periodic | opening
+  final String sessionType; // periodic | opening | classify
   final bool blindCount;
   final int? snapshotLedgerId;
   final String? openedBy;
@@ -245,6 +245,10 @@ class CountSession {
   bool get canClose => status == 'counting' || status == 'open';
   bool get canApprove => status == 'closed';
   bool get isOpening => sessionType == 'opening';
+
+  /// A classification count: a category weighed whole, the same grams taken
+  /// from «بلا تصنيف» by the server (the owner, 19 Nov 2026).
+  bool get isClassify => sessionType == 'classify';
 
   factory CountSession.fromJson(Map<String, dynamic> j) => CountSession(
     id: j['id'] as int,

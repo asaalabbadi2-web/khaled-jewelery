@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>دليل التصنيف والترميز</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600&display=swap">
+<style>
+/* Layout: one reading column; each step is a numbered row (number, words, screenshot), the steps grouped in three stages */
+:root {
+  --bg: #f6f2ea;
+  --surface: #fffdf8;
+  --ink: #2b2418;
+  --muted: #6b5f4c;
+  --line: #e2d8c4;
+  --gold: #85600b;
+  --gold-soft: #f3e3bd;
+  --ok: #1f6b2c;
+  --ok-soft: #e1efe1;
+  --warn: #8a3b12;
+  --warn-soft: #f7e3d6;
+  --display: "Cairo", "IBM Plex Sans Arabic", "Geeza Pro", Tahoma, sans-serif;
+  --body: "IBM Plex Sans Arabic", "Geeza Pro", Tahoma, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #17140f; --surface: #221d16; --ink: #efe6d6; --muted: #b6a88f; --line: #3a3226;
+    --gold: #d7ae5c; --gold-soft: #3a2f1a; --ok: #8fd19a; --ok-soft: #1d3322; --warn: #f0a77f; --warn-soft: #3b2418;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #17140f; --surface: #221d16; --ink: #efe6d6; --muted: #b6a88f; --line: #3a3226;
+  --gold: #d7ae5c; --gold-soft: #3a2f1a; --ok: #8fd19a; --ok-soft: #1d3322; --warn: #f0a77f; --warn-soft: #3b2418;
+  color-scheme: dark;
+}
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.85; }
+.page {
+  max-width: 980px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 64px;
+  display: flex; flex-direction: column; gap: 40px;
+}
+h1, h2, h3 { font-family: var(--display); line-height: 1.4; text-wrap: balance; margin: 0; }
+h1 { font-size: 2rem; }
+h2 { font-size: 1.4rem; display: flex; align-items: baseline; gap: 12px; }
+h2 .tag { font-family: var(--body); font-size: .8rem; font-weight: 600; color: var(--gold); letter-spacing: .02em; }
+h3 { font-size: 1.1rem; }
+p { margin: 0; max-width: 65ch; }
+.num { direction: ltr; unicode-bidi: isolate; font-variant-numeric: tabular-nums; font-weight: 600; }
+header { display: flex; flex-direction: column; gap: 12px; }
+header .lede { color: var(--muted); }
+.example {
+  display: flex; flex-wrap: wrap; gap: 8px 24px; padding: 14px 18px;
+  border: 1px dashed var(--line); border-radius: 10px; color: var(--muted); font-size: .92rem;
+}
+.example b { color: var(--ink); font-weight: 600; }
+.stage { display: flex; flex-direction: column; gap: 20px; }
+.stage > p { color: var(--muted); }
+.step {
+  display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 0 16px;
+  padding-block: 20px; border-top: 1px solid var(--line);
+}
+.step .n {
+  width: 36px; height: 36px; border-radius: 50%; background: var(--gold); color: var(--bg);
+  display: grid; place-items: center; font-family: var(--display); font-weight: 700;
+}
+.step .body { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.step ul { margin: 0; padding-inline-start: 20px; display: flex; flex-direction: column; gap: 4px; }
+figure { margin: 4px 0 0; display: flex; flex-direction: column; gap: 6px; }
+figure img { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); width: 100%; height: auto; }
+figcaption { font-size: .85rem; color: var(--muted); }
+.note { padding: 12px 16px; border-radius: 8px; font-size: .95rem; }
+.note.ok { background: var(--ok-soft); color: var(--ok); }
+.note.warn { background: var(--warn-soft); color: var(--warn); }
+.note b { font-weight: 600; }
+.sum { font-variant-numeric: tabular-nums; }
+.rules {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.rules ol { margin: 0; padding-inline-start: 22px; display: flex; flex-direction: column; gap: 6px; }
+footer { color: var(--muted); font-size: .88rem; }
+@media (max-width: 520px) {
+  h1 { font-size: 1.6rem; }
+  .step { grid-template-columns: 1fr; gap: 10px; }
+}
+</style>
+</head>
+<body>
+
+<div class="page" dir="rtl" lang="ar">
+  <header>
+    <h1>تصنيف المخزون ثم ترميز قطعه</h1>
+    <p class="lede">التصنيفات تُرمَّز واحدًا بعد واحد: البناجر أولًا، ثم الأطقم، حتى آخر تصنيف. ولكل تصنيف ثلاث مراحل: يُوزن في «الجرد الفعلي»، ثم يُحوَّل إلى المتابعة بالقطعة، ثم تُرمَّز قطعه في المحطة.</p>
+    <div class="example">
+      <span>مثال الصور (أرقام توضيحية):</span>
+      <span>الموقع <b>الذهب المعروض</b></span>
+      <span>عيار 21 «بلا تصنيف» <b class="num">1,000.00</b> جم</span>
+      <span>التصنيف <b>بنجرة ذهب 21</b></span>
+    </div>
+  </header>
+
+  <section class="stage">
+    <h2>قبل البدء <span class="tag">مرة واحدة · المدير</span></h2>
+    <p>من «الإعدادات» يشغّل المدير مفتاح «ترميز المخزون الموجود قطعًا». يُسجَّل اليوم يومًا لبدء الترميز، ويظهر باب «محطة ترميز القطع» في الرئيسية. ولا يحتاج المفتاح أن يُشغَّل مرة ثانية.</p>
+  </section>
+
+  <section class="stage">
+    <h2>المرحلة الأولى: وزن التصنيف <span class="tag">الجرد الفعلي</span></h2>
+    <p>الهدف أن تعرف الدفاتر كم جرامًا من هذا التصنيف في الموقع. هو اليوم محسوب على «بلا تصنيف».</p>
+
+    <div class="step">
+      <div class="n">1</div>
+      <div class="body">
+        <h3>افتح جلسة «تصنيف المخزون»</h3>
+        <ul>
+          <li>«الجرد الفعلي» ← جلسة جرد جديدة.</li>
+          <li>اختر الموقع، ثم نوع الجرد «تصنيف المخزون»، ثم «بدء الجرد».</li>
+        </ul>
+        <figure>
+          <img src="img/1_count_open_classify.png" alt="نافذة فتح جلسة الجرد وفيها الموقع الذهب المعروض ونوع الجرد تصنيف المخزون مختار" loading="lazy">
+          <figcaption>تحت الأنواع الثلاثة سطر يشرح ما يفعله النوع المختار.</figcaption>
+        </figure>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="n">2</div>
+      <div class="body">
+        <h3>زِن التصنيف كله في هذا الموقع، واكتب وزنه</h3>
+        <ul>
+          <li>اجمع كل البناجر في الموقع، وزنها معًا، واكتب الوزن: <span class="num">250.000</span>.</li>
+          <li>«حفظ + التالي». يأخذ النظام الوزن من «بلا تصنيف» وحده، فيصير <span class="num">750.000</span>.</li>
+          <li>لا تكتب شيئًا في سطر «بلا تصنيف».</li>
+          <li>ثم «انتهيت — إنهاء العدّ».</li>
+        </ul>
+        <figure>
+          <img src="img/2_count_bangles_weighed.png" alt="شاشة العدّ وفيها بطاقة بنجرة ذهب 21 بوزن 250 جرامًا، وقائمة فيها بنجرة ذهب 21 وبلا تصنيف" loading="lazy">
+          <figcaption>القائمة على اليمين فيها التصنيف الموزون و«بلا تصنيف» الذي يُعدَّل وحده.</figcaption>
+        </figure>
+        <p class="note warn"><b>زِن التصنيف كاملًا لا جزءًا منه.</b> بعد الخطوة 4 لا يُباع من التصنيف إلا قطعه المرمَّزة. فإن وُزن جزء منه، بقي الباقي على «بلا تصنيف»، وصار في الدفاتر في غير تصنيفه.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="n">3</div>
+      <div class="body">
+        <h3>المدير يعتمد</h3>
+        <ul>
+          <li>السطر الأعلى لكل عيار: الدفاتر <span class="num">1,000.000</span>، والمعدود <span class="num">1,000.000</span>، والفرق <span class="num">0.000</span>.</li>
+          <li>«اعتماد الجرد». تُكتب الجرامات على تصنيفاتها، ولا يُكتب قيد زيادة أو نقص.</li>
+        </ul>
+        <figure>
+          <img src="img/3_count_approve.png" alt="شاشة الاعتماد: عيار 21 الدفاتر 1000 والمعدود 1000 والفرق صفر، وتحته بنجرة ذهب 21 بوزن 250 وبلا تصنيف بوزن 750" loading="lazy">
+          <figcaption>وزن العيار في الموقع لا يتغير. الذي يتغير توزيعه على التصنيفات.</figcaption>
+        </figure>
+        <p class="note ok">إن كان الفرق في أي عيار غير صفر، يرفض النظام الاعتماد. الفرق يعني أن الوزن لم يُكتب صحيحًا.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="stage">
+    <h2>المرحلة الثانية: التحويل إلى القطعة <span class="tag">أصناف الذهب · المدير</span></h2>
+
+    <div class="step">
+      <div class="n">4</div>
+      <div class="body">
+        <h3>اجعل التصنيف «بالقطعة»</h3>
+        <ul>
+          <li>«أصناف الذهب» ← التصنيفات ← تعديل «بنجرة ذهب 21».</li>
+          <li>طريقة التتبع: «بالقطعة (يُرمَّز كل قطعة)»، ثم «حفظ».</li>
+        </ul>
+        <figure>
+          <img src="img/4_category_by_piece.png" alt="نافذة تعديل التصنيف وفيها طريقة التتبع بالقطعة" loading="lazy">
+          <figcaption>من هذه اللحظة لا يُباع من البناجر إلا ما رُمِّز.</figcaption>
+        </figure>
+        <p class="note warn">بعد التحويل لا يُباع من البناجر غير المرمَّزة شيء. لذلك يُحوَّل التصنيف في يوم يبدأ فيه الترميز، ويُنهى ترميزه في يوم أو يومين.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="stage">
+    <h2>المرحلة الثالثة: ترميز القطع <span class="tag">محطة ترميز القطع · فريق الترميز</span></h2>
+
+    <div class="step">
+      <div class="n">5</div>
+      <div class="body">
+        <h3>افتح المحطة</h3>
+        <p>«محطة ترميز القطع» ← «ترميز من المخزون الموجود».</p>
+        <figure>
+          <img src="img/5_station_open.png" alt="محطة ترميز القطع وفيها زر ترميز من المخزون الموجود" loading="lazy">
+        </figure>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="n">6</div>
+      <div class="body">
+        <h3>افتح دفعة</h3>
+        <ul>
+          <li>الموقع والتصنيف. يظهر تحتهما المتاح للترميز: <span class="num">250.00</span> جم، وهو ما وُزن في الخطوة 2.</li>
+          <li>وزن الدفعة: <span class="num">250</span> (أو جزء منه).</li>
+          <li>الأجرة: «أجرة الجرام» <span class="num">20</span>، أو «أجرة الدفعة كلها» مبلغًا واحدًا.</li>
+          <li>«فتح الدفعة».</li>
+        </ul>
+        <figure>
+          <img src="img/6_station_batch.png" alt="نافذة ترميز من المخزون الموجود: الموقع والتصنيف والمتاح 250 ووزن الدفعة 250 وأجرة الجرام 20" loading="lazy">
+          <figcaption>الأجرة اليوم واحدة للدفعة كلها. وفي الإصدار القادم تُكتب أجرة كل قطعة عند تسجيلها، وتُحدَّث هذه الصور معه.</figcaption>
+        </figure>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="n">7</div>
+      <div class="body">
+        <h3>زِن كل قطعة وسجّلها</h3>
+        <ul>
+          <li>ضع القطعة على الميزان واكتب وزنها: <span class="num">12.40</span>. وإن كان فيها فصوص فاكتب وزن الفصوص في خانتها.</li>
+          <li>«تسجيل القطعة». يظهر رقمها <span class="num">KJ-000001</span>: اكتبه على بطاقة القطعة، أو اطبع رقاقتها من «تسجيل الرقاقة».</li>
+          <li>أجرة القطعة يحسبها النظام: <span class="num sum">12.40 × 20 = 248.00</span>.</li>
+          <li>الباقي في الدفعة <span class="num">237.60</span> جم. استمر قطعة بعد قطعة حتى يقترب من الصفر.</li>
+        </ul>
+        <figure>
+          <img src="img/7_station_piece_coded.png" alt="شاشة الدفعة بعد تسجيل القطعة KJ-000001 بوزن 12.40 وأجرة 248 والباقي 237.60" loading="lazy">
+          <figcaption>رأس الشاشة: الوزن، وعدد القطع المرمَّزة، والباقي. وتحته قائمة قطع الدفعة.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <aside class="rules">
+    <h3>القواعد في سطور</h3>
+    <ol>
+      <li>تصنيف واحد في كل مرة: يُوزن، ثم يُحوَّل، ثم يُرمَّز. ثم التصنيف التالي.</li>
+      <li>يُوزن التصنيف كله في الموقع. وإن كان في موقعين (المعروض والخزنة مثلًا)، فجلسة لكل موقع.</li>
+      <li>لا يُكتب في سطر «بلا تصنيف». النظام يعدّله.</li>
+      <li>يُعتمد الجرد إذا كان الفرق صفرًا في كل عيار.</li>
+      <li>يُحوَّل التصنيف إلى القطعة يوم يبدأ ترميزه، لأن غير المرمَّز لا يُباع بعد التحويل.</li>
+      <li>كل قطعة يُكتب رقمها على بطاقتها فور تسجيلها.</li>
+    </ol>
+  </aside>
+
+  <footer>الأرقام في الصور والشرح توضيحية، وليست أرقام المحل.</footer>
+</div>
+</body>
+</html>

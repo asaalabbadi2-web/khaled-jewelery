@@ -1560,7 +1560,11 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           );
         },
       );
-      // The pieces of a received line, one by one (ADR-087 R3.4).
+    }
+    // The pieces of a received line, one by one (ADR-087 R3.4) -- and the stock
+    // on hand coded before the 31 Dec count, on its own day (the owner, 19 Nov 2026).
+    final pieceSettings = context.read<SettingsProvider>();
+    if (pieceSettings.receivingActive || pieceSettings.codingActive) {
       addDestination(
         icon: Icons.qr_code_2,
         title: isAr ? 'محطة ترميز القطع' : 'Piece Coding Station',

@@ -26,6 +26,10 @@ Close policy:
         catalogue's categories are listed at zero where nothing is held.
     session_type='periodic': partial close with force=True (a piece at the
         jeweller is still ours, «عند الصائغ»).
+    session_type='classify': a category weighed whole, the same grams taken
+        from «بلا تصنيف» of its karat at once -- never typed -- so each karat
+        nets to nothing; what is not weighed is left as it is (the owner,
+        19 Nov 2026: the stock on hand classified before it is coded).
     Either: a line whose books are negative (a transfer's trace, not gold) is
         counted zero at close, never left as the books (8 Nov 2026).
 """
@@ -37,6 +41,8 @@ if TYPE_CHECKING:
     from models import InventoryCountLine, InventoryCountSession
 
 STANDARD_KARATS = (18.0, 21.0, 22.0, 24.0)
+CLASSIFY = 'classify'
+GRAM_TOLERANCE = 0.005
 
 
 class InventoryCountService:
@@ -53,7 +59,7 @@ class InventoryCountService:
         """
         from models import InventoryCountSession, SafeBox, db
 
-        if session_type not in ('periodic', 'opening'):
+        if session_type not in ('periodic', 'opening', CLASSIFY):
             raise ValueError(f'session_type غير صالح: {session_type}')
         # A count is of one location (ADR-086 law 2): every location at once
         # was one session nobody could finish -- #5, 397 lines, open from 14 Oct.
@@ -184,6 +190,9 @@ class InventoryCountService:
             raise ValueError('حدّد موقع العدّ (الخزينة) — الجلسة تشمل كل المواقع')
         if int(safe_box_id) not in cls._scope(session):
             raise ValueError('الخزينة ليست ضمن مواقع هذه الجلسة')
+        classifying = (session.session_type or 'periodic') == CLASSIFY
+        if classifying and category_id is None:
+            raise ValueError('في جرد التصنيف يُؤخذ «بلا تصنيف» تلقائيًا: زِن التصنيف وحده')
         weight = float(counted_weight)
         if weight < 0:
             raise ValueError('الوزن المعدود لا يكون سالبًا')
@@ -203,7 +212,36 @@ class InventoryCountService:
         if session.status == 'open':
             session.status = 'counting'
         db.session.flush()
+        if classifying:
+            cls._take_from_unclassified(session, int(safe_box_id), float(karat), counted_by=counted_by, now=now)
         return line
+
+    @classmethod
+    def _take_from_unclassified(cls, session, safe_box_id: int, karat: float, *, counted_by, now) -> None:
+        """A classification count's «بلا تصنيف» of a karat: its books less what
+        its categories were weighed over theirs -- the karat nets to nothing.
+        Refused when that is more than it holds: what is over is a periodic
+        count's, a surplus, not a category's grams."""
+        from models import InventoryCountLine, db
+        weighed = (InventoryCountLine.query.filter_by(session_id=session.id, safe_box_id=safe_box_id,
+                                                      karat=float(karat))
+                   .filter(InventoryCountLine.category_id.isnot(None),
+                           InventoryCountLine.counted_weight.isnot(None)).all())
+        taken = sum(float(l.counted_weight) - float(l.expected_weight or 0.0) for l in weighed)
+        rest = cls._line(session, safe_box_id, None, karat)
+        held = float(rest.expected_weight or 0.0) if rest is not None else 0.0
+        if held - taken < -GRAM_TOLERANCE:
+            raise ValueError(f'«بلا تصنيف» عيار {int(karat)} في الدفاتر {held:,.2f} جم، والمصنَّف يأخذ منه '
+                             f'{taken:,.2f}: ما زاد ذهب زائد يُعدّ بجرد دوري، لا تصنيف')
+        if rest is None:
+            rest = InventoryCountLine(session_id=session.id, branch_id=session.branch_id, safe_box_id=safe_box_id,
+                                      category_id=None, karat=float(karat), expected_weight=0.0)
+            db.session.add(rest)
+        rest.counted_weight = round(held - taken, 4)
+        rest.variance = round(rest.counted_weight - held, 4)
+        rest.counted_by = counted_by or None
+        rest.counted_at = now
+        db.session.flush()
 
     # ── Review ────────────────────────────────────────────────────────────────
 
@@ -233,6 +271,12 @@ class InventoryCountService:
         if session.status not in ('open', 'counting'):
             raise ValueError(f'لا يمكن إغلاق جلسة بحالة: {session.status}')
         session_type = session.session_type or 'periodic'
+        if session_type == CLASSIFY:
+            # what was not weighed is left as it is: not zeroed, not asked (19 Nov 2026)
+            session.status = 'closed'
+            session.closed_at = now
+            return InventoryCountLine.query.filter_by(session_id=session.id).filter(
+                InventoryCountLine.counted_weight.is_(None)).count()
         # A category's negative balance is a transfer's trace, not gold (8 Nov
         # 2026): left «as the books» it wrote a phantom shortage. Counted zero.
         for ln in InventoryCountLine.query.filter_by(session_id=session.id).filter(
@@ -301,6 +345,13 @@ class InventoryCountService:
         """
         if session.status != 'closed':
             raise ValueError(f'يجب إغلاق الجلسة أولاً — الحالة الحالية: {session.status}')
+        if (session.session_type or 'periodic') == CLASSIFY:
+            # a classification moves grams between categories: no karat may differ
+            off = [r for r in cls.karat_review(session) if abs(r['difference']) > GRAM_TOLERANCE]
+            if off:
+                raise ValueError('جرد التصنيف لا يُغيّر وزن العيار: ' + '، '.join(
+                    f"عيار {int(r['karat'])} يختلف {r['difference']:+,.3f} جم" for r in off))
+            adjustment_reason = adjustment_reason or 'classification'
         from services.inventory_accounting_service import InventoryAccountingService
         entry = InventoryAccountingService.post_count_differences(
             session, by=approved_by, now=now, reason=adjustment_reason, note=adjustment_note)

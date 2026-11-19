@@ -97,6 +97,11 @@ class SettingsProvider with ChangeNotifier {
   /// answer, from its day (Settings.receiving_from); off in 2026.
   bool get receivingActive => _settings['receiving_active'] == true;
 
+  /// Coding the stock on hand into pieces is open today -- on its own day
+  /// (Settings.coding_from, the pieces coded before the 31 Dec count; the
+  /// owner, 19 Nov 2026) or with receiving. The server's answer.
+  bool get codingActive => _settings['coding_active'] == true;
+
   /// The catalogue adds items -- «إضافة صنف», «إضافة سريعة», «استنساخ» --
   /// until receiving works: then a piece is born there alone (ADR-087 R3.3;
   /// the server refuses the same, piece_born_on_receiving).

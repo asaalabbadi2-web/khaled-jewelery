@@ -135,8 +135,13 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
   // ── Save entry ────────────────────────────────────────────────────────────
 
   Future<void> _saveEntry(_LineState ls, double value) async {
-    // «بلا تصنيف» (no category) is counted like any line (ADR-045).
+    // «بلا تصنيف» (no category) is counted like any line (ADR-045) -- but in a
+    // classification count the server takes it, never typed (19 Nov 2026).
     if (_session == null) return;
+    if (_session!.isClassify && ls.line.categoryId == null) {
+      AppFeedback.info(context, 'في تصنيف المخزون يُؤخذ «بلا تصنيف» تلقائيًا: زِن التصنيف وحده');
+      return;
+    }
     setState(() => ls.status = CountLineStatus.saving);
     try {
       final updated = await _svc.recordEntry(
@@ -152,6 +157,15 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
         ls.status = CountLineStatus.saved;
         ls.savedAt = DateTime.now();
         _session = refreshed;
+        // the «بلا تصنيف» the server took the category's grams from
+        if (refreshed.isClassify) {
+          for (final other in _lineStates) {
+            if (other.line.categoryId != null) continue;
+            for (final fresh in refreshed.lines) {
+              if (fresh.id == other.line.id) other.line = fresh;
+            }
+          }
+        }
       });
     } on InventoryApiException catch (e) {
       setState(() => ls.status = CountLineStatus.failed);
@@ -252,8 +266,10 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
     final hasUncounted = uncountedCount > 0;
     final isOpening = _session?.isOpening ?? false;
 
-    // result: (confirmed, force, zeroUncounted)
-    final result = await showDialog<({bool confirmed, bool force, bool zeroUncounted})>(
+    // A classification leaves what was not weighed as it is: no warning to ask.
+    final result = _session?.isClassify == true
+        ? (confirmed: true, force: true, zeroUncounted: false)
+        : await showDialog<({bool confirmed, bool force, bool zeroUncounted})>(
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('إنهاء العدّ'),
@@ -490,6 +506,36 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
 
   // ── Approve ───────────────────────────────────────────────────────────────
 
+  Future<bool> _showClassifyApproveConfirm() async {
+    final weighed = _lineStates.where((l) => l.line.categoryId != null && l.line.isCounted).length;
+    return await showDialog<bool>(
+          context: context,
+          builder: (ctx) => Directionality(
+            textDirection: TextDirection.rtl,
+            child: AlertDialog(
+              key: const Key('classify-approve'),
+              title: const Text('اعتماد تصنيف المخزون'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _WillDo('نقل وزن $weighed تصنيفًا من «بلا تصنيف» إلى تصنيفاتها'),
+                  const SizedBox(height: 6),
+                  const _WillDo('لا زيادة ولا نقص: وزن كل عيار في الخزينة كما هو'),
+                  const SizedBox(height: 8),
+                  _KaratReview(rows: _session!.byKarat),
+                ],
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('تراجع')),
+                ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('اعتماد')),
+              ],
+            ),
+          ),
+        ) ??
+        false;
+  }
+
   Future<bool> _showOpeningApproveConfirm() async {
     final total = _lineStates.length;
     final counted = _lineStates.where((l) => l.line.isCounted).length;
@@ -575,9 +621,10 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
   Future<void> _approveSession() async {
     if (_session == null) return;
 
-    // Opening sessions: simplified confirm — no variance, no reason code
-    if (_session!.isOpening) {
-      final ok = await _showOpeningApproveConfirm();
+    // Opening sessions: simplified confirm — no variance, no reason code;
+    // a classification too: it moves grams between categories, nothing else.
+    if (_session!.isOpening || _session!.isClassify) {
+      final ok = _session!.isClassify ? await _showClassifyApproveConfirm() : await _showOpeningApproveConfirm();
       if (!ok || !mounted) return;
       setState(() => _loading = true);
       try {
@@ -721,7 +768,7 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
           title: s == null
               ? const Text('جلسة جرد جديدة')
               : Text(
-                  '${isOpening ? 'جرد كامل' : 'جرد دوري'}'
+                  '${s.isClassify ? 'تصنيف المخزون' : isOpening ? 'جرد كامل' : 'جرد دوري'}'
                   '${s.safeBoxName != null ? ' — ${s.safeBoxName}' : ''}',
                 ),
           actions: [
@@ -2657,7 +2704,8 @@ class _OpenSessionSheetState extends State<_OpenSessionSheet> {
   /// every location at once).
   int? _selectedLocation;
   bool _blindCount = true;
-  bool _isOpening = false;
+  /// periodic | opening («جرد كامل») | classify («تصنيف المخزون», 19 Nov 2026)
+  String _type = 'periodic';
   bool _loadingBranches = true;
   bool _submitting = false;
   String? _error;
@@ -2698,8 +2746,8 @@ class _OpenSessionSheetState extends State<_OpenSessionSheet> {
       final s = await widget.svc.openSession(
         safeBoxId: _selectedLocation,
         // The full count is blind (the owner, 6 Nov 2026: «عدّ أعمى»).
-        blindCount: _isOpening ? true : _blindCount,
-        sessionType: _isOpening ? 'opening' : 'periodic',
+        blindCount: _type == 'periodic' ? _blindCount : true,
+        sessionType: _type,
       );
       widget.onOpened(s);
     } on InventoryApiException catch (e) {
@@ -2792,23 +2840,33 @@ class _OpenSessionSheetState extends State<_OpenSessionSheet> {
               ),
             const SizedBox(height: 14),
             // Session type
-            SwitchListTile(
-              value: _isOpening,
-              onChanged: (v) => setState(() {
-                _isOpening = v;
+            SegmentedButton<String>(
+              key: const Key('count-type'),
+              segments: const [
+                ButtonSegment(value: 'periodic', label: Text('جرد دوري')),
+                ButtonSegment(value: 'classify', label: Text('تصنيف المخزون')),
+                ButtonSegment(value: 'opening', label: Text('جرد كامل')),
+              ],
+              selected: {_type},
+              onSelectionChanged: (v) => setState(() {
+                _type = v.first;
                 _error = null;
                 _existingSessionId = null;
               }),
-              title: const Text('جرد كامل',
-                  style: TextStyle(fontWeight: FontWeight.w600)),
-              subtitle: const Text(
-                'كل تصنيفات الموقع، ويُقفل بعدّها كلها — جرد 31 ديسمبر',
-                style: TextStyle(fontSize: 12),
-              ),
-              activeColor: _tn(context).sectionTeal.fg,
-              contentPadding: EdgeInsets.zero,
             ),
-            if (!_isOpening)
+            const SizedBox(height: 6),
+            Text(
+              switch (_type) {
+                'classify' => 'زِن تصنيفًا كاملًا في الموقع، فيُؤخذ وزنه من «بلا تصنيف» تلقائيًا. '
+                    'لا زيادة ولا نقص، وما لا يُوزن يبقى كما هو. قبل ترميز التصنيف قطعًا.',
+                'opening' => 'كل تصنيفات الموقع، ويُقفل بعدّها كلها — جرد 31 ديسمبر',
+                _ => 'تُعدّ أصناف الموقع، ويُقيَّد الفرق زيادةً أو نقصًا',
+              },
+              key: const Key('count-type-help'),
+              style: const TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 6),
+            if (_type == 'periodic')
               SwitchListTile(
                 value: _blindCount,
                 onChanged: (v) =>

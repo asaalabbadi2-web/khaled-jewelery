@@ -118,6 +118,11 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
   /// VAT on sales, apart from purchases (SALES-VAT-1).
   bool _salesVatEnabled = true;
 
+  /// Coding the stock on hand opened on its own day (the owner, 19 Nov 2026):
+  /// the server keeps the day it was turned on.
+  bool _codingOn = false;
+  String? _codingFrom;
+
   /// How a purchase and a sale treat manufacturing wages (ADR-039).
   String _wageMode = kWageModeExpense;
 
@@ -387,6 +392,8 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
           settings['sales_vat_enabled'],
           fallback: true,
         );
+        _codingFrom = settings['coding_from']?.toString();
+        _codingOn = _codingFrom != null;
         _wageMode =
             settings['manufacturing_wage_mode']?.toString() ==
                 kWageModeInventory
@@ -604,6 +611,7 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
       'idle_timeout_minutes': _idleTimeoutMinutes,
       'allow_partial_invoice_payments': _allowPartialInvoicePayments,
       'manufacturing_wage_mode': _wageMode,
+      'coding_on': _codingOn,
       'sales_vat_enabled': _salesVatEnabled,
 
       // 🆕 Feature toggles + default safes (employee routing)
@@ -1103,6 +1111,25 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
             ),
             const SizedBox(height: 8),
             _buildWageModeSetting(),
+            const Divider(height: 32),
+            SwitchListTile.adaptive(
+              key: const Key('settings-coding-on'),
+              value: _codingOn,
+              onChanged: (value) => setState(() => _codingOn = value),
+              thumbColor: _thumbColorFor(_colors.tertiary),
+              trackColor: _trackColorFor(_colors.tertiary),
+              title: Text(
+                'ترميز المخزون الموجود قطعًا',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              subtitle: Text(
+                _codingOn && _codingFrom != null
+                    ? 'مفتوح منذ $_codingFrom: «ترميز من المخزون الموجود» في محطة ترميز القطع، تصنيفًا تصنيفًا قبل جرد 31 ديسمبر. '
+                        'الاستلام من المورد يبقى كما هو.'
+                    : 'عند التفعيل يُفتح «ترميز من المخزون الموجود» في محطة ترميز القطع من اليوم، لتُرمَّز قطع المخزون قبل جرد 31 ديسمبر. '
+                        'الاستلام من المورد يبقى كما هو.',
+              ),
+            ),
             const Divider(height: 32),
             SwitchListTile.adaptive(
               value: _salesVatEnabled,

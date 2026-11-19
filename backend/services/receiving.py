@@ -27,6 +27,25 @@ def receiving_on(day) -> bool:
     return isinstance(day, date) and day >= start
 
 
+def coding_from():
+    from models import Settings
+    return getattr(Settings.query.first(), 'coding_from', None)
+
+
+def coding_on(day) -> bool:
+    """Whether the stock on hand may be coded into pieces on *day*: from its own
+    day (Settings.coding_from -- the pieces coded before the 31 Dec count, the
+    owner, 19 Nov 2026), or with receiving, as it always opened."""
+    if receiving_on(day):
+        return True
+    start = coding_from()
+    if start is None or day is None:
+        return False
+    if isinstance(day, datetime):
+        day = day.date()
+    return isinstance(day, date) and day >= start
+
+
 # What receiving fixed and completing the invoice leaves as it is (ADR-087 §1).
 RECEIPT_KEEPS = frozenset({
     'invoice_type_id', 'invoice_type', 'gold_type', 'customer_id', 'supplier_id', 'employee_id', 'branch_id',

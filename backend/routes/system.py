@@ -631,11 +631,15 @@ def get_settings():
     settings = _get_settings_singleton(create_if_missing=True)
     from services.vat_policy import periods as _vat_periods
     # Receiving works today or not -- the server's day, not the screen's (ADR-087 R2).
-    from services.receiving import receiving_from, receiving_on
+    from services.receiving import coding_from, coding_on, receiving_from, receiving_on
     _start = receiving_from()
+    _coding = coding_from()
     response = jsonify({**settings.to_dict(), 'vat_periods': _vat_periods(),
                         'receiving_from': _start.isoformat() if _start else None,
-                        'receiving_active': receiving_on(datetime.now())})
+                        'receiving_active': receiving_on(datetime.now()),
+                        # coding the stock on hand, on its own day (the owner, 19 Nov 2026)
+                        'coding_from': _coding.isoformat() if _coding else None,
+                        'coding_active': coding_on(datetime.now())})
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
@@ -769,6 +773,7 @@ def update_settings():
         'backup_auto_time',
         'backup_auto_interval_minutes',
         'backup_retention_count',
+        'coding_on',
     }
     unknown_keys = sorted(set(data.keys()) - allowed_keys)
     if unknown_keys:
@@ -778,6 +783,17 @@ def update_settings():
             'unknown_keys': unknown_keys,
         }), 400
     
+    # Coding the stock on hand into pieces (the owner, 19 Nov 2026): turned on, it
+    # opens on the server's day -- not the screen's -- and keeps its first day;
+    # turned off, no batch opens until it is on again (the pieces coded stay).
+    if 'coding_on' in data:
+        if not isinstance(data['coding_on'], bool):
+            return jsonify({'error': 'invalid_coding_on', 'message': 'coding_on: true أو false'}), 400
+        if data['coding_on']:
+            settings.coding_from = settings.coding_from or datetime.now().date()
+        else:
+            settings.coding_from = None
+
     # هامش فرق سداد الذهب (services/settlement_tolerance.py): غرامات، غير سالب، ومعقول
     for _key, _limit in (('gold_settlement_tolerance_grams', 5.0),):
         if _key in data:

@@ -2978,6 +2978,11 @@ class Settings(db.Model):
     # gold posted on receiving, its cash on the invoice (ADR-087); NULL: never
     # -- 2026 posts as it always has. The 2027 database opens with 1 January.
     receiving_from = db.Column(db.Date, nullable=True)
+    # From this day the stock on hand is coded into pieces (ADR-087 R3.5) --
+    # apart from receiving, which also makes a supplier's gold received first:
+    # the pieces coded before the 31 Dec count (the owner, 19 Nov 2026). NULL:
+    # with receiving, as before. Set to the server's day when it is turned on.
+    coding_from = db.Column(db.Date, nullable=True)
     # A receipt line's supplier weight against its weight received, in grams:
     # within it the difference goes on the count's roles; above it, approved
     # by the owner or the manager (ADR-087 §4; the owner, 8 Nov 2026: 0.10).

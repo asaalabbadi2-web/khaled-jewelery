@@ -359,7 +359,8 @@ def approve_count_session(session_id: int):
         return _err(f'سبب "{reason_code}" يتطلب ملاحظة توضيحية (note)')
 
     if reason_code is None:
-        reason_code = 'OTHER'
+        # a classification moves grams between categories: its reason is itself (19 Nov 2026)
+        reason_code = 'classification' if getattr(s, 'session_type', '') == 'classify' else 'OTHER'
 
     try:
         session, entry = InventoryCountService.approve_session(
