@@ -86,12 +86,15 @@ def test_a_purchase_lays_its_wages_on_its_categories(auth_headers, books, pools_
 def test_a_sale_takes_its_wage_from_its_category(auth_headers, books, world, pools_on):
     from tests.retraction_world import _payload
     _settings('inventory')
+    from tests.test_stock_count import _safe, _stock
     payload = _payload(world, 'sale_on_credit', held=False)
-    payload['items'][0]['wage'] = 10.0
+    payload['items'][0]['wage'] = 99.0                  # the screen's: not the cost (ت2)
     categorized(payload['items'])
+    category = db.session.get(Category, payload['items'][0]['category_id'])
+    _stock(_safe('showroom'), 40.0, category)
+    spread(_hand_entry(400.0), [(21, category.id, None, 1.0)], now=NOW, what='وعاء')   # 10 a gram
     inv = _create(auth_headers, payload)
-    category = payload['items'][0]['category_id']
-    assert _allocations(inv['id']) == {(category, None): -20.0}
+    assert _allocations(inv['id']) == {(category.id, None): -20.0}, '2 g at its pool\'s 10'
 
 
 def test_before_its_day_nothing_is_allocated_nor_refused(auth_headers, books):

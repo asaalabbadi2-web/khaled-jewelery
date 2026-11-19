@@ -632,6 +632,7 @@ def get_settings():
     from services.vat_policy import periods as _vat_periods
     # Receiving works today or not -- the server's day, not the screen's (ADR-087 R2).
     from services.receiving import coding_from, coding_on, receiving_from, receiving_on
+    from services.wage_ledger import wage_pools_on as _wage_pools_on
     _start = receiving_from()
     _coding = coding_from()
     response = jsonify({**settings.to_dict(), 'vat_periods': _vat_periods(),
@@ -639,7 +640,10 @@ def get_settings():
                         'receiving_active': receiving_on(datetime.now()),
                         # coding the stock on hand, on its own day (the owner, 19 Nov 2026)
                         'coding_from': _coding.isoformat() if _coding else None,
-                        'coding_active': coding_on(datetime.now())})
+                        'coding_active': coding_on(datetime.now()),
+                        # a sale's wage cost is its pool's, the server's (ADR-096 ت2; 2027's opening)
+                        'wage_pools_from': settings.wage_pools_from.isoformat() if settings.wage_pools_from else None,
+                        'wage_pools_active': _wage_pools_on(datetime.now())})
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'

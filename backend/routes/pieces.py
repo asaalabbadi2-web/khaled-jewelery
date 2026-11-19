@@ -27,6 +27,9 @@ POST /api/pieces/<id>/tag/replace -- a damaged tag stopped (reason), a new one.
 GET  /api/pieces/by-tag/<value>   -- the piece a reader read.
 GET  /api/stock-codings/free      -- what a location holds of a category not
      yet pieced nor promised to an open batch (safe_box_id, category_id).
+GET  /api/wage-pools/cost         -- a category's wage cost a gram now, its
+     pool's average (ADR-096 ت2): category_id, karat; what the sale screen
+     shows, locked -- the sale's posting computes its own.
 POST /api/stock-codings           -- «ترميز من المخزون الموجود»: a batch --
      safe_box_id, category_id, weight, note; no wage: each of its pieces is
      sent with its own (wage, wage_whole; ADR-096 §4).
@@ -242,6 +245,19 @@ def piece_by_tag_route(value: str):
     where = piece_location(piece)
     return jsonify({'piece': piece_view(piece),
                     'location': {'id': where.id, 'name': where.name} if where is not None else None}), 200
+
+
+@pieces_bp.route('/wage-pools/cost', methods=['GET'])
+@require_permission('invoices.view')
+def wage_pool_cost():
+    from services.wage_ledger import pool_average, wage_pools_on
+    try:
+        karat = int(round(float(request.args.get('karat'))))
+        category_id = int(request.args['category_id']) if request.args.get('category_id') else None
+    except (TypeError, ValueError):
+        return jsonify({'error': 'invalid', 'message': 'العيار والتصنيف أرقام'}), 400
+    return jsonify({**pool_average(karat, category_id), 'karat': karat, 'category_id': category_id,
+                    'active': wage_pools_on(datetime.now())}), 200
 
 
 @pieces_bp.route('/stock-codings/free', methods=['GET'])

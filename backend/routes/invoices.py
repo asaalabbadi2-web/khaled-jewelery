@@ -7024,6 +7024,26 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                     )
                     _wage_cash_sale += _wr * _ww
 
+            # From the wages' pools' day (ADR-096 ت2): the cost is the server's --
+            # a piece its own wage, a weighed line its pool's average -- frozen on
+            # the line; what the screen sent is not the cost, and the invoice's
+            # cost (its profit, its points) follows by the difference.
+            from services.wage_ledger import sale_wage_costs, wage_pools_on as _wage_pools_on
+            if _wage_pools_on(new_invoice.date) and wages_are_capitalized(wage_mode_of(new_invoice)):
+                if karat_lines_data and any(_to_float(_kl.get('manufacturing_wage_cash', 0), 0.0) > 0
+                                            for _kl in karat_lines_data if isinstance(_kl, dict)):
+                    return jsonify({'error': 'sale_karat_line_wage',
+                                    'message': 'البيع بأسطر عيار بأجرة لا يُعرف تصنيفها: بِعه بأصنافه'}), 400
+                db.session.flush()
+                _costs = sale_wage_costs(new_invoice)
+                for _ii in InvoiceItem.query.filter_by(invoice_id=new_invoice.id).all():
+                    _w = float(_ii.weight or 0.0)
+                    _ii.wage = round(_costs.get(_ii.id, 0.0) / _w, 6) if _w > 0 else 0.0
+                _server_wage = round(sum(_costs.values()), 2)
+                new_invoice.total_cost = round(float(new_invoice.total_cost or 0.0) - _wage_cash_sale
+                                               + _server_wage, 2)
+                _wage_cash_sale = _server_wage
+
             # Only capitalized wages are released at sale; expensed ones were
             # charged at purchase (ADR-039).
             if _wage_cash_sale > 0 and wages_are_capitalized(wage_mode_of(new_invoice)):

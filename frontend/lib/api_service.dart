@@ -5800,6 +5800,14 @@ class ApiService {
 
   /// What a location holds of a category not yet coded nor promised:
   /// `{free, reserved, room, karat}`.
+  /// A category's wage cost a gram now -- its pool's average (ADR-096 ت2):
+  /// `{per_gram, riyals, grams, active}`. What a sale line shows, locked; the
+  /// sale's posting computes its own.
+  Future<Map<String, dynamic>> wagePoolCost({required int karat, int? categoryId}) => _getMap(
+        '/wage-pools/cost?karat=$karat${categoryId != null ? '&category_id=$categoryId' : ''}',
+        fallback: 'تعذّر قراءة تكلفة الأجرة',
+      );
+
   Future<Map<String, dynamic>> stockCodingRoom(int safeBoxId, int categoryId) => _getMap(
         '/stock-codings/free?safe_box_id=$safeBoxId&category_id=$categoryId',
         fallback: 'تعذّر قراءة رصيد التصنيف',

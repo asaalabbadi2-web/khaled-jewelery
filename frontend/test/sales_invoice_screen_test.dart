@@ -312,6 +312,20 @@ void main() {
       expect(find.byIcon(Icons.lock), findsWidgets);
     });
 
+    testWidgets('from the pools\' day a catalogue item costs its pool\'s wage; a coded piece its own', (tester) async {
+      final weighed = <String, dynamic>{...piece, 'category_id': 1, 'wage': 9.0};
+      final api = FakeSalesApi(categories: const [{'id': 1, 'name': 'بنجرة ذهب 21', 'karat': 21, 'default_wage': 30}])
+        ..poolCosts = {1: 20.0}
+        ..stockItems = [weighed, coded];
+      await open(tester, api: api, items: [weighed, coded], appSettings: const {'wage_pools_active': true});
+      await scan(tester, 'YAS000005');
+      expect(api.poolAsked, [1]);
+      expect(find.text('20.00'), findsWidgets, reason: 'its pool\'s, not its 9 nor the category\'s 30');
+      await scan(tester, 'KJ-000005');
+      expect(api.poolAsked, [1], reason: 'a piece is not asked of the pool');
+      expect(find.text('15.00'), findsWidgets, reason: 'its own');
+    });
+
     testWidgets('a piece line offers no weight nor wage to change', (tester) async {
       await open(tester, api: FakeSalesApi()..stockItems = [coded], items: [coded]);
       await scan(tester, 'KJ-000005');
@@ -670,6 +684,29 @@ void main() {
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pumpAndSettle();
     }
+
+    // ADR-096 ت2 (the owner, 19 Nov 2026): from the wages' pools' day the
+    // cost is the pool's, the server's -- the category's typed wage is no cost.
+    testWidgets('from the pools\' day a line costs its pool\'s wage, locked, not the category\'s', (tester) async {
+      final api = FakeSalesApi(categories: categories)..poolCosts = {1: 20.0};
+      await open(tester, api: api, appSettings: const {'wage_pools_active': true});
+      await pick(tester, 'بنا', 'بناجر');
+      expect(find.text('التكلفة من الوعاء'), findsOneWidget, reason: 'the row says whose the wage is');
+      await weigh(tester, '2');
+      expect(api.poolAsked, [1]);
+      expect(find.text('20.00'), findsWidgets, reason: 'its pool\'s 20 a gram');
+      expect(find.text('15.00'), findsNothing, reason: 'not the category\'s 15');
+      expect(find.byIcon(Icons.lock), findsWidgets);
+    });
+
+    testWidgets('before the pools\' day a line takes the category\'s wage, as it did', (tester) async {
+      final api = FakeSalesApi(categories: categories)..poolCosts = {1: 20.0};
+      await open(tester, api: api);
+      await pick(tester, 'بنا', 'بناجر');
+      await weigh(tester, '2');
+      expect(api.poolAsked, isEmpty);
+      expect(find.text('15.00'), findsWidgets);
+    });
 
     testWidgets('a line is typed and added with Enter, no dialog', (
       tester,

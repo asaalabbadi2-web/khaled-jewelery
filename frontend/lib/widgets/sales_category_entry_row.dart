@@ -45,11 +45,16 @@ class SalesCategoryEntryRow extends StatefulWidget {
   final int mainKarat;
   final ValueChanged<SalesCategoryEntry> onAdd;
 
+  /// The wage is the pool's cost, the server's (ADR-096 ت2): no field to
+  /// type, no category's wage -- the screen asks the server for the line.
+  final bool wageFromPool;
+
   const SalesCategoryEntryRow({
     super.key,
     required this.categories,
     required this.mainKarat,
     required this.onAdd,
+    this.wageFromPool = false,
   });
 
   @override
@@ -73,8 +78,9 @@ class _SalesCategoryEntryRowState extends State<SalesCategoryEntryRow> {
 
   int? get _lockedKarat =>
       _category == null ? null : _categoryKarat(_category!);
-  double? get _lockedWage =>
-      _category == null ? null : _categoryWage(_category!);
+  double? get _lockedWage => widget.wageFromPool
+      ? 0.0
+      : (_category == null ? null : _categoryWage(_category!));
 
   @override
   void dispose() {
@@ -95,8 +101,10 @@ class _SalesCategoryEntryRowState extends State<SalesCategoryEntryRow> {
       _error = null;
       final k = _categoryKarat(category);
       if (k != null) _karat = k;
-      final w = _categoryWage(category);
-      _wage.text = w == null
+      final w = widget.wageFromPool ? null : _categoryWage(category);
+      _wage.text = widget.wageFromPool
+          ? ''
+          : w == null
           ? '0'
           : w.toStringAsFixed(w.truncateToDouble() == w ? 0 : 2);
     });
@@ -236,7 +244,9 @@ class _SalesCategoryEntryRowState extends State<SalesCategoryEntryRow> {
         focusNode: _wageFocus,
         enabled: lockedWage == null,
         decoration: _decoration(
-          lockedWage == null ? 'أجرة/جم' : 'الأجرة من التصنيف',
+          widget.wageFromPool
+              ? 'التكلفة من الوعاء'
+              : lockedWage == null ? 'أجرة/جم' : 'الأجرة من التصنيف',
         ),
         keyboardType: const TextInputType.numberWithOptions(decimal: true),
         inputFormatters: typedNumberFormatters(),

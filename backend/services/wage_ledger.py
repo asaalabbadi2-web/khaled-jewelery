@@ -271,6 +271,52 @@ def pools() -> dict:
     return out
 
 
+def pool_average(karat: int, category_id) -> dict:
+    """A pool's wage a gram now -- its riyals over its grams; None when it has
+    no grams or no riyals. What the sale screen shows as the line's cost."""
+    pool = pools().get((int(karat), category_id), {'riyals': 0.0, 'grams': 0.0})
+    per_gram = (round(pool['riyals'] / pool['grams'], 6)
+                if pool['riyals'] > CENT and pool['grams'] > GRAM else None)
+    return {**pool, 'per_gram': per_gram}
+
+
+def sale_wage_costs(invoice: Invoice) -> dict:
+    """{invoice line id: its wage's cost in riyals} for a sale, from
+    wage_pools_from on (ADR-096 ت2): a piece its own wage; a weighed line its
+    pool's average times its grams, the lines of one pool in an invoice taken
+    together, the halala on the last. A pool holding fewer grams than sold
+    gives what it holds and no more -- never below zero (the owner, 19 Nov
+    2026); WAGE_POOL_OVERSOLD says so at night."""
+    from services.pieces import is_piece, piece_wage
+    held = pools()
+    costs, wanted = {}, {}
+    for ii in InvoiceItem.query.filter_by(invoice_id=invoice.id).order_by(InvoiceItem.id).all():
+        grams = float(ii.weight or 0.0)
+        if grams <= GRAM:
+            continue
+        item = db.session.get(Item, ii.item_id) if ii.item_id else None
+        if is_piece(item):
+            costs[ii.id] = round(float(piece_wage(item) or 0.0), 2)
+            continue
+        key = (int(round(float(ii.karat or 0.0))), ii.category_id or getattr(item, 'category_id', None))
+        wanted.setdefault(key, []).append((ii.id, grams))
+    for key, rows in wanted.items():
+        pool = held.get(key, {'riyals': 0.0, 'grams': 0.0})
+        sold = sum(g for _, g in rows)
+        if pool['riyals'] <= CENT:
+            total = 0.0
+        elif pool['grams'] >= sold - GRAM:
+            total = round(pool['riyals'] * sold / pool['grams'], 2)
+        else:
+            total = round(pool['riyals'], 2)            # what it holds, no more
+        left = total
+        for n, (line_id, grams) in enumerate(rows):
+            share = left if n == len(rows) - 1 else round(total * grams / sold, 2)
+            left = round(left - share, 2)
+            costs[line_id] = share
+    return costs
+
+
 def unallocated_lines(*, since=None) -> list:
     """Lines on 1320 from wage_pools_from (or *since*) whose allocations are
     not the line: [(line, its riyals, allocated)]."""

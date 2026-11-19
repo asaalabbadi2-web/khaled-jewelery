@@ -102,6 +102,10 @@ class SettingsProvider with ChangeNotifier {
   /// owner, 19 Nov 2026) or with receiving. The server's answer.
   bool get codingActive => _settings['coding_active'] == true;
 
+  /// A sale's wage cost is its pool's, the server's (ADR-096 ت2): from
+  /// Settings.wage_pools_from -- 2027's opening; off in 2026. The server's answer.
+  bool get wagePoolsActive => _settings['wage_pools_active'] == true;
+
   /// The catalogue adds items -- «إضافة صنف», «إضافة سريعة», «استنساخ» --
   /// until receiving works: then a piece is born there alone (ADR-087 R3.3;
   /// the server refuses the same, piece_born_on_receiving).

@@ -56,6 +56,16 @@ class FakeSalesApi extends ApiService {
     {'id': 1, 'name': 'الفرع الرئيسي'},
   ];
 
+  /// The pools' cost a gram by category (ADR-096 ت2), and what was asked.
+  Map<int, double> poolCosts = const {};
+  final poolAsked = <int?>[];
+
+  @override
+  Future<Map<String, dynamic>> wagePoolCost({required int karat, int? categoryId}) async {
+    poolAsked.add(categoryId);
+    return {'per_gram': poolCosts[categoryId], 'karat': karat, 'category_id': categoryId, 'active': true};
+  }
+
   /// What the server holds in the stock, as it answers the sales screen.
   List<Map<String, dynamic>> stockItems = const [];
   final itemsAskedInStock = <bool?>[];

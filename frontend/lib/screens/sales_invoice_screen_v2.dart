@@ -1558,6 +1558,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
     if (!mounted) return false;
 
     final itemId = _parseInt(itemData['id']);
+    final fromPool = !isPiece && _settingsProvider.wagePoolsActive;
     String? categoryName = itemData['category_name'] as String?;
     if (categoryId != null) {
       try {
@@ -1576,7 +1577,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
           final catWage = rawCatWage is num
               ? rawCatWage.toDouble()
               : double.tryParse('${rawCatWage ?? ''}');
-          if (!isPiece && catWage != null && catWage > 0) {
+          if (!isPiece && !fromPool && catWage != null && catWage > 0) {
             wage = catWage;
             wageLocked = true;
           }
@@ -1584,6 +1585,12 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
       } catch (_) {
         // ignore
       }
+    }
+    if (fromPool) {
+      // A weighed item's cost is its pool's, the server's (ADR-096 ت2).
+      wage = await _poolWage(karat.round(), categoryId);
+      wageLocked = true;
+      if (!mounted) return false;
     }
 
     setState(() {
@@ -1986,12 +1993,13 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
         categories: _categories,
         mainKarat: _settingsProvider.mainKarat,
         currencySymbol: _settingsProvider.currencySymbolText,
+        wageFromPool: _settingsProvider.wagePoolsActive,
       ),
     );
 
     if (result == null || !mounted) return;
 
-    _addCategoryLine(
+    await _addCategoryLine(
       categoryId: result['categoryId'] as int?,
       categoryName: result['categoryName'] as String? ?? '',
       karat: result['karat'] as int? ?? _settingsProvider.mainKarat,
@@ -2002,9 +2010,23 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
     );
   }
 
+  /// A weighed line's wage cost a gram from its pool, the server's (ADR-096
+  /// ت2): what the line shows, locked -- the sale's posting computes its own.
+  /// Not read, the line shows nothing and says so; the server's still holds.
+  Future<double> _poolWage(int karat, int? categoryId) async {
+    try {
+      final pool = await _api.wagePoolCost(karat: karat, categoryId: categoryId);
+      return (pool['per_gram'] as num?)?.toDouble() ?? 0.0;
+    } catch (e) {
+      if (mounted) _showError(e, title: 'تعذّر قراءة تكلفة الأجرة');
+      return 0.0;
+    }
+  }
+
   /// A category line of the sale: the weight is the line's, the count a note,
-  /// and the category's wage holds when it has one.
-  void _addCategoryLine({
+  /// and the category's wage holds when it has one -- from the wages' pools'
+  /// day, its pool's cost, the server's (ADR-096 ت2).
+  Future<void> _addCategoryLine({
     required int? categoryId,
     required String categoryName,
     required int karat,
@@ -2012,7 +2034,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
     required double wage,
     required int count,
     required double amount,
-  }) {
+  }) async {
     if (categoryId == null || weight <= 0) return;
 
     final selectedCat = _categories
@@ -2021,7 +2043,12 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
     final catWage = selectedCat == null
         ? null
         : _parseDouble(selectedCat['default_wage']);
-    final wageIsLocked = catWage != null && catWage > 0;
+    final fromPool = _settingsProvider.wagePoolsActive;
+    final wageIsLocked = fromPool || (catWage != null && catWage > 0);
+    if (fromPool) {
+      wage = await _poolWage(karat, categoryId);
+      if (!mounted) return;
+    }
 
     setState(() {
       final item = InvoiceItem(
@@ -2054,7 +2081,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
 
   }
 
-  void _addEnteredCategory(SalesCategoryEntry e) => _addCategoryLine(
+  Future<void> _addEnteredCategory(SalesCategoryEntry e) => _addCategoryLine(
     categoryId: _parseInt(e.category['id']),
     categoryName: '${e.category['name'] ?? ''}',
     karat: e.karat,
@@ -3884,6 +3911,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
                       categories: _categories,
                       mainKarat: _settingsProvider.mainKarat,
                       onAdd: _addEnteredCategory,
+                      wageFromPool: _settingsProvider.wagePoolsActive,
                     ),
                   ],
                 ),
@@ -5759,10 +5787,14 @@ class _CategoryLineDialog extends StatefulWidget {
   final int mainKarat;
   final String currencySymbol;
 
+  /// The wage is the pool's cost, the server's (ADR-096 ت2): not typed here.
+  final bool wageFromPool;
+
   const _CategoryLineDialog({
     required this.categories,
     required this.mainKarat,
     required this.currencySymbol,
+    this.wageFromPool = false,
   });
 
   @override
@@ -5806,7 +5838,10 @@ class _CategoryLineDialogState extends State<_CategoryLineDialog> {
   void _applyCategoryDefaults(Map<String, dynamic> category) {
     final rawWage = category['default_wage'];
     final wage = rawWage is num ? rawWage.toDouble() : double.tryParse('${rawWage ?? ''}');
-    if (wage != null && wage > 0) {
+    if (widget.wageFromPool) {
+      _wageController.text = '';
+      _wageLockedByCategory = true;
+    } else if (wage != null && wage > 0) {
       _wageController.text = wage.toStringAsFixed(wage.truncateToDouble() == wage ? 0 : 2);
       _wageLockedByCategory = true;
     } else {
@@ -6377,9 +6412,11 @@ class _CategoryLineDialogState extends State<_CategoryLineDialog> {
                                 fillColor: _wageLockedByCategory
                                     ? theme.colorScheme.primary.withValues(alpha: 0.07)
                                     : theme.colorScheme.surface,
-                                helperText: _wageLockedByCategory
-                                    ? 'محدد من التصنيف'
-                                    : null,
+                                helperText: widget.wageFromPool
+                                    ? 'التكلفة من الوعاء'
+                                    : _wageLockedByCategory
+                                        ? 'محدد من التصنيف'
+                                        : null,
                                 helperStyle: Theme.of(context).textTheme.labelSmall?.copyWith(color: theme.colorScheme.primary,),
                               ),
                             ),

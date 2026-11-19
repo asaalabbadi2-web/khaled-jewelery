@@ -87,6 +87,7 @@ PIECES_BEYOND_CATEGORY = 'PIECES_BEYOND_CATEGORY'
 BACKUP_TOOLS_MISMATCH = 'BACKUP_TOOLS_MISMATCH'
 WAGES_NOT_ALLOCATED = 'WAGES_NOT_ALLOCATED'
 WAGE_POOL_NEGATIVE = 'WAGE_POOL_NEGATIVE'
+WAGE_POOL_OVERSOLD = 'WAGE_POOL_OVERSOLD'
 
 KINDS = (
     ORPHAN_POSTED_ENTRY,
@@ -116,6 +117,7 @@ KINDS = (
     BACKUP_TOOLS_MISMATCH,
     WAGES_NOT_ALLOCATED,
     WAGE_POOL_NEGATIVE,
+    WAGE_POOL_OVERSOLD,
 )
 
 # An invoice in one of these states is retracted: its entries must not count
@@ -910,6 +912,26 @@ def check_wage_pools_negative() -> list:
     return facts
 
 
+def check_wage_pools_oversold() -> list:
+    """A category sold more grams than its pool holds (ADR-096 ت2; the owner,
+    19 Nov 2026): the sale gave what the pool held and no more, so its cost is
+    short -- the category's gold is classified wrong. Keyed like
+    WAGE_POOL_NEGATIVE, the metric its grams below zero."""
+    from services.wage_ledger import GRAM, pools, wage_pools_from
+    if wage_pools_from() is None:
+        return []
+    from models import Category
+    facts = []
+    for (karat, category_id), pool in sorted(pools().items(), key=lambda kv: (kv[0][0], kv[0][1] or 0)):
+        if pool['grams'] >= -GRAM:
+            continue
+        name = getattr(db.session.get(Category, category_id), 'name', None) if category_id else 'بلا تصنيف'
+        facts.append(Fact(WAGE_POOL_OVERSOLD, f'wage_pool:{karat}k:category:{category_id or "none"}',
+                          pool['grams'], {'karat': karat, 'category_id': category_id, 'category_name': name,
+                                          'riyals': pool['riyals'], 'grams': pool['grams']}))
+    return facts
+
+
 def _tool_major(tool: str):
     """The major version of a PostgreSQL tool on the PATH -- None when it is not there."""
     import re
@@ -973,6 +995,7 @@ CHECKS = {
     BACKUP_TOOLS_MISMATCH: check_backup_tools_mismatch,
     WAGES_NOT_ALLOCATED: check_wages_not_allocated,
     WAGE_POOL_NEGATIVE: check_wage_pools_negative,
+    WAGE_POOL_OVERSOLD: check_wage_pools_oversold,
 }
 
 
