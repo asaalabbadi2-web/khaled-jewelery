@@ -273,8 +273,12 @@ def stock_coding_free():
     karat = int(round(float(category.karat or 0)))
     free = free_grams(safe, karat, category.id)
     reserved = reserved_grams(safe.id, karat, category.id)
+    # From 2027's opening each piece takes its pool's average, not a wage written (ADR-096 ت3).
+    from services.wage_ledger import pool_average, wage_pools_on
+    from_pool = wage_pools_on(datetime.now())
     return jsonify({'free': free, 'reserved': reserved, 'room': round(max(free - reserved, 0.0), 3),
-                    'karat': karat}), 200
+                    'karat': karat, 'wage_from_pool': from_pool,
+                    'pool_wage_per_gram': pool_average(karat, category.id)['per_gram'] if from_pool else None}), 200
 
 
 @pieces_bp.route('/stock-codings', methods=['POST'])

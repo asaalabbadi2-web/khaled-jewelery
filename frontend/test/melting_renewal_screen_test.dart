@@ -108,13 +108,14 @@ void main() {
     Size size = const Size(1200, 2400),
     bool overAPage = false,
     int mainKarat = 21,
+    bool wagePoolsActive = false,
     int failingLoads = 0,
     // The screen opens on renewal (10 Nov 2026); most steps are a breaking's.
     String? tab = 'تكسير المخزون',
   }) async {
     SharedPreferences.setMockInitialValues({
       'jwt_token': 'token',
-      'app_settings': jsonEncode({'main_karat': mainKarat}),
+      'app_settings': jsonEncode({'main_karat': mainKarat, 'wage_pools_active': wagePoolsActive}),
     });
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -279,6 +280,25 @@ void main() {
     expectPayload('melting_two_karats', sent.single);
     expect(find.textContaining('ADJ-2026-00042'), findsOneWidget);
     expect(find.text('عرض السند'), findsOneWidget);
+  });
+
+  testWidgets('from 2027 the wage lost is the pools\' own: no field, none sent', (
+    tester,
+  ) async {
+    final sent = await run(tester, () async {
+      expect(find.byKey(const Key('melting-wage-from-pool')), findsOneWidget);
+      expect(find.text('مصنعية تالفة (اختياري)'), findsNothing, reason: 'no wage written by hand');
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '0.000').first,
+        '2',
+      );
+      await pickCategories(tester);
+      await execute(tester);
+      await tester.tap(find.widgetWithText(FilledButton, 'تأكيد التكسير'));
+      await tester.pumpAndSettle();
+    }, wagePoolsActive: true);
+    expect(sent, hasLength(1));
+    expect(sent.single['damage_wage_amount'], isNull, reason: 'the server takes it from the pools');
   });
 
   testWidgets('a wage with its role unmapped is said and nothing is sent', (

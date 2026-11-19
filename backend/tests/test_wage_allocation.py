@@ -159,7 +159,8 @@ def test_the_halalas_rounding_goes_to_the_last(app, books, pools_on):
 
 
 def test_a_sold_piece_takes_its_own_wage_not_its_categorys(app, books, pools_on):
-    """A piece's wage is its own (ADR-096 §1): its share of the sale's line names it."""
+    """A piece's wage is its own (ADR-096 §1): its share of the sale's line names it. Coded
+    in 2027 from its pool, its own is the pool's average at its coding (ت3)."""
     from models import Invoice, InvoiceItem
     from services.wage_ledger import invoice_wage_parts
     from tests.test_piece_wage_written_at_coding import _batch
@@ -172,7 +173,8 @@ def test_a_sold_piece_takes_its_own_wage_not_its_categorys(app, books, pools_on)
     db.session.flush()
     showroom = _safe('showroom')
     _stock(showroom, bangles, 20.0)
-    piece = register_piece(_batch(showroom, bangles, 20.0), weight=10.0, wage=300, wage_whole=True, by='t', now=NOW)
+    spread(_hand_entry(600.0), [(21, bangles.id, None, 1.0)], now=NOW, what='وعاء')           # 30 a gram
+    piece = register_piece(_batch(showroom, bangles, 20.0), weight=10.0, by='t', now=NOW)
     sale = Invoice(invoice_type='بيع', invoice_type_id=1, date=NOW, total=0.0)
     db.session.add(sale)
     db.session.flush()

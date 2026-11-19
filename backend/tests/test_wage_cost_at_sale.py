@@ -84,7 +84,8 @@ def test_a_pool_short_of_grams_gives_what_it_holds(auth_headers, books, world):
 
 
 def test_a_piece_costs_its_own_wage(app, books):
-    """The piece's line its own; a weighed line of its category the pool's."""
+    """The piece's line its own -- coded from its pool, the pool's average then (ت3); a weighed
+    line of its category the pool's, what is left in it."""
     from services.pieces import register_piece
     from services.wage_ledger import sale_wage_costs
     from tests.test_piece_wage_written_at_coding import _batch
@@ -100,7 +101,7 @@ def test_a_piece_costs_its_own_wage(app, books):
     showroom = _safe('showroom')
     _stock(showroom, bangles, 30.0)
     spread(_hand_entry(600.0, day=NOW), [(21, bangles.id, None, 1.0)], now=NOW, what='وعاء')
-    piece = register_piece(_batch(showroom, bangles, 10.0), weight=10.0, wage=310, wage_whole=True, by='t', now=NOW)
+    piece = register_piece(_batch(showroom, bangles, 10.0), weight=10.0, by='t', now=NOW)            # 600 / 30 g x 10
     sale = Invoice(invoice_type='بيع', invoice_type_id=1, date=NOW, total=0.0)
     db.session.add(sale)
     db.session.flush()
@@ -109,7 +110,7 @@ def test_a_piece_costs_its_own_wage(app, books):
                     price=0.0)
     db.session.add_all([a, b])
     db.session.flush()
-    assert sale_wage_costs(sale) == {a.id: 310.0, b.id: 120.0}, 'its own; 600 over its 20 g unpieced, 4 g'
+    assert sale_wage_costs(sale) == {a.id: 200.0, b.id: 80.0}, 'its own 200; the 400 left over its 20 g, 4 g'
 
 
 def test_before_its_day_the_sale_is_as_it_was(auth_headers, books, world):

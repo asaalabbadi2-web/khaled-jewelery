@@ -14,10 +14,11 @@ import 'package:frontend/screens/piece_station_screen.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-Map<String, dynamic> _batch({int pieces = 0, double coded = 0}) => {
+Map<String, dynamic> _batch({int pieces = 0, double coded = 0, bool fromPool = false}) => {
   'kind': 'stock', 'line_id': null, 'coding_id': 5, 'invoice_number': 'ترميز مخزون #5',
   'safe_name': 'المعرض', 'category_name': 'بنجرة ذهب 21', 'karat': 21, 'weight': 50.0,
-  'wage_per_gram': null, 'wage_by_piece': true, 'pieces': pieces, 'pieces_weight': coded,
+  'wage_per_gram': null, 'wage_by_piece': !fromPool, 'wage_from_pool': fromPool,
+  'pool_wage_per_gram': fromPool ? 20.0 : null, 'pieces': pieces, 'pieces_weight': coded,
   'rest': double.parse((50.0 - coded).toStringAsFixed(3)),
 };
 
@@ -50,14 +51,18 @@ class _Api extends ApiService {
     {'id': 30, 'name': 'خواتم 21', 'karat': '21', 'is_active': true},
   ];
 
+  /// From 2027's opening: the pool's average, not a wage written (ADR-096 ت3).
+  bool fromPool = false;
+
   @override
   Future<Map<String, dynamic>> stockCodingRoom(int safeBoxId, int categoryId) async =>
-      {'free': 120.0, 'reserved': 0.0, 'room': 120.0, 'karat': 21};
+      {'free': 120.0, 'reserved': 0.0, 'room': 120.0, 'karat': 21, 'wage_from_pool': fromPool,
+       'pool_wage_per_gram': fromPool ? 20.0 : null};
 
   @override
   Future<Map<String, dynamic>> openStockCoding(Map<String, dynamic> body) async {
     opened.add(body);
-    return {'line': _batch(), 'pieces': []};
+    return {'line': _batch(fromPool: fromPool), 'pieces': []};
   }
 
   ApiException? refuseNext;
@@ -99,7 +104,9 @@ class _Api extends ApiService {
     return {
       'piece': {'id': 100 + _n, 'item_code': 'KJ-00012$_n', 'weight': w, 'stones_weight': 0,
                 'wage': null, 'wage_known': false},
-      'line': body.containsKey('coding_id') ? _batch(pieces: _n, coded: w) : _line(pieces: _n, coded: w),
+      'line': body.containsKey('coding_id')
+          ? _batch(pieces: _n, coded: w, fromPool: fromPool)
+          : _line(pieces: _n, coded: w),
     };
   }
 }
@@ -221,6 +228,39 @@ void main() {
     await tester.tap(find.byKey(const Key('piece-register')));
     await tester.pumpAndSettle();
     expect((api.sent.last['wage'], api.sent.last['wage_whole']), (300.0, true));
+  });
+
+  testWidgets('from 2027 a batch\'s piece takes its pool\'s average: shown, not asked', (tester) async {
+    final api = _Api()..fromPool = true;
+    SharedPreferences.setMockInitialValues({'jwt_token': 't'});
+    tester.view.physicalSize = const Size(1400, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(theme: LightTheme.theme, home: PieceStationScreen(api: api)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('station-from-stock')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('coding-safe')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('المعرض').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('coding-category')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('بنجرة ذهب 21').last);
+    await tester.pumpAndSettle();
+    expect(find.text('لا أجرة للدفعة: كل قطعة تأخذ متوسط أجور تصنيفها.'), findsOneWidget);
+    await tester.enterText(find.byKey(const Key('coding-weight')), '50');
+    await tester.tap(find.byKey(const Key('coding-open')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('piece-wage')), findsNothing, reason: 'no wage written');
+    expect(find.byKey(const Key('piece-wage-kind')), findsNothing);
+    expect(find.descendant(of: find.byKey(const Key('piece-wage-from-pool')), matching: find.text('20.00 للجرام')),
+        findsOneWidget);
+    await tester.enterText(find.byKey(const Key('piece-weight')), '10');
+    await tester.tap(find.byKey(const Key('piece-register')));
+    await tester.pumpAndSettle();
+    expect(api.sent.single['coding_id'], 5);
+    expect(api.sent.single.containsKey('wage'), isFalse, reason: 'the server takes it from the pool');
   });
 
   testWidgets('a piece\'s tag is recorded once written; then it is replaced, not doubled', (tester) async {

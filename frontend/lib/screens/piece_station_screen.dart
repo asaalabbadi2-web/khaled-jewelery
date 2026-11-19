@@ -406,6 +406,27 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
   /// A batch's pieces are each written their own wage (ADR-096 §4).
   static bool _wageByPiece(Map<String, dynamic> l) => l['wage_by_piece'] == true;
 
+  /// From 2027's opening a batch's piece takes its pool's average (ADR-096
+  /// ت3): shown where the wage was written, not asked.
+  static bool _wageFromPool(Map<String, dynamic> l) => l['wage_from_pool'] == true;
+
+  Widget _poolWage(Map<String, dynamic> l) {
+    final perGram = l['pool_wage_per_gram'] as num?;
+    return InputDecorator(
+      key: const Key('piece-wage-from-pool'),
+      decoration: const InputDecoration(
+        labelText: 'الأجرة من الوعاء',
+        helperText: 'بمتوسط أجور التصنيف',
+      ),
+      child: Text(
+        perGram == null
+            ? 'لا أجرة في الوعاء'
+            : '${formatAmount(perGram.toDouble())} للجرام',
+        textDirection: perGram == null ? null : TextDirection.ltr,
+      ),
+    );
+  }
+
   /// How the piece's wage is written: per gram or its whole -- kept for the
   /// next piece.
   Widget _wageKind() => Padding(
@@ -602,6 +623,9 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
               if (_wageByPiece(line)) ...[
                 const SizedBox(width: 12),
                 Expanded(child: _wageField()),
+              ] else if (_wageFromPool(line)) ...[
+                const SizedBox(width: 12),
+                Expanded(child: _poolWage(line)),
               ],
               const SizedBox(width: 12),
               FilledButton.icon(
@@ -704,6 +728,7 @@ class _FromStockDialogState extends State<_FromStockDialog> {
   int? _safeId;
   int? _categoryId;
   double? _room;
+  bool _wageFromPool = false;
   String? _problem;
 
   final _weight = TextEditingController();
@@ -759,7 +784,12 @@ class _FromStockDialogState extends State<_FromStockDialog> {
     if (safe == null || category == null) return;
     try {
       final room = await widget.api.stockCodingRoom(safe, category);
-      if (mounted) setState(() => _room = (room['room'] as num?)?.toDouble());
+      if (mounted) {
+        setState(() {
+          _room = (room['room'] as num?)?.toDouble();
+          _wageFromPool = room['wage_from_pool'] == true;
+        });
+      }
     } catch (e) {
       if (mounted) setState(() => _problem = AppFeedback.messageOf(e));
     }
@@ -855,7 +885,9 @@ class _FromStockDialogState extends State<_FromStockDialog> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'لا أجرة للدفعة: تُكتب أجرة كل قطعة عند تسجيلها.',
+                      _wageFromPool
+                          ? 'لا أجرة للدفعة: كل قطعة تأخذ متوسط أجور تصنيفها.'
+                          : 'لا أجرة للدفعة: تُكتب أجرة كل قطعة عند تسجيلها.',
                       key: const Key('coding-wage-by-piece'),
                       style: Theme.of(context).textTheme.bodySmall,
                     ),

@@ -183,8 +183,10 @@ def mirror_wage_allocations(pairs, *, now, by=None) -> list:
 
 
 def invoice_wage_parts(invoice: Invoice) -> list:
-    """An invoice's items as wage parts: (karat, category, piece, wage per gram x weight)."""
-    from services.pieces import is_piece
+    """An invoice's items as wage parts: (karat, category, piece, wage per gram x weight).
+    A receipt's line with pieces coded under it before its invoice was
+    completed: each piece its share, the rest its category's (ADR-096 ت3)."""
+    from services.pieces import is_piece, line_pieces
     parts = []
     for ii in InvoiceItem.query.filter_by(invoice_id=invoice.id).order_by(InvoiceItem.id).all():
         share = abs(float(ii.wage or 0.0) * float(ii.weight or 0.0))
@@ -192,8 +194,13 @@ def invoice_wage_parts(invoice: Invoice) -> list:
             continue
         item = db.session.get(Item, ii.item_id) if ii.item_id else None
         category_id = ii.category_id or getattr(item, 'category_id', None)
-        parts.append((int(round(float(ii.karat or 0.0))), category_id,
-                      item.id if is_piece(item) else None, share))
+        karat = int(round(float(ii.karat or 0.0)))
+        if item is None and line_pieces(ii):
+            parts += [p for p in receipt_line_parts(ii, karat=karat, category_id=category_id,
+                                                    per_gram=abs(float(ii.wage or 0.0)),
+                                                    weight=float(ii.weight or 0.0)) if p[3] > CENT]
+            continue
+        parts.append((karat, category_id, item.id if is_piece(item) else None, share))
     return parts
 
 
@@ -280,6 +287,25 @@ def pool_average(karat: int, category_id) -> dict:
     return {**pool, 'per_gram': per_gram}
 
 
+def riyals_at_average(pool: dict, grams: float) -> float:
+    """What *grams* take out of *pool* at its average -- what it holds and no
+    more, never below zero (the owner, 19 Nov 2026): the one rule of a pool's
+    wage leaving it, for a sale, a coding, a melting, a count."""
+    if grams <= GRAM or pool['riyals'] <= CENT:
+        return 0.0
+    if pool['grams'] >= grams - GRAM:
+        return min(round(pool['riyals'] * grams / pool['grams'], 2), round(pool['riyals'], 2))
+    return round(pool['riyals'], 2)                     # what it holds, no more
+
+
+def take_out(held: dict, key, grams: float) -> float:
+    """riyals_at_average from *held*'s pool *key*, the pool left as it is after."""
+    pool = held.setdefault(key, {'riyals': 0.0, 'grams': 0.0})
+    riyals = riyals_at_average(pool, grams)
+    pool['riyals'], pool['grams'] = round(pool['riyals'] - riyals, 2), round(pool['grams'] - grams, 3)
+    return riyals
+
+
 def sale_wage_costs(invoice: Invoice) -> dict:
     """{invoice line id: its wage's cost in riyals} for a sale, from
     wage_pools_from on (ADR-096 ت2): a piece its own wage; a weighed line its
@@ -301,20 +327,136 @@ def sale_wage_costs(invoice: Invoice) -> dict:
         key = (int(round(float(ii.karat or 0.0))), ii.category_id or getattr(item, 'category_id', None))
         wanted.setdefault(key, []).append((ii.id, grams))
     for key, rows in wanted.items():
-        pool = held.get(key, {'riyals': 0.0, 'grams': 0.0})
         sold = sum(g for _, g in rows)
-        if pool['riyals'] <= CENT:
-            total = 0.0
-        elif pool['grams'] >= sold - GRAM:
-            total = round(pool['riyals'] * sold / pool['grams'], 2)
-        else:
-            total = round(pool['riyals'], 2)            # what it holds, no more
+        total = take_out(held, key, sold)
         left = total
         for n, (line_id, grams) in enumerate(rows):
             share = left if n == len(rows) - 1 else round(total * grams / sold, 2)
             left = round(left - share, 2)
             costs[line_id] = share
     return costs
+
+
+# ── a pool's wage moving (ADR-096 ت3) ───────────────────────────────────────
+
+def move_to_piece(karat: int, category_id, piece_id: int, riyals: float, *, lines=None, now, by=None) -> list:
+    """*riyals* of a pool's wage become a piece's own: its rows (on *lines*
+    only, when given -- a receipt's piece takes its invoice's) split, each
+    line's allocations unchanged in sum. A coding writes no entry: the
+    riyals stay on 1320, only whose they are changes -- as its grams do
+    (services/pieces.register_piece). Not enough in the pool: refused."""
+    riyals = round(float(riyals or 0.0), 2)
+    if riyals <= CENT:
+        return []
+    query = _counted(WageAllocation.query.filter(
+        WageAllocation.item_id.is_(None), WageAllocation.karat == int(karat), WageAllocation.riyals > CENT,
+        WageAllocation.category_id == int(category_id) if category_id else WageAllocation.category_id.is_(None)))
+    if lines is not None:
+        query = query.filter(WageAllocation.journal_entry_line_id.in_([int(l) for l in lines] or [-1]))
+    written, left = [], riyals
+    for row in query.order_by(WageAllocation.id).all():
+        if left <= CENT:
+            break
+        take = round(min(left, float(row.riyals)), 2)
+        row.riyals = round(float(row.riyals) - take, 2)
+        if row.riyals <= CENT:
+            db.session.delete(row)
+        piece_row = WageAllocation(journal_entry_line_id=row.journal_entry_line_id, karat=int(karat),
+                                   category_id=int(category_id) if category_id else None, item_id=int(piece_id),
+                                   riyals=take, created_at=now, created_by=by)
+        db.session.add(piece_row)
+        written.append(piece_row)
+        left = round(left - take, 2)
+    if left > CENT:
+        raise WageAllocationError(f'وعاء الأجور لا يحمل أجرة القطعة: ينقصه {left:,.2f}')
+    db.session.flush()
+    return written
+
+
+def receipt_line_parts(line, *, karat: int, category_id, per_gram: float, weight: float, sign: int = 1) -> list:
+    """A receipt line's wage as parts: each piece under it its share (law 5),
+    the rest its category's -- signed. The wage of a piece coded from the
+    line is its own, in the ledger as in its share."""
+    from services.pieces import line_pieces, wage_shares
+    shares, rest = wage_shares(line_pieces(line), float(per_gram or 0.0), float(weight or 0.0))
+    parts = [(int(karat), category_id, piece_id, sign * share) for piece_id, share in shares.items()]
+    if abs(rest) > CENT:
+        parts.append((int(karat), category_id, None, sign * rest))
+    return parts
+
+
+def melting_wage(parts) -> tuple:
+    """(riyals, [(karat, category_id, None, riyals)]): the wage a melting of
+    *parts* -- (karat, category_id, grams) -- writes off, each pool at its
+    average (ADR-096 §2), not a wage written by hand."""
+    held, out = pools(), {}
+    for karat, category_id, grams in parts:
+        key = (int(karat), category_id or None)
+        out[key] = round(out.get(key, 0.0) + take_out(held, key, float(grams or 0.0)), 2)
+    rows = [(k[0], k[1], None, r) for k, r in out.items() if r > CENT]
+    return round(sum(r for *_, r in rows), 2), rows
+
+
+def value_the_count_wages(entry, groups, held, *, shortage_account_id, surplus_account_id, now, by=None) -> list:
+    """A count's wages (ADR-096 §2), from wage_pools_from on: per safe and
+    karat, what moved from one category to another at the leaving one's
+    average; what was found short at its average onto the shortage, what was
+    found over at its category's average from the surplus (the owner, 19 Nov
+    2026). *groups*: {(safe, karat): [(category_id, grams)]} -- the count's own;
+    *held*: the pools before it. Lines on 1320 allocated to their pools, each
+    side its sign."""
+    if not wage_pools_on(entry.date):
+        return []
+    account = wage_account_id()
+    if not account:
+        return []
+    from dimensions_service import compute_line_analytics
+    out_parts, in_parts, lost, gained = [], [], 0.0, 0.0
+    for (_safe, karat), parts in sorted(groups.items(), key=lambda g: (g[0][0], g[0][1])):
+        short = [(c, -g) for c, g in parts if g < -GRAM]
+        over = [(c, g) for c, g in parts if g > GRAM]
+        missing, found = sum(g for _, g in short), sum(g for _, g in over)
+        taken = [(c, take_out(held, (int(karat), c or None), g)) for c, g in short]
+        out_riyals = round(sum(r for _, r in taken), 2)
+        out_parts += [(int(karat), c, None, -r) for c, r in taken if r > CENT]
+        moved_share = min(1.0, found / missing) if missing > GRAM else 0.0
+        moved = round(out_riyals * moved_share, 2)
+        lost = round(lost + out_riyals - moved, 2)
+        moved_grams, left_moved = min(found, missing), moved
+        for n, (c, g) in enumerate(over):
+            key = (int(karat), c or None)
+            pool = held.setdefault(key, {'riyals': 0.0, 'grams': 0.0})
+            from_moved = left_moved if n == len(over) - 1 else round(moved * g / found, 2)
+            left_moved = round(left_moved - from_moved, 2)
+            extra = g - g * moved_grams / found                            # found over the moved: a surplus
+            from_surplus = round(pool['riyals'] * extra / pool['grams'], 2) \
+                if pool['riyals'] > CENT and pool['grams'] > GRAM else 0.0
+            pool['riyals'] = round(pool['riyals'] + from_moved + from_surplus, 2)
+            pool['grams'] = round(pool['grams'] + g, 3)
+            gained = round(gained + from_surplus, 2)
+            if from_moved + from_surplus > CENT:
+                in_parts.append((int(karat), c, None, round(from_moved + from_surplus, 2)))
+    written = []
+
+    def line(account_id, riyals, what):
+        row = JournalEntryLine(journal_entry_id=entry.id, account_id=account_id, description=what[:200],
+                               **({'cash_debit': riyals} if riyals > 0 else {'cash_credit': -riyals}))
+        row.analytic_amount_cash, row.analytic_weight_24k, row.analytic_weight_main = \
+            compute_line_analytics(db.session, row)
+        db.session.add(row)
+        db.session.flush()
+        return row
+
+    what = (entry.description or 'فروق جرد')[:150]
+    for parts, sign, label in ((out_parts, -1, 'أجور خرجت من تصنيفاتها'), (in_parts, 1, 'أجور دخلت تصنيفاتها')):
+        total = round(sum(p[3] for p in parts), 2)
+        if abs(total) > CENT:
+            written += spread_net(line(account, total, f'{what} — {label}'), parts, now=now, by=by, what=what)
+    if lost > CENT:
+        line(shortage_account_id, lost, f'{what} — أجور الناقص')
+    if gained > CENT:
+        line(surplus_account_id, -gained, f'{what} — أجور الزائد')
+    return written
 
 
 def unallocated_lines(*, since=None) -> list:

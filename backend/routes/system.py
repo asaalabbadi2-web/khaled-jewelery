@@ -2952,6 +2952,15 @@ def _melting_renewal(*, preview: bool):
     gold_weight = sum(l['gold_weight'] for l in op_lines)
     stones_weight = sum(l['stones_weight'] for l in op_lines)
 
+    # From 2027's opening a melting's wage is its pools' own, at their average
+    # -- the server's, not one written (ADR-096 ت3).
+    melting_wage_parts = None
+    if operation_type == 'melting' and wages_are_capitalized(live_wage_mode()):
+        from services.wage_ledger import melting_wage, wage_pools_on
+        if wage_pools_on(datetime.now()):
+            damage_wage_amount, melting_wage_parts = melting_wage(
+                [(l['karat'], l['category_id'], l['gold_weight']) for l in op_lines])
+
     # The damaged wage's account is its role's, chosen once in «الربط المحاسبي»
     # (ت2): it was picked from every expense account each time (on the 17 Oct
     # copy two accounts for three meltings), and dropped unsaid without one.
@@ -3228,8 +3237,8 @@ def _melting_renewal(*, preview: bool):
                 spread(on_account, karat, parts, now=voucher_dt, by=created_by, what=f'{op_label} {voucher_number}')
         # The wage lost with it from its categories' pools, by their grams (ADR-096 ت1).
         from services.wage_ledger import allocate_entry_wages
-        allocate_entry_wages(journal_entry, [(int(l['karat']), l[left_cat], None, float(l['gold_weight']))
-                                             for l in op_lines],
+        allocate_entry_wages(journal_entry, melting_wage_parts or [(int(l['karat']), l[left_cat], None,
+                                                                     float(l['gold_weight'])) for l in op_lines],
                              now=voucher_dt, by=created_by, what=f'{op_label} {voucher_number}')
 
         # stones_weight: معلوماتي فقط — لا يؤثر على رصيد الوزن الذهبي

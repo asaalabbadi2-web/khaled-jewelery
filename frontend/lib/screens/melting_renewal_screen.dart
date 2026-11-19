@@ -397,7 +397,9 @@ class _OperationFormState extends State<_OperationForm> {
           stonesByValue: !_isMelting && line.stonesByValue,
         ),
     ];
-    final wage = (_isMelting && wageAmt > 0) ? wageAmt : null;
+    // From 2027's opening the wage lost is the pools' own, the server's (ADR-096 ت3): none sent.
+    final fromPool = context.read<SettingsProvider>().wagePoolsActive;
+    final wage = (_isMelting && !fromPool && wageAmt > 0) ? wageAmt : null;
 
     // The entry the server will post, before it is posted (ت2): the
     // confirmation showed a summary the screen built. A refusal (a wage with
@@ -791,7 +793,18 @@ class _OperationFormState extends State<_OperationForm> {
           ),
 
           // ── مصنعية تالفة (تكسير فقط) ────────────────────────
-          if (_isMelting) ...[
+          if (_isMelting && context.read<SettingsProvider>().wagePoolsActive) ...[
+            const SizedBox(height: 12),
+            _SectionCard(
+              title: 'مصنعية تالفة',
+              icon: Icons.construction_outlined,
+              child: Text(
+                'تُحسب من وعاء أجور كل تصنيف بمتوسطه، وتظهر في المعاينة قبل الترحيل',
+                key: const Key('melting-wage-from-pool'),
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ),
+          ] else if (_isMelting) ...[
             const SizedBox(height: 12),
             _SectionCard(
               title: 'مصنعية تالفة (اختياري)',

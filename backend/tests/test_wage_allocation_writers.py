@@ -96,11 +96,15 @@ def test_a_line_netting_its_parts_is_laid_in_proportion(app, roles):
     assert rows(vat) == {old.id: -15.0, right.id: 22.5}
 
 
-def test_a_melting_writes_its_wage_off_its_categories_by_their_grams(auth_headers, roles, monkeypatch):
+def test_a_melting_writes_its_pools_wage_off_at_their_average(auth_headers, roles, monkeypatch):
+    """From 2027's opening a melting's wage is its pools' own at their average -- the
+    server's, not the one written (ADR-096 ت3): 2.5 g of 21k at 20, 1.5 g of 18k at 15."""
     from models import AccountingMapping, Voucher
     from routes import system as system_routes
     from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE
+    from services.wage_ledger import spread
     from tests.test_melting_is_one_voucher import _account, _gold_safe, _ledger, _post, _vouchers_from
+    from tests.test_wage_allocation import NOW as LATER, _hand_entry
     monkeypatch.setattr(system_routes, 'wages_are_capitalized', lambda mode: True)
     monkeypatch.setattr(system_routes, '_get_manufacturing_wage_inventory_account_id', wage_account_id)
     damaged = _account('5', 'مصروف مصنعية تالفة', type='Expense')
@@ -108,18 +112,30 @@ def test_a_melting_writes_its_wage_off_its_categories_by_their_grams(auth_header
                                      account_type='melting_damaged_wage', account_id=damaged.id, is_active=True))
     db.session.flush()
     source, target = _gold_safe('معروض'), _gold_safe('كسر', 'scrap')
-    _ledger(source, 21, 10.0)
-    _ledger(source, 18, 10.0)
+    from services.stock_ledger import allocate as stock_allocate
+    from tests.test_wage_allocation import _category
+    rings, chains = _category('21'), _category('18')
+    for karat, category, riyals in ((21, rings, 200.0), (18, chains, 150.0)):    # 10 g each: 20 and 15 a gram
+        _ledger(source, karat, 10.0)
+        line = (JournalEntryLine.query.filter_by(account_id=source.account_id)
+                .order_by(JournalEntryLine.id.desc()).first())
+        stock_allocate(line, karat, category.id, 10.0, now=LATER, by='t')
+        spread(_hand_entry(riyals, day=LATER), [(karat, category.id, None, 1.0)], now=LATER, what='وعاء')
     resp = _post(auth_headers, {
         'operation_type': 'melting', 'from_safe_box_id': source.id, 'to_safe_box_id': target.id,
-        'lines': [{'karat': 21, 'gold_weight': 2.0}, {'karat': 18, 'gold_weight': 1.5},
-                  {'karat': 21, 'gold_weight': 0.5}],
+        'lines': [{'karat': 21, 'gold_weight': 2.0, 'category_id': rings.id},
+                  {'karat': 18, 'gold_weight': 1.5, 'category_id': chains.id},
+                  {'karat': 21, 'gold_weight': 0.5, 'category_id': rings.id}],
         'damage_wage_amount': 100.0, 'damage_wage_account_id': damaged.id,
     })
     assert resp.status_code == 201, resp.get_data(as_text=True)[:300]
     [voucher] = _vouchers_from(source)
-    taken = _pools_of(db.session.get(Voucher, voucher.id).journal_entry_id)
-    assert round(sum(taken.values()), 2) == -100.0, 'its wage written off whole'
-    assert sorted(taken.values()) == sorted([-37.5, *([-62.5] if len(taken) == 2 else [-50.0, -12.5])]), \
-        'by the grams melted: 2.5 g of 21k, 1.5 g of 18k'
+    entry = db.session.get(Voucher, voucher.id).journal_entry_id
+    by_karat = {}
+    for line in JournalEntryLine.query.filter_by(journal_entry_id=entry, account_id=wage_account_id()):
+        for a in WageAllocation.query.filter_by(journal_entry_line_id=line.id):
+            by_karat[a.karat] = round(by_karat.get(a.karat, 0.0) + a.riyals, 2)
+    assert by_karat == {21: -50.0, 18: -22.5}, 'each pool at its average, not the 100 written'
+    damaged_line = JournalEntryLine.query.filter_by(journal_entry_id=entry, account_id=damaged.id).one()
+    assert round(float(damaged_line.cash_debit or 0), 2) == 72.5
     assert not unallocated_lines()

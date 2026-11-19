@@ -70,6 +70,9 @@ class InventoryAccountingService:
         if not lines:
             return None
         shortage_w, surplus_w = cls._weight_account(ROLE_SHORTAGE), cls._weight_account(ROLE_SURPLUS)
+        # The wages' pools as they stand before the count (ADR-096 ت3).
+        from services.wage_ledger import pools as _wage_pools, wage_pools_on as _wage_pools_on
+        wage_held = _wage_pools() if _wage_pools_on(now) else None
 
         # (safe, karat) -> [(category_id, grams)]. Per (safe, karat): a safe line
         # for what was found over, one for what was found short (a line keeps its
@@ -126,6 +129,14 @@ class InventoryAccountingService:
                 if category_id is not None:
                     allocate(made[id(spec)], karat, category_id, v, by=by, now=now)
         write_safe_rows(entry, specs, by, ref_type=REFERENCE_TYPE)
+        # The wages with their gold: between categories at the leaving one's
+        # average, short onto the shortage, over from the surplus (ADR-096 ت3).
+        if wage_held is not None:
+            from accounting.mappings import get_account_id_for_mapping
+            from services.wage_ledger import value_the_count_wages
+            value_the_count_wages(entry, groups, wage_held, now=now, by=by,
+                                  shortage_account_id=get_account_id_for_mapping('افتراضي', ROLE_SHORTAGE),
+                                  surplus_account_id=get_account_id_for_mapping('افتراضي', ROLE_SURPLUS))
         # From the day the settings name, what was found short leaves its pool's
         # stock at its average onto the loss, what was found over enters at it
         # from the surplus; between the pools, at the leaving one's (ADR-042 phase 3).

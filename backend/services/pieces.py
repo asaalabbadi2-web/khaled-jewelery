@@ -184,9 +184,19 @@ def register_piece(source, *, weight, stones_weight=0.0, model_id=None, size_id=
         raise PieceRefused('piece_weight_invalid', 'وزن القطعة غير مفهوم') from None
     if weight <= GRAM or stones < 0 or stones >= weight:
         raise PieceRefused('piece_weight_invalid', 'وزن القطعة أكبر من صفر، وفصوصها أقل منه')
-    if batch:
+    from services.wage_ledger import pools, riyals_at_average, wage_pools_on
+    from_pool = wage_pools_on(now)
+    written = wage is not None and not (isinstance(wage, str) and not wage.strip())
+    if batch and from_pool:
+        # From 2027's opening a piece coded from the stock takes its pool's
+        # average (the owner, 20 Nov 2026): its wage moves with its grams.
+        if written:
+            raise PieceRefused('piece_wage_from_pool',
+                               'القطعة تأخذ أجرتها من وعاء تصنيفها بمتوسطه: لا تُكتب لها أجرة')
+        coded_wage = riyals_at_average(pools().get((int(karat), category.id), {'riyals': 0.0, 'grams': 0.0}), weight)
+    elif batch:
         coded_wage = _written_wage(wage, wage_whole, weight)
-    elif wage is not None and not (isinstance(wage, str) and not wage.strip()):
+    elif written:
         raise PieceRefused('piece_wage_from_invoice', 'قطعة الاستلام تأخذ أجرة فاتورتها: لا تُكتب لها أجرة')
     rest = (round(float(source.weight or 0.0) - pieces_weight(source), 3) if batch else line_rest(source))
     if weight > rest + GRAM:
@@ -234,7 +244,30 @@ def register_piece(source, *, weight, stones_weight=0.0, model_id=None, size_id=
         raise PieceRefused('piece_line_not_allocated',
                            'ذهب السطر غير موزَّع على تصنيفه في خزينة مخزون: لا يُسجَّل تحته قطع')
     db.session.flush()
+    if from_pool:
+        _wage_to_the_piece(piece, source, batch, karat, category, now=now, by=by)
     return piece
+
+
+def _wage_to_the_piece(piece: Item, source, batch: bool, karat: int, category: Category, *, now, by) -> None:
+    """The piece's wage out of its pool to its own, with its grams (ADR-096
+    ت3): a batch's at the pool's average; a receipt's its share of its
+    invoice's line once the invoice is completed -- before that its wage is
+    not on 1320 yet, and the invoice's posting lays it on the piece."""
+    from services.wage_ledger import WageAllocationError, _invoice_wage_lines, move_to_piece
+    lines = None
+    if batch:
+        riyals = float(piece.coded_wage or 0.0)
+    else:
+        share = piece_wage(piece)
+        if share is None:
+            return
+        riyals = float(share)
+        lines = [l.id for l in _invoice_wage_lines(db.session.get(Invoice, source.invoice_id))]
+    try:
+        move_to_piece(int(karat), category.id, piece.id, riyals, lines=lines, now=now, by=by)
+    except WageAllocationError as refused:
+        raise PieceRefused('piece_wage_not_in_pool', refused.message) from None
 
 
 def piece_held(item_id: int) -> float:
@@ -440,19 +473,26 @@ def line_pieces(source):
     return Item.query.filter(_source_filter(source)).order_by(Item.id).all()
 
 
-def _shares(source, per_gram: float):
-    """Law 5, to the halala: each piece its wage per gram times its weight;
-    the rest -- the weight not coded -- what is left; no rest, the last piece
-    takes the rounding."""
-    total = round(per_gram * float(source.weight or 0.0), 2)
-    pieces = line_pieces(source)
+def wage_shares(pieces, per_gram: float, weight: float):
+    """({piece id: its share}, rest) -- law 5, to the halala: each piece its
+    wage per gram times its weight; the rest -- the weight not coded -- what
+    is left; no rest, the last piece takes the rounding. The one reading of a
+    receipt line's shares: the station's, the sale's, the wages' ledger's."""
+    total = round(per_gram * float(weight or 0.0), 2)
     shares = {p.id: round(per_gram * float(p.weight or 0.0), 2) for p in pieces}
-    rest_weight = round(float(source.weight or 0.0) - sum(float(p.weight or 0.0) for p in pieces), 3)
+    rest_weight = round(float(weight or 0.0) - sum(float(p.weight or 0.0) for p in pieces), 3)
     rest = round(total - sum(shares.values()), 2)
     if rest_weight <= GRAM and pieces:
         shares[pieces[-1].id] = round(shares[pieces[-1].id] + rest, 2)
         rest = 0.0
-    return {'line': total, 'pieces': shares, 'rest': rest, 'per_gram': per_gram}
+    return shares, rest
+
+
+def _shares(source, per_gram: float):
+    pieces = line_pieces(source)
+    shares, rest = wage_shares(pieces, per_gram, float(source.weight or 0.0))
+    return {'line': round(per_gram * float(source.weight or 0.0), 2), 'pieces': shares, 'rest': rest,
+            'per_gram': per_gram}
 
 
 def line_wages(source):
@@ -624,6 +664,10 @@ def coding_view(batch: StockCoding) -> dict:
     safe = db.session.get(SafeBox, batch.safe_box_id)
     pieces = line_pieces(batch)
     coded = round(sum(float(p.weight or 0.0) for p in pieces), 3)
+    # From 2027's opening its pieces take the pool's average: shown, not asked (ADR-096 ت3).
+    from services.wage_ledger import pool_average, wage_pools_on
+    from_pool = wage_pools_on(batch.created_at)
+    pool_per_gram = pool_average(int(batch.karat), batch.category_id)['per_gram'] if from_pool else None
     return {'kind': 'stock', 'line_id': None, 'coding_id': batch.id, 'invoice_id': None,
             'invoice_number': f'ترميز مخزون #{batch.id}', 'stage': 'stock',
             'date': batch.created_at.isoformat() if batch.created_at else None,
@@ -631,7 +675,8 @@ def coding_view(batch: StockCoding) -> dict:
             'category_id': batch.category_id, 'category_name': getattr(category, 'name', None),
             'karat': int(batch.karat), 'weight': round(float(batch.weight), 3),
             'size_system_id': getattr(category, 'size_system_id', None),
-            'wage_per_gram': None, 'wage_by_piece': True, 'note': batch.note,
+            'wage_per_gram': None, 'wage_by_piece': not from_pool, 'wage_from_pool': from_pool,
+            'pool_wage_per_gram': pool_per_gram, 'note': batch.note,
             'pieces': len(pieces), 'pieces_weight': coded, 'rest': round(float(batch.weight) - coded, 3)}
 
 

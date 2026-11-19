@@ -534,11 +534,17 @@ def _correct_received_line(invoice: Invoice, old: InvoiceItem, raw, safe, *, rea
         if category_id:
             allocate(written_line, karat, category_id, grams, now=now, by=by)
     # The old line's wage out of its category, the right lines' in (ADR-096 ت1); their VAT on 1320 with them.
-    from services.wage_ledger import allocate_entry_wages
-    allocate_entry_wages(entry, [(before['karat'], before['category_id'], None,
-                                  -before['wage_per_gram'] * before['weight'])]
-                         + [(l['karat'], l['category_id'], None, l['wage_per_gram'] * l['weight']) for l in new],
-                         now=now, by=by, what=f'تصحيح استلام #{invoice.id}', net=True)
+    # A line with pieces: each piece's share moves with it, its rest with its category (ADR-096 ت3).
+    from services.wage_ledger import allocate_entry_wages, receipt_line_parts
+    if held > GRAM:
+        wage_parts = (receipt_line_parts(old, karat=before['karat'], category_id=before['category_id'],
+                                         per_gram=before['wage_per_gram'], weight=before['weight'], sign=-1)
+                      + receipt_line_parts(old, karat=new[0]['karat'], category_id=new[0]['category_id'],
+                                           per_gram=new[0]['wage_per_gram'], weight=new[0]['weight']))
+    else:
+        wage_parts = ([(before['karat'], before['category_id'], None, -before['wage_per_gram'] * before['weight'])]
+                      + [(l['karat'], l['category_id'], None, l['wage_per_gram'] * l['weight']) for l in new])
+    allocate_entry_wages(entry, wage_parts, now=now, by=by, what=f'تصحيح استلام #{invoice.id}', net=True)
     _rebuild_safe_box_transactions_for_journal_entry(
         entry, JournalEntryLine.query.filter_by(journal_entry_id=entry.id, is_deleted=False).all(), created_by=by)
 
