@@ -26,3 +26,7 @@ google-auth==2.36.0
 google-auth-httplib2==0.2.0
 flasgger==0.9.7.1
 pyflakes==3.4.0  # tests/test_names_defined.py: every name the code uses is defined (NAMES-1)
+# A piece's label (services/piece_label, ADR-085 amendment 20 Nov): Arabic joined and laid right to left, its width measured
+arabic-reshaper==3.0.0
+python-bidi==0.6.11
+fonttools==4.60.2

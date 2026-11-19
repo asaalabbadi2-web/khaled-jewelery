@@ -1,66 +1,38 @@
-"""The printer's first test (ADR-085 ت0; ADR-087 R5): one tag written, its label printed, and the printer asked back.
+"""The printer's test (ADR-085 ت0; ADR-087 R5): one tag written, its label printed, and the printer asked back.
 
-The Zebra ZD621R on the shop's network (ADR-085: ZPL on port 9100, the tag
-written with ^RFW). This tool talks to it alone: it writes no row, reads no
-database, imports nothing of the system -- it runs on any computer on the
-shop's network with Python 3, the server's or another.
+The Zebra ZD621R on the network (ADR-085: ZPL on port 9100, the tag written
+with ^RFW). This tool talks to it alone: it writes no row and reads no
+database. Its label is the system's one design (services/piece_label): the
+number's QR code, the number, karat and weight on the first face; the model's
+or category's name in Arabic (Cairo), the stones and size in Latin symbols on
+the second -- run from backend/ with the server's libraries.
 
     python tools/hardware/zebra_probe.py --host 192.168.1.50 --dry-run
     python tools/hardware/zebra_probe.py --host 192.168.1.50 --status
+    python tools/hardware/zebra_probe.py --host 192.168.1.50 --install-font
     python tools/hardware/zebra_probe.py --host 192.168.1.50 --calibrate
-    python tools/hardware/zebra_probe.py --host 192.168.1.50 --number KJ-000001 \\
-        --karat 21 --weight 12.40 --width-mm 72 --height-mm 12
+    python tools/hardware/zebra_probe.py --host 192.168.1.50 --number KJ-999905 \\
+        --karat 21 --weight 12.40 --name 'بنجرة مخرمة' --stones 0.35 --size 18
 
-A label: the piece's number, its karat and weight when given, and a
-DataMatrix of the number (the counter scans it, ADR-085). Its tag: the
-number's value (4B4A then the digits padded to twenty, ADR-085 law 2), read
-back by the printer (^RFR, ^HV) -- a tag is never taken as written on the
-printer's word alone: the value it reads must be the value sent.
-
-Not a writer: the station's printing (R5) is built after this test passes.
+A tag is never taken as written on the printer's word alone: the value it
+reads back (^RFR, ^HV) must be the value sent. A new printer takes the font
+once (--install-font): Cairo kept in its flash as E:CAIRO.TTF.
 """
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import socket
 import sys
 
-EPC_PREFIX = '4B4A'          # «KJ» -- as services.pieces.EPC_PREFIX (a test holds them one)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+from services.piece_label import (EPC_PREFIX, FONT_ON_PRINTER, epc_of, font_upload,  # noqa: E402,F401
+                                  label_zpl)
+
 PORT = 9100
-DOTS_PER_MM = 12             # 300 dpi
-NUMBER = re.compile(r'^KJ-\d{6,}$')
 HEX24 = re.compile(r'[0-9A-F]{24}')
-
-
-def epc_of(number: str) -> str:
-    """The number's tag value (ADR-085 law 2) -- services.pieces.epc_of's, held one by a test."""
-    if not NUMBER.match(str(number or '')):
-        raise ValueError(f'رقم القطعة KJ- ثم ستة أرقام فأكثر: {number!r}')
-    return f'{EPC_PREFIX}{int(str(number)[3:]):020d}'
-
-
-def label_zpl(number: str, *, karat=None, weight=None, width_mm=72.0, height_mm=12.0) -> str:
-    """One label in ZPL: the tag written and read back to the host, then the
-    number, its karat and weight, and its DataMatrix."""
-    epc = epc_of(number)
-    width, height = round(width_mm * DOTS_PER_MM), round(height_mm * DOTS_PER_MM)
-    module = max(2, min(6, height // 30))                      # the DataMatrix's cell, in dots
-    text_h = max(18, min(40, height // 3))
-    facts = ' · '.join(x for x in (f'{karat}K' if karat else '', f'{float(weight):.2f}g' if weight else '') if x)
-    lines = [
-        '^XA',
-        f'^PW{width}', f'^LL{height}', '^CI28',
-        '^RS8',                                                 # EPC Class 1 Gen 2
-        f'^RFW,H,,,A^FD{epc}^FS',                               # the tag written, its PC bits set
-        '^FN1^RFR,H^FS', '^HV1,24,EPC=^FS',                    # read back, returned to the host
-        f'^FO10,{max(4, (height - module * 14) // 2)}^BXN,{module},200^FD{number}^FS',
-        f'^FO{10 + module * 16},6^A0N,{text_h},{text_h}^FD{number}^FS',
-    ]
-    if facts:
-        lines.append(f'^FO{10 + module * 16},{6 + text_h + 4}^A0N,{text_h},{text_h}^FD{facts}^FS')
-    lines.append('^XZ')
-    return '\n'.join(lines) + '\n'
 
 
 CALIBRATE = '~JC\n^XA^HR^XZ\n'      # the media sensed, then the tag's position (prints its own report)
@@ -73,10 +45,10 @@ def read_back(reply: str):
     return match.group(0) if match else None
 
 
-def send(host: str, payload: str, *, wait: float = 8.0) -> str:
-    """The payload sent to the printer, and what it answers within `wait` seconds."""
-    with socket.create_connection((host, PORT), timeout=wait) as conn:
-        conn.sendall(payload.encode('utf-8'))
+def send(host: str, payload, *, wait: float = 8.0) -> str:
+    """The payload (text or bytes) sent to the printer, and what it answers within `wait` seconds."""
+    with socket.create_connection((host, PORT), timeout=max(wait, 30.0)) as conn:
+        conn.sendall(payload if isinstance(payload, bytes) else payload.encode('utf-8'))
         conn.settimeout(wait)
         chunks = []
         try:
@@ -98,12 +70,15 @@ def main(argv=None) -> int:
     p.add_argument('--number', default='KJ-000001')
     p.add_argument('--karat')
     p.add_argument('--weight', type=float)
-    p.add_argument('--width-mm', type=float, default=72.0)
-    p.add_argument('--height-mm', type=float, default=12.0)
+    p.add_argument('--name', help='اسم الموديل أو التصنيف (بالعربية)')
+    p.add_argument('--stones', type=float, help='وزن الأحجار بالجرام')
+    p.add_argument('--size', help='المقاس')
+    p.add_argument('--frame', action='store_true', help='ارسم حدود الوجهين كما قيست، للتحقق على البطاقة')
     what = p.add_mutually_exclusive_group()
     what.add_argument('--dry-run', action='store_true', help='اطبع الأوامر هنا ولا ترسلها')
     what.add_argument('--status', action='store_true', help='اسأل الطابعة عن حالتها')
     what.add_argument('--calibrate', action='store_true', help='معايرة الورق ثم موضع الرقاقة')
+    what.add_argument('--install-font', action='store_true', help='حمّل الخط Cairo إلى ذاكرة الطابعة (مرة لكل طابعة)')
     a = p.parse_args(argv)
 
     if a.status:
@@ -113,7 +88,14 @@ def main(argv=None) -> int:
         send(a.host, CALIBRATE, wait=2.0)
         print('أُرسلت المعايرة: الطابعة تُخرج بضع بطاقات ثم ورقة تقرير موضع الرقاقة.')
         return 0
-    zpl = label_zpl(a.number, karat=a.karat, weight=a.weight, width_mm=a.width_mm, height_mm=a.height_mm)
+    if a.install_font:
+        send(a.host, font_upload(), wait=3.0)
+        listed = send(a.host, f'^XA^HW{FONT_ON_PRINTER.split(".")[0]}.*^XZ\n', wait=4.0)
+        ok = FONT_ON_PRINTER in listed
+        print(f'{"✓" if ok else "✗"} الخط {FONT_ON_PRINTER} {"في ذاكرة الطابعة" if ok else "لم يظهر في ذاكرة الطابعة"}')
+        return 0 if ok else 1
+    zpl = label_zpl(a.number, karat=a.karat, weight=a.weight, name=a.name, stones=a.stones, size=a.size,
+                    frame=a.frame)
     if a.dry_run:
         print(zpl)
         return 0

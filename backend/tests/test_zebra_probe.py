@@ -24,13 +24,14 @@ def test_only_our_numbers():
             z.epc_of(bad)
 
 
-def test_a_label_writes_the_tag_reads_it_back_and_prints_the_number():
-    zpl = z.label_zpl('KJ-000001', karat='21', weight=12.4)
-    assert zpl.startswith('^XA') and zpl.rstrip().endswith('^XZ')
-    assert '^RFW,H,,,A^FD4B4A00000000000000000001^FS' in zpl
-    assert '^RFR,H' in zpl and '^HV1,24,EPC=' in zpl, 'read back to the host'
-    assert '^BXN' in zpl and '^FDKJ-000001^FS' in zpl, 'the DataMatrix the counter scans'
-    assert '21K · 12.40g' in zpl
+def test_its_label_is_the_systems_one_design():
+    from services import piece_label
+    assert z.label_zpl is piece_label.label_zpl, 'one design: the probe prints the system\'s label'
+
+
+def test_the_font_is_kept_on_the_printer_once():
+    head = z.font_upload()[:40]
+    assert head.startswith(b'~DYE:CAIRO,B,T,') and z.FONT_ON_PRINTER == 'E:CAIRO.TTF'
 
 
 def test_the_reply_is_read_for_the_value():
@@ -64,3 +65,4 @@ def test_sent_to_a_printer_and_its_answer_compared():
         t.join()
         assert '^RFW' in got['zpl']
     server.close()
+
