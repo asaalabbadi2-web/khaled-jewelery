@@ -5862,6 +5862,21 @@ class ApiService {
   /// A line's or a batch's wage per gram against a model's expected one
   /// (ADR-093 §1): `{state, invoice_per_gram, expected_per_gram}` -- a
   /// warning, never a refusal.
+  /// A piece weighed, read before it is registered (the owner, 20 Nov 2026):
+  /// `{weighed: {standing_weight, stones_weight, stones_kind, grams,
+  /// net_weight, rest, rest_after}, refused: null}` or `{weighed: null,
+  /// refused: {code, message}}` -- nothing written.
+  Future<Map<String, dynamic>> weighPiece({
+    int? lineId,
+    int? codingId,
+    required double weight,
+    double stonesWeight = 0,
+  }) => _getMap(
+    '/pieces/weigh?${codingId != null ? 'coding_id=$codingId' : 'line_id=$lineId'}'
+    '&weight=$weight&stones_weight=$stonesWeight',
+    fallback: 'تعذّر قراءة وزن القطعة',
+  );
+
   Future<Map<String, dynamic>> pieceWageCheck({
     int? lineId,
     int? codingId,

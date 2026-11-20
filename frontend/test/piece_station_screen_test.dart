@@ -160,8 +160,25 @@ class _Api extends ApiService {
   @override
   Future<List<Map<String, dynamic>>> piecesPending() async => [_line()];
 
+  /// The line's stones priced by the carat: out of its gold (ت4).
+  bool pricedStones = false;
+
   @override
-  Future<Map<String, dynamic>> pieceLine(int lineId) async => {'line': _line(), 'pieces': []};
+  Future<Map<String, dynamic>> pieceLine(int lineId) async =>
+      {'line': {..._line(), if (pricedStones) 'stones_kind': 'priced'}, 'pieces': []};
+
+  /// The server's reading of a weight typed, each question recorded.
+  final weighs = <Map<String, dynamic>>[];
+  Map<String, dynamic>? weighAnswer;
+
+  @override
+  Future<Map<String, dynamic>> weighPiece({int? lineId, int? codingId, required double weight, double stonesWeight = 0}) async {
+    weighs.add({'line_id': lineId, 'weight': weight, 'stones_weight': stonesWeight});
+    return weighAnswer ??
+        {'weighed': {'standing_weight': weight, 'stones_weight': stonesWeight, 'stones_kind': 'as_gold',
+                     'grams': weight, 'net_weight': weight, 'rest': 30.0, 'rest_after': 30.0 - weight},
+         'refused': null};
+  }
 
   @override
   Future<Map<String, dynamic>> registerPiece(Map<String, dynamic> body) async {
@@ -177,8 +194,11 @@ class _Api extends ApiService {
     }
     _n++;
     final w = (body['weight'] as num).toDouble();
+    final stones = (body['stones_weight'] as num? ?? 0).toDouble();
     return {
-      'piece': {'id': 100 + _n, 'item_code': 'KJ-00012$_n', 'weight': w, 'stones_weight': 0,
+      'piece': {'id': 100 + _n, 'item_code': 'KJ-00012$_n', 'weight': w, 'stones_weight': stones,
+                // the server's: its stones counted as gold, its net its gold alone
+                if (stones > 0) ...{'stones_kind': 'as_gold', 'standing_weight': w, 'net_weight': w - stones},
                 'wage': null, 'wage_known': false},
       'line': body.containsKey('coding_id')
           ? _batch(pieces: _n, coded: w, fromPool: fromPool)
@@ -657,5 +677,56 @@ void main() {
       expect(find.text(e.value.$1), findsOneWidget, reason: e.key);
       expect(find.byIcon(e.value.$2), findsOneWidget, reason: e.key);
     }
+  });
+
+  // ── the net from the server (the owner, 20 Nov 2026) ──
+
+  testWidgets('the weight typed is read by the server: its net, its stones, the rest after it', (tester) async {
+    final api = _Api()
+      ..pricedStones = true
+      ..weighAnswer = {
+        'weighed': {'standing_weight': 12.40, 'stones_weight': 0.35, 'stones_kind': 'priced', 'grams': 12.05,
+                    'net_weight': 12.05, 'rest': 30.0, 'rest_after': 17.95},
+        'refused': null,
+      };
+    await _open(tester, api);
+    expect(find.byKey(const Key('station-stones-priced')), findsOneWidget, reason: 'the line says its stones are out of its gold');
+    await tester.tap(find.byKey(const Key('piece-stones-add')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('piece-weight')), '12.4');
+    await tester.enterText(find.byKey(const Key('piece-weight')), '12.40');
+    await tester.enterText(find.byKey(const Key('piece-stones')), '0.35');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(api.weighs, hasLength(1), reason: 'asked once the typing stops, not at each key');
+    expect(api.weighs.single, {'line_id': 7, 'weight': 12.40, 'stones_weight': 0.35});
+    expect(tester.widget<Text>(find.byKey(const Key('station-weighed'))).data,
+        'الوزن 12.05 جم · + فصوص 0.35 جم · يبقى 17.95 جم', reason: 'priced apart: its gold, the stones added');
+    expect(api.sent, isEmpty, reason: 'asked, not registered');
+  });
+
+  testWidgets('the refusal the press would meet is said before it', (tester) async {
+    final api = _Api()
+      ..weighAnswer = {
+        'weighed': null,
+        'refused': {'code': 'piece_heavier_than_rest', 'message': 'القطعة (31.00 جم) أثقل من باقي السطر (30.00 جم)'},
+      };
+    await _open(tester, api);
+    await tester.enterText(find.byKey(const Key('piece-weight')), '31');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(find.byKey(const Key('station-weighed'))).data,
+        'القطعة (31.00 جم) أثقل من باقي السطر (30.00 جم)');
+  });
+
+  testWidgets('a piece is said by what is sold as gold: its stones counted as gold within its weight', (tester) async {
+    final api = _Api();
+    await _open(tester, api);
+    await tester.tap(find.byKey(const Key('piece-stones-add')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('piece-stones')), '0.35');
+    await register(tester, '12.40');
+    expect(find.descendant(of: find.byKey(const Key('station-last')), matching: find.text('12.40 جم · فصوص 0.35 جم ضمن الوزن')),
+        findsOneWidget, reason: 'sold at 12.40, never at its net 12.05');
   });
 }

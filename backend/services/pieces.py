@@ -13,6 +13,16 @@ writer (services/stock_ledger.allocate), the row given up rewritten as it
 was less the piece. A batch's pieces take theirs from the allocations of
 its category its location holds, not yet pieced. The source is locked while
 its pieces are counted.
+
+A piece is weighed on the scale -- its standing weight -- with its stones
+(the owner, 20 Nov 2026): weigh() is the one reading of what that is in the
+books. A receipt line whose stones are priced by the carat (purchase_stones,
+ت4) holds its gold alone: its piece takes its net -- standing less stones. A
+line whose stones count as gold, and a batch of the stock on hand, hold the
+stones in their gold: the piece takes its standing weight. Either way the
+piece's weight is its grams in the books -- what is sold as gold, what its
+label and every screen show (the owner, 20 Nov 2026) -- its stones beside
+it: within it, or «+» out of it when priced apart.
 """
 from __future__ import annotations
 
@@ -109,6 +119,68 @@ def free_grams(safe_box: SafeBox, karat: int, category_id: int) -> float:
     return round(sum(float(r.grams) for r in rows), 3)
 
 
+STONES_AS_GOLD, STONES_PRICED = 'as_gold', 'priced'
+
+
+def stones_kind(source) -> str:
+    """A source's stones as its purchase said them: a receipt line's priced by
+    the carat, out of its gold; else -- any other line, a batch of the stock
+    on hand -- counted as gold, as the shop has always posted them."""
+    if isinstance(source, InvoiceItem) and (source.stones_kind or '') == STONES_PRICED:
+        return STONES_PRICED
+    return STONES_AS_GOLD
+
+
+def _rest_of(source) -> float:
+    if isinstance(source, StockCoding):
+        return round(float(source.weight or 0.0) - pieces_weight(source), 3)
+    return line_rest(source)
+
+
+def weigh(source, *, weight, stones_weight=0.0) -> dict:
+    """A piece weighed on the scale, read against its source before it is one:
+    {standing_weight, stones_weight, stones_kind, grams -- what it takes of the
+    source's gold, its weight in the books -- net_weight -- its gold alone --
+    rest, rest_after}; or PieceRefused: not understood, heavier than the rest,
+    or than its location holds. The station asks it as the weight is typed,
+    and register_piece reads it again, its source locked."""
+    try:
+        standing = round(float(weight), 3)
+        stones = round(float(stones_weight or 0.0), 3)
+    except (TypeError, ValueError):
+        raise PieceRefused('piece_weight_invalid', 'وزن القطعة غير مفهوم') from None
+    if standing <= GRAM or stones < 0 or stones >= standing:
+        raise PieceRefused('piece_weight_invalid', 'وزن القطعة أكبر من صفر، وفصوصها أقل منه')
+    kind = stones_kind(source)
+    net = round(standing - stones, 3)
+    grams = net if kind == STONES_PRICED else standing
+    batch = isinstance(source, StockCoding)
+    rest = _rest_of(source)
+    if grams > rest + GRAM:
+        what = 'ذهب القطعة' if kind == STONES_PRICED else 'القطعة'
+        raise PieceRefused('piece_heavier_than_rest',
+                           f'{what} ({grams:.2f} جم) أثقل من باقي {"الدفعة" if batch else "السطر"} ({rest:.2f} جم)')
+    if batch:
+        safe = db.session.get(SafeBox, source.safe_box_id)
+        category = db.session.get(Category, source.category_id)
+        free = free_grams(safe, int(source.karat), category.id)
+        if grams > free + GRAM:
+            raise PieceRefused('piece_more_than_held',
+                               f'القطعة ({grams:.2f} جم) أثقل مما في «{safe.name}» من «{category.name}» '
+                               f'خارج الاستلامات بلا ترميز ({free:.2f} جم)')
+    return {'standing_weight': standing, 'stones_weight': stones, 'stones_kind': kind, 'grams': grams,
+            'net_weight': net, 'rest': rest, 'rest_after': round(rest - grams, 3)}
+
+
+def piece_weights(piece: Item) -> dict:
+    """A piece's weights read from its grams in the books and its source's
+    stones: its standing weight -- what the scale said -- and its net."""
+    kind = stones_kind(piece_source(piece))
+    grams, stones = float(piece.weight or 0.0), float(piece.stones_weight or 0.0)
+    standing = grams + stones if kind == STONES_PRICED else grams
+    return {'stones_kind': kind, 'standing_weight': round(standing, 3), 'net_weight': round(standing - stones, 3)}
+
+
 def _source_of(source):
     """The source, locked, its category, karat and the refusal if it is not
     one a piece is born under."""
@@ -177,13 +249,9 @@ def register_piece(source, *, weight, stones_weight=0.0, model_id=None, size_id=
     if category is None or (category.tracking or 'weight') != 'piece':
         raise PieceRefused('piece_category_by_weight', 'تصنيف السطر يُتابَع بالوزن: لا تُسجَّل فيه قطع')
     model, size = model_and_size(category, model_id, size_id)
-    try:
-        weight = round(float(weight), 3)
-        stones = round(float(stones_weight or 0.0), 3)
-    except (TypeError, ValueError):
-        raise PieceRefused('piece_weight_invalid', 'وزن القطعة غير مفهوم') from None
-    if weight <= GRAM or stones < 0 or stones >= weight:
-        raise PieceRefused('piece_weight_invalid', 'وزن القطعة أكبر من صفر، وفصوصها أقل منه')
+    # what the scale said, in the books: its grams of its source's gold (weigh)
+    weighed = weigh(source, weight=weight, stones_weight=stones_weight)
+    weight, stones = weighed['grams'], weighed['stones_weight']
     from services.wage_ledger import pools, riyals_at_average, wage_pools_on
     from_pool = wage_pools_on(now)
     written = wage is not None and not (isinstance(wage, str) and not wage.strip())
@@ -198,17 +266,8 @@ def register_piece(source, *, weight, stones_weight=0.0, model_id=None, size_id=
         coded_wage = _written_wage(wage, wage_whole, weight)
     elif written:
         raise PieceRefused('piece_wage_from_invoice', 'قطعة الاستلام تأخذ أجرة فاتورتها: لا تُكتب لها أجرة')
-    rest = (round(float(source.weight or 0.0) - pieces_weight(source), 3) if batch else line_rest(source))
-    if weight > rest + GRAM:
-        raise PieceRefused('piece_heavier_than_rest',
-                           f'القطعة ({weight:.2f} جم) أثقل من باقي {"الدفعة" if batch else "السطر"} ({rest:.2f} جم)')
     if batch:
         safe = db.session.get(SafeBox, source.safe_box_id)
-        free = free_grams(safe, karat, category.id)
-        if weight > free + GRAM:
-            raise PieceRefused('piece_more_than_held',
-                               f'القطعة ({weight:.2f} جم) أثقل مما في «{safe.name}» من «{category.name}» '
-                               f'خارج الاستلامات بلا ترميز ({free:.2f} جم)')
         rows = (_free_allocations(safe, karat, category.id).filter(StockLineAllocation.grams > GRAM)
                 .order_by(StockLineAllocation.id).all())
     else:
@@ -607,6 +666,7 @@ def line_view(line: InvoiceItem) -> dict:
             'karat': int(round(float(line.karat or 0))), 'weight': round(float(line.weight or 0.0), 3),
             'size_system_id': getattr(category, 'size_system_id', None),
             'wage_per_gram': source_wage_per_gram(line), 'wage_by_piece': False,
+            'stones_kind': stones_kind(line),
             'pieces': len(pieces), 'pieces_weight': coded, 'returned_loose': returned_loose(line),
             'rest': line_rest(line)}
 
@@ -621,7 +681,8 @@ def piece_view(piece: Item) -> dict:
             'model': {'id': model.id, 'name': model.name} if model else None,
             'size': {'id': size.id, 'label': size.label} if size else None,
             'karat': piece.karat, 'weight': round(float(piece.weight or 0.0), 3),
-            'stones_weight': round(float(piece.stones_weight or 0.0), 3), 'line_id': piece.receipt_item_id,
+            'stones_weight': round(float(piece.stones_weight or 0.0), 3), **piece_weights(piece),
+            'line_id': piece.receipt_item_id,
             'coding_id': piece.coding_id,
             'wage': wage, 'wage_known': wage is not None, 'in_stock': piece_held(piece.id) > GRAM,
             'created_at': piece.created_at.isoformat() if piece.created_at else None,
@@ -692,7 +753,7 @@ def coding_view(batch: StockCoding) -> dict:
             'karat': int(batch.karat), 'weight': round(float(batch.weight), 3),
             'size_system_id': getattr(category, 'size_system_id', None),
             'wage_per_gram': None, 'wage_by_piece': not from_pool, 'wage_from_pool': from_pool,
-            'pool_wage_per_gram': pool_per_gram, 'note': batch.note,
+            'pool_wage_per_gram': pool_per_gram, 'note': batch.note, 'stones_kind': stones_kind(batch),
             'pieces': len(pieces), 'pieces_weight': coded, 'rest': round(float(batch.weight) - coded, 3)}
 
 

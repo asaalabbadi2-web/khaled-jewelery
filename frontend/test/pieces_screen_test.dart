@@ -462,4 +462,25 @@ void main() {
     expect(api.printed, hasLength(1));
     expect(find.textContaining('توقّفت الطباعة: انتهت الملصقات'), findsOneWidget);
   });
+
+  testWidgets('a piece is said by what is sold as gold; stones priced apart are «+»', (tester) async {
+    final within = {
+      ..._piece('KJ-000250', 'بنجرة فصوص', 56.0, stones: 1.20),
+      'stones_kind': 'as_gold', 'standing_weight': 56.0, 'net_weight': 54.80,
+    };
+    final apart = {
+      ..._piece('KJ-000251', 'بنجرة مفصولة', 54.80, stones: 1.20),
+      'stones_kind': 'priced', 'standing_weight': 56.0, 'net_weight': 54.80,
+    };
+    final api = _FakeApi(pieces: [within, apart]);
+    await _mount(tester, PiecesScreen(api: api));
+    final table = tester.widget<DataTable>(find.byKey(const Key('pieces-table')));
+    DataRow row(String code) => table.rows.firstWhere((r) => r.key == ValueKey('piece-row-$code'));
+    bool says(DataRow r, String text) => r.cells.any((c) =>
+        find.descendant(of: find.byWidget(c.child), matching: find.text(text), matchRoot: true).evaluate().isNotEmpty);
+    expect(says(row('KJ-000250'), '56.00 جم'), isTrue, reason: 'its stones counted as gold: sold at 56.00');
+    expect(says(row('KJ-000250'), '1.20 جم'), isTrue);
+    expect(says(row('KJ-000251'), '54.80 جم'), isTrue);
+    expect(says(row('KJ-000251'), '+1.20 جم'), isTrue, reason: 'priced apart: added to its gold');
+  });
 }

@@ -9,6 +9,11 @@ POST /api/pieces                  -- a piece under a line (line_id) or a batch
      (coding_id): weight, stones_weight, model_id, size_id (ADR-093), a
      batch's piece its wage (per gram, or the whole with wage_whole: true),
      request_key -- the save attempt's key: pressed twice, one.
+GET  /api/pieces/weigh            -- line_id or coding_id, weight (the scale's),
+     stones_weight: what the piece would be in the books before it is one --
+     its grams of the source's gold, its net, the rest after it -- or the
+     refusal its registration would meet (services/pieces.weigh). Nothing
+     written; asked as the weight is typed.
 GET  /api/pieces/wage-check       -- line_id or coding_id, model_id: the
      source's wage per gram against the model's expected one -- a warning.
 GET  /api/pieces                  -- the pieces' list (the owner, 16 Nov 2026):
@@ -130,6 +135,28 @@ def station_register():
         return saved
     db.session.commit()
     return jsonify({'piece': piece_view(piece), 'line': _view(line)}), 201
+
+
+@pieces_bp.route('/pieces/weigh', methods=['GET'])
+@require_permission('items.create')
+def station_weigh():
+    """A piece weighed, read before it is registered: {'weighed': ...} or
+    {'refused': {code, message}} -- a 200 either way: an answer to a question,
+    not a request refused."""
+    from services.pieces import weigh
+    try:
+        source = (db.session.get(StockCoding, int(request.args['coding_id'])) if request.args.get('coding_id')
+                  else db.session.get(InvoiceItem, int(request.args.get('line_id'))))
+    except (TypeError, ValueError):
+        source = None
+    if source is None:
+        return jsonify({'error': 'not_found', 'message': 'سطر الاستلام أو دفعة الترميز غير موجودة'}), 404
+    try:
+        weighed = weigh(source, weight=request.args.get('weight'),
+                        stones_weight=request.args.get('stones_weight') or 0.0)
+    except PieceRefused as refused:
+        return jsonify({'weighed': None, 'refused': {'code': refused.code, 'message': refused.message}}), 200
+    return jsonify({'weighed': weighed, 'refused': None}), 200
 
 
 @pieces_bp.route('/pieces/wage-check', methods=['GET'])

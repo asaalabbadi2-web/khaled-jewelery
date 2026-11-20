@@ -195,16 +195,20 @@ def _mount(attempt, job, piece, *, by, now):
 
 
 def label_facts(piece: Item) -> dict:
-    """What its label carries (ADR-097): its number, karat and weight, its
-    model's name else its category's, its stones and its size -- the printed
-    label's and its preview's."""
+    """What its label carries (ADR-097): its number, karat and weight -- its
+    grams in the books, what is sold as gold: its standing weight when its
+    stones count as gold, its net when they are priced apart, then marked
+    «+St» (the owner, 20 Nov 2026) -- its model's name else its category's,
+    its stones and its size: the printed label's and its preview's."""
     from models import Category, PieceModel, SizeSystemSize
+    from services.pieces import STONES_PRICED, piece_weights
     model = db.session.get(PieceModel, piece.model_id) if piece.model_id else None
     category = db.session.get(Category, piece.category_id) if piece.category_id else None
     size = db.session.get(SizeSystemSize, piece.size_id) if piece.size_id else None
     return {'number': piece.item_code, 'karat': piece.karat, 'weight': piece.weight,
             'name': model.name if model else getattr(category, 'name', None),
-            'stones': piece.stones_weight, 'size': getattr(size, 'label', None)}
+            'stones': piece.stones_weight, 'size': getattr(size, 'label', None),
+            'stones_out': piece_weights(piece)['stones_kind'] == STONES_PRICED}
 
 
 def _label(piece: Item, epc: str) -> str:

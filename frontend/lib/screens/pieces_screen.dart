@@ -247,6 +247,12 @@ class _PiecesScreenState extends State<PiecesScreen> {
     return wage is num && weight > 0 ? _grams.format(wage / weight) : null;
   }
 
+  /// Its stones: within its weight, or «+» added to it when priced apart --
+  /// its weight is what is sold as gold either way (the owner, 20 Nov 2026).
+  String _stones(Map<String, dynamic> p) => p['stones_kind'] == 'priced'
+      ? '+${_weight(p['stones_weight'])} جم'
+      : '${_weight(p['stones_weight'])} جم';
+
   String _date(Object? iso) => displayDate(iso);
 
   String _receivedFrom(Map<String, dynamic> p) {
@@ -532,7 +538,7 @@ class _PiecesScreenState extends State<PiecesScreen> {
       facts: [
         ('الموديل', p['model'] == null ? 'بلا موديل' : _modelOf(p)),
         ('المقاس', p['size'] == null ? 'بلا مقاس' : _sizeOf(p)),
-        ('الأحجار', (p['stones_weight'] as num? ?? 0) > 0 ? '${_weight(p['stones_weight'])} جم' : 'بلا أحجار'),
+        ('الأحجار', (p['stones_weight'] as num? ?? 0) > 0 ? _stones(p) : 'بلا أحجار'),
         ('المصنعية', _wage(p) == null ? 'بانتظار الفاتورة' : '${_wage(p)} ر.س · ${_perGram(p)} للجرام'),
         (
           'المكان',
@@ -888,7 +894,7 @@ class _PiecesScreenState extends State<PiecesScreen> {
                       DataCell(Text('${p['category_name'] ?? '—'}')),
                       DataCell(_karatChip(p['karat'])),
                       DataCell(Text('${_weight(p['weight'])} جم', style: const TextStyle(fontWeight: FontWeight.w800))),
-                      DataCell(Text((p['stones_weight'] as num? ?? 0) > 0 ? '${_weight(p['stones_weight'])} جم' : '—')),
+                      DataCell(Text((p['stones_weight'] as num? ?? 0) > 0 ? _stones(p) : '—')),
                       DataCell(
                         _wage(p) == null
                             ? Text('بانتظار الفاتورة', style: theme.textTheme.bodySmall)

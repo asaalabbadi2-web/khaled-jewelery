@@ -78,6 +78,14 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
   final _stones = TextEditingController();
   final _stonesFocus = FocusNode();
   bool _stonesOpen = false;
+
+  /// The piece as the server reads it while its weight is typed (the owner,
+  /// 20 Nov 2026): its net, its stones, the rest after it -- or the refusal
+  /// its registration would meet. The screen subtracts nothing.
+  Map<String, dynamic>? _weighed;
+  Timer? _weighTimer;
+  int _weighAsked = 0;
+  static const weighAfter = Duration(milliseconds: 300);
   final _weightFocus = FocusNode();
   // A batch's piece: its own wage, per gram or its whole -- the way kept for
   // the next piece, the figure not.
@@ -105,6 +113,7 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
   @override
   void dispose() {
     _printerTimer?.cancel();
+    _weighTimer?.cancel();
     _weight.dispose();
     _stones.dispose();
     _stonesFocus.dispose();
@@ -146,6 +155,7 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
       _weight.clear();
       _stones.clear();
       _stonesOpen = false;
+      _weighed = null;
       _model = null;
       _sizeId = null;
       _wageCheck = null;
@@ -405,8 +415,9 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
   /// typing is checked here; the server stays the judge of the line's rest.
   Future<bool> _weightLooksRight(double weight) async {
     final others = [
+      // the scale's figure against the scale's: the pieces' standing weights
       for (final p in _pieces)
-        if (((p['weight'] as num?)?.toDouble() ?? 0) > 0) (p['weight'] as num).toDouble(),
+        if (((p['standing_weight'] ?? p['weight']) as num? ?? 0) > 0) ((p['standing_weight'] ?? p['weight']) as num).toDouble(),
     ];
     if (others.length < 2) return true;
     final average = others.reduce((a, b) => a + b) / others.length;
@@ -554,6 +565,7 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
         _weight.clear();
         _stones.clear();
         _wage.clear();
+        _weighed = null;
       });
       _weightFocus.requestFocus();
       // Its label: a job of its own -- printed now, or waiting (ADR-097 law 1).
@@ -817,7 +829,8 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
       textDirection: TextDirection.ltr,
       style: theme.textTheme.headlineSmall,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      decoration: const InputDecoration(labelText: 'وزن القطعة (جم)'),
+      decoration: const InputDecoration(labelText: 'وزن القطعة (جم)', helperText: 'كما يقول الميزان'),
+      onChanged: (_) => _askWeigh(),
       onSubmitted: (_) => _register(),
     );
     // Most pieces have none: the field opened once, kept open for the line.
@@ -829,6 +842,7 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
             textDirection: TextDirection.ltr,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: const InputDecoration(labelText: 'وزن الفصوص (جم)'),
+            onChanged: (_) => _askWeigh(),
             onSubmitted: (_) => _register(),
           )
         : null;
@@ -877,13 +891,79 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
     ]);
   }
 
+  /// The weight typed, asked of the server a moment after the last key: the
+  /// newest answer kept, an older one arriving late dropped.
+  void _askWeigh() {
+    _weighTimer?.cancel();
+    final line = _line;
+    final weight = readTypedNumber(_weight.text) ?? 0;
+    if (line == null || weight <= 0) {
+      if (_weighed != null) setState(() => _weighed = null);
+      return;
+    }
+    _weighTimer = Timer(weighAfter, () async {
+      final asked = ++_weighAsked;
+      try {
+        final answer = await _api.weighPiece(
+          lineId: _isBatch(line) ? null : line['line_id'] as int?,
+          codingId: _isBatch(line) ? line['coding_id'] as int? : null,
+          weight: weight,
+          stonesWeight: readTypedNumber(_stones.text) ?? 0,
+        );
+        if (mounted && asked == _weighAsked && _line == line) setState(() => _weighed = answer);
+      } catch (_) {
+        // a help: without it the piece is still registered, and refused there if it must be
+        if (mounted && asked == _weighAsked) setState(() => _weighed = null);
+      }
+    });
+  }
+
+  /// The server's reading of the weight typed, under the entry: the piece's
+  /// net, its stones and how they count, the rest after it -- or the refusal.
+  Widget _weighedLine(BuildContext context) {
+    final theme = Theme.of(context);
+    final answer = _weighed;
+    if (answer == null) return const SizedBox.shrink();
+    final refused = answer['refused'] as Map<String, dynamic>?;
+    final w = answer['weighed'] as Map<String, dynamic>?;
+    if (refused == null && w == null) return const SizedBox.shrink();
+    final tones = AppSemanticColors.of(context);
+    final words = refused != null
+        ? '${refused['message']}'
+        : [
+            'الوزن ${_g(w!['grams'])} جم',
+            if (((w['stones_weight'] as num?) ?? 0) > 0) _stonesWords(w['stones_weight'], w['stones_kind']),
+            'يبقى ${_g(w['rest_after'])} جم',
+          ].join(' · ');
+    final tone = refused != null ? tones.blocked : tones.info;
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(children: [
+        Icon(refused != null ? Icons.error_outline : Icons.scale_outlined, size: 18, color: tone.fg),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(words,
+              key: const Key('station-weighed'),
+              style: theme.textTheme.bodyMedium?.copyWith(color: tone.fg, fontWeight: FontWeight.w700)),
+        ),
+      ]),
+    );
+  }
+
   /// A piece's facts in one line: its weight, its stones, its size, its model.
+  /// Its weight -- its grams in the books, what is sold as gold -- its stones
+  /// beside it: within it, or «+» out of it when priced apart (the owner,
+  /// 20 Nov 2026).
   static String _facts(Map<String, dynamic> p) => [
         '${_g(p['weight'])} جم',
-        if (((p['stones_weight'] as num?) ?? 0) > 0) 'فصوص ${_g(p['stones_weight'])} جم',
+        if (((p['stones_weight'] as num?) ?? 0) > 0) _stonesWords(p['stones_weight'], p['stones_kind']),
         if (p['size'] != null) 'مقاس ${(p['size'] as Map)['label']}',
         if (p['model'] != null) '${(p['model'] as Map)['name']}',
       ].join(' · ');
+
+  /// Stones counted as gold are within the weight; priced apart, added to it.
+  static String _stonesWords(Object? stones, Object? kind) =>
+      kind == 'priced' ? '+ فصوص ${_g(stones)} جم' : 'فصوص ${_g(stones)} جم ضمن الوزن';
 
   static String _wageWords(Map<String, dynamic> p) =>
       p['wage_known'] == true ? 'الأجرة ${formatAmount((p['wage'] as num).toDouble())}' : 'بانتظار الفاتورة';
@@ -920,6 +1000,14 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Text('${line['category_name'] ?? '-'} · عيار ${line['karat']}', style: theme.textTheme.titleMedium),
           Text('${_whence(line)} — ${line['invoice_number'] ?? ''}', style: theme.textTheme.bodySmall),
+          if (line['stones_kind'] == 'priced') ...[
+            const SizedBox(height: 6),
+            Text(
+              'فصوص هذا السطر مسعَّرة بالقيراط: خارج ذهبه، فوزن القطعة صافيها والفصوص تُضاف عليه.',
+              key: const Key('station-stones-priced'),
+              style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700),
+            ),
+          ],
           const SizedBox(height: 12),
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
@@ -1051,7 +1139,13 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
                 ]),
                 const SizedBox(height: 8),
                 fact('الوزن', '${_g(p['weight'])} جم'),
-                if (((p['stones_weight'] as num?) ?? 0) > 0) fact('الفصوص', '${_g(p['stones_weight'])} جم'),
+                if (((p['stones_weight'] as num?) ?? 0) > 0) ...[
+                  fact('الفصوص', _stonesWords(p['stones_weight'], p['stones_kind'])),
+                  if (p['stones_kind'] == 'priced' && p['standing_weight'] != null)
+                    fact('القائم على الميزان', '${_g(p['standing_weight'])} جم'),
+                  if (p['stones_kind'] != 'priced' && p['net_weight'] != null)
+                    fact('ذهبها وحده', '${_g(p['net_weight'])} جم'),
+                ],
                 if (p['size'] != null) fact('المقاس', '${(p['size'] as Map)['label']}'),
                 if (p['model'] != null) fact('الموديل', '${(p['model'] as Map)['name']}'),
                 fact('الأجرة', p['wage_known'] == true ? formatAmount((p['wage'] as num).toDouble()) : 'بانتظار الفاتورة'),
@@ -1102,6 +1196,7 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
             if (_wageByPiece(line)) _wageKind(),
             _current(context),
             _entry(context, line),
+            _weighedLine(context),
           ])
         : const AppEmptyView(title: 'رُمّز السطر كله', icon: Icons.task_alt);
     final wide = AppBreakpoints.of(context) == DeviceClass.wide;

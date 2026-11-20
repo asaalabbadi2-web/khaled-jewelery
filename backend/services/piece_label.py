@@ -14,7 +14,9 @@ What is printed (the owner, 20 Nov):
   turned over, the chip in its middle left clear: at its edge the model's
   name, else the category's -- Arabic, in Cairo; by the fold the stones'
   weight and the size in Latin symbols -- «St 0.35g · Sz 18» -- each only
-  when the piece has it;
+  when the piece has it; stones out of its weight -- its gold apart from its
+  stones, priced by the carat -- marked «+St 0.35g» (the owner, 20 Nov 2026):
+  the weight printed is what is sold as gold either way;
 - no price (live, §13), no wage, no cost;
 - printed slowly and dark: 2 inches a second, darkness 20 -- the owner chose
   the sharpest of three prints.
@@ -127,20 +129,22 @@ def _grams(value) -> str:
     return f'{float(value):.2f}g'
 
 
-def label_faces(number: str, *, karat=None, weight=None, name=None, stones=None, size=None) -> dict:
+def label_faces(number: str, *, karat=None, weight=None, name=None, stones=None, size=None,
+                stones_out=False) -> dict:
     """What each face says, as it reads -- the one source of the printed label
     and of its preview (ADR-097 ط5): the code's value and the number; the
     karat and weight; the name as fitted (cut with «…» when too long); the
-    stones and size."""
+    stones -- «+St» when out of the weight -- and size."""
     facts = ' · '.join(x for x in (f'{karat}K' if karat else '', _grams(weight) if weight else '') if x)
-    marks = ' · '.join(x for x in (f'St {_grams(stones)}' if stones and float(stones) > 0 else '',
+    stone_mark = '+St' if stones_out else 'St'
+    marks = ' · '.join(x for x in (f'{stone_mark} {_grams(stones)}' if stones and float(stones) > 0 else '',
                                    f'Sz {size}' if size not in (None, '') else '') if x)
     shown = fitted_text(name, height=NAME_H, least=NAME_MIN)[0] if name else ''
     return {'code': str(number), 'number': str(number), 'facts': facts or None, 'name': shown or None,
             'marks': marks or None}
 
 
-def label_zpl(number: str, *, karat=None, weight=None, name=None, stones=None, size=None,
+def label_zpl(number: str, *, karat=None, weight=None, name=None, stones=None, size=None, stones_out=False,
               frame=False, epc=None, write_tag=True) -> str:
     """One label in ZPL: the tag written and read back to the host, then its two
     faces. *epc*: the attempt's value (ADR-097) -- generation 0 when not given.
@@ -163,7 +167,8 @@ def label_zpl(number: str, *, karat=None, weight=None, name=None, stones=None, s
         lines += ['^RS8',                                       # EPC Class 1 Gen 2
                   f'^RFW,H,,,A^FD{epc}^FS',                     # the tag written, its PC bits set
                   '^FN1^RFR,H^FS', '^HV1,24,EPC=^FS']          # read back, returned to the host
-    faces = label_faces(number, karat=karat, weight=weight, name=name, stones=stones, size=size)
+    faces = label_faces(number, karat=karat, weight=weight, name=name, stones=stones, size=size,
+                        stones_out=stones_out)
     facts, marks = faces['facts'], faces['marks']
     lines.append(f'^FO{MARGIN},{first + (FACE_H - CODE_SIDE) // 2}^BXN,{CODE_CELL},200,14,14^FD{number}^FS')
     if facts:
