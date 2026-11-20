@@ -5805,6 +5805,24 @@ class ApiService {
   Future<Map<String, dynamic>> labelPrinterStatus(int printerId) =>
       _getMap('/label-printers/$printerId/status', fallback: 'تعذّر سؤال الطابعة');
 
+  /// What a piece's label faces say -- the printed label's own source. `{faces}`.
+  Future<Map<String, dynamic>> labelPreview(int pieceId) =>
+      _getMap('/pieces/$pieceId/label-preview', fallback: 'تعذّرت معاينة البطاقة');
+
+  /// A printer added (the manager's): `name`, `host`, `port`. `{printer}`.
+  Future<Map<String, dynamic>> addLabelPrinter(Map<String, dynamic> body) =>
+      _postJson('/label-printers', body, fallback: 'تعذّرت إضافة الطابعة');
+
+  /// A printer kept (the manager's): `name`, `host`, `port`, `is_active`. `{printer}`.
+  Future<Map<String, dynamic>> updateLabelPrinter(int printerId, Map<String, dynamic> body) => _sizeSystemWrite(
+        () => _authedPatch(Uri.parse('$_baseUrl/label-printers/$printerId'), body: json.encode(body)),
+        'تعذّر حفظ الطابعة',
+      );
+
+  /// The font installed, a calibration, a test label: `{printer, message}`.
+  Future<Map<String, dynamic>> labelPrinterAction(int printerId, String action) =>
+      _postJson('/label-printers/$printerId/$action', const {}, fallback: 'تعذّر الوصول إلى الطابعة');
+
   /// A piece by its number and where it is (R3.6): `{piece, location}`.
   Future<Map<String, dynamic>> lookupPiece(String code) => _getMap(
         '/pieces/lookup?code=${Uri.encodeQueryComponent(code)}',

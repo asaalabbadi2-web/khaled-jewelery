@@ -410,3 +410,111 @@ def label_printer_status(printer_id: int):
     except PrinterUnreachable:
         state = {'ready': False, 'stops': ['unreachable'], 'message': UNREACHABLE}
     return jsonify({'printer': _printer_view(printer), 'status': state}), 200
+
+
+@pieces_bp.route('/pieces/<int:piece_id>/label-preview', methods=['GET'])
+@require_permission('items.view')
+def piece_label_preview(piece_id: int):
+    """What its label's faces say -- from the printed label's own source (ADR-097 ط5)."""
+    from services.label_printing import label_facts
+    from services.piece_label import label_faces
+    piece = db.session.get(Item, piece_id)
+    if piece is None:
+        return jsonify({'error': 'not_found', 'message': 'القطعة غير موجودة'}), 404
+    facts = label_facts(piece)
+    return jsonify({'faces': label_faces(facts.pop('number'), **facts)}), 200
+
+
+def _printer_or_404(printer_id):
+    from models import LabelPrinter
+    return db.session.get(LabelPrinter, printer_id)
+
+
+@pieces_bp.route('/label-printers/<int:printer_id>', methods=['PATCH'])
+@require_permission('system.settings')
+def label_printer_edit(printer_id: int):
+    """Its name, address, port, on or off -- the manager's (ADR-097 §7)."""
+    from models import LabelPrinter
+    printer = _printer_or_404(printer_id)
+    if printer is None:
+        return jsonify({'error': 'not_found', 'message': 'الطابعة غير موجودة'}), 404
+    data = request.get_json(silent=True) or {}
+    if 'name' in data:
+        name = str(data.get('name') or '').strip()
+        if not name:
+            return jsonify({'error': 'printer_name_host', 'message': 'اسم الطابعة لا يُترك فارغًا'}), 400
+        if LabelPrinter.query.filter(LabelPrinter.name == name, LabelPrinter.id != printer.id).first():
+            return jsonify({'error': 'printer_name_taken', 'message': f'طابعة باسم «{name}» موجودة'}), 400
+        printer.name = name
+    if 'host' in data:
+        host = str(data.get('host') or '').strip()
+        if not host:
+            return jsonify({'error': 'printer_name_host', 'message': 'عنوان الطابعة لا يُترك فارغًا'}), 400
+        printer.host = host
+    if 'port' in data:
+        try:
+            printer.port = int(data.get('port'))
+        except (TypeError, ValueError):
+            return jsonify({'error': 'printer_port', 'message': 'منفذ الطابعة رقم'}), 400
+    if 'is_active' in data:
+        printer.is_active = bool(data.get('is_active'))
+    db.session.commit()
+    return jsonify({'printer': _printer_view(printer)}), 200
+
+
+def _printer_call(printer_id: int, what):
+    """*what*(link, printer) on the printer -- «لا تردّ» when it does not answer."""
+    from services.printer_link import UNREACHABLE, PrinterUnreachable, ZebraLink
+    printer = _printer_or_404(printer_id)
+    if printer is None:
+        return jsonify({'error': 'not_found', 'message': 'الطابعة غير موجودة'}), 404
+    try:
+        message = what(ZebraLink(printer.host, printer.port), printer)
+    except PrinterUnreachable:
+        return jsonify({'error': 'printer_unreachable', 'message': UNREACHABLE}), 400
+    return jsonify({'printer': _printer_view(printer), 'message': message}), 200
+
+
+@pieces_bp.route('/label-printers/<int:printer_id>/install-font', methods=['POST'])
+@require_permission('system.settings')
+def label_printer_install_font(printer_id: int):
+    """Cairo kept in the printer's flash -- once a printer; read back from its listing."""
+    from services.piece_label import FONT_ON_PRINTER, font_upload
+
+    def install(link, printer):
+        link.exchange(font_upload(), wait=4.0)
+        listed = link.exchange(f'^XA^HW{FONT_ON_PRINTER.split(".")[0]}.*^XZ\n', wait=4.0)
+        if FONT_ON_PRINTER not in listed:
+            return 'أُرسل الخط لكنه لم يظهر في ذاكرة الطابعة: أعد المحاولة'
+        printer.font_installed_at = datetime.now()
+        db.session.commit()
+        return 'الخط في ذاكرة الطابعة'
+    return _printer_call(printer_id, install)
+
+
+@pieces_bp.route('/label-printers/<int:printer_id>/calibrate', methods=['POST'])
+@require_permission('system.settings')
+def label_printer_calibrate(printer_id: int):
+    """The labels measured, then the tag's position -- a few blank labels and the printer's own report."""
+    from services.printer_link import CALIBRATE
+
+    def calibrate(link, printer):
+        link.exchange(CALIBRATE, wait=2.0)
+        return 'أُرسلت المعايرة: تُخرج الطابعة بضع بطاقات ثم ورقة موضع الرقاقة'
+    return _printer_call(printer_id, calibrate)
+
+
+@pieces_bp.route('/label-printers/<int:printer_id>/test-label', methods=['POST'])
+@require_permission('system.settings')
+def label_printer_test_label(printer_id: int):
+    """One label of the design, its faces only -- no tag written, recorded nowhere."""
+    from services.piece_label import label_zpl
+
+    def test(link, printer):
+        state = link.status()
+        if not state['ready']:
+            return state['message']
+        link.exchange(label_zpl('KJ-999999', karat='21', weight=12.4, name='بطاقة تجربة', stones=0.35, size='18',
+                                write_tag=False), wait=3.0)
+        return 'طُبعت بطاقة تجربة بلا رقاقة: أتلفها بعد النظر فيها'
+    return _printer_call(printer_id, test)

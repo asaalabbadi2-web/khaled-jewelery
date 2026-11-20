@@ -93,6 +93,12 @@ class _Api extends ApiService {
   };
 
   @override
+  Future<Map<String, dynamic>> labelPreview(int pieceId) async => {
+    'faces': {'code': 'KJ-000121', 'number': 'KJ-000121', 'facts': '21K · 14.37g', 'name': 'بنجرة ذهب 21',
+              'marks': null},
+  };
+
+  @override
   Future<Map<String, dynamic>> labelPrinters() async => {
     'printers': [{'id': 1, 'name': 'طابعة المعرض', 'is_active': true}],
   };
@@ -325,6 +331,15 @@ void main() {
     expect(find.descendant(of: find.byKey(const Key('station-last')), matching: find.text('مطبوعة · الجيل 1')),
         findsOneWidget);
     expect(find.byKey(const Key('station-tag-101')), findsNothing, reason: 'no tag mounted by a button');
+  });
+
+  testWidgets('the last piece shows its label as it prints, both faces', (tester) async {
+    final api = _Api();
+    await _open(tester, api);
+    await register(tester);
+    expect(find.byKey(const Key('label-preview-first')), findsOneWidget);
+    expect(find.descendant(of: find.byKey(const Key('label-preview-first')), matching: find.text('21K · 14.37g')),
+        findsOneWidget);
   });
 
   testWidgets('«تسجيل فقط»: the piece saved, its label waiting', (tester) async {

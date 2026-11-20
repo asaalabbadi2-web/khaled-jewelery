@@ -105,6 +105,12 @@ class _FakeApi extends ApiService {
   int _job = 0;
 
   @override
+  Future<Map<String, dynamic>> labelPreview(int pieceId) async => {
+        'faces': {'code': 'KJ-000$pieceId', 'number': 'KJ-000$pieceId', 'facts': '21K · 10.00g',
+                  'name': 'بنجرة أ', 'marks': null},
+      };
+
+  @override
   Future<Map<String, dynamic>> printPieceLabel(int pieceId, Map<String, dynamic> body) async {
     printed.add({...body, 'piece_id': pieceId});
     final failed = printOutcome == 'failed';
@@ -430,5 +436,13 @@ void main() {
     await tester.pumpAndSettle();
     expect((api.printed.last['piece_id'], api.printed.last['kind'], api.printed.last['reason']),
         (303, 'reprint', 'تلفت'));
+  });
+
+  testWidgets('a piece\'s card shows its label as it prints', (tester) async {
+    final api = _FakeApi(pieces: waiting());
+    await _mount(tester, PiecesScreen(api: api));
+    await tester.tap(find.text('بنجرة أ').first);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('label-preview-second')), findsOneWidget);
   });
 }

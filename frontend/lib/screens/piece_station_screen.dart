@@ -2,14 +2,19 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 
+import 'package:provider/provider.dart';
+
 import '../api_service.dart';
+import '../providers/auth_provider.dart';
 import '../models/category_model.dart';
 import '../models/safe_box_model.dart';
 import '../utils/currency_utils.dart' show formatAmount, formatGrams;
 import '../widgets/app_feedback.dart';
 import '../widgets/app_state_views.dart';
 import '../widgets/inline_number_cell.dart' show readTypedNumber;
+import '../widgets/label_preview.dart';
 import '../widgets/piece_label_actions.dart';
+import 'label_printers_screen.dart';
 import 'piece_model_form_screen.dart' show ModelImage;
 
 /// «محطة ترميز القطع» (ADR-087 R3.4): the pieces of a received line, one by
@@ -312,6 +317,16 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
               icon: const Icon(Icons.refresh),
               onPressed: _loadPrinter,
             ),
+            // the printers are the manager's (system.settings)
+            if (Provider.of<AuthProvider?>(context, listen: false)?.hasPermission('system.settings') == true)
+              IconButton(
+                key: const Key('station-printers-setup'),
+                tooltip: 'إعداد الطابعات',
+                icon: const Icon(Icons.settings_outlined),
+                onPressed: () => Navigator.of(context)
+                    .push(MaterialPageRoute<void>(builder: (_) => LabelPrintersScreen(api: _api)))
+                    .then((_) => _loadPrinter()),
+              ),
           ],
         ),
       ),
@@ -802,6 +817,9 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
               trailing: PieceLabelCell(piece: last, busy: _printing.contains(last['id']), actions: _labels),
             ),
           ),
+          const SizedBox(height: 8),
+          // its label as it prints, both faces (ADR-097 ط5)
+          Center(child: PieceLabelPreview(api: _api, pieceId: last['id'] as int)),
         ],
         const SizedBox(height: 16),
         Text(

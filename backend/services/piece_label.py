@@ -100,34 +100,57 @@ def width(drawn: str, height: int) -> float:
     return sum(hmtx[cmap[ord(c)]][0] for c in drawn if ord(c) in cmap) * height / upm
 
 
-def fitted(text: str, *, height: int, least: int, room: int = ROOM):
-    """(drawn, height): *text* at *height*, shrunk down to *least*, then cut with «…» -- within *room*."""
+def fitted_text(text: str, *, height: int, least: int, room: int = ROOM):
+    """(shown, drawn, height): *text* at *height*, shrunk down to *least*, then
+    cut with «…» -- within *room*. *shown* as it reads (the preview's), *drawn*
+    as the printer draws it."""
     drawn = shaped(text)
     for h in range(height, least - 1, -1):
         if width(drawn, h) <= room:
-            return drawn, h
+            return str(text), drawn, h
     words = str(text)
     while words:
         words = words[:-1].rstrip()
         drawn = shaped(words + ELLIPSIS)
         if width(drawn, least) <= room:
-            return drawn, least
-    return '', least
+            return words + ELLIPSIS, drawn, least
+    return '', '', least
+
+
+def fitted(text: str, *, height: int, least: int, room: int = ROOM):
+    """(drawn, height) -- fitted_text's, for the printer."""
+    _, drawn, h = fitted_text(text, height=height, least=least, room=room)
+    return drawn, h
 
 
 def _grams(value) -> str:
     return f'{float(value):.2f}g'
 
 
+def label_faces(number: str, *, karat=None, weight=None, name=None, stones=None, size=None) -> dict:
+    """What each face says, as it reads -- the one source of the printed label
+    and of its preview (ADR-097 ط5): the code's value and the number; the
+    karat and weight; the name as fitted (cut with «…» when too long); the
+    stones and size."""
+    facts = ' · '.join(x for x in (f'{karat}K' if karat else '', _grams(weight) if weight else '') if x)
+    marks = ' · '.join(x for x in (f'St {_grams(stones)}' if stones and float(stones) > 0 else '',
+                                   f'Sz {size}' if size not in (None, '') else '') if x)
+    shown = fitted_text(name, height=NAME_H, least=NAME_MIN)[0] if name else ''
+    return {'code': str(number), 'number': str(number), 'facts': facts or None, 'name': shown or None,
+            'marks': marks or None}
+
+
 def label_zpl(number: str, *, karat=None, weight=None, name=None, stones=None, size=None,
-              frame=False, epc=None) -> str:
+              frame=False, epc=None, write_tag=True) -> str:
     """One label in ZPL: the tag written and read back to the host, then its two
-    faces. *epc*: the attempt's value (ADR-097) -- generation 0 when not given."""
-    epc = epc or epc_of(number)
+    faces. *epc*: the attempt's value (ADR-097) -- generation 0 when not given.
+    *write_tag* False: a test label, its faces only -- no tag written, none read."""
     if len(str(number)) - 3 > CODE_DIGITS:
         raise ValueError(f'رقم القطعة {number} أطول من رمز البطاقة ({CODE_DIGITS} أرقام)')
-    if epc[4:].isdigit() is False or int(epc[8:]) != int(str(number)[3:]):
-        raise ValueError(f'رمز الرقاقة {epc} ليس للقطعة {number}')
+    if write_tag:
+        epc = epc or epc_of(number)
+        if epc[4:].isdigit() is False or int(epc[8:]) != int(str(number)[3:]):
+            raise ValueError(f'رمز الرقاقة {epc} ليس للقطعة {number}')
     first, second = TOP, TOP + FACE_H
     text_x = MARGIN + CODE_SIDE + MARGIN
     column = FACE_W - MARGIN - text_x
@@ -135,12 +158,14 @@ def label_zpl(number: str, *, karat=None, weight=None, name=None, stones=None, s
         f'~SD{DARKNESS}',                                       # absolute, whatever the printer was left at
         '^XA', f'^PR{SPEED},{SPEED},{SPEED}', f'^PW{round(66 * DOTS_PER_MM)}', f'^LL{round(26 * DOTS_PER_MM)}', '^CI28',
         '^PA0,0,0,0',                                           # shaped here, not by the printer
-        '^RS8',                                                 # EPC Class 1 Gen 2
-        f'^RFW,H,,,A^FD{epc}^FS',                               # the tag written, its PC bits set
-        '^FN1^RFR,H^FS', '^HV1,24,EPC=^FS',                    # read back, returned to the host
-        f'^FO{MARGIN},{first + (FACE_H - CODE_SIDE) // 2}^BXN,{CODE_CELL},200,14,14^FD{number}^FS',
     ]
-    facts = ' · '.join(x for x in (f'{karat}K' if karat else '', _grams(weight) if weight else '') if x)
+    if write_tag:
+        lines += ['^RS8',                                       # EPC Class 1 Gen 2
+                  f'^RFW,H,,,A^FD{epc}^FS',                     # the tag written, its PC bits set
+                  '^FN1^RFR,H^FS', '^HV1,24,EPC=^FS']          # read back, returned to the host
+    faces = label_faces(number, karat=karat, weight=weight, name=name, stones=stones, size=size)
+    facts, marks = faces['facts'], faces['marks']
+    lines.append(f'^FO{MARGIN},{first + (FACE_H - CODE_SIDE) // 2}^BXN,{CODE_CELL},200,14,14^FD{number}^FS')
     if facts:
         lines += [f'^FO{text_x},{first + FACE_H // 2 - 36}^A0N,32,32^FB{column},1,0,C^FD{number}^FS',
                   f'^FO{text_x},{first + FACE_H // 2 + 4}^A0N,28,28^FB{column},1,0,C^FD{facts}^FS']
@@ -151,8 +176,6 @@ def label_zpl(number: str, *, karat=None, weight=None, name=None, stones=None, s
         if drawn:
             lines.append(f'^FO{MARGIN},{second + FACE_H - MARGIN - h}^A@I,{h},{h},{FONT_ON_PRINTER}'
                          f'^FB{ROOM},1,0,C^FD{drawn}^FS')
-    marks = ' · '.join(x for x in (f'St {_grams(stones)}' if stones and float(stones) > 0 else '',
-                                   f'Sz {size}' if size not in (None, '') else '') if x)
     if marks:                                                   # by the fold
         drawn, h = fitted(marks, height=FACTS_H, least=NAME_MIN)
         lines.append(f'^FO{MARGIN},{second + MARGIN}^A@I,{h},{h},{FONT_ON_PRINTER}^FB{ROOM},1,0,C^FD{drawn}^FS')

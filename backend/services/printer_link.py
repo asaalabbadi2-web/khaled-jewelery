@@ -18,6 +18,7 @@ import socket
 PORT = 9100
 HEX24 = re.compile(r'[0-9A-F]{24}')
 STATUS = '~HS\n'
+CALIBRATE = '~JC\n^XA^HR^XZ\n'      # the media sensed, then the tag's position (prints its own report)
 
 
 class PrinterUnreachable(OSError):

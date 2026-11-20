@@ -12,6 +12,7 @@ import '../theme/app_tokens.dart';
 import '../utils/display_date.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/app_state_views.dart';
+import '../widgets/label_preview.dart';
 import '../widgets/piece_label_actions.dart';
 import 'items_screen_enhanced.dart' show showCategoriesManagement;
 import 'piece_models_screen.dart';
@@ -520,6 +521,7 @@ class _PiecesScreenState extends State<PiecesScreen> {
   void _open(Map<String, dynamic> p, {required bool wide}) {
     final body = _PieceCard(
       piece: p,
+      preview: PieceLabelPreview(api: widget.api, pieceId: p['id'] as int),
       state: _stateChip('${p['state']}'),
       karat: _karatChip(p['karat']),
       weight: _weight(p['weight']),
@@ -1038,6 +1040,7 @@ class _PieceCard extends StatelessWidget {
     required this.facts,
     required this.onPrint,
     this.onEdit,
+    this.preview,
   });
 
   final Map<String, dynamic> piece;
@@ -1047,6 +1050,9 @@ class _PieceCard extends StatelessWidget {
   final List<(String, String)> facts;
   final VoidCallback onPrint;
   final VoidCallback? onEdit;
+
+  /// Its label as it prints (ADR-097 ط5).
+  final Widget? preview;
 
   @override
   Widget build(BuildContext context) {
@@ -1109,6 +1115,10 @@ class _PieceCard extends StatelessWidget {
                   ],
                 ),
               ),
+            if (preview != null) ...[
+              const SizedBox(height: AppSpace.md),
+              Center(child: preview!),
+            ],
             const SizedBox(height: AppSpace.sm),
             Text(
               'الوزن والعيار والتصنيف والأحجار والمصنعية حقائق استلامها، فلا تُعدَّل. يُعدَّل الاسم والوصف فقط.',

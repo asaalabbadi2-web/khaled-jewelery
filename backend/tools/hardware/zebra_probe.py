@@ -29,11 +29,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from services.piece_label import (EPC_PREFIX, FONT_ON_PRINTER, epc_of, font_upload,  # noqa: E402,F401
                                   label_zpl)
 
-from services.printer_link import PORT, ZebraLink, read_back  # noqa: E402,F401
+from services.printer_link import CALIBRATE, PORT, STATUS, ZebraLink, read_back  # noqa: E402,F401
 
 
-CALIBRATE = '~JC\n^XA^HR^XZ\n'      # the media sensed, then the tag's position (prints its own report)
-STATUS = '~HS\n'
 
 
 def send(host: str, payload, *, wait: float = 8.0) -> str:

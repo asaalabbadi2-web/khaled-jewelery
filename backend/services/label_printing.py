@@ -168,19 +168,23 @@ def _mount(attempt, job, piece, *, by, now):
     return tag
 
 
-def _label(piece: Item, epc: str) -> str:
-    from models import Category, PieceModel
-    from services.piece_label import label_zpl
+def label_facts(piece: Item) -> dict:
+    """What its label carries (ADR-097): its number, karat and weight, its
+    model's name else its category's, its stones and its size -- the printed
+    label's and its preview's."""
+    from models import Category, PieceModel, SizeSystemSize
     model = db.session.get(PieceModel, piece.model_id) if piece.model_id else None
     category = db.session.get(Category, piece.category_id) if piece.category_id else None
-    size = None
-    if piece.size_id:
-        from models import SizeSystemSize
-        row = db.session.get(SizeSystemSize, piece.size_id)
-        size = getattr(row, 'label', None)
-    return label_zpl(piece.item_code, karat=piece.karat, weight=piece.weight, epc=epc,
-                     name=(model.name if model else getattr(category, 'name', None)),
-                     stones=piece.stones_weight, size=size)
+    size = db.session.get(SizeSystemSize, piece.size_id) if piece.size_id else None
+    return {'number': piece.item_code, 'karat': piece.karat, 'weight': piece.weight,
+            'name': model.name if model else getattr(category, 'name', None),
+            'stones': piece.stones_weight, 'size': getattr(size, 'label', None)}
+
+
+def _label(piece: Item, epc: str) -> str:
+    from services.piece_label import label_zpl
+    facts = label_facts(piece)
+    return label_zpl(facts.pop('number'), epc=epc, **facts)
 
 
 def run_job(job: PrintJob, *, by: str, clock, commit, link=None, wait: float = LOCK_WAIT, sleep=time.sleep):
