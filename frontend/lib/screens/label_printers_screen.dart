@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../api_service.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/app_state_views.dart';
+import 'reader_check_screen.dart';
 
 /// «إعداد الطابعات» (ADR-097 ط5; the manager's, system.settings): each label
 /// printer on the shop's network -- a record, not a setting -- its address,
@@ -96,7 +97,21 @@ class _LabelPrintersScreenState extends State<LabelPrintersScreen> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        appBar: AppBar(title: const Text('إعداد الطابعات')),
+        appBar: AppBar(
+          title: const Text('إعداد الطابعات'),
+          actions: [
+            // a reader set up once, checked here before a count relies on it (ADR-085 ت0)
+            TextButton.icon(
+              key: const Key('printers-reader-check'),
+              // the bar's own ink: a text button's is the bar's colour, unseen on it
+              style: TextButton.styleFrom(foregroundColor: Theme.of(context).appBarTheme.foregroundColor),
+              onPressed: () => Navigator.of(context)
+                  .push(MaterialPageRoute<void>(builder: (_) => ReaderCheckScreen(api: _api))),
+              icon: const Icon(Icons.sensors),
+              label: const Text('فحص القارئ'),
+            ),
+          ],
+        ),
         floatingActionButton: FloatingActionButton.extended(
           key: const Key('printers-add'),
           onPressed: () => _edit(),

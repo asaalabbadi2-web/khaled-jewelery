@@ -137,6 +137,17 @@ void main() {
     expect(api.added.single, {'name': 'طابعة الكاونتر', 'host': '192.168.1.60', 'port': 9100});
   });
 
+  testWidgets('«فحص القارئ» is seen on the top bar and opens the reader\'s check', (tester) async {
+    await _show(tester, LabelPrintersScreen(api: _Api()));
+    final key = find.byKey(const Key('printers-reader-check'));
+    final ink = tester.widget<RichText>(find.descendant(of: key, matching: find.byType(RichText)).first).text.style?.color;
+    final bar = Theme.of(tester.element(find.byType(AppBar))).appBarTheme;
+    expect(ink, bar.foregroundColor, reason: 'the bar\'s ink: a text button\'s own is the bar\'s colour, unseen');
+    await tester.tap(key);
+    await tester.pumpAndSettle();
+    expect(find.text('ما يكتبه القارئ'), findsOneWidget);
+  });
+
   testWidgets('the printers\' setup is offered to its manager only', (tester) async {
     await _show(tester, PieceStationScreen(api: _Api()), permissions: ['items.view', 'items.create']);
     expect(find.byKey(const Key('station-printers-setup')), findsNothing, reason: 'a coder');

@@ -5823,6 +5823,14 @@ class ApiService {
   Future<Map<String, dynamic>> labelPrinterAction(int printerId, String action) =>
       _postJson('/label-printers/$printerId/$action', const {}, fallback: 'تعذّر الوصول إلى الطابعة');
 
+  /// A tag's value a reader read (ADR-097 §2): `{piece, location}` for an
+  /// active tag; else an ApiException whose words say it -- stopped, an
+  /// attempt's never adopted, destroyed and still here, or unknown.
+  Future<Map<String, dynamic>> pieceByTag(String value) => _getMap(
+        '/pieces/by-tag/${Uri.encodeComponent(value)}',
+        fallback: 'رقاقة غير معروفة',
+      );
+
   /// A piece by its number and where it is (R3.6): `{piece, location}`.
   Future<Map<String, dynamic>> lookupPiece(String code) => _getMap(
         '/pieces/lookup?code=${Uri.encodeQueryComponent(code)}',
