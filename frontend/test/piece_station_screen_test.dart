@@ -154,7 +154,7 @@ class _Api extends ApiService {
   @override
   Future<Map<String, dynamic>> resolvePrintAttempt(int attemptId, Map<String, dynamic> body) async {
     resolved.add({...body, 'attempt_id': attemptId});
-    return {'job': _jobOf(101, body['no_label'] == true ? 'failed' : 'completed')};
+    return {'job': _jobOf(101, body['no_label'] == true || body['destroyed'] == true ? 'failed' : 'completed')};
   }
 
   @override
@@ -421,6 +421,7 @@ void main() {
     expect(find.textContaining('في تطبيق الملاحظات على القارئ'), findsOneWidget,
         reason: 'the reader types on its own screen: said where its code is read');
     await tester.enterText(find.byKey(const Key('resolve-read')), '4B4A00010000000000000121');
+    await tester.pump();                          // the button waits for 24 characters
     await tester.tap(find.byKey(const Key('resolve-adopt')));
     await tester.pumpAndSettle();
     expect(api.resolved.single['read_value'], '4B4A00010000000000000121');
@@ -728,5 +729,51 @@ void main() {
     await register(tester, '12.40');
     expect(find.descendant(of: find.byKey(const Key('station-last')), matching: find.text('12.40 جم · فصوص 0.35 جم ضمن الوزن')),
         findsOneWidget, reason: 'sold at 12.40, never at its net 12.05');
+  });
+
+  // ── an unknown end: three statements, each its own (the owner, 20 Nov 2026) ──
+
+  Future<void> openResolve(WidgetTester tester, _Api api) async {
+    api.printOutcome = 'needs_attention';
+    await _open(tester, api);
+    await register(tester);
+    await tester.tap(find.byKey(const Key('label-resolve-101')).first);
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('a reading is taken at 24 characters: the button waits for them; no code on the screen to copy',
+      (tester) async {
+    final api = _Api();
+    await openResolve(tester, api);
+    expect(find.textContaining('4B4A'), findsNothing, reason: 'the value expected is the server\'s, not shown');
+    final adopt = find.byKey(const Key('resolve-adopt'));
+    expect(tester.widget<FilledButton>(adopt).onPressed, isNull);
+    await tester.enterText(find.byKey(const Key('resolve-read')), '4B4A000100000000000001');
+    await tester.pump();
+    expect(tester.widget<FilledButton>(adopt).onPressed, isNull, reason: '22 characters: not a reading');
+    expect(find.text('22 من 24 خانة'), findsOneWidget);
+    await tester.enterText(find.byKey(const Key('resolve-read')), '4b4a 0001 0000 0000 0000 0121');
+    await tester.pump();
+    await tester.tap(adopt);
+    await tester.pumpAndSettle();
+    expect(api.resolved.single['read_value'], '4B4A00010000000000000121', reason: 'its spaces and case are the typing');
+  });
+
+  testWidgets('«خرج ملصق وأتلفته» is its own statement, asked once more', (tester) async {
+    final api = _Api();
+    await openResolve(tester, api);
+    await tester.tap(find.byKey(const Key('resolve-destroyed')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('resolve-destroyed-confirm')), findsOneWidget);
+    await tester.tap(find.text('رجوع'));
+    await tester.pumpAndSettle();
+    expect(api.resolved, isEmpty);
+    await tester.tap(find.byKey(const Key('resolve-destroyed')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('resolve-destroyed-sure')));
+    await tester.pumpAndSettle();
+    expect(api.resolved.single, {'destroyed': true, 'attempt_id': api.resolved.single['attempt_id']});
+    expect(api.resolved.single.containsKey('no_label'), isFalse, reason: 'not «لم يخرج ملصق»');
+    expect(find.byKey(const Key('label-retry-101')), findsWidgets, reason: 'failed: a new label, a new generation');
   });
 }

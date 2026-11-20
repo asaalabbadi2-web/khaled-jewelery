@@ -321,6 +321,14 @@ class ResolveLabelDialog extends StatefulWidget {
 class _ResolveLabelDialogState extends State<ResolveLabelDialog> {
   final _read = TextEditingController();
 
+  /// The tag's value as the reader types it: 24 characters, 0-9 and A-F.
+  /// Only its shape is checked here -- the match is the server's, which never
+  /// sends the value it expects to be copied off this screen (the owner,
+  /// 20 Nov 2026).
+  static final _shape = RegExp(r'^[0-9A-F]{24}$');
+
+  String get _value => _read.text.replaceAll(RegExp(r'\s'), '').toUpperCase();
+
   @override
   void dispose() {
     _read.dispose();
@@ -328,28 +336,56 @@ class _ResolveLabelDialogState extends State<ResolveLabelDialog> {
   }
 
   void _adopt() {
-    final value = _read.text.trim();
-    if (value.isEmpty) return;
-    Navigator.of(context).pop({'read_value': value});
+    if (!_shape.hasMatch(_value)) return;
+    Navigator.of(context).pop({'read_value': _value});
+  }
+
+  /// «خرج ملصق وأتلفته» -- not «لم يخرج ملصق»: its own statement, under the
+  /// coder's name, asked once more because it is a statement of a fact.
+  Future<void> _destroyed() async {
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          key: const Key('resolve-destroyed-confirm'),
+          title: const Text('أتلفت الملصق فعلًا؟'),
+          content: const Text('تُسجَّل إفادتك باسمك: خرج ملصق وأُتلف فلم يعد صالحًا. '
+              'وإن قُرئت رقاقته في جرد بعد ذلك قال النظام إنها ما زالت موجودة.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(dialog).pop(false), child: const Text('رجوع')),
+            FilledButton(
+              key: const Key('resolve-destroyed-sure'),
+              onPressed: () => Navigator.of(dialog).pop(true),
+              child: const Text('نعم، أتلفته'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (sure == true && mounted) Navigator.of(context).pop({'destroyed': true});
   }
 
   @override
   Widget build(BuildContext context) {
+    final value = _value;
+    final ready = _shape.hasMatch(value);
+    final wrong = value.isNotEmpty && RegExp(r'[^0-9A-F]').hasMatch(value);
     return Directionality(
       textDirection: TextDirection.rtl,
       child: AlertDialog(
-        title: Text('بطاقة ${widget.code}: هل خرج ملصق؟'),
+        title: Text('تحتاج المحاولة إلى حسم — ${widget.code}'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // The reader types on its own screen, not this one (ط6): its code
-            // read there and written here -- or no label came out.
-            const Text('انقطع الاتصال بالطابعة ولا يُعرف هل كُتبت الرقاقة.', key: Key('resolve-why')),
+            const Text('انقطع الاتصال بالطابعة، ولا يُعرف هل خرج الملصق وكُتبت رقاقته.', key: Key('resolve-why')),
             const SizedBox(height: 8),
+            // The reader types on its own screen, not this one (ط6).
             const Text(
-              'إن خرج ملصق: اقرأه بالقارئ في تطبيق الملاحظات على القارئ — فالقارئ يكتب في شاشته هو — '
-              'ثم اكتب الرمز هنا (24 خانة تبدأ بـ 4B4A). وإلا اضغط «لم يخرج ملصق» وأتلف أي ملصق خرج.',
+              'اقرأ ملصق RFID بالقارئ المحمول. القارئ يكتب الرمز على شاشته، وليس في هذه النافذة: '
+              'اقرأه في تطبيق الملاحظات على القارئ، ثم اكتبه هنا. '
+              'يجب أن يتكون الرمز من 24 خانة ويطابق رمز هذه المحاولة بالكامل.',
               key: Key('resolve-how'),
             ),
             const SizedBox(height: 12),
@@ -358,7 +394,12 @@ class _ResolveLabelDialogState extends State<ResolveLabelDialog> {
               controller: _read,
               autofocus: true,
               textDirection: TextDirection.ltr,
-              decoration: const InputDecoration(labelText: 'رمز الرقاقة من القارئ'),
+              decoration: InputDecoration(
+                labelText: 'رمز الرقاقة من القارئ',
+                helperText: '${value.length} من 24 خانة',
+                errorText: wrong ? 'الرمز أرقام وحروف من A إلى F فقط' : null,
+              ),
+              onChanged: (_) => setState(() {}),
               onSubmitted: (_) => _adopt(),
             ),
           ],
@@ -369,7 +410,16 @@ class _ResolveLabelDialogState extends State<ResolveLabelDialog> {
             onPressed: () => Navigator.of(context).pop({'no_label': true}),
             child: const Text('لم يخرج ملصق'),
           ),
-          FilledButton(key: const Key('resolve-adopt'), onPressed: _adopt, child: const Text('اعتمد القراءة')),
+          TextButton(
+            key: const Key('resolve-destroyed'),
+            onPressed: _destroyed,
+            child: const Text('خرج ملصق وأتلفته'),
+          ),
+          FilledButton(
+            key: const Key('resolve-adopt'),
+            onPressed: ready ? _adopt : null,
+            child: const Text('اعتمد القراءة'),
+          ),
         ],
       ),
     );

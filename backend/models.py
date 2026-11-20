@@ -6280,7 +6280,7 @@ class PrintAttempt(db.Model):
     verified_at = db.Column(db.DateTime, nullable=True)
     error_code = db.Column(db.String(50), nullable=True)
     error_message = db.Column(db.String(300), nullable=True)
-    resolution = db.Column(db.String(20), nullable=True)        # 'reader' | 'no_label'
+    resolution = db.Column(db.String(20), nullable=True)        # 'reader' | 'destroyed' | 'no_label'
     resolved_by = db.Column(db.String(100), nullable=True)
     finished_at = db.Column(db.DateTime, nullable=True)
 

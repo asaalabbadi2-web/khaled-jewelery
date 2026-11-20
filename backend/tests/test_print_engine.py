@@ -220,6 +220,41 @@ def test_2b_settled_as_no_label_then_a_new_generation():
     assert [a.generation for a in _attempts(job)] == [1, 2] and active_tag(piece).generation == 2
 
 
+def test_2c_a_label_out_and_destroyed_is_its_own_statement_and_said_if_read_again():
+    """«خرج ملصق وأتلفته» is not «لم يخرج ملصق» (the owner, 20 Nov 2026):
+    failed under the coder's name, its tag never adopted, the next attempt a
+    new generation; its tag read again is said destroyed and still there."""
+    [piece] = _pieces(10.0)
+    job = _job(piece, _printer())
+    _run(job, FakeLink(answer='silent'))
+    [first] = _attempts(job)
+    resolve_attempt(first, destroyed=True, by='coder1', clock=Clock(), commit=db.session.commit)
+    assert (job.status, first.resolution, first.resolved_by, first.printed) == ('failed', 'destroyed', 'coder1', True)
+    assert active_tag(piece) is None
+    said = tag_state(first.epc)
+    assert (said['state'], said['counted'], said['resolution']) == ('unconfirmed', False, 'destroyed')
+    assert 'سُجّل إتلافها' in said['message'] and 'coder1' in said['message']
+    _run(job, FakeLink())
+    assert [a.generation for a in _attempts(job)] == [1, 2] and active_tag(piece).generation == 2
+
+
+def test_2d_one_statement_and_a_read_value_of_24_characters():
+    [piece] = _pieces(10.0)
+    job = _job(piece, _printer())
+    _run(job, FakeLink(answer='silent'))
+    [attempt] = _attempts(job)
+    for both in ({'destroyed': True, 'no_label': True}, {'destroyed': True, 'read_value': attempt.epc}, {}):
+        with pytest.raises(PrintRefused) as refused:
+            resolve_attempt(attempt, by='t', clock=Clock(), commit=db.session.commit, **both)
+        assert refused.value.code == 'resolve_how', both
+    with pytest.raises(PrintRefused) as short:
+        resolve_attempt(attempt, read_value=attempt.epc[:-2], by='t', clock=Clock(), commit=db.session.commit)
+    assert short.value.code == 'read_value_invalid', 'a value cut short is said so, not «another tag»'
+    spaced = ' '.join(attempt.epc[i:i + 4] for i in range(0, 24, 4)).lower()
+    resolve_attempt(attempt, read_value=spaced, by='t', clock=Clock(), commit=db.session.commit)
+    assert job.status == 'completed', 'its spaces and its case are the typing, not the value'
+
+
 def test_3_a_tag_read_back_not_the_value_sent():
     [piece] = _pieces(10.0)
     job = _job(piece, _printer())
@@ -401,6 +436,23 @@ def test_the_station_prints_through_the_route(auth_headers):
         assert waiting.get_json()['job']['status'] == 'pending', '«تسجيل فقط»: saved, not run'
     finally:
         printer.close()
+
+
+def test_the_station_says_destroyed_through_the_route(auth_headers):
+    from flask import g
+    from tests.test_wage_treatment_follows_the_setting import flask_app
+    [piece] = _pieces(10.0)
+    job = _job(piece, _printer())
+    _run(job, FakeLink(answer='silent'))
+    [attempt] = _attempts(job)
+    g.pop('current_user', None)
+    client = flask_app.test_client()
+    unsettled = client.get(f'/api/print-jobs/{job.id}', headers=auth_headers).get_json()['job']
+    assert unsettled['last_attempt']['epc'] is None, 'its value not on the screen to be copied for a reading'
+    g.pop('current_user', None)
+    r = client.post(f'/api/print-attempts/{attempt.id}/resolve', json={'destroyed': True}, headers=auth_headers)
+    assert r.status_code == 200, r.get_data(as_text=True)
+    assert (r.get_json()['job']['status'], r.get_json()['job']['last_attempt']['resolution']) == ('failed', 'destroyed')
 
 
 def test_a_completed_job_does_not_wait_for_the_printers_turn():

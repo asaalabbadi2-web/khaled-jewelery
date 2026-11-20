@@ -978,9 +978,11 @@ def tag_state(value: str) -> dict:
     if attempt is not None:
         job = db.session.get(PrintJob, attempt.job_id)
         piece = db.session.get(Item, job.item_id)
+        # said destroyed and read again: the statement was not so -- the label is here
+        message = (f'رقاقة سُجّل إتلافها{said} (بإفادة {attempt.resolved_by}) وما زالت موجودة — أتلفها'
+                   if attempt.resolution == 'destroyed' else f'رقاقة من محاولة لم تُعتمد{said} — أتلفها')
         return {'state': TAG_UNCONFIRMED, 'counted': False, 'item_id': piece.id, 'item_code': piece.item_code,
-                'generation': attempt.generation,
-                'message': f'رقاقة من محاولة لم تُعتمد{said} — أتلفها'}
+                'generation': attempt.generation, 'resolution': attempt.resolution, 'message': message}
     return {'state': TAG_UNKNOWN, 'counted': False, 'item_id': None, 'item_code': code,
             'generation': generation, 'message': f'رقاقة غير معروفة {value} — لا تُحتسب'}
 

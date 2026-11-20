@@ -362,7 +362,8 @@ def print_job_read(job_id: int):
 @pieces_bp.route('/print-attempts/<int:attempt_id>/resolve', methods=['POST'])
 @require_permission('items.create')
 def print_attempt_resolve(attempt_id: int):
-    """An unknown end settled: `read_value` the handheld reader read off the label, or `no_label`."""
+    """An unknown end settled: `read_value` the handheld reader read off the label,
+    `destroyed` -- a label came out and was destroyed -- or `no_label`."""
     from models import PrintAttempt
     from services.label_printing import PrintRefused, job_view, resolve_attempt
     data = request.get_json(silent=True) or {}
@@ -370,7 +371,8 @@ def print_attempt_resolve(attempt_id: int):
     if attempt is None:
         return jsonify({'error': 'not_found', 'message': 'المحاولة غير موجودة'}), 404
     try:
-        job = resolve_attempt(attempt, read_value=data.get('read_value'), no_label=bool(data.get('no_label')),
+        job = resolve_attempt(attempt, read_value=data.get('read_value'), no_label=data.get('no_label') is True,
+                              destroyed=data.get('destroyed') is True,
                               by=_by(), clock=datetime.now, commit=db.session.commit)
     except PrintRefused as refused:
         return _print_refused(refused)

@@ -308,21 +308,32 @@ def run_job(job: PrintJob, *, by: str, clock, commit, link=None, wait: float = L
 
 # ── an unknown end, settled ──────────────────────────────────────────────────
 
-def resolve_attempt(attempt: PrintAttempt, *, by: str, clock, commit, read_value=None, no_label=False) -> PrintJob:
-    """An attempt whose end was not known, settled (law 10): the label that
-    came out read by the handheld reader -- its own value confirms it, no new
-    generation -- or no label came out, said by the coder."""
+def resolve_attempt(attempt: PrintAttempt, *, by: str, clock, commit, read_value=None, no_label=False,
+                    destroyed=False) -> PrintJob:
+    """An attempt whose end was not known, settled (law 10) by one of three
+    statements, each its own (the owner, 20 Nov 2026) -- the coder's, under
+    their name:
+    - the label read by the handheld reader: its own value -- 24 characters,
+      matched here, never shown to the screen to be copied -- confirms it, no
+      new generation;
+    - a label came out and was destroyed (`destroyed`): failed, its tag never
+      adopted; read again later, it is said destroyed and still there;
+    - no label came out (`no_label`): failed.
+    The next attempt is a new generation either way failed."""
     job = db.session.get(PrintJob, attempt.job_id)
     if attempt.finished_at is not None or job.status != 'needs_attention':
         raise PrintRefused('attempt_settled', 'المحاولة محسومة من قبل')
-    if bool(no_label) == bool(read_value):
-        raise PrintRefused('resolve_how', 'اقرأ الملصق بالقارئ، أو قل «لم يخرج ملصق»')
-    if no_label:
-        _finish(attempt, job, status='failed', clock=clock, resolution='no_label', resolved_by=by,
-                printed=False, written=False, verified=False)
+    if sum(1 for said in (bool(read_value), bool(no_label), bool(destroyed)) if said) != 1:
+        raise PrintRefused('resolve_how', 'اقرأ الملصق بالقارئ، أو قل «خرج ملصق وأتلفته»، أو «لم يخرج ملصق»')
+    if no_label or destroyed:
+        _finish(attempt, job, status='failed', clock=clock, resolution='no_label' if no_label else 'destroyed',
+                resolved_by=by, printed=bool(destroyed), written=False if no_label else None, verified=False)
         commit()
         return job
-    value = str(read_value).strip().upper()
+    value = ''.join(str(read_value).split()).upper()
+    from services.pieces import _valid_epc96
+    if not _valid_epc96(value):
+        raise PrintRefused('read_value_invalid', 'رمز الرقاقة 24 خانة من الأرقام والحروف A–F كما يكتبها القارئ')
     if value != attempt.epc:
         raise PrintRefused('read_other_tag', f'القارئ قرأ رقاقة أخرى ({value})، لا رقاقة هذه المحاولة')
     _finish(attempt, job, status='completed', clock=clock, resolution='reader', resolved_by=by, read_value=value,
@@ -343,7 +354,10 @@ def job_view(job: PrintJob) -> dict:
         'completed_at': job.completed_at.isoformat() if job.completed_at else None,
         'attempts': len(attempts),
         'last_attempt': None if last is None else {
-            'id': last.id, 'generation': last.generation, 'epc': last.epc, 'printed': last.printed,
+            # an attempt not settled keeps its value here: the reader's reading
+            # is matched by the server, never copied off the screen
+            'id': last.id, 'generation': last.generation,
+            'epc': last.epc if last.finished_at is not None else None, 'printed': last.printed,
             'written': last.written, 'verified': last.verified, 'error_code': last.error_code,
             'message': last.error_message, 'resolution': last.resolution,
             'finished': last.finished_at is not None},
