@@ -72,6 +72,7 @@ class _FakeApi extends ApiService {
     String? modelId,
     String? sizeId,
     String state = 'in_stock',
+    bool untagged = false,
     String sort = 'number',
     bool ascending = false,
     int page = 1,
@@ -79,7 +80,7 @@ class _FakeApi extends ApiService {
     ApiCancelToken? cancel,
   }) async {
     asked.add({'q': q, 'category': categoryId, 'karat': karat, 'place': safeBoxId, 'state': state, 'sort': sort,
-               'asc': ascending, 'page': page, 'model': modelId, 'size': sizeId});
+               'asc': ascending, 'page': page, 'model': modelId, 'size': sizeId, 'untagged': untagged});
     if (fail) throw ApiException.text('الخادم لا يجيب');
     final list = pieces ??
         [
@@ -94,6 +95,28 @@ class _FakeApi extends ApiService {
       'page': page,
       'per_page': perPage,
       'summary': {'in_stock_count': list.isEmpty ? 0 : 186, 'in_stock_weight': 2412.6, 'in_stock_untagged': 12, 'sold_this_month': 41},
+    };
+  }
+
+  // Its label (ADR-097 ط4): each request recorded; the printer answers as told.
+  final printed = <Map<String, dynamic>>[];
+  String printOutcome = 'completed';
+  String? stopCode;
+  int _job = 0;
+
+  @override
+  Future<Map<String, dynamic>> printPieceLabel(int pieceId, Map<String, dynamic> body) async {
+    printed.add({...body, 'piece_id': pieceId});
+    final failed = printOutcome == 'failed';
+    return {
+      'job': {
+        'id': ++_job, 'item_id': pieceId, 'kind': body['kind'], 'status': printOutcome,
+        'last_attempt': {
+          'id': 900 + _job, 'generation': 1, 'printed': !failed, 'written': !failed, 'verified': !failed,
+          'error_code': failed ? stopCode : null,
+          'message': failed ? 'انتهت الملصقات: ضع لفة جديدة ثم أعد المحاولة' : null,
+        },
+      },
     };
   }
 
@@ -205,17 +228,18 @@ void main() {
     await _mount(tester, PiecesScreen(api: api));
     expect(find.byKey(const Key('pieces-table')), findsOneWidget);
     expect(api.asked.single, {'q': '', 'category': null, 'karat': null, 'place': null, 'state': 'in_stock',
-                              'sort': 'number', 'asc': false, 'page': 1, 'model': null, 'size': null});
+                              'sort': 'number', 'asc': false, 'page': 1, 'model': null, 'size': null,
+                              'untagged': false});
     final table = tester.widget<DataTable>(find.byKey(const Key('pieces-table')));
     DataRow row(String code) => table.rows.firstWhere((r) => r.key == ValueKey('piece-row-$code'));
     bool says(DataRow r, String text) => r.cells.any((c) =>
         find.descendant(of: find.byWidget(c.child), matching: find.text(text), matchRoot: true).evaluate().isNotEmpty);
     for (final said in ['KJ-000238', '56.00 جم', '1.20 جم', '2,184 ر.س', '39.00 للجرام', 'المعرض', 'في المخزون',
-                        '2027-01-03', 'المورد أ', 'مربوطة']) {
+                        '2027-01-03', 'المورد أ', 'رقاقة معتمدة']) {
       expect(says(row('KJ-000238'), said), isTrue, reason: said);
     }
     expect(says(row('KJ-000233'), 'بانتظار الفاتورة'), isTrue);
-    expect(says(row('KJ-000233'), 'بلا رقاقة'), isTrue);
+    expect(says(row('KJ-000233'), 'بلا بطاقة'), isTrue, reason: 'its label waiting (ADR-097)');
     expect(find.descendant(of: find.byKey(const Key('pieces-summary-in-stock')), matching: find.text('2,412.60')),
         findsOneWidget);
     expect(find.descendant(of: find.byKey(const Key('pieces-summary-untagged')), matching: find.text('12')),
@@ -295,6 +319,8 @@ void main() {
   testWidgets('a piece given a model: only the model\'s sizes offered; none takes its size away', (tester) async {
     final api = _FakeApi(pieces: [_piece('KJ-000250', 'بنجرة ذهب 21', 20.0, wage: 800)]);
     await _mount(tester, PiecesScreen(api: api));
+    expect(tester.getRect(find.byKey(const Key('piece-actions-KJ-000250'))).left, greaterThanOrEqualTo(0),
+        reason: 'its menu on the screen, not past its edge');
     await tester.tap(find.byKey(const Key('piece-actions-KJ-000250')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('تعديل الوصف والموديل والمقاس'));
@@ -334,5 +360,75 @@ void main() {
     for (final door in ['pieces-models', 'pieces-size-systems', 'pieces-categories']) {
       expect(find.byKey(Key(door)), findsOneWidget, reason: door);
     }
+  });
+
+  // ── its label (ADR-097 ط4) ─────────────────────────────────────────────
+
+  List<Map<String, dynamic>> waiting() => [
+        _piece('KJ-000301', 'بنجرة أ', 10.0),
+        _piece('KJ-000302', 'بنجرة ب', 11.0),
+        _piece('KJ-000303', 'بنجرة ج', 12.0, tag: 'EPC3'),
+      ];
+
+  Future<void> choose(WidgetTester tester, String code) async {
+    await tester.tap(find.byKey(Key('piece-select-$code')));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('«بلا بطاقة» asks the server for the pieces with no adopted tag', (tester) async {
+    final api = _FakeApi();
+    await _mount(tester, PiecesScreen(api: api));
+    await tester.tap(find.byKey(const Key('pieces-untagged')));
+    await tester.pumpAndSettle();
+    expect((api.asked.last['untagged'], api.asked.last['page']), (true, 1));
+  });
+
+  testWidgets('«اطبع المحدد»: one after another through the engine, a printed one left', (tester) async {
+    final api = _FakeApi(pieces: waiting());
+    await _mount(tester, PiecesScreen(api: api));
+    for (final code in ['KJ-000301', 'KJ-000302', 'KJ-000303']) {
+      await choose(tester, code);
+    }
+    await tester.tap(find.byKey(const Key('pieces-print-selected')));
+    await tester.pumpAndSettle();
+    expect([for (final p in api.printed) p['piece_id']], [301, 302], reason: 'the tagged one not printed again');
+    expect(api.printed.every((p) => p['run'] == true && p['kind'] == 'first'), isTrue);
+    expect(api.printed.map((p) => p['request_key']).toSet(), hasLength(2), reason: 'a key each');
+    expect(find.text('طُبعت 2 من 3 · تُركت 1 (مطبوعة أو تحتاج حسمًا)'), findsOneWidget);
+  });
+
+  testWidgets('«اطبع المحدد» stops at the printer\'s own stop: the rest not sent', (tester) async {
+    final api = _FakeApi(pieces: waiting())
+      ..printOutcome = 'failed'
+      ..stopCode = 'paper_out';
+    await _mount(tester, PiecesScreen(api: api));
+    await choose(tester, 'KJ-000301');
+    await choose(tester, 'KJ-000302');
+    await tester.tap(find.byKey(const Key('pieces-print-selected')));
+    await tester.pumpAndSettle();
+    expect(api.printed, hasLength(1), reason: 'the next would fail as well');
+    expect(find.textContaining('توقّفت الطباعة: انتهت الملصقات'), findsOneWidget);
+  });
+
+  testWidgets('a piece\'s menu prints through the engine; a printed one is reprinted with its reason',
+      (tester) async {
+    final api = _FakeApi(pieces: waiting());
+    await _mount(tester, PiecesScreen(api: api));
+    await tester.tap(find.byKey(const Key('piece-actions-KJ-000301')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('طباعة البطاقة'));
+    await tester.pumpAndSettle();
+    expect((api.printed.single['piece_id'], api.printed.single['kind']), (301, 'first'));
+    expect(find.text('طباعة الباركود'), findsNothing, reason: 'not the items\' screen');
+    await tester.tap(find.byKey(const Key('piece-actions-KJ-000303')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('طباعة البطاقة'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('confirm-reason')), 'تلفت');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('confirm-action')));
+    await tester.pumpAndSettle();
+    expect((api.printed.last['piece_id'], api.printed.last['kind'], api.printed.last['reason']),
+        (303, 'reprint', 'تلفت'));
   });
 }

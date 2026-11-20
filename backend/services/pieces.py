@@ -640,6 +640,7 @@ def label_state(piece: Item):
             'attempt_id': attempt.id if attempt else None, 'generation': attempt.generation if attempt else None,
             'printed': attempt.printed if attempt else None, 'written': attempt.written if attempt else None,
             'verified': attempt.verified if attempt else None,
+            'error_code': attempt.error_code if attempt else None,
             'message': attempt.error_message if attempt else None}
 
 
@@ -1063,11 +1064,13 @@ NO_MODEL = 'none'      # the filter for the pieces with no model -- or no size (
 
 
 def pieces_list(*, q=None, category_id=None, karat=None, safe_box_id=None, model_id=None, size_id=None,
-                state='in_stock', sort='number', descending=True, page=1, per_page=25, today) -> dict:
+                state='in_stock', sort='number', descending=True, page=1, per_page=25, today,
+                untagged=False) -> dict:
     """The pieces -- searched by number, name or a tag read; filtered by
     category, karat, place and state ('all' for every state); sorted and
     paged -- each with its place, state and receipt; and the shop's summary,
-    whatever the filter. *today*: the caller's clock (ADR-015)."""
+    whatever the filter. *untagged*: only those without an adopted tag -- the
+    labels waiting (ADR-097 ط4). *today*: the caller's clock (ADR-015)."""
     if state not in PIECE_STATES + ('all',):
         raise PiecesFilterInvalid(f'حالة غير معروفة: {state}')
     if sort not in PIECE_SORTS:
@@ -1118,6 +1121,9 @@ def pieces_list(*, q=None, category_id=None, karat=None, safe_box_id=None, model
         return account_of_safe.get(accounts[0]) if len(accounts) == 1 else None
 
     chosen = [p for p in every if state == 'all' or state_of(p) == state]
+    if untagged:
+        adopted = {i for (i,) in db.session.query(PieceTag.item_id).filter(PieceTag.stopped_at.is_(None))}
+        chosen = [p for p in chosen if p.id not in adopted]
     if safe_box_id is not None:
         chosen = [p for p in chosen if (place_of(p) is not None and place_of(p).id == int(safe_box_id))]
     key = {'number': lambda p: p.item_code or '', 'weight': lambda p: float(p.weight or 0.0),

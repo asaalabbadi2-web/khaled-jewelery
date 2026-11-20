@@ -433,3 +433,18 @@ def test_the_waiting_labels_and_a_printers_status(auth_headers):
     gone = client.get(f'/api/label-printers/{printer.id}/status', headers=auth_headers).get_json()
     assert gone['status'] == {'ready': False, 'stops': ['unreachable'], 'message': gone['status']['message']}
     assert 'لا تردّ' in gone['status']['message']
+
+
+def test_the_pieces_without_a_label_are_listed(auth_headers):
+    """«بلا بطاقة» in «القطع» (ط4): in the stock with no adopted tag -- printed ones out."""
+    from flask import g
+    from tests.test_wage_treatment_follows_the_setting import flask_app
+    a, b = _pieces(10.0, 11.0)
+    _run(_job(a, _printer()), FakeLink())
+    g.pop('current_user', None)
+    listed = flask_app.test_client().get('/api/pieces?untagged=1&state=all&per_page=100',
+                                         headers=auth_headers).get_json()
+    codes = {p['item_code'] for p in listed['pieces']}
+    assert b.item_code in codes and a.item_code not in codes
+    row = next(p for p in listed['pieces'] if p['item_code'] == b.item_code)
+    assert row['label'] is None and row['tag'] is None

@@ -165,7 +165,7 @@ def pieces_index():
                              size_id=args.get('size_id'), state=args.get('state') or 'in_stock',
                              sort=args.get('sort') or 'number', descending=(args.get('dir') or 'desc') != 'asc',
                              page=args.get('page') or 1, per_page=args.get('per_page') or 25,
-                             today=datetime.now())
+                             today=datetime.now(), untagged=args.get('untagged') in ('1', 'true'))
     except (PiecesFilterInvalid, ValueError) as refused:
         return jsonify({'error': 'pieces_filter_invalid', 'message': str(refused)}), 400
     return jsonify(listed), 200

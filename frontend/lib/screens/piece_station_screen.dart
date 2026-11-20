@@ -8,8 +8,8 @@ import '../models/safe_box_model.dart';
 import '../utils/currency_utils.dart' show formatAmount, formatGrams;
 import '../widgets/app_feedback.dart';
 import '../widgets/app_state_views.dart';
-import '../widgets/confirm_financial_action.dart';
 import '../widgets/inline_number_cell.dart' show readTypedNumber;
+import '../widgets/piece_label_actions.dart';
 import 'piece_model_form_screen.dart' show ModelImage;
 
 /// «محطة ترميز القطع» (ADR-087 R3.4): the pieces of a received line, one by
@@ -48,6 +48,17 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
   Map<String, dynamic> _queueCounts = const {};
   List<Map<String, dynamic>> _openJobs = const [];
   final Set<int> _printing = {};
+  late final PieceLabelActions _labels = PieceLabelActions(
+    api: _api,
+    onLabel: _setLabel,
+    onBusy: (id, busy) {
+      if (mounted) setState(() => busy ? _printing.add(id) : _printing.remove(id));
+    },
+    afterEach: () {
+      _refreshQueue();
+      _loadPrinterState();
+    },
+  );
 
   final _weight = TextEditingController();
   final _stones = TextEditingController();
@@ -207,9 +218,6 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
 
   // ── its label (ADR-097) ────────────────────────────────────────────────
 
-  static String _key() =>
-      '${Random.secure().nextInt(0x7fffffff)}-${Random.secure().nextInt(0x7fffffff)}';
-
   /// The printer and the labels waiting: read, never a reason to stop coding.
   Future<void> _loadPrinter() async {
     try {
@@ -240,17 +248,6 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
     } catch (_) {}
   }
 
-  /// A job as the piece carries it: its state and its last attempt's.
-  static Map<String, dynamic> _labelOf(Map<String, dynamic> job) {
-    final last = job['last_attempt'] as Map<String, dynamic>?;
-    return {
-      'job_id': job['id'], 'kind': job['kind'], 'status': job['status'],
-      'attempt_id': last?['id'], 'generation': last?['generation'],
-      'printed': last?['printed'], 'written': last?['written'], 'verified': last?['verified'],
-      'message': last?['message'],
-    };
-  }
-
   void _setLabel(int pieceId, Map<String, dynamic> label) {
     Map<String, dynamic> withIt(Map<String, dynamic> p) =>
         p['id'] == pieceId ? {...p, 'label': label} : p;
@@ -260,128 +257,12 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
     });
   }
 
-  /// One job through the engine -- the first print, «تسجيل فقط» (run false),
-  /// a reprint with its reason. The piece is saved before: a printer that
-  /// fails stops no one.
-  Future<void> _printPiece(Map<String, dynamic> p, {String kind = 'first', String? reason,
-      bool run = true}) async {
-    final id = p['id'] as int;
-    setState(() => _printing.add(id));
-    try {
-      final saved = await _api.printPieceLabel(id, {
-        'request_key': _key(),
-        'kind': kind,
-        if (reason != null) 'reason': reason,
-        'run': run,
-      });
-      if (!mounted) return;
-      final label = _labelOf(saved['job'] as Map<String, dynamic>);
-      _setLabel(id, label);
-      if (run && label['status'] != 'completed') {
-        AppFeedback.warning(context,
-            'تم تسجيل القطعة بنجاح، لكن تعذّرت طباعة البطاقة. أُضيفت إلى قائمة انتظار الطباعة.');
-      }
-    } catch (e) {
-      if (mounted) {
-        AppFeedback.warning(context,
-            'تم تسجيل القطعة بنجاح، لكن تعذّرت طباعة البطاقة. أُضيفت إلى قائمة انتظار الطباعة.');
-      }
-    } finally {
-      if (mounted) setState(() => _printing.remove(id));
-      _refreshQueue();
-      _loadPrinterState();
-    }
-  }
-
   Future<void> _loadPrinterState() async {
     if (_printerId == null) return;
     try {
       final state = await _api.labelPrinterStatus(_printerId!);
       if (mounted) setState(() => _printerState = state['status'] as Map<String, dynamic>?);
     } catch (_) {}
-  }
-
-  /// A failed or waiting job run again: a new attempt, a new generation.
-  Future<void> _retry(int pieceId, int jobId) async {
-    setState(() => _printing.add(pieceId));
-    try {
-      final saved = await _api.runPrintJob(jobId);
-      if (mounted) _setLabel(pieceId, _labelOf(saved['job'] as Map<String, dynamic>));
-    } catch (e) {
-      if (mounted) AppFeedback.error(context, e);
-    } finally {
-      if (mounted) setState(() => _printing.remove(pieceId));
-      _refreshQueue();
-      _loadPrinterState();
-    }
-  }
-
-  /// An attempt whose end is not known: the label read by the reader, or
-  /// none came out (ADR-097 law 10).
-  Future<void> _resolve(int pieceId, String code, int attemptId) async {
-    final answer = await showDialog<Map<String, dynamic>>(
-      context: context,
-      builder: (_) => _ResolveDialog(code: code),
-    );
-    if (answer == null || !mounted) return;
-    try {
-      final saved = await _api.resolvePrintAttempt(attemptId, answer);
-      if (mounted) _setLabel(pieceId, _labelOf(saved['job'] as Map<String, dynamic>));
-    } catch (e) {
-      if (mounted) AppFeedback.error(context, e);
-    } finally {
-      _refreshQueue();
-    }
-  }
-
-  /// A new label for a piece whose label is adopted: its reason asked; the
-  /// old tag stopped once the new one is read back (ADR-097 law 4).
-  Future<void> _reprint(Map<String, dynamic> p) async {
-    final reason = await confirmFinancialAction(
-      context,
-      title: 'إعادة طباعة بطاقة ${p['item_code']}؟',
-      effect: 'تُطبع بطاقة جديدة برقاقة جديدة، وتُلغى القديمة حين تُعتمد الجديدة. رقم القطعة لا يتغيّر.',
-      confirmLabel: 'إعادة الطباعة',
-      reasonLabel: 'سبب إعادة الطباعة',
-      destructive: false,
-    );
-    if (reason == null || reason.trim().isEmpty || !mounted) return;
-    await _printPiece(p, kind: 'reprint', reason: reason.trim());
-  }
-
-  /// Its label's state and what can be done -- one widget, in the last
-  /// piece's card and in the line's list.
-  Widget _labelCell(Map<String, dynamic> p) {
-    final id = p['id'] as int;
-    final label = p['label'] as Map<String, dynamic>?;
-    if (_printing.contains(id)) {
-      return const SizedBox(
-        width: 20,
-        height: 20,
-        child: CircularProgressIndicator(strokeWidth: 2),
-      );
-    }
-    final status = label?['status'] as String?;
-    Widget action(String key, String text, IconData icon, VoidCallback onPressed) =>
-        TextButton.icon(key: Key('$key-$id'), onPressed: onPressed, icon: Icon(icon), label: Text(text));
-    switch (status) {
-      case 'completed':
-        return Row(mainAxisSize: MainAxisSize.min, children: [
-          Text('مطبوعة · الجيل ${label!['generation']}', key: Key('label-done-$id')),
-          action('label-reprint', 'إعادة الطباعة', Icons.print_outlined, () => _reprint(p)),
-        ]);
-      case 'failed':
-        return action('label-retry', 'إعادة المحاولة', Icons.refresh, () => _retry(id, label!['job_id'] as int));
-      case 'needs_attention':
-        return action('label-resolve', 'حسم المحاولة', Icons.help_outline,
-            () => _resolve(id, '${p['item_code']}', label!['attempt_id'] as int));
-      case 'pending':
-      case 'printing':
-      case 'verifying':
-        return action('label-run', 'اطبع الآن', Icons.print, () => _retry(id, label!['job_id'] as int));
-      default:
-        return action('label-print', 'اطبع البطاقة', Icons.print, () => _printPiece(p));
-    }
   }
 
   /// The printer and the labels waiting -- one line above the station.
@@ -457,13 +338,13 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
                     ? TextButton(
                         onPressed: () {
                           Navigator.of(sheet).pop();
-                          _retry(j['item_id'] as int, j['id'] as int);
+                          _labels.retry(context, j['item_id'] as int, j['id'] as int);
                         },
                         child: const Text('إعادة المحاولة'))
                     : TextButton(
                         onPressed: () {
                           Navigator.of(sheet).pop();
-                          _resolve(j['item_id'] as int, '${j['item_code']}',
+                          _labels.resolve(context, j['item_id'] as int, '${j['item_code']}',
                               (j['last_attempt'] as Map)['id'] as int);
                         },
                         child: const Text('حسم المحاولة')),
@@ -546,7 +427,7 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
       });
       _weightFocus.requestFocus();
       // Its label: a job of its own -- printed now, or waiting (ADR-097 law 1).
-      _printPiece(piece, run: _autoPrint);
+      _labels.print(context, piece, run: _autoPrint);
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -918,7 +799,7 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
                 '${_g(last['weight'])} جم'
                 '${(last['label'] as Map?)?['message'] == null ? '' : '\n${(last['label'] as Map)['message']}'}',
               ),
-              trailing: _labelCell(last),
+              trailing: PieceLabelCell(piece: last, busy: _printing.contains(last['id']), actions: _labels),
             ),
           ),
         ],
@@ -953,7 +834,7 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
                 const SizedBox(width: 8),
                 // Its label (ADR-097): printed through the engine, its tag
                 // adopted only read back; a reprint with its reason.
-                _labelCell(p),
+                PieceLabelCell(piece: p, busy: _printing.contains(p['id']), actions: _labels),
               ],
             ),
           ),
@@ -1176,72 +1057,6 @@ class _FromStockDialogState extends State<_FromStockDialog> {
           child: const Text('فتح الدفعة'),
         ),
       ],
-    );
-  }
-}
-
-/// An attempt whose end is not known (ADR-097 law 10): the label that came
-/// out read by the handheld reader -- it types the tag's value into the field
-/// -- or no label came out. Returns the request's body.
-class _ResolveDialog extends StatefulWidget {
-  const _ResolveDialog({required this.code});
-  final String code;
-
-  @override
-  State<_ResolveDialog> createState() => _ResolveDialogState();
-}
-
-class _ResolveDialogState extends State<_ResolveDialog> {
-  final _read = TextEditingController();
-
-  @override
-  void dispose() {
-    _read.dispose();
-    super.dispose();
-  }
-
-  void _adopt() {
-    final value = _read.text.trim();
-    if (value.isEmpty) return;
-    Navigator.of(context).pop({'read_value': value});
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: AlertDialog(
-        title: Text('بطاقة ${widget.code}: هل خرج ملصق؟'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('انقطع الاتصال بالطابعة ولا يُعرف هل كُتبت الرقاقة. '
-                'إن خرج ملصق فاقرأه بالقارئ هنا، وإلا اضغط «لم يخرج ملصق».'),
-            const SizedBox(height: 12),
-            TextField(
-              key: const Key('resolve-read'),
-              controller: _read,
-              autofocus: true,
-              textDirection: TextDirection.ltr,
-              decoration: const InputDecoration(labelText: 'رمز الرقاقة من القارئ'),
-              onSubmitted: (_) => _adopt(),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            key: const Key('resolve-no-label'),
-            onPressed: () => Navigator.of(context).pop({'no_label': true}),
-            child: const Text('لم يخرج ملصق'),
-          ),
-          FilledButton(
-            key: const Key('resolve-adopt'),
-            onPressed: _adopt,
-            child: const Text('اعتمد القراءة'),
-          ),
-        ],
-      ),
     );
   }
 }

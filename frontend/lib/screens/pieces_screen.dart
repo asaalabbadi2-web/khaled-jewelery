@@ -12,7 +12,7 @@ import '../theme/app_tokens.dart';
 import '../utils/display_date.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/app_state_views.dart';
-import 'barcode_print_screen.dart';
+import '../widgets/piece_label_actions.dart';
 import 'items_screen_enhanced.dart' show showCategoriesManagement;
 import 'piece_models_screen.dart';
 import 'size_systems_screen.dart';
@@ -57,6 +57,19 @@ class _PiecesScreenState extends State<PiecesScreen> {
   // a model's or a size's id, or «none» for the pieces without (ADR-093 §4)
   String? _model;
   String? _size;
+  // The labels waiting (ADR-097 ط4): the pieces with no adopted tag, chosen
+  // and printed through the station's one engine -- «اطبع المحدد».
+  bool _untagged = false;
+  final Set<int> _selected = {};
+  final Set<int> _busy = {};
+  String? _batch;
+  late final PieceLabelActions _labels = PieceLabelActions(
+    api: widget.api,
+    onLabel: _setLabel,
+    onBusy: (id, busy) {
+      if (mounted) setState(() => busy ? _busy.add(id) : _busy.remove(id));
+    },
+  );
   String _sort = 'number';
   bool _ascending = false;
   int _page = 1;
@@ -149,6 +162,7 @@ class _PiecesScreenState extends State<PiecesScreen> {
         modelId: _model,
         sizeId: _size,
         state: _state,
+        untagged: _untagged,
         sort: _sort,
         ascending: _ascending,
         page: _page,
@@ -181,8 +195,21 @@ class _PiecesScreenState extends State<PiecesScreen> {
     setState(() {
       change();
       _page = 1;
+      _selected.clear();
     });
     _load();
+  }
+
+  void _setLabel(int pieceId, Map<String, dynamic> label) {
+    final rows = (_data?['pieces'] as List?) ?? const [];
+    setState(() {
+      for (final row in rows) {
+        if (row is Map && row['id'] == pieceId) {
+          row['label'] = label;
+          if (label['status'] == 'completed') row['tag'] = 'printed';
+        }
+      }
+    });
   }
 
   void _onSearch(String _) {
@@ -267,19 +294,104 @@ class _PiecesScreenState extends State<PiecesScreen> {
 
   // ── actions ──────────────────────────────────────────────────────────────
 
+  /// One piece's label through the engine (ADR-097): printed, run, tried
+  /// again -- a printed one reprinted with its reason, an unknown one settled.
   void _print(Map<String, dynamic> p) {
-    final code = '${p['item_code'] ?? ''}';
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => BarcodePrintScreen(
-          barcode: '${p['barcode'] ?? code}',
-          itemName: '${p['name'] ?? ''}',
-          itemCode: code,
-          karat: '${p['karat'] ?? ''}',
+    final label = p['label'] as Map<String, dynamic>?;
+    switch (label?['status'] as String?) {
+      case 'completed':
+        _labels.reprint(context, p);
+      case 'needs_attention':
+        _labels.resolve(context, p['id'] as int, '${p['item_code']}', label!['attempt_id'] as int);
+      case 'pending':
+      case 'printing':
+      case 'verifying':
+      case 'failed':
+        _labels.retry(context, p['id'] as int, label!['job_id'] as int);
+      default:
+        // a tag adopted before ADR-097 (generation 0): printed -- reprinted with a reason
+        p['tag'] != null ? _labels.reprint(context, p) : _labels.print(context, p);
+    }
+  }
+
+  /// «اطبع المحدد»: one after another through the same engine; stopped at
+  /// the first stop of the printer itself -- its labels, its ribbon, its
+  /// cover -- that would fail the rest too; printed ones and unknown ones left.
+  Future<void> _printSelected() async {
+    final chosen = [for (final p in _pieces) if (_selected.contains(p['id'])) p];
+    var printed = 0, skipped = 0;
+    String? stopped;
+    for (var i = 0; i < chosen.length; i++) {
+      if (!mounted) return;
+      setState(() => _batch = 'تُطبع ${i + 1} من ${chosen.length}…');
+      final label = await _labels.advance(context, chosen[i]);
+      if (label == null) {
+        skipped++;
+        continue;
+      }
+      if (label['status'] == 'completed') printed++;
+      if (label['status'] == 'failed' && PieceLabelActions.printerStops.contains(label['error_code'])) {
+        stopped = '${label['message'] ?? 'توقّفت الطابعة'}';
+        break;
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _batch = null;
+      _selected.clear();
+    });
+    final done = 'طُبعت $printed من ${chosen.length}${skipped > 0 ? ' · تُركت $skipped (مطبوعة أو تحتاج حسمًا)' : ''}';
+    if (stopped != null) {
+      AppFeedback.warning(context, 'توقّفت الطباعة: $stopped. $done');
+    } else {
+      AppFeedback.success(context, done);
+    }
+    _load();
+  }
+
+  /// The labels' line above the list: «بلا بطاقة», all chosen, and «اطبع المحدد».
+  Widget _labelsBar() {
+    final ids = [for (final p in _pieces) p['id'] as int];
+    final all = ids.isNotEmpty && ids.every(_selected.contains);
+    return Wrap(
+      spacing: AppSpace.sm,
+      runSpacing: AppSpace.xs,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        FilterChip(
+          key: const Key('pieces-untagged'),
+          label: const Text('بلا بطاقة'),
+          selected: _untagged,
+          onSelected: (on) => _filter(() => _untagged = on),
         ),
-      ),
+        if (ids.isNotEmpty)
+          TextButton.icon(
+            key: const Key('pieces-select-all'),
+            onPressed: _batch != null
+                ? null
+                : () => setState(() => all ? _selected.removeAll(ids) : _selected.addAll(ids)),
+            icon: Icon(all ? Icons.check_box : Icons.check_box_outline_blank),
+            label: Text(all ? 'إلغاء التحديد' : 'تحديد الصفحة'),
+          ),
+        if (_selected.isNotEmpty)
+          FilledButton.icon(
+            key: const Key('pieces-print-selected'),
+            onPressed: _batch != null ? null : _printSelected,
+            icon: const Icon(Icons.print),
+            label: Text('اطبع المحدد (${_selected.length})'),
+          ),
+        if (_batch != null) Text(_batch!, key: const Key('pieces-print-progress')),
+      ],
     );
   }
+
+  Widget _choose(Map<String, dynamic> p) => Checkbox(
+    key: Key('piece-select-${p['item_code']}'),
+    value: _selected.contains(p['id']),
+    onChanged: _batch != null
+        ? null
+        : (on) => setState(() => on == true ? _selected.add(p['id'] as int) : _selected.remove(p['id'])),
+  );
 
   /// A piece's words (ADR-093 §5): its name, description, model and size --
   /// descriptions, recorded by the server; its book facts stay.
@@ -499,6 +611,8 @@ class _PiecesScreenState extends State<PiecesScreen> {
                       _summary(),
                       const SizedBox(height: AppSpace.md),
                       _filters(wide, box.maxWidth - 2 * AppSpace.lg),
+                      const SizedBox(height: AppSpace.sm),
+                      _labelsBar(),
                       const SizedBox(height: AppSpace.md),
                       if (_pieces.isEmpty) _empty() else if (wide) _table() else ..._pieces.map(_cardRow),
                       if (_pieces.isNotEmpty) _pager(),
@@ -717,7 +831,7 @@ class _PiecesScreenState extends State<PiecesScreen> {
       ('المكان', null),
       ('الحالة', null),
       ('الاستلام', null),
-      ('الرقاقة', null),
+      ('البطاقة', null),
       ('', null),
     ];
     final sortIndex = columns.indexWhere((c) => c.$2 == _sort);
@@ -751,13 +865,16 @@ class _PiecesScreenState extends State<PiecesScreen> {
                     onSelectChanged: (_) => _open(p, wide: true),
                     cells: [
                       DataCell(
-                        _ltr(
-                          '${p['item_code']}',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                            color: theme.colorScheme.primary,
+                        Row(mainAxisSize: MainAxisSize.min, children: [
+                          _choose(p),
+                          _ltr(
+                            '${p['item_code']}',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: theme.colorScheme.primary,
+                            ),
                           ),
-                        ),
+                        ]),
                       ),
                       DataCell(Text('${p['name'] ?? ''}', style: const TextStyle(fontWeight: FontWeight.w700))),
                       DataCell(Text(_modelOf(p))),
@@ -790,17 +907,7 @@ class _PiecesScreenState extends State<PiecesScreen> {
                           ],
                         ),
                       ),
-                      DataCell(
-                        Text(
-                          p['tag'] != null ? 'مربوطة' : 'بلا رقاقة',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            fontWeight: FontWeight.w700,
-                            color: p['tag'] != null
-                                ? AppSemanticColors.of(context).ready.fg
-                                : AppSemanticColors.of(context).warning.fg,
-                          ),
-                        ),
-                      ),
+                      DataCell(PieceLabelCell(piece: p, busy: _busy.contains(p['id']), actions: _labels, compact: true)),
                       DataCell(_actions(p)),
                     ],
                   ),
@@ -875,17 +982,12 @@ class _PiecesScreenState extends State<PiecesScreen> {
                       ],
                     ),
                     const SizedBox(height: AppSpace.xs),
-                    Text(
-                      [
-                        (p['location'] as Map?)?['name']?.toString() ?? '—',
-                        if (p['tag'] == null) 'بلا رقاقة',
-                      ].join(' · '),
-                      style: theme.textTheme.bodySmall,
-                    ),
+                    Text((p['location'] as Map?)?['name']?.toString() ?? '—', style: theme.textTheme.bodySmall),
+                    PieceLabelCell(piece: p, busy: _busy.contains(p['id']), actions: _labels),
                   ],
                 ),
               ),
-              _actions(p),
+              Column(mainAxisSize: MainAxisSize.min, children: [_actions(p), _choose(p)]),
             ],
           ),
         ),
