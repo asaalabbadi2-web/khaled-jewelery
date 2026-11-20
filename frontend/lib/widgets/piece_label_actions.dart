@@ -48,11 +48,22 @@ class PieceLabelActions {
       {required bool quiet, bool sayFailure = true}) async {
     onBusy(pieceId, true);
     try {
-      final label = labelOf((await call())['job'] as Map<String, dynamic>);
+      final answer = await call();
+      final label = labelOf(answer['job'] as Map<String, dynamic>);
+      // The printer asked first and not ready: no attempt, no generation --
+      // the job waits, and the printer's own words say why (ADR-097, ط6).
+      final printer = answer['printer'] as Map<String, dynamic>?;
+      if (printer != null && printer['ready'] == false) {
+        label['printer_ready'] = false;
+        label['printer_message'] = printer['message'];
+      }
       onLabel(pieceId, label);
-      if (!quiet && sayFailure && label['status'] != 'completed' && label['status'] != 'pending' &&
-          context.mounted) {
-        AppFeedback.warning(context, failedWords);
+      if (!quiet && context.mounted) {
+        if (label['printer_ready'] == false) {
+          AppFeedback.warning(context, 'تعذّرت طباعة البطاقة: ${printer!['message']}. القطعة محفوظة وبطاقتها في قائمة الانتظار.');
+        } else if (sayFailure && label['status'] != 'completed' && label['status'] != 'pending') {
+          AppFeedback.warning(context, failedWords);
+        }
       }
       return label;
     } catch (e) {

@@ -113,6 +113,12 @@ class _FakeApi extends ApiService {
   @override
   Future<Map<String, dynamic>> printPieceLabel(int pieceId, Map<String, dynamic> body) async {
     printed.add({...body, 'piece_id': pieceId});
+    if (printOutcome == 'not_ready') {
+      return {
+        'job': {'id': ++_job, 'item_id': pieceId, 'kind': body['kind'], 'status': 'pending', 'last_attempt': null},
+        'printer': {'ready': false, 'stops': ['paper_out'], 'message': 'انتهت الملصقات: ضع لفة جديدة ثم أعد المحاولة'},
+      };
+    }
     final failed = printOutcome == 'failed';
     return {
       'job': {
@@ -444,5 +450,16 @@ void main() {
     await tester.tap(find.text('بنجرة أ').first);
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('label-preview-second')), findsOneWidget);
+  });
+
+  testWidgets('«اطبع المحدد» stops when the printer is not ready: nothing spent on the rest', (tester) async {
+    final api = _FakeApi(pieces: waiting())..printOutcome = 'not_ready';
+    await _mount(tester, PiecesScreen(api: api));
+    await choose(tester, 'KJ-000301');
+    await choose(tester, 'KJ-000302');
+    await tester.tap(find.byKey(const Key('pieces-print-selected')));
+    await tester.pumpAndSettle();
+    expect(api.printed, hasLength(1));
+    expect(find.textContaining('توقّفت الطباعة: انتهت الملصقات'), findsOneWidget);
   });
 }

@@ -26,7 +26,7 @@ from datetime import date, datetime, timedelta
 import pytest
 
 from models import LabelPrinter, PieceTag, PrintAttempt, PrintJob, Settings, db
-from services.label_printing import PrintRefused, _Turn, request_print, resolve_attempt, run_job
+from services.label_printing import PrinterNotReady, PrintRefused, _Turn, request_print, resolve_attempt, run_job
 from services.pieces import active_tag, epc_of, tag_state
 from services.printer_link import LinkLost, PrinterUnreachable, ZebraLink, parse_status
 from tests.test_piece_tag import _pieces
@@ -152,7 +152,7 @@ def test_printed_written_read_and_matching_the_tag_is_the_pieces():
 
 
 def test_the_attempt_is_in_the_database_before_the_printer_hears_of_it():
-    """Law 9: its commit comes before the printer is asked anything."""
+    """Law 9: its commit comes before its label is sent -- the printer's status may be asked before."""
     [piece] = _pieces(10.0)
     job = _job(piece, _printer())
     events = []
@@ -162,19 +162,30 @@ def test_the_attempt_is_in_the_database_before_the_printer_hears_of_it():
         events.append(('commit', [a.generation for a in _attempts(job)]))
         db.session.commit()
     run_job(job, by='t', clock=Clock(), commit=commit, link=link, wait=1.0)
-    first_printer = min(events.index('status'), events.index('send'))
-    assert ('commit', [1]) in events[:first_printer], 'committed with its generation before the printer'
+    assert ('commit', [1]) in events[:events.index('send')], 'committed with its generation before its label'
 
 
 def test_1_registered_with_the_printer_off():
+    """Asked first, not answering: no attempt, no generation -- the job waits, the piece kept."""
     [piece] = _pieces(10.0)
     job = _job(piece, _printer())
-    _run(job, FakeLink(before=None))
-    [attempt] = _attempts(job)
-    assert job.status == 'failed' and attempt.error_code == 'unreachable'
-    assert (attempt.printed, attempt.written, attempt.verified) == (False, False, False), 'nothing sent: certain'
-    assert 'لا تردّ' in attempt.error_message
+    with pytest.raises(PrinterNotReady) as off:
+        _run(job, FakeLink(before=None))
+    assert off.value.code == 'unreachable' and 'لا تردّ' in off.value.message
+    assert (job.status, _attempts(job)) == ('pending', []), 'nothing could be printed: nothing spent'
     assert db.session.get(type(piece), piece.id) is not None and active_tag(piece) is None, 'the piece kept, no tag'
+
+
+def test_pressed_again_and_again_with_the_cable_out_spends_no_generation():
+    """ط6 on the owner's printer: nine presses on «إعادة المحاولة», nine generations spent. Not now."""
+    [piece] = _pieces(10.0)
+    job = _job(piece, _printer())
+    for _ in range(9):
+        with pytest.raises(PrinterNotReady):
+            _run(job, FakeLink(before=None))
+    assert _attempts(job) == []
+    _run(job, FakeLink())
+    assert [a.generation for a in _attempts(job)] == [1], 'the first label the first generation'
 
 
 def test_2_the_line_dropped_after_the_tag_was_written():
@@ -303,15 +314,15 @@ def test_10_out_of_labels_before_and_stopping_while_printing():
     printer = _printer()
     job = _job(piece, printer)
     link = FakeLink(before=PAPER_OUT)
-    _run(job, link)
-    [first] = _attempts(job)
-    assert (job.status, first.error_code, link.sent) == ('failed', 'paper_out', []), 'nothing sent'
-    assert first.error_message == 'انتهت الملصقات: ضع لفة جديدة ثم أعد المحاولة'
+    with pytest.raises(PrinterNotReady) as out:
+        _run(job, link)
+    assert (out.value.code, out.value.message) == ('paper_out', 'انتهت الملصقات: ضع لفة جديدة ثم أعد المحاولة')
+    assert (job.status, link.sent, _attempts(job)) == ('pending', [], []), 'nothing sent, nothing spent'
     _run(job, FakeLink(after=HEAD_OPEN))
-    second = _attempts(job)[1]
-    assert (job.status, second.error_code, second.verified, second.printed) == \
+    [first] = _attempts(job)
+    assert (job.status, first.error_code, first.verified, first.printed) == \
         ('failed', 'printed_with_error', True, False), 'its tag read, its face not known: not adopted'
-    assert active_tag(piece) is None and tag_state(second.epc)['state'] == 'unconfirmed'
+    assert active_tag(piece) is None and tag_state(first.epc)['state'] == 'unconfirmed'
 
 
 # ── the link, on a socket ────────────────────────────────────────────────────
@@ -410,7 +421,7 @@ def test_the_waiting_labels_and_a_printers_status(auth_headers):
     from tests.test_wage_treatment_follows_the_setting import flask_app
     a, b, c = _pieces(10.0, 11.0, 12.0)
     printer = _printer()
-    _run(_job(a, printer), FakeLink(before=PAPER_OUT))                 # failed
+    _run(_job(a, printer), FakeLink(answer='other'))                   # failed: another tag read
     _job(b, printer)                                                    # pending: «تسجيل فقط»
     _run(_job(c, printer), FakeLink(answer='lost'))                     # needs attention
     g.pop('current_user', None)
@@ -419,7 +430,7 @@ def test_the_waiting_labels_and_a_printers_status(auth_headers):
     assert body['counts'] == {'pending': 1, 'failed': 1, 'needs_attention': 1}
     assert [j['item_code'] for j in body['jobs']] == [a.item_code, b.item_code, c.item_code], 'the oldest first'
     from services.pieces import piece_view
-    assert piece_view(a)['label']['status'] == 'failed' and 'الملصقات' in piece_view(a)['label']['message']
+    assert piece_view(a)['label']['status'] == 'failed' and 'غير المطلوبة' in piece_view(a)['label']['message']
     sock = SocketPrinter()
     try:
         printer.host, printer.port = '127.0.0.1', sock.port
@@ -448,3 +459,20 @@ def test_the_pieces_without_a_label_are_listed(auth_headers):
     assert b.item_code in codes and a.item_code not in codes
     row = next(p for p in listed['pieces'] if p['item_code'] == b.item_code)
     assert row['label'] is None and row['tag'] is None
+
+
+def test_the_route_says_the_printer_is_not_ready_the_job_saved(auth_headers):
+    """Saved and waiting: 200 with the job and why -- the station says it, the piece keeps its job."""
+    [piece] = _pieces(10.0)
+    printer = _printer()
+    printer.host, printer.port = '127.0.0.1', 9                     # nothing listens there
+    db.session.flush()
+    from flask import g
+    from tests.test_wage_treatment_follows_the_setting import flask_app
+    g.pop('current_user', None)
+    r = flask_app.test_client().post(f'/api/pieces/{piece.id}/print-jobs', json={'request_key': 'off-1'},
+                                     headers=auth_headers)
+    assert r.status_code == 200, r.get_data(as_text=True)
+    body = r.get_json()
+    assert (body['job']['status'], body['job']['attempts']) == ('pending', 0)
+    assert body['printer']['ready'] is False and 'لا تردّ' in body['printer']['message']

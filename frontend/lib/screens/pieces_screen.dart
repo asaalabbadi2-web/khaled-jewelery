@@ -331,6 +331,10 @@ class _PiecesScreenState extends State<PiecesScreen> {
         continue;
       }
       if (label['status'] == 'completed') printed++;
+      if (label['printer_ready'] == false) {
+        stopped = '${label['printer_message'] ?? 'الطابعة غير جاهزة'}';
+        break;
+      }
       if (label['status'] == 'failed' && PieceLabelActions.printerStops.contains(label['error_code'])) {
         stopped = '${label['message'] ?? 'توقّفت الطابعة'}';
         break;

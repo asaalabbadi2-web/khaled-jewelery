@@ -8,10 +8,11 @@ job here, run by run_job -- the difference only where the request came from
 - request_print(): a job saved -- one request key one job (law 6); a reprint
   with its reason; one open job a piece.
 - run_job(): in the coder's own request (no worker behind, law 8):
-  the printer's turn (a session lock on its own connection, law 7) --
-  the attempt with its new generation committed BEFORE the printer is
-  spoken to (law 9) -- its status asked: not ready, nothing sent, failed
-  -- the label sent, its tag read back -- the printer's status asked again.
+  the printer's turn (a session lock on its own connection, law 7) -- its
+  status asked: not ready, PrinterNotReady, no attempt and no generation
+  (the owner, after ط6) -- the attempt with its new generation committed
+  BEFORE the label is sent (law 9) -- the label sent, its tag read back --
+  the printer's status asked again.
   Read back and matching, and printed with no error: the tag mounted on the
   piece, a former one stopped, the job completed (laws 3, 4). Certain
   failures fail; an unknown end -- the line dropped after sending, nothing
@@ -55,6 +56,17 @@ class PrintRefused(ValueError):
     def __init__(self, code: str, message: str):
         super().__init__(message)
         self.code, self.message = code, message
+
+
+class PrinterNotReady(PrintRefused):
+    """The printer asked before any attempt, and not ready -- no label, so no
+    attempt and no generation (the owner, 20 Nov 2026, after ط6: nine presses
+    on «إعادة المحاولة» with the cable out spent nine generations). The job
+    stays as it was; *state* says why."""
+
+    def __init__(self, state: dict):
+        super().__init__(state['stops'][0] if state.get('stops') else 'not_ready', state.get('message') or '')
+        self.state = state
 
 
 # ── the request ──────────────────────────────────────────────────────────────
@@ -210,6 +222,15 @@ def run_job(job: PrintJob, *, by: str, clock, commit, link=None, wait: float = L
             _finish(stale, job, status='needs_attention', clock=clock, error='stopped_midway')
             commit()
             return job
+        # The printer asked first: not ready, no attempt and no generation --
+        # nothing could be printed (the owner, 20 Nov 2026, after ط6).
+        try:
+            state = link.status()
+        except PrinterUnreachable:
+            state = {'ready': False, 'stops': ['unreachable'], 'message': UNREACHABLE}
+        if not state['ready']:
+            raise PrinterNotReady(state)
+
         piece = db.session.get(Item, job.item_id)
         generation = next_generation(piece)
         from services.pieces import epc_of
@@ -217,21 +238,7 @@ def run_job(job: PrintJob, *, by: str, clock, commit, link=None, wait: float = L
                                started_by=by, started_at=clock())
         db.session.add(attempt)
         job.status = 'printing'
-        commit()                                            # law 9: saved before the printer hears of it
-
-        try:
-            state = link.status()
-        except PrinterUnreachable:
-            _finish(attempt, job, status='failed', clock=clock, error='unreachable', printed=False, written=False,
-                    verified=False)
-            commit()
-            return job
-        if not state['ready']:
-            _finish(attempt, job, status='failed', clock=clock, error=state['stops'][0], printed=False,
-                    written=False, verified=False)
-            attempt.error_message = state['message']
-            commit()
-            return job
+        commit()                                            # law 9: saved before the label is sent
 
         zpl = _label(piece, attempt.epc)
         try:

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -53,6 +54,12 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
   Map<String, dynamic> _queueCounts = const {};
   List<Map<String, dynamic>> _openJobs = const [];
   final Set<int> _printing = {};
+
+  /// The printer's state read again by itself while the station is open (the
+  /// owner, 20 Nov 2026, after ط6): back from a cut cable, it says «جاهزة»
+  /// with no press.
+  static const printerEvery = Duration(seconds: 15);
+  Timer? _printerTimer;
   late final PieceLabelActions _labels = PieceLabelActions(
     api: _api,
     onLabel: _setLabel,
@@ -88,10 +95,12 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
     super.initState();
     _loadPending();
     _loadPrinter();
+    _printerTimer = Timer.periodic(printerEvery, (_) => _loadPrinterState());
   }
 
   @override
   void dispose() {
+    _printerTimer?.cancel();
     _weight.dispose();
     _stones.dispose();
     _weightFocus.dispose();

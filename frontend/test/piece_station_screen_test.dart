@@ -103,12 +103,17 @@ class _Api extends ApiService {
     'printers': [{'id': 1, 'name': 'طابعة المعرض', 'is_active': true}],
   };
 
+  int statusAsked = 0;
+
   @override
-  Future<Map<String, dynamic>> labelPrinterStatus(int printerId) async => {
+  Future<Map<String, dynamic>> labelPrinterStatus(int printerId) async {
+    statusAsked++;
+    return {
     'status': printerReady
         ? {'ready': true, 'stops': [], 'message': null}
         : {'ready': false, 'stops': ['paper_out'], 'message': 'انتهت الملصقات: ضع لفة جديدة ثم أعد المحاولة'},
-  };
+    };
+  }
 
   @override
   Future<Map<String, dynamic>> printJobsOpen() async => {'jobs': openJobs, 'counts': counts};
@@ -116,6 +121,14 @@ class _Api extends ApiService {
   @override
   Future<Map<String, dynamic>> printPieceLabel(int pieceId, Map<String, dynamic> body) async {
     printed.add({...body, 'piece_id': pieceId});
+    if (printOutcome == 'not_ready') {
+      // asked first, not ready: the job waits, nothing spent (ADR-097, ط6)
+      return {
+        'job': _jobOf(pieceId, 'pending', kind: '${body['kind']}'),
+        'printer': {'ready': false, 'stops': ['unreachable'],
+                    'message': 'الطابعة لا تردّ: تأكد أنها مشغّلة وعلى الشبكة ثم أعد المحاولة'},
+      };
+    }
     final status = body['run'] == false ? 'pending' : printOutcome;
     return {'job': _jobOf(pieceId, status, kind: '${body['kind']}', generation: printed.length)};
   }
@@ -425,5 +438,27 @@ void main() {
         matching: find.text('إعادة المحاولة')));
     await tester.pumpAndSettle();
     expect(api.runs, [9]);
+  });
+
+  testWidgets('the printer\'s bar reads it again by itself: back from a cut cable, «جاهزة» with no press',
+      (tester) async {
+    final api = _Api()..printerReady = false;
+    await _open(tester, api);
+    expect(find.byKey(const Key('station-printer')), findsOneWidget);
+    expect(find.text('الطابعة جاهزة'), findsNothing);
+    final asked = api.statusAsked;
+    api.printerReady = true;                       // the cable back
+    await tester.pump(const Duration(seconds: 16));          // the station asks every 15 seconds
+    await tester.pumpAndSettle();
+    expect(api.statusAsked, greaterThan(asked));
+    expect(find.text('الطابعة جاهزة'), findsOneWidget);
+  });
+
+  testWidgets('the printer not ready: its words said, the piece\'s label waiting', (tester) async {
+    final api = _Api()..printOutcome = 'not_ready';
+    await _open(tester, api);
+    await register(tester);
+    expect(find.textContaining('تعذّرت طباعة البطاقة: الطابعة لا تردّ'), findsOneWidget);
+    expect(find.byKey(const Key('label-run-101')), findsWidgets, reason: 'waiting: printed when it answers');
   });
 }
