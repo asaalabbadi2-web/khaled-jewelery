@@ -187,9 +187,9 @@ class _Api extends ApiService {
   }
 }
 
-Future<void> _open(WidgetTester tester, _Api api) async {
+Future<void> _open(WidgetTester tester, _Api api, {Size size = const Size(1400, 1800)}) async {
   SharedPreferences.setMockInitialValues({'jwt_token': 't'});
-  tester.view.physicalSize = const Size(1400, 1800);
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(MaterialApp(theme: LightTheme.theme, home: PieceStationScreen(api: api)));
@@ -486,5 +486,76 @@ void main() {
     expect(api.runs, hasLength(3), reason: 'busy at its request and twice more, then its turn came');
     expect(find.textContaining('مطبوعة'), findsWidgets);
     expect(find.textContaining('تعذّرت'), findsNothing, reason: 'busy is not a failure');
+  });
+
+  // ── ر1: the mistakes the station stops before they are pieces ──
+
+  testWidgets('a weight ten times the line\'s pieces is asked: corrected, nothing sent', (tester) async {
+    final api = _Api();
+    await _open(tester, api);
+    await register(tester, '5');
+    await register(tester, '5.2');
+    expect(api.sent, hasLength(2));
+    await register(tester, '51');
+    expect(find.byKey(const Key('weight-unusual')), findsOneWidget);
+    expect(find.textContaining('5.10 جم؟'), findsOneWidget, reason: 'the tenth offered: 51 typed for 5.1');
+    await tester.tap(find.byKey(const Key('weight-fix')));
+    await tester.pumpAndSettle();
+    expect(api.sent, hasLength(2), reason: 'a piece is never deleted: the doubt asked before it is one');
+    await register(tester, '5.1');
+    expect(find.byKey(const Key('weight-unusual')), findsNothing);
+    expect(api.sent, hasLength(3));
+    expect(api.sent.last['weight'], 5.1);
+  });
+
+  testWidgets('a weight unusual but true is sent when said so', (tester) async {
+    final api = _Api();
+    await _open(tester, api);
+    await register(tester, '5');
+    await register(tester, '5.2');
+    await register(tester, '1.2');
+    expect(find.byKey(const Key('weight-unusual')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('weight-confirm')));
+    await tester.pumpAndSettle();
+    expect(api.sent, hasLength(3));
+    expect(api.sent.last['weight'], 1.2);
+  });
+
+  testWidgets('one piece is no average: the second weight is not asked', (tester) async {
+    final api = _Api();
+    await _open(tester, api);
+    await register(tester, '5');
+    await register(tester, '15');
+    expect(find.byKey(const Key('weight-unusual')), findsNothing);
+    expect(api.sent, hasLength(2));
+  });
+
+  testWidgets('the choices kept for the next piece are said where its weight is typed', (tester) async {
+    final api = _Api();
+    await _open(tester, api);
+    expect(find.text('بلا موديل · طباعة تلقائية'), findsOneWidget);
+    await tester.tap(find.text('تسجيل فقط'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('station-current')), findsOneWidget);
+    expect(tester.widget<Text>(find.byKey(const Key('station-current'))).data, 'بلا موديل · تسجيل فقط');
+  });
+
+  testWidgets('on a phone nothing is squeezed: the bar\'s words, the weight, the button, each piece', (tester) async {
+    final api = _Api();
+    await _open(tester, api, size: const Size(390, 844));
+    expect(tester.takeException(), isNull);
+    expect(tester.getSize(find.byKey(const Key('station-printer'))).width, greaterThan(250),
+        reason: 'the printer\'s words on a line of their own, not one letter a line');
+    expect(tester.getSize(find.byKey(const Key('piece-weight'))).width, greaterThan(300));
+    expect(tester.getSize(find.byKey(const Key('piece-register'))).width, greaterThan(300));
+    await register(tester, '5');
+    expect(tester.takeException(), isNull);
+    final row = find.byKey(const Key('station-piece-101'));
+    await tester.dragUntilVisible(row, find.byType(ListView).last, const Offset(0, -200));
+    await tester.pumpAndSettle();
+    final code = find.descendant(of: row, matching: find.text('KJ-000121'));
+    expect(tester.getSize(code).width, greaterThan(250), reason: 'its number readable, its actions under it');
+    final last = find.descendant(of: find.byKey(const Key('station-last')), matching: find.text('KJ-000121'));
+    expect(tester.getSize(last).width, greaterThan(250));
   });
 }

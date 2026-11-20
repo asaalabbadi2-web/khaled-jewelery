@@ -183,7 +183,8 @@ class PieceLabelCell extends StatelessWidget {
       final button = compact
           ? IconButton(key: Key('$key-$id'), tooltip: text, onPressed: onPressed, icon: Icon(icon))
           : TextButton.icon(key: Key('$key-$id'), onPressed: onPressed, icon: Icon(icon), label: Text(text));
-      return Row(mainAxisSize: MainAxisSize.min, children: [
+      // a Wrap: on a phone the button goes under its state, never past the edge
+      return Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: [
         if (state.isNotEmpty) Text(state, key: Key('label-state-$id')),
         button,
       ]);
