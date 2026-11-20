@@ -9,6 +9,8 @@ import '../api_service.dart';
 import '../providers/auth_provider.dart';
 import '../models/category_model.dart';
 import '../models/safe_box_model.dart';
+import '../theme/app_breakpoints.dart';
+import '../theme/app_semantic_colors.dart';
 import '../utils/currency_utils.dart' show formatAmount, formatGrams;
 import '../widgets/app_feedback.dart';
 import '../widgets/app_state_views.dart';
@@ -74,6 +76,8 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
 
   final _weight = TextEditingController();
   final _stones = TextEditingController();
+  final _stonesFocus = FocusNode();
+  bool _stonesOpen = false;
   final _weightFocus = FocusNode();
   // A batch's piece: its own wage, per gram or its whole -- the way kept for
   // the next piece, the figure not.
@@ -103,6 +107,7 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
     _printerTimer?.cancel();
     _weight.dispose();
     _stones.dispose();
+    _stonesFocus.dispose();
     _weightFocus.dispose();
     _wage.dispose();
     _wageFocus.dispose();
@@ -140,6 +145,7 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
       _requestKey = null;
       _weight.clear();
       _stones.clear();
+      _stonesOpen = false;
       _model = null;
       _sizeId = null;
       _wageCheck = null;
@@ -279,9 +285,12 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
     } catch (_) {}
   }
 
-  /// The printer and the labels waiting -- one line above the station.
+  /// Zone 1, the station's bar: the printer's state, the labels waiting or
+  /// failed -- said only when there are some -- and how a piece's label is
+  /// printed. Calm when all is well; the error's colour only for a stop.
   Widget _printerBar(BuildContext context) {
     final theme = Theme.of(context);
+    final tones = AppSemanticColors.of(context);
     final state = _printerState;
     final ready = state?['ready'] == true;
     final pending = (_queueCounts['pending'] as num?)?.toInt() ?? 0;
@@ -294,31 +303,38 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
             : ready
                 ? 'الطابعة جاهزة'
                 : '${state['message'] ?? 'الطابعة متوقفة'}';
-    final narrow = MediaQuery.sizeOf(context).width < narrowBelow;
-    final said = Row(
-      children: [
-        Icon(ready ? Icons.print : Icons.print_disabled,
-            color: ready ? theme.colorScheme.onSecondaryContainer : theme.colorScheme.onErrorContainer),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            text,
-            key: const Key('station-printer'),
-            style: TextStyle(color: ready ? theme.colorScheme.onSecondaryContainer : theme.colorScheme.onErrorContainer),
-          ),
-        ),
-      ],
-    );
-    final queue = Text('بانتظار البطاقة $pending · فاشلة $failed', key: const Key('station-queue'));
+    final ink = ready ? theme.colorScheme.onSurface : theme.colorScheme.onErrorContainer;
+    final said = Row(children: [
+      Icon(ready ? Icons.print : Icons.print_disabled, color: ready ? tones.ready.fg : ink),
+      const SizedBox(width: 8),
+      Expanded(child: Text(text, key: const Key('station-printer'), style: TextStyle(color: ink))),
+    ]);
+    final counts = [
+      if (pending > 0) 'بانتظار البطاقة $pending',
+      if (failed > 0) 'فاشلة $failed',
+    ];
+    final queue = counts.isEmpty
+        ? null
+        : Row(mainAxisSize: MainAxisSize.min, children: [
+            Text(counts.join(' · '), key: const Key('station-queue'), style: TextStyle(color: ink)),
+            if (failed > 0)
+              TextButton(key: const Key('station-failures'), onPressed: _failures, child: const Text('معالجة الفشل')),
+          ]);
+    // how the next piece's label is printed: the station's, beside its printer
+    final mode = _line == null
+        ? null
+        : SegmentedButton<bool>(
+            key: const Key('station-print-mode'),
+            showSelectedIcon: false,
+            style: const ButtonStyle(visualDensity: VisualDensity.compact),
+            segments: const [
+              ButtonSegment(value: true, label: Text('طباعة تلقائية')),
+              ButtonSegment(value: false, label: Text('تسجيل فقط')),
+            ],
+            selected: {_autoPrint},
+            onSelectionChanged: (v) => setState(() => _autoPrint = v.first),
+          );
     final acts = <Widget>[
-      if (failed > 0) ...[
-        const SizedBox(width: 8),
-        TextButton(
-          key: const Key('station-failures'),
-          onPressed: _failures,
-          child: const Text('معالجة الفشل'),
-        ),
-      ],
       IconButton(
         key: const Key('station-printer-refresh'),
         tooltip: 'سؤال الطابعة',
@@ -337,22 +353,26 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
         ),
     ];
     return Material(
-      color: ready ? theme.colorScheme.secondaryContainer : theme.colorScheme.errorContainer,
+      key: const Key('station-bar'),
+      color: ready ? theme.colorScheme.surfaceContainer : theme.colorScheme.errorContainer,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         // a phone: its words on a line of their own, never squeezed letter by letter
-        child: narrow
+        child: AppBreakpoints.isPhone(context)
             ? Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                said,
-                Row(children: [Expanded(child: queue), ...acts]),
+                Row(children: [Expanded(child: said), ...acts]),
+                if (queue != null) Align(alignment: AlignmentDirectional.centerStart, child: queue),
+                if (mode != null) SizedBox(width: double.infinity, child: mode),
               ])
-            : Row(children: [Expanded(child: said), queue, ...acts]),
+            : Row(children: [
+                Expanded(child: said),
+                if (queue != null) ...[queue, const SizedBox(width: 12)],
+                if (mode != null) mode,
+                ...acts,
+              ]),
       ),
     );
   }
-
-  /// Below this width the station lays its rows one under another (a phone).
-  static const narrowBelow = 600.0;
 
   /// The choices kept for the next piece, said where the weight is typed (ر1):
   /// a size kept by mistake is seen before ten pieces carry it.
@@ -784,26 +804,42 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
     );
   }
 
-  /// The weight, the stones, the wage and the button: one row on a wide
-  /// screen; on a phone the weight on its own line, the button full width.
+  /// The weight -- the field the eye goes to -- the stones behind «+ فصوص»,
+  /// the wage and the button: one row from a tablet up; on a phone the weight
+  /// on its own line, the button full width.
   Widget _entry(BuildContext context, Map<String, dynamic> line) {
+    final theme = Theme.of(context);
     final weight = TextField(
       key: const Key('piece-weight'),
       controller: _weight,
       focusNode: _weightFocus,
       autofocus: true,
       textDirection: TextDirection.ltr,
+      style: theme.textTheme.headlineSmall,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       decoration: const InputDecoration(labelText: 'وزن القطعة (جم)'),
       onSubmitted: (_) => _register(),
     );
-    final stones = TextField(
-      key: const Key('piece-stones'),
-      controller: _stones,
-      textDirection: TextDirection.ltr,
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      decoration: const InputDecoration(labelText: 'وزن الفصوص (جم)'),
-      onSubmitted: (_) => _register(),
+    // Most pieces have none: the field opened once, kept open for the line.
+    final stones = _stonesOpen || _stones.text.isNotEmpty
+        ? TextField(
+            key: const Key('piece-stones'),
+            controller: _stones,
+            focusNode: _stonesFocus,
+            textDirection: TextDirection.ltr,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(labelText: 'وزن الفصوص (جم)'),
+            onSubmitted: (_) => _register(),
+          )
+        : null;
+    final addStones = TextButton.icon(
+      key: const Key('piece-stones-add'),
+      onPressed: () {
+        setState(() => _stonesOpen = true);
+        WidgetsBinding.instance.addPostFrameCallback((_) => _stonesFocus.requestFocus());
+      },
+      icon: const Icon(Icons.add),
+      label: const Text('فصوص'),
     );
     final wage = _wageByPiece(line)
         ? _wageField()
@@ -816,174 +852,285 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
       icon: const Icon(Icons.qr_code),
       label: const Text('تسجيل القطعة'),
     );
-    if (MediaQuery.sizeOf(context).width < narrowBelow) {
+    if (AppBreakpoints.isPhone(context)) {
       return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         weight,
         const SizedBox(height: 8),
-        Row(children: [
-          Expanded(child: stones),
-          if (wage != null) ...[const SizedBox(width: 12), Expanded(child: wage)],
-        ]),
+        if (stones != null || wage != null)
+          Row(children: [
+            if (stones != null) Expanded(child: stones),
+            if (stones != null && wage != null) const SizedBox(width: 12),
+            if (wage != null) Expanded(child: wage),
+          ]),
+        if (stones == null) Align(alignment: AlignmentDirectional.centerStart, child: addStones),
         const SizedBox(height: 12),
         button,
       ]);
     }
     return Row(children: [
-      Expanded(child: weight),
+      Expanded(flex: 2, child: weight),
       const SizedBox(width: 12),
-      Expanded(child: stones),
+      if (stones != null) Expanded(child: stones) else addStones,
       if (wage != null) ...[const SizedBox(width: 12), Expanded(child: wage)],
       const SizedBox(width: 12),
       button,
     ]);
   }
 
-  /// A piece's row: its label's actions at its side on a wide screen, under
-  /// its words on a phone -- never a trailing that squeezes them.
-  Widget _pieceTile(
-    BuildContext context, {
-    required Key key,
-    Widget? leading,
-    required Widget title,
-    required Widget subtitle,
-    required Widget actions,
-    bool dense = false,
-  }) {
-    if (MediaQuery.sizeOf(context).width >= narrowBelow) {
-      return ListTile(key: key, dense: dense, leading: leading, title: title, subtitle: subtitle, trailing: actions);
+  /// A piece's facts in one line: its weight, its stones, its size, its model.
+  static String _facts(Map<String, dynamic> p) => [
+        '${_g(p['weight'])} جم',
+        if (((p['stones_weight'] as num?) ?? 0) > 0) 'فصوص ${_g(p['stones_weight'])} جم',
+        if (p['size'] != null) 'مقاس ${(p['size'] as Map)['label']}',
+        if (p['model'] != null) '${(p['model'] as Map)['name']}',
+      ].join(' · ');
+
+  static String _wageWords(Map<String, dynamic> p) =>
+      p['wage_known'] == true ? 'الأجرة ${formatAmount((p['wage'] as num).toDouble())}' : 'بانتظار الفاتورة';
+
+  /// The last attempt's three steps, each its own (ADR-097): printed, its tag
+  /// written, read back. Not yet known is said as such, never as done.
+  Widget _steps(BuildContext context, Map<String, dynamic> label) {
+    final theme = Theme.of(context);
+    final tones = AppSemanticColors.of(context);
+    Widget step(String word, Object? done) => Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(
+            done == true ? Icons.check_circle : (done == false ? Icons.cancel : Icons.remove_circle_outline),
+            size: 18,
+            color: done == true ? tones.ready.fg : (done == false ? tones.blocked.fg : theme.colorScheme.outline),
+          ),
+          const SizedBox(width: 4),
+          Text(word, style: theme.textTheme.bodySmall),
+        ]);
+    return Wrap(spacing: 16, runSpacing: 4, children: [
+      step('طُبعت', label['printed']),
+      step('كُتبت الرقاقة', label['written']),
+      step('قُرئت وطابقت', label['verified']),
+    ]);
+  }
+
+  /// Zone 2: the line -- what it is, and how far it is coded.
+  Widget _lineCard(BuildContext context, Map<String, dynamic> line) {
+    final theme = Theme.of(context);
+    final weight = (line['weight'] as num? ?? 0).toDouble();
+    final coded = (line['pieces_weight'] as num? ?? 0).toDouble();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text('${line['category_name'] ?? '-'} · عيار ${line['karat']}', style: theme.textTheme.titleMedium),
+          Text('${_whence(line)} — ${line['invoice_number'] ?? ''}', style: theme.textTheme.bodySmall),
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              key: const Key('station-progress'),
+              value: weight > 0 ? (coded / weight).clamp(0.0, 1.0) : 0,
+              minHeight: 8,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'رُمّز ${_g(coded)} من ${_g(weight)} جم · ${line['pieces']} قطعة · الباقي ${_g(line['rest'])} جم',
+            key: const Key('station-counter'),
+            style: theme.textTheme.titleSmall,
+          ),
+        ]),
+      ),
+    );
+  }
+
+  /// Zone 3's side: the piece just registered -- its number, its facts, its
+  /// label's state in full, its one action, and its label as it prints.
+  Widget _currentCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final last = _last;
+    if (last == null) {
+      return Card(
+        key: const Key('station-current-empty'),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(children: [
+            Icon(Icons.qr_code_2, size: 40, color: theme.colorScheme.outline),
+            const SizedBox(height: 8),
+            Text('القطعة الحالية', style: theme.textTheme.titleSmall),
+            Text('سجّل قطعة: تظهر هنا مع حالة بطاقتها ومعاينتها.',
+                style: theme.textTheme.bodySmall, textAlign: TextAlign.center),
+          ]),
+        ),
+      );
     }
-    return Column(key: key, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      ListTile(dense: dense, leading: leading, title: title, subtitle: subtitle),
+    final label = last['label'] as Map<String, dynamic>?;
+    final look = LabelLook.of(last);
+    final message = look == LabelLook.done ? null : (label?['printer_message'] ?? label?['message']);
+    return Card(
+      key: const Key('station-last'),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          // a Wrap: on a phone its state goes under its number, never squeezing it
+          Wrap(spacing: 12, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
+            Text(
+              '${last['item_code']}',
+              key: const Key('station-last-code'),
+              textDirection: TextDirection.ltr,
+              style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            LabelBadge(piece: last, large: true),
+          ]),
+          Text(_facts(last), style: theme.textTheme.bodyMedium),
+          if (message != null) ...[
+            const SizedBox(height: 8),
+            Text('$message', key: const Key('station-last-message'), style: theme.textTheme.bodyMedium),
+          ],
+          if (label?['attempt_id'] != null) ...[
+            const SizedBox(height: 8),
+            _steps(context, label!),
+          ],
+          Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: PieceLabelCell(
+                piece: last, busy: _printing.contains(last['id']), actions: _labels, showState: false),
+          ),
+          // its label as it prints, both faces (ADR-097 ط5)
+          Center(child: PieceLabelPreview(api: _api, pieceId: last['id'] as int)),
+        ]),
+      ),
+    );
+  }
+
+  /// Zone 4: a row of the log -- its label's state and its one action at its
+  /// side from a tablet up, under its words on a phone; its details on a tap.
+  Widget _logRow(BuildContext context, Map<String, dynamic> p) {
+    final cell = PieceLabelCell(piece: p, busy: _printing.contains(p['id']), actions: _labels);
+    final title = Text('${p['item_code']}', textDirection: TextDirection.ltr, textAlign: TextAlign.right);
+    final subtitle = Text('${_facts(p)} · ${_wageWords(p)}');
+    void open() => _details(p);
+    if (!AppBreakpoints.isPhone(context)) {
+      return ListTile(
+          key: Key('station-piece-${p['id']}'), dense: true, title: title, subtitle: subtitle, trailing: cell, onTap: open);
+    }
+    return Column(key: Key('station-piece-${p['id']}'), crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      ListTile(dense: true, title: title, subtitle: subtitle, onTap: open),
       Padding(
         padding: const EdgeInsetsDirectional.only(start: 16, end: 16, bottom: 8),
-        child: Align(alignment: AlignmentDirectional.centerEnd, child: actions),
+        child: Align(alignment: AlignmentDirectional.centerEnd, child: cell),
       ),
     ]);
   }
 
+  /// A piece's details: its facts and its label's -- which print, which
+  /// generation, the three steps of its last attempt, and what it said.
+  Future<void> _details(Map<String, dynamic> p) {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheet) {
+        final theme = Theme.of(sheet);
+        final label = p['label'] as Map<String, dynamic>?;
+        Widget fact(String name, String value, {bool ltr = false}) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(children: [
+                Expanded(child: Text(name, style: theme.textTheme.bodyMedium)),
+                Text(value,
+                    textDirection: ltr ? TextDirection.ltr : null,
+                    style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
+              ]),
+            );
+        final message = label?['printer_message'] ?? label?['message'];
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: SafeArea(
+            child: SingleChildScrollView(
+              key: Key('piece-details-${p['id']}'),
+              padding: const EdgeInsets.all(16),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Wrap(spacing: 12, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                  Text('${p['item_code']}', textDirection: TextDirection.ltr, style: theme.textTheme.titleLarge),
+                  LabelBadge(piece: p, large: true),
+                ]),
+                const SizedBox(height: 8),
+                fact('الوزن', '${_g(p['weight'])} جم'),
+                if (((p['stones_weight'] as num?) ?? 0) > 0) fact('الفصوص', '${_g(p['stones_weight'])} جم'),
+                if (p['size'] != null) fact('المقاس', '${(p['size'] as Map)['label']}'),
+                if (p['model'] != null) fact('الموديل', '${(p['model'] as Map)['name']}'),
+                fact('الأجرة', p['wage_known'] == true ? formatAmount((p['wage'] as num).toDouble()) : 'بانتظار الفاتورة'),
+                const Divider(height: 24),
+                Text('البطاقة', style: theme.textTheme.titleSmall),
+                if (label == null)
+                  Text(p['tag'] != null ? 'رقاقة معتمدة قبل سجلّ الطباعة' : 'لم تُطلب لها بطاقة بعد')
+                else ...[
+                  fact('الطلب', label['kind'] == 'reprint' ? 'إعادة طباعة' : 'الطباعة الأولى'),
+                  if (label['generation'] != null) fact('الجيل', '${label['generation']}', ltr: true),
+                  if (label['attempt_id'] != null) ...[const SizedBox(height: 4), _steps(sheet, label)],
+                  if (message != null) ...[const SizedBox(height: 8), Text('$message')],
+                ],
+              ]),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// The station: the line, the work and the piece just registered, the log
+  /// -- at a width the eye can follow on a wide screen.
   Widget _station(BuildContext context, Map<String, dynamic> line) {
     final theme = Theme.of(context);
     final rest = (line['rest'] as num? ?? 0).toDouble();
-    final last = _last;
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Card(
-          child: ListTile(
-            title: Text(
-              '${line['category_name'] ?? '-'} · عيار ${line['karat']}',
-              style: theme.textTheme.titleMedium,
-            ),
-            subtitle: Text(
-              '${_whence(line)} — ${line['invoice_number'] ?? ''}\n${_counter(line)}',
-              key: const Key('station-counter'),
-            ),
-            isThreeLine: true,
-          ),
-        ),
-        const SizedBox(height: 12),
-        _modelSection(context),
-        if (rest > 0.0005) ...[
-          if (_offeredSizes.isNotEmpty) ...[
-            Text('المقاس', style: theme.textTheme.titleSmall),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final s in _offeredSizes)
-                  ChoiceChip(
-                    key: Key('station-size-${s['id']}'),
-                    selected: _sizeId == s['id'],
-                    label: Text('${s['label']}', textDirection: TextDirection.ltr),
-                    onSelected: (on) => setState(() => _sizeId = on ? s['id'] as int : null),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 12),
-          ],
-          if (_wageByPiece(line)) _wageKind(),
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Align(
-              alignment: AlignmentDirectional.centerStart,
-              child: SegmentedButton<bool>(
-                key: const Key('station-print-mode'),
-                segments: const [
-                  ButtonSegment(value: true, label: Text('طباعة تلقائية'), icon: Icon(Icons.print)),
-                  ButtonSegment(value: false, label: Text('تسجيل فقط'), icon: Icon(Icons.save_outlined)),
+    final work = rest > 0.0005
+        ? Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            _modelSection(context),
+            if (_offeredSizes.isNotEmpty) ...[
+              Text('المقاس', style: theme.textTheme.titleSmall),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final s in _offeredSizes)
+                    ChoiceChip(
+                      key: Key('station-size-${s['id']}'),
+                      selected: _sizeId == s['id'],
+                      label: Text('${s['label']}', textDirection: TextDirection.ltr),
+                      onSelected: (on) => setState(() => _sizeId = on ? s['id'] as int : null),
+                    ),
                 ],
-                selected: {_autoPrint},
-                onSelectionChanged: (v) => setState(() => _autoPrint = v.first),
               ),
-            ),
-          ),
-          _current(context),
-          _entry(context, line),
-        ] else
-          const AppEmptyView(title: 'رُمّز السطر كله', icon: Icons.task_alt),
-        if (last != null) ...[
-          const SizedBox(height: 16),
-          Card(
-            color: theme.colorScheme.primaryContainer,
-            child: _pieceTile(
-              context,
-              key: const Key('station-last'),
-              leading: const Icon(Icons.sell_outlined),
-              title: Text(
-                '${last['item_code']}',
-                textDirection: TextDirection.ltr,
-                textAlign: TextAlign.right,
-                style: theme.textTheme.headlineSmall,
-              ),
-              subtitle: Text(
-                '${_g(last['weight'])} جم'
-                '${(last['label'] as Map?)?['message'] == null ? '' : '\n${(last['label'] as Map)['message']}'}',
-              ),
-              actions: PieceLabelCell(piece: last, busy: _printing.contains(last['id']), actions: _labels),
-            ),
-          ),
-          const SizedBox(height: 8),
-          // its label as it prints, both faces (ADR-097 ط5)
-          Center(child: PieceLabelPreview(api: _api, pieceId: last['id'] as int)),
-        ],
-        const SizedBox(height: 16),
-        Text(
-          'قطع السطر (${_pieces.length})',
-          style: theme.textTheme.titleSmall,
+              const SizedBox(height: 12),
+            ],
+            if (_wageByPiece(line)) _wageKind(),
+            _current(context),
+            _entry(context, line),
+          ])
+        : const AppEmptyView(title: 'رُمّز السطر كله', icon: Icons.task_alt);
+    final wide = AppBreakpoints.of(context) == DeviceClass.wide;
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1200),
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            _lineCard(context, line),
+            const SizedBox(height: 12),
+            if (wide)
+              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Expanded(flex: 3, child: work),
+                const SizedBox(width: 16),
+                Expanded(flex: 2, child: _currentCard(context)),
+              ])
+            else ...[
+              work,
+              const SizedBox(height: 16),
+              _currentCard(context),
+            ],
+            const SizedBox(height: 16),
+            Text('قطع السطر (${_pieces.length})', style: theme.textTheme.titleSmall),
+            for (final p in _pieces.reversed) _logRow(context, p),
+          ],
         ),
-        for (final p in _pieces.reversed)
-          _pieceTile(
-            context,
-            key: Key('station-piece-${p['id']}'),
-            dense: true,
-            title: Text(
-              '${p['item_code']}',
-              textDirection: TextDirection.ltr,
-              textAlign: TextAlign.right,
-            ),
-            subtitle: Text(
-              '${_g(p['weight'])} جم'
-              '${((p['stones_weight'] as num?) ?? 0) > 0 ? ' · فصوص ${_g(p['stones_weight'])} جم' : ''}'
-              '${p['size'] == null ? '' : ' · مقاس ${(p['size'] as Map)['label']}'}'
-              '${p['model'] == null ? '' : ' · ${(p['model'] as Map)['name']}'}',
-            ),
-            actions: Wrap(
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                Text(
-                  p['wage_known'] == true
-                      ? 'الأجرة ${formatAmount((p['wage'] as num).toDouble())}'
-                      : 'بانتظار الفاتورة',
-                ),
-                const SizedBox(width: 8),
-                // Its label (ADR-097): printed through the engine, its tag
-                // adopted only read back; a reprint with its reason.
-                PieceLabelCell(piece: p, busy: _printing.contains(p['id']), actions: _labels),
-              ],
-            ),
-          ),
-      ],
+      ),
     );
   }
 }

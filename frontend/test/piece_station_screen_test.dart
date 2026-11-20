@@ -209,10 +209,9 @@ void main() {
     expect(api.sent.single['line_id'], 7);
     expect(api.sent.single['weight'], 14.37);
     expect(api.sent.single['request_key'], isNotEmpty);
-    expect(find.descendant(of: find.byKey(const Key('station-last')), matching: find.text('KJ-000121')),
-        findsOneWidget);
+    expect(tester.widget<Text>(find.byKey(const Key('station-last-code'))).data, 'KJ-000121');
     expect(find.textContaining('الباقي 15.63 جم'), findsOneWidget);
-    expect(find.text('بانتظار الفاتورة'), findsOneWidget);
+    expect(find.textContaining('بانتظار الفاتورة'), findsOneWidget);
     expect(find.byKey(const Key('piece-wage')), findsNothing, reason: 'a receipt\'s piece takes its invoice\'s wage');
     expect(api.sent.single.containsKey('wage'), isFalse);
   });
@@ -353,7 +352,7 @@ void main() {
     expect(api.sent, hasLength(1), reason: 'the piece saved first');
     expect((api.printed.single['piece_id'], api.printed.single['run'], api.printed.single['kind']), (101, true, 'first'));
     expect(api.printed.single['request_key'], isNotEmpty);
-    expect(find.descendant(of: find.byKey(const Key('station-last')), matching: find.text('مطبوعة · الجيل 1')),
+    expect(find.descendant(of: find.byKey(const Key('station-last')), matching: find.text('مكتملة · الجيل 1')),
         findsOneWidget);
     expect(find.byKey(const Key('station-tag-101')), findsNothing, reason: 'no tag mounted by a button');
   });
@@ -388,7 +387,7 @@ void main() {
     await tester.tap(find.byKey(const Key('label-retry-101')).first);
     await tester.pumpAndSettle();
     expect(api.runs, hasLength(1));
-    expect(find.text('مطبوعة · الجيل 2'), findsWidgets);
+    expect(find.text('مكتملة · الجيل 2'), findsWidgets);
     await register(tester, '10');
     expect(api.sent, hasLength(2), reason: 'the next piece coded as before');
   });
@@ -405,7 +404,7 @@ void main() {
     await tester.tap(find.byKey(const Key('resolve-adopt')));
     await tester.pumpAndSettle();
     expect(api.resolved.single['read_value'], '4B4A00010000000000000121');
-    expect(find.text('مطبوعة · الجيل 1'), findsWidgets);
+    expect(find.text('مكتملة · الجيل 1'), findsWidgets);
   });
 
   testWidgets('an unknown end where no label came out: failed, tried again with a new label', (tester) async {
@@ -424,7 +423,11 @@ void main() {
     final api = _Api();
     await _open(tester, api);
     await register(tester);
-    await tester.tap(find.byKey(const Key('label-reprint-101')).first);
+    expect(find.byKey(const Key('label-reprint-101')), findsNothing,
+        reason: 'a label done: its reprint in a small menu, not the next thing to do');
+    await tester.tap(find.byKey(const Key('label-menu-101')).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('label-reprint-101')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('confirm-action')), findsOneWidget);
     await tester.enterText(find.byKey(const Key('confirm-reason')), 'تلفت البطاقة');
@@ -484,7 +487,7 @@ void main() {
     await _open(tester, api);
     await register(tester);
     expect(api.runs, hasLength(3), reason: 'busy at its request and twice more, then its turn came');
-    expect(find.textContaining('مطبوعة'), findsWidgets);
+    expect(find.textContaining('مكتملة'), findsWidgets);
     expect(find.textContaining('تعذّرت'), findsNothing, reason: 'busy is not a failure');
   });
 
@@ -555,7 +558,104 @@ void main() {
     await tester.pumpAndSettle();
     final code = find.descendant(of: row, matching: find.text('KJ-000121'));
     expect(tester.getSize(code).width, greaterThan(250), reason: 'its number readable, its actions under it');
-    final last = find.descendant(of: find.byKey(const Key('station-last')), matching: find.text('KJ-000121'));
-    expect(tester.getSize(last).width, greaterThan(250));
+    expect(tester.getSize(find.byKey(const Key('station-last-code'))).width, greaterThan(150));
+  });
+
+  // ── ر2: four zones -- the bar, the line, the work beside its piece, the log ──
+
+  testWidgets('the line says how far it is coded, from the server\'s figures', (tester) async {
+    final api = _Api();
+    await _open(tester, api);
+    await register(tester);
+    expect(tester.widget<Text>(find.byKey(const Key('station-counter'))).data,
+        'رُمّز 14.37 من 30.00 جم · 1 قطعة · الباقي 15.63 جم');
+    final bar = tester.widget<LinearProgressIndicator>(find.byKey(const Key('station-progress')));
+    expect(bar.value, closeTo(14.37 / 30.0, 0.0001));
+  });
+
+  testWidgets('a printer ready is a calm bar: no counts of nothing; how labels print is set there', (tester) async {
+    final api = _Api();
+    await _open(tester, api);
+    expect(find.byKey(const Key('station-queue')), findsNothing, reason: 'nothing waiting, nothing failed: not said');
+    expect(find.descendant(of: find.byKey(const Key('station-bar')), matching: find.byKey(const Key('station-print-mode'))),
+        findsOneWidget);
+    final material = tester.widget<Material>(find.byKey(const Key('station-bar')));
+    final context = tester.element(find.byKey(const Key('station-bar')));
+    expect(material.color, isNot(Theme.of(context).colorScheme.errorContainer));
+  });
+
+  testWidgets('the stones behind «+ فصوص»: opened once, kept open for the line', (tester) async {
+    final api = _Api();
+    await _open(tester, api);
+    expect(find.byKey(const Key('piece-stones')), findsNothing);
+    await tester.tap(find.byKey(const Key('piece-stones-add')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('piece-stones')), '0.35');
+    await register(tester, '5');
+    expect(api.sent.single['stones_weight'], 0.35);
+    expect(find.byKey(const Key('piece-stones')), findsOneWidget, reason: 'the next piece likely has its stones too');
+  });
+
+  testWidgets('the current piece: said before one, then its label\'s state in full', (tester) async {
+    final api = _Api()..printOutcome = 'failed';
+    await _open(tester, api);
+    expect(find.byKey(const Key('station-current-empty')), findsOneWidget);
+    await register(tester);
+    final card = find.byKey(const Key('station-last'));
+    expect(find.descendant(of: card, matching: find.text('فاشلة')), findsOneWidget);
+    expect(find.descendant(of: card, matching: find.byIcon(Icons.error_outline)), findsOneWidget,
+        reason: 'never a colour alone: its icon and its word');
+    expect(find.descendant(of: card, matching: find.text('انتهت الملصقات: ضع لفة جديدة ثم أعد المحاولة')),
+        findsOneWidget);
+    expect(find.descendant(of: card, matching: find.text('طُبعت')), findsOneWidget);
+    expect(find.descendant(of: card, matching: find.byIcon(Icons.cancel)), findsNWidgets(3),
+        reason: 'its three steps, none done');
+    expect(find.descendant(of: card, matching: find.byKey(const Key('label-retry-101'))), findsOneWidget);
+  });
+
+  testWidgets('on a wide screen the current piece is beside the work, and the station keeps a width the eye follows',
+      (tester) async {
+    final api = _Api();
+    await _open(tester, api, size: const Size(1800, 1400));
+    await register(tester);
+    final weight = tester.getRect(find.byKey(const Key('piece-weight')));
+    final card = tester.getRect(find.byKey(const Key('station-last')));
+    expect(card.right, lessThan(weight.left), reason: 'beside it, on its left in Arabic');
+    expect(card.top, lessThan(weight.bottom));
+    final line = tester.getRect(find.byKey(const Key('station-progress')));
+    expect(line.width, lessThanOrEqualTo(1200));
+  });
+
+  testWidgets('a piece\'s details: its facts and its label\'s -- which print, which generation, its steps',
+      (tester) async {
+    final api = _Api();
+    await _open(tester, api);
+    await register(tester);
+    await tester.tap(find.descendant(of: find.byKey(const Key('station-piece-101')), matching: find.text('KJ-000121')));
+    await tester.pumpAndSettle();
+    final sheet = find.byKey(const Key('piece-details-101'));
+    expect(sheet, findsOneWidget);
+    expect(find.descendant(of: sheet, matching: find.text('الطباعة الأولى')), findsOneWidget);
+    expect(find.descendant(of: sheet, matching: find.text('قُرئت وطابقت')), findsOneWidget);
+    expect(find.descendant(of: sheet, matching: find.byIcon(Icons.check_circle)), findsNWidgets(3));
+  });
+
+  testWidgets('five states, each its icon and its word -- the server\'s statuses, none added', (tester) async {
+    final looks = {
+      'pending': ('منتظرة', Icons.schedule),
+      'printing': ('تُطبع الآن', Icons.print),
+      'verifying': ('تُطبع الآن', Icons.print),
+      'completed': ('مكتملة · الجيل 2', Icons.verified_outlined),
+      'failed': ('فاشلة', Icons.error_outline),
+      'needs_attention': ('مجهولة', Icons.help_outline),
+    };
+    for (final e in looks.entries) {
+      await tester.pumpWidget(MaterialApp(
+        theme: LightTheme.theme,
+        home: Scaffold(body: LabelBadge(piece: {'id': 1, 'label': {'status': e.key, 'generation': 2}})),
+      ));
+      expect(find.text(e.value.$1), findsOneWidget, reason: e.key);
+      expect(find.byIcon(e.value.$2), findsOneWidget, reason: e.key);
+    }
   });
 }

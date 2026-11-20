@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 
 import '../api_service.dart';
+import '../theme/app_semantic_colors.dart';
 import 'app_feedback.dart';
 import 'confirm_financial_action.dart';
 
@@ -159,11 +160,93 @@ class PieceLabelActions {
   }
 }
 
+/// A label's state as the staff see it (ADR-097 ر2): the server's job
+/// statuses read -- none added -- each with its colour, its icon and its
+/// word, never a colour alone. Printing and verifying are one exchange of
+/// two seconds with the printer: one state, «تُطبع الآن».
+enum LabelLook {
+  waiting('منتظرة', Icons.schedule),
+  printing('تُطبع الآن', Icons.print),
+  done('مكتملة', Icons.verified_outlined),
+  failed('فاشلة', Icons.error_outline),
+  unknown('مجهولة', Icons.help_outline),
+  /// a piece no label was asked for (before ADR-097)
+  none('بلا بطاقة', Icons.label_off_outlined);
+
+  const LabelLook(this.word, this.icon);
+  final String word;
+  final IconData icon;
+
+  static LabelLook of(Map<String, dynamic> piece) {
+    final label = piece['label'] as Map<String, dynamic>?;
+    return switch (label?['status'] as String?) {
+      'pending' => waiting,
+      'printing' || 'verifying' => printing,
+      'completed' => done,
+      'failed' => failed,
+      'needs_attention' => unknown,
+      // a tag adopted before ADR-097 (generation 0) is a label done
+      _ => piece['tag'] != null ? done : none,
+    };
+  }
+
+  /// Its word with what tells one label from another: the generation printed.
+  static String wordOf(Map<String, dynamic> piece) {
+    final look = of(piece);
+    final label = piece['label'] as Map<String, dynamic>?;
+    if (look == done) {
+      return label == null ? 'رقاقة معتمدة' : '${look.word} · الجيل ${label['generation']}';
+    }
+    return look.word;
+  }
+
+  SemanticTone? tone(AppSemanticColors tones) => switch (this) {
+        done => tones.ready,
+        failed => tones.blocked,
+        unknown => tones.warning,
+        printing => tones.info,
+        waiting || none => null,
+      };
+}
+
+/// A label's state: its colour, its icon, its word (ADR-097 ر2).
+class LabelBadge extends StatelessWidget {
+  const LabelBadge({super.key, required this.piece, this.large = false});
+  final Map<String, dynamic> piece;
+  final bool large;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final look = LabelLook.of(piece);
+    final tone = look.tone(AppSemanticColors.of(context));
+    final bg = tone?.container ?? theme.colorScheme.surfaceContainerHighest;
+    final fg = tone?.onContainer ?? theme.colorScheme.onSurfaceVariant;
+    final style = (large ? theme.textTheme.titleSmall : theme.textTheme.labelMedium)
+        ?.copyWith(color: fg, fontWeight: FontWeight.w700);
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: large ? 12 : 8, vertical: large ? 6 : 3),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(large ? 10 : 8)),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(look.icon, size: large ? 20 : 16, color: fg),
+        const SizedBox(width: 4),
+        Flexible(child: Text(LabelLook.wordOf(piece), key: Key('label-state-${piece['id']}'), style: style)),
+      ]),
+    );
+  }
+}
+
 /// A piece's label: its state and the one thing to do -- in the station's
-/// last piece and its list, and in «القطع».
+/// current piece and its log, and in «القطع». A label done offers its
+/// reprint in a small menu: a new label is not the next thing to do (ر2).
 class PieceLabelCell extends StatelessWidget {
   const PieceLabelCell(
-      {super.key, required this.piece, required this.busy, required this.actions, this.compact = false});
+      {super.key,
+      required this.piece,
+      required this.busy,
+      required this.actions,
+      this.compact = false,
+      this.showState = true});
 
   final Map<String, dynamic> piece;
   final bool busy;
@@ -172,6 +255,9 @@ class PieceLabelCell extends StatelessWidget {
   /// A table's cell: a short word and an icon, the action's words its tooltip.
   final bool compact;
 
+  /// False where its state is said already, larger (the station's current piece).
+  final bool showState;
+
   @override
   Widget build(BuildContext context) {
     final id = piece['id'] as int;
@@ -179,40 +265,45 @@ class PieceLabelCell extends StatelessWidget {
     if (busy) {
       return const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2));
     }
-    Widget action(String key, String state, String text, IconData icon, VoidCallback onPressed) {
-      final button = compact
-          ? IconButton(key: Key('$key-$id'), tooltip: text, onPressed: onPressed, icon: Icon(icon))
-          : TextButton.icon(key: Key('$key-$id'), onPressed: onPressed, icon: Icon(icon), label: Text(text));
+    final look = LabelLook.of(piece);
+    Widget action(String key, String text, IconData icon, VoidCallback onPressed) {
+      if (compact) {
+        return Row(mainAxisSize: MainAxisSize.min, children: [
+          Text(LabelLook.wordOf(piece), key: Key('label-state-$id')),
+          IconButton(key: Key('$key-$id'), tooltip: text, onPressed: onPressed, icon: Icon(icon)),
+        ]);
+      }
       // a Wrap: on a phone the button goes under its state, never past the edge
-      return Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: [
-        if (state.isNotEmpty) Text(state, key: Key('label-state-$id')),
-        button,
+      return Wrap(crossAxisAlignment: WrapCrossAlignment.center, spacing: 4, children: [
+        if (showState) LabelBadge(piece: piece),
+        if (look == LabelLook.done)
+          PopupMenuButton<void>(
+            key: Key('label-menu-$id'),
+            tooltip: 'خيارات البطاقة',
+            icon: const Icon(Icons.more_vert),
+            itemBuilder: (_) => [
+              PopupMenuItem<void>(
+                key: Key('$key-$id'),
+                onTap: onPressed,
+                child: ListTile(leading: Icon(icon), title: Text(text), contentPadding: EdgeInsets.zero),
+              ),
+            ],
+          )
+        else
+          TextButton.icon(key: Key('$key-$id'), onPressed: onPressed, icon: Icon(icon), label: Text(text)),
       ]);
     }
-    switch (label?['status'] as String?) {
-      case 'completed':
-        return action('label-reprint', 'مطبوعة · الجيل ${label!['generation']}', 'إعادة الطباعة',
-            Icons.print_outlined, () => actions.reprint(context, piece));
-      case 'failed':
-        return action('label-retry', compact ? 'فاشلة' : '', 'إعادة المحاولة', Icons.refresh,
-            () => actions.retry(context, id, label!['job_id'] as int));
-      case 'needs_attention':
-        return action('label-resolve', compact ? 'مجهولة' : '', 'حسم المحاولة', Icons.help_outline,
-            () => actions.resolve(context, id, '${piece['item_code']}', label!['attempt_id'] as int));
-      case 'pending':
-      case 'printing':
-      case 'verifying':
-        return action('label-run', compact ? 'منتظرة' : '', 'اطبع الآن', Icons.print,
-            () => actions.retry(context, id, label!['job_id'] as int));
-      default:
-        if (piece['tag'] != null) {
-          // a tag adopted before ADR-097 (generation 0): printed -- reprinted with a reason
-          return action('label-reprint', 'رقاقة معتمدة', 'إعادة الطباعة', Icons.print_outlined,
-              () => actions.reprint(context, piece));
-        }
-        return action('label-print', compact ? 'بلا بطاقة' : '', 'اطبع البطاقة', Icons.print,
-            () => actions.print(context, piece));
-    }
+    return switch (look) {
+      LabelLook.done => action('label-reprint', 'إعادة الطباعة', Icons.print_outlined,
+          () => actions.reprint(context, piece)),
+      LabelLook.failed => action('label-retry', 'إعادة المحاولة', Icons.refresh,
+          () => actions.retry(context, id, label!['job_id'] as int)),
+      LabelLook.unknown => action('label-resolve', 'حسم المحاولة', Icons.help_outline,
+          () => actions.resolve(context, id, '${piece['item_code']}', label!['attempt_id'] as int)),
+      LabelLook.waiting || LabelLook.printing => action('label-run', 'اطبع الآن', Icons.print,
+          () => actions.retry(context, id, label!['job_id'] as int)),
+      LabelLook.none => action('label-print', 'اطبع البطاقة', Icons.print, () => actions.print(context, piece)),
+    };
   }
 }
 

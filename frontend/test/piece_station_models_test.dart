@@ -132,7 +132,10 @@ void main() {
     await tester.pumpAndSettle();
     await _piece(tester, '20.90');
     expect((api.sent.single['model_id'], api.sent.single['size_id']), (5, 12));
-    expect(find.textContaining('مقاس 18 · بنجرة الشمس'), findsOneWidget);
+    // said on the piece just registered and on its row in the log
+    expect(find.descendant(of: find.byKey(const Key('station-last')), matching: find.textContaining('مقاس 18 · بنجرة الشمس')),
+        findsOneWidget);
+    expect(find.textContaining('مقاس 18 · بنجرة الشمس'), findsNWidgets(2));
   });
 
   testWidgets('the models not read: said, and the piece is coded without one', (tester) async {
