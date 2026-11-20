@@ -3,7 +3,7 @@
 The Zebra ZD621R on the network (ADR-085: ZPL on port 9100, the tag written
 with ^RFW). This tool talks to it alone: it writes no row and reads no
 database. Its label is the system's one design (services/piece_label): the
-number's QR code, the number, karat and weight on the first face; the model's
+number's DataMatrix, the number, karat and weight on the first face; the model's
 or category's name in Arabic (Cairo), the stones and size in Latin symbols on
 the second -- run from backend/ with the server's libraries.
 
@@ -22,8 +22,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
-import socket
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -31,37 +29,17 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from services.piece_label import (EPC_PREFIX, FONT_ON_PRINTER, epc_of, font_upload,  # noqa: E402,F401
                                   label_zpl)
 
-PORT = 9100
-HEX24 = re.compile(r'[0-9A-F]{24}')
+from services.printer_link import PORT, ZebraLink, read_back  # noqa: E402,F401
 
 
 CALIBRATE = '~JC\n^XA^HR^XZ\n'      # the media sensed, then the tag's position (prints its own report)
 STATUS = '~HS\n'
 
 
-def read_back(reply: str):
-    """The value the printer read back from the tag (^HV), or None."""
-    match = HEX24.search(str(reply or '').upper().split('EPC=', 1)[-1])
-    return match.group(0) if match else None
-
-
 def send(host: str, payload, *, wait: float = 8.0) -> str:
-    """The payload (text or bytes) sent to the printer, and what it answers within `wait` seconds."""
-    with socket.create_connection((host, PORT), timeout=max(wait, 30.0)) as conn:
-        conn.sendall(payload if isinstance(payload, bytes) else payload.encode('utf-8'))
-        conn.settimeout(wait)
-        chunks = []
-        try:
-            while True:
-                data = conn.recv(4096)
-                if not data:
-                    break
-                chunks.append(data)
-                if b'EPC=' in b''.join(chunks) and HEX24.search(b''.join(chunks).decode('latin-1').upper()):
-                    break
-        except socket.timeout:
-            pass
-    return b''.join(chunks).decode('latin-1')
+    """The payload (text or bytes) sent to the printer, and what it answers within `wait` seconds --
+    through the system's one link (services/printer_link)."""
+    return ZebraLink(host, PORT, wait=wait).exchange(payload, wait=wait, until_tag=True)
 
 
 def main(argv=None) -> int:

@@ -298,3 +298,114 @@ def stock_coding_open():
         return jsonify({'error': refused.code, 'message': refused.message}), 400
     db.session.commit()
     return jsonify({'line': coding_view(batch), 'pieces': []}), 201
+
+
+# ── a piece's label: print jobs (ADR-097 ط2) ─────────────────────────────────
+
+def _print_refused(refused):
+    db.session.rollback()
+    return jsonify({'error': refused.code, 'message': refused.message}), 400
+
+
+@pieces_bp.route('/pieces/<int:piece_id>/print-jobs', methods=['POST'])
+@require_permission('items.create')
+def piece_print_job(piece_id: int):
+    """A label's job saved (law 9), then run in this request unless `run` is false
+    -- the station's «تسجيل فقط» leaves it waiting. Sent again with its key: the
+    same job, never a second label (law 6)."""
+    from models import LabelPrinter
+    from services.label_printing import PrintRefused, job_view, request_print, run_job
+    data = request.get_json(silent=True) or {}
+    piece = db.session.get(Item, piece_id)
+    if piece is None:
+        return jsonify({'error': 'not_found', 'message': 'القطعة غير موجودة'}), 404
+    printer = db.session.get(LabelPrinter, int(data['printer_id'])) if data.get('printer_id') else None
+    try:
+        job = request_print(piece, request_key=data.get('request_key'), kind=data.get('kind') or 'first',
+                            reason=data.get('reason'), printer=printer, by=_by(), now=datetime.now())
+        db.session.commit()
+        if data.get('run', True) is not False:
+            run_job(job, by=_by(), clock=datetime.now, commit=db.session.commit)
+    except PrintRefused as refused:
+        return _print_refused(refused)
+    return jsonify({'job': job_view(job)}), 200
+
+
+@pieces_bp.route('/print-jobs/<int:job_id>/run', methods=['POST'])
+@require_permission('items.create')
+def print_job_run(job_id: int):
+    """Run a job again: pending, or failed -- a new attempt, a new generation."""
+    from models import PrintJob
+    from services.label_printing import PrintRefused, job_view, run_job
+    job = db.session.get(PrintJob, job_id)
+    if job is None:
+        return jsonify({'error': 'not_found', 'message': 'مهمة الطباعة غير موجودة'}), 404
+    try:
+        run_job(job, by=_by(), clock=datetime.now, commit=db.session.commit)
+    except PrintRefused as refused:
+        return _print_refused(refused)
+    return jsonify({'job': job_view(job)}), 200
+
+
+@pieces_bp.route('/print-jobs/<int:job_id>', methods=['GET'])
+@require_permission('items.view')
+def print_job_read(job_id: int):
+    """A job's state -- asked again after a dropped answer, it consumes nothing."""
+    from models import PrintJob
+    from services.label_printing import job_view
+    job = db.session.get(PrintJob, job_id)
+    if job is None:
+        return jsonify({'error': 'not_found', 'message': 'مهمة الطباعة غير موجودة'}), 404
+    return jsonify({'job': job_view(job)}), 200
+
+
+@pieces_bp.route('/print-attempts/<int:attempt_id>/resolve', methods=['POST'])
+@require_permission('items.create')
+def print_attempt_resolve(attempt_id: int):
+    """An unknown end settled: `read_value` the handheld reader read off the label, or `no_label`."""
+    from models import PrintAttempt
+    from services.label_printing import PrintRefused, job_view, resolve_attempt
+    data = request.get_json(silent=True) or {}
+    attempt = db.session.get(PrintAttempt, attempt_id)
+    if attempt is None:
+        return jsonify({'error': 'not_found', 'message': 'المحاولة غير موجودة'}), 404
+    try:
+        job = resolve_attempt(attempt, read_value=data.get('read_value'), no_label=bool(data.get('no_label')),
+                              by=_by(), clock=datetime.now, commit=db.session.commit)
+    except PrintRefused as refused:
+        return _print_refused(refused)
+    return jsonify({'job': job_view(job)}), 200
+
+
+def _printer_view(p):
+    return {'id': p.id, 'name': p.name, 'host': p.host, 'port': p.port, 'is_active': p.is_active,
+            'font_installed_at': p.font_installed_at.isoformat() if p.font_installed_at else None}
+
+
+@pieces_bp.route('/label-printers', methods=['GET'])
+@require_permission('items.view')
+def label_printers():
+    from models import LabelPrinter
+    return jsonify({'printers': [_printer_view(p) for p in LabelPrinter.query.order_by(LabelPrinter.id)]}), 200
+
+
+@pieces_bp.route('/label-printers', methods=['POST'])
+@require_permission('system.settings')
+def label_printer_add():
+    """A printer on the shop's network -- a row, not a setting (ADR-097 §3)."""
+    from models import LabelPrinter
+    data = request.get_json(silent=True) or {}
+    name, host = str(data.get('name') or '').strip(), str(data.get('host') or '').strip()
+    if not name or not host:
+        return jsonify({'error': 'printer_name_host', 'message': 'اسم الطابعة وعنوانها على الشبكة'}), 400
+    try:
+        port = int(data.get('port') or 9100)
+    except (TypeError, ValueError):
+        return jsonify({'error': 'printer_port', 'message': 'منفذ الطابعة رقم'}), 400
+    if LabelPrinter.query.filter_by(name=name).first() is not None:
+        return jsonify({'error': 'printer_name_taken', 'message': f'طابعة باسم «{name}» موجودة'}), 400
+    printer = LabelPrinter(name=name, host=host, port=port, is_active=True, created_at=datetime.now(),
+                           created_by=_by())
+    db.session.add(printer)
+    db.session.commit()
+    return jsonify({'printer': _printer_view(printer)}), 201

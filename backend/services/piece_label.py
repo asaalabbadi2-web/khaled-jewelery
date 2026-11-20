@@ -7,8 +7,9 @@ Measured on the owner's prints of 20 Nov: the label's top 18 dots below the
 printer's, its head from the web's edge.
 
 What is printed (the owner, 20 Nov):
-- first face: the number's QR code (the reader's scanner reads QR unset, and
-  any phone), the number, the karat and weight -- «21K · 12.40g»;
+- first face: the number's DataMatrix (the owner, 20 Nov, after reading
+  bent labels at an angle: it reads better than QR; a phone reads it through
+  the system, not its camera), the number, the karat and weight -- «21K · 12.40g»;
 - second face, turned 180 degrees so it reads upright when the folded tag is
   turned over, the chip in its middle left clear: at its edge the model's
   name, else the category's -- Arabic, in Cairo; by the fold the stones'
@@ -43,9 +44,9 @@ TOP = 18                     # dots: the label's top below the printer's
 FACE_W, FACE_H = 300, 156    # dots: 25 x 13 mm
 MARGIN = 18                  # dots: 1.5 mm kept clear inside each face's edge
 ROOM = FACE_W - 2 * MARGIN   # a line's width on a face
-QR_CELL = 4                  # dots: 0.33 mm, 21 x 21 cells -- 7 mm (version 1)
-QR_SIDE = QR_CELL * 21
-QR_TOP = 10                  # dots: ^BQ prints its code this far below its ^FO
+CODE_CELL = 6                # dots: 0.5 mm a cell of the DataMatrix
+CODE_SIDE = CODE_CELL * 14   # 14 x 14 cells -- 7 mm: «KJ-» and up to 10 digits (8 codewords)
+CODE_DIGITS = 10
 NAME_H, NAME_MIN = 36, 24    # dots: the name's height, and the least it shrinks to
 FACTS_H = 28
 SPEED, DARKNESS = 2, 20      # 2 inches a second, darkness 20 of 30: the sharpest of three on the owner's
@@ -123,10 +124,12 @@ def label_zpl(number: str, *, karat=None, weight=None, name=None, stones=None, s
     """One label in ZPL: the tag written and read back to the host, then its two
     faces. *epc*: the attempt's value (ADR-097) -- generation 0 when not given."""
     epc = epc or epc_of(number)
+    if len(str(number)) - 3 > CODE_DIGITS:
+        raise ValueError(f'رقم القطعة {number} أطول من رمز البطاقة ({CODE_DIGITS} أرقام)')
     if epc[4:].isdigit() is False or int(epc[8:]) != int(str(number)[3:]):
         raise ValueError(f'رمز الرقاقة {epc} ليس للقطعة {number}')
     first, second = TOP, TOP + FACE_H
-    text_x = MARGIN + QR_SIDE + MARGIN
+    text_x = MARGIN + CODE_SIDE + MARGIN
     column = FACE_W - MARGIN - text_x
     lines = [
         f'~SD{DARKNESS}',                                       # absolute, whatever the printer was left at
@@ -135,7 +138,7 @@ def label_zpl(number: str, *, karat=None, weight=None, name=None, stones=None, s
         '^RS8',                                                 # EPC Class 1 Gen 2
         f'^RFW,H,,,A^FD{epc}^FS',                               # the tag written, its PC bits set
         '^FN1^RFR,H^FS', '^HV1,24,EPC=^FS',                    # read back, returned to the host
-        f'^FO{MARGIN},{first + (FACE_H - QR_SIDE) // 2 - QR_TOP}^BQN,2,{QR_CELL}^FDQA,{number}^FS',
+        f'^FO{MARGIN},{first + (FACE_H - CODE_SIDE) // 2}^BXN,{CODE_CELL},200,14,14^FD{number}^FS',
     ]
     facts = ' · '.join(x for x in (f'{karat}K' if karat else '', _grams(weight) if weight else '') if x)
     if facts:

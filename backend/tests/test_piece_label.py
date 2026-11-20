@@ -3,7 +3,8 @@
 The owner's prints of 20 Nov: the first cut the number at the top and laid
 the code across the fold -- the scanner read nothing; the printer's own fonts
 drew Arabic reversed and broken; two long lines overprinted each other. Here:
-- the QR code whole inside the first face, the number, karat and weight beside it;
+- the DataMatrix whole inside the first face (the owner, 20 Nov: it reads bent and at an angle
+  better than QR), the number, karat and weight beside it;
 - the second face turned over, the chip in its middle clear: the name in
   Arabic at its edge, the stones and size in Latin symbols by the fold;
 - Arabic joined and laid right to left here, the printer's shaping off;
@@ -26,7 +27,7 @@ def _zpl(**facts):
 
 
 def _field(zpl, command):
-    """(x, y, h) of the field drawn with *command* (^BQN / ^A0N / ^A@I)."""
+    """(x, y, h) of the field drawn with *command* (^BXN / ^A0N / ^A@I)."""
     x, y, h = re.search(rf'\^FO(\d+),(\d+)\{command}[,]?(?:2,)?(\d+)', zpl).groups()
     return int(x), int(y), int(h)
 
@@ -45,11 +46,11 @@ def test_the_tag_is_written_and_read_back():
 
 def test_the_first_face_its_code_number_karat_and_weight():
     zpl = _zpl()
-    assert '^BQN,2,4^FDQA,KJ-000124^FS' in zpl, 'the QR code the scanner reads unset'
-    x, y, _ = _field(zpl, '^BQN')
-    top = y + L.QR_TOP
-    assert L.TOP + L.MARGIN <= top and top + L.QR_SIDE <= L.TOP + L.FACE_H - L.MARGIN, 'not across the fold'
-    assert L.MARGIN <= x and x + L.QR_SIDE <= L.FACE_W - L.MARGIN
+    assert '^BXN,6,200,14,14^FDKJ-000124^FS' in zpl, 'the DataMatrix of its number, 14 x 14 cells'
+    assert '^BQN' not in zpl, 'not a QR'
+    x, y, _ = _field(zpl, '^BXN')
+    assert L.TOP + L.MARGIN <= y and y + L.CODE_SIDE <= L.TOP + L.FACE_H - L.MARGIN, 'not across the fold'
+    assert L.MARGIN <= x and x + L.CODE_SIDE <= L.FACE_W - L.MARGIN
     assert '^FDKJ-000124^FS' in zpl and '^FD21K · 12.40g^FS' in zpl
 
 
@@ -108,3 +109,10 @@ def test_printed_slowly_and_dark():
     absolute, not left to what the printer was set to."""
     zpl = _zpl()
     assert '^PR2,2,2' in zpl and zpl.startswith('~SD20') and '^MD' not in zpl
+
+
+def test_its_code_holds_its_number_or_refuses():
+    """14 x 14 cells hold «KJ-» and ten digits: a longer number would print an empty code -- refused."""
+    assert '^FDKJ-1234567890^FS' in L.label_zpl('KJ-1234567890')
+    with pytest.raises(ValueError):
+        L.label_zpl('KJ-12345678901')
