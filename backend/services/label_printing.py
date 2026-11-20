@@ -39,7 +39,11 @@ from services.printer_link import UNREACHABLE, LinkLost, PrinterUnreachable, Zeb
 
 OPEN_STATES = ('pending', 'printing', 'verifying', 'failed', 'needs_attention')
 LOCK_BASE = 0x4B4A0000            # «KJ»: a printer's lock is this plus its id
-LOCK_WAIT = 45.0                  # seconds -- a gunicorn worker's timeout is 120
+# A worker never held long for the printer (ط6): a label takes about two
+# seconds; past this wait the coder's screen asks again by itself
+# (PrinterBusy). Production's workers serve one request each, so a gunicorn
+# hung-request kill (HANG-001) stays: threads were tried and lost it.
+LOCK_WAIT = 5.0
 
 WORDS = {
     'not_written': 'لم تُكتب الرقاقة: أتلف الملصق الخارج وأعد المحاولة',
@@ -56,6 +60,16 @@ class PrintRefused(ValueError):
     def __init__(self, code: str, message: str):
         super().__init__(message)
         self.code, self.message = code, message
+
+
+class PrinterBusy(PrintRefused):
+    """Its printer's turn did not come within LOCK_WAIT -- another label is
+    printing. Nothing written: no attempt, no generation; the coder's screen
+    asks again by itself, and the label prints after the other."""
+
+    def __init__(self):
+        super().__init__('printer_busy', 'الطابعة مشغولة ببطاقة أخرى: تُطبع بعدها')
+        self.state = {'ready': True, 'busy': True, 'stops': [], 'message': self.message}
 
 
 class PrinterNotReady(PrintRefused):
@@ -212,7 +226,7 @@ def run_job(job: PrintJob, *, by: str, clock, commit, link=None, wait: float = L
     turn = _Turn(printer.id, wait, sleep)
     with turn as mine:
         if not mine:
-            return job                                      # still pending: the printer's turn did not come
+            raise PrinterBusy()                             # nothing written: asked again by the screen
         db.session.refresh(job)
         if job.status == 'completed':
             return job

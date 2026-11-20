@@ -282,7 +282,7 @@ def piece_print_job(piece_id: int):
     -- the station's «تسجيل فقط» leaves it waiting. Sent again with its key: the
     same job, never a second label (law 6)."""
     from models import LabelPrinter
-    from services.label_printing import PrinterNotReady, PrintRefused, job_view, request_print, run_job
+    from services.label_printing import PrinterBusy, PrinterNotReady, PrintRefused, job_view, request_print, run_job
     data = request.get_json(silent=True) or {}
     piece = db.session.get(Item, piece_id)
     if piece is None:
@@ -294,7 +294,7 @@ def piece_print_job(piece_id: int):
         db.session.commit()
         if data.get('run', True) is not False:
             run_job(job, by=_by(), clock=datetime.now, commit=db.session.commit)
-    except PrinterNotReady as not_ready:
+    except (PrinterNotReady, PrinterBusy) as not_ready:
         # saved and waiting: the printer said why -- no attempt, no generation
         return jsonify({'job': job_view(job), 'printer': not_ready.state}), 200
     except PrintRefused as refused:
@@ -307,13 +307,13 @@ def piece_print_job(piece_id: int):
 def print_job_run(job_id: int):
     """Run a job again: pending, or failed -- a new attempt, a new generation."""
     from models import PrintJob
-    from services.label_printing import PrinterNotReady, PrintRefused, job_view, run_job
+    from services.label_printing import PrinterBusy, PrinterNotReady, PrintRefused, job_view, run_job
     job = db.session.get(PrintJob, job_id)
     if job is None:
         return jsonify({'error': 'not_found', 'message': 'مهمة الطباعة غير موجودة'}), 404
     try:
         run_job(job, by=_by(), clock=datetime.now, commit=db.session.commit)
-    except PrinterNotReady as not_ready:
+    except (PrinterNotReady, PrinterBusy) as not_ready:
         return jsonify({'job': job_view(job), 'printer': not_ready.state}), 200
     except PrintRefused as refused:
         return _print_refused(refused)

@@ -12,6 +12,7 @@ import 'package:frontend/api_service.dart';
 import 'package:frontend/models/safe_box_model.dart';
 import 'package:frontend/screens/piece_station_screen.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/widgets/piece_label_actions.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 Map<String, dynamic> _batch({int pieces = 0, double coded = 0, bool fromPool = false}) => {
@@ -121,6 +122,10 @@ class _Api extends ApiService {
   @override
   Future<Map<String, dynamic>> printPieceLabel(int pieceId, Map<String, dynamic> body) async {
     printed.add({...body, 'piece_id': pieceId});
+    if (busyFor > 0) {
+      busyFor--;
+      return {'job': _jobOf(pieceId, 'pending'), 'printer': {'ready': true, 'busy': true, 'message': 'الطابعة مشغولة ببطاقة أخرى: تُطبع بعدها'}};
+    }
     if (printOutcome == 'not_ready') {
       // asked first, not ready: the job waits, nothing spent (ADR-097, ط6)
       return {
@@ -133,9 +138,16 @@ class _Api extends ApiService {
     return {'job': _jobOf(pieceId, status, kind: '${body['kind']}', generation: printed.length)};
   }
 
+  /// Answers «busy» this many times first (another label printing).
+  int busyFor = 0;
+
   @override
   Future<Map<String, dynamic>> runPrintJob(int jobId) async {
     runs.add(jobId);
+    if (busyFor > 0) {
+      busyFor--;
+      return {'job': _jobOf(101, 'pending'), 'printer': {'ready': true, 'busy': true, 'message': 'مشغولة'}};
+    }
     return {'job': _jobOf(101, 'completed', generation: 2)};
   }
 
@@ -387,6 +399,8 @@ void main() {
     await register(tester);
     await tester.tap(find.byKey(const Key('label-resolve-101')).first);
     await tester.pumpAndSettle();
+    expect(find.textContaining('في تطبيق الملاحظات على القارئ'), findsOneWidget,
+        reason: 'the reader types on its own screen: said where its code is read');
     await tester.enterText(find.byKey(const Key('resolve-read')), '4B4A00010000000000000121');
     await tester.tap(find.byKey(const Key('resolve-adopt')));
     await tester.pumpAndSettle();
@@ -460,5 +474,17 @@ void main() {
     await register(tester);
     expect(find.textContaining('تعذّرت طباعة البطاقة: الطابعة لا تردّ'), findsOneWidget);
     expect(find.byKey(const Key('label-run-101')), findsWidgets, reason: 'waiting: printed when it answers');
+  });
+
+  testWidgets('another label printing: its turn asked again by itself, then printed -- nothing pressed',
+      (tester) async {
+    PieceLabelActions.busyPause = Duration.zero;
+    addTearDown(() => PieceLabelActions.busyPause = const Duration(milliseconds: 1500));
+    final api = _Api()..busyFor = 3;
+    await _open(tester, api);
+    await register(tester);
+    expect(api.runs, hasLength(3), reason: 'busy at its request and twice more, then its turn came');
+    expect(find.textContaining('مطبوعة'), findsWidgets);
+    expect(find.textContaining('تعذّرت'), findsNothing, reason: 'busy is not a failure');
   });
 }

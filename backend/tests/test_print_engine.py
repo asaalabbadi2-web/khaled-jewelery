@@ -26,7 +26,8 @@ from datetime import date, datetime, timedelta
 import pytest
 
 from models import LabelPrinter, PieceTag, PrintAttempt, PrintJob, Settings, db
-from services.label_printing import PrinterNotReady, PrintRefused, _Turn, request_print, resolve_attempt, run_job
+from services.label_printing import (LOCK_WAIT, PrinterBusy, PrinterNotReady, PrintRefused, _Turn, request_print,
+                                     resolve_attempt, run_job)
 from services.pieces import active_tag, epc_of, tag_state
 from services.printer_link import LinkLost, PrinterUnreachable, ZebraLink, parse_status
 from tests.test_piece_tag import _pieces
@@ -258,7 +259,9 @@ def test_6_two_at_once_on_one_printer_one_waits_another_printer_does_not():
     try:
         waiting = _job(a, one)
         link = FakeLink()
-        _run(waiting, link, wait=0.0)
+        with pytest.raises(PrinterBusy) as said:
+            _run(waiting, link, wait=0.0)
+        assert said.value.state['busy'] is True and 'مشغولة' in said.value.message
         assert (waiting.status, link.sent, _attempts(waiting)) == ('pending', [], []), 'waits: no attempt yet'
         elsewhere = _job(b, two)
         _run(elsewhere, FakeLink(), wait=0.0)
@@ -476,3 +479,35 @@ def test_the_route_says_the_printer_is_not_ready_the_job_saved(auth_headers):
     body = r.get_json()
     assert (body['job']['status'], body['job']['attempts']) == ('pending', 0)
     assert body['printer']['ready'] is False and 'لا تردّ' in body['printer']['message']
+
+
+def test_a_worker_is_never_held_long_for_the_printer():
+    """ط6: two labels waiting held both of production's workers 43 s. The wait is short; past it the
+    screen asks again. Threads in the workers were tried and lost gunicorn's hung-request kill (HANG-001)."""
+    import importlib.util, os
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'gunicorn.conf.py')
+    spec = importlib.util.spec_from_file_location('gunicorn_conf', path)
+    conf = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(conf)
+    assert LOCK_WAIT <= 5.0, 'a label prints in about two seconds: a short wait, then the screen asks again'
+    assert getattr(conf, 'worker_class', 'sync') == 'sync', 'one request a worker: a hung one is killed and named'
+
+
+def test_the_route_says_the_printer_is_busy(auth_headers):
+    [piece] = _pieces(10.0)
+    printer = _printer()
+    busy = _Turn(printer.id, wait=0.0)
+    assert busy.__enter__() is True
+    try:
+        from flask import g
+        from tests.test_wage_treatment_follows_the_setting import flask_app
+        import services.label_printing as engine
+        saved, engine.LOCK_WAIT = engine.LOCK_WAIT, 0.0
+        g.pop('current_user', None)
+        r = flask_app.test_client().post(f'/api/pieces/{piece.id}/print-jobs', json={'request_key': 'busy-1'},
+                                         headers=auth_headers)
+    finally:
+        engine.LOCK_WAIT = saved
+        busy.__exit__(None, None, None)
+    body = r.get_json()
+    assert r.status_code == 200 and body['printer']['busy'] is True and body['job']['attempts'] == 0

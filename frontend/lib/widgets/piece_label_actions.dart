@@ -26,6 +26,11 @@ class PieceLabelActions {
   static const failedWords =
       'تم تسجيل القطعة بنجاح، لكن تعذّرت طباعة البطاقة. أُضيفت إلى قائمة انتظار الطباعة.';
 
+  /// Another label printing (ADR-097 ط6): asked again by itself this often,
+  /// this many times -- the server never holds a worker long for the printer.
+  static Duration busyPause = const Duration(milliseconds: 1500);
+  static const busyTries = 20;
+
   /// What stops the printer itself: the next label would fail as well.
   static const printerStops = {'paper_out', 'ribbon_out', 'head_open', 'paused', 'unreachable'};
 
@@ -48,7 +53,12 @@ class PieceLabelActions {
       {required bool quiet, bool sayFailure = true}) async {
     onBusy(pieceId, true);
     try {
-      final answer = await call();
+      var answer = await call();
+      // Another label printing: its turn asked again by itself, nothing written meanwhile.
+      for (var i = 0; i < busyTries && (answer['printer'] as Map?)?['busy'] == true; i++) {
+        await Future<void>.delayed(busyPause);
+        answer = await api.runPrintJob((answer['job'] as Map)['id'] as int);
+      }
       final label = labelOf(answer['job'] as Map<String, dynamic>);
       // The printer asked first and not ready: no attempt, no generation --
       // the job waits, and the printer's own words say why (ADR-097, ط6).
@@ -241,8 +251,15 @@ class _ResolveLabelDialogState extends State<ResolveLabelDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('انقطع الاتصال بالطابعة ولا يُعرف هل كُتبت الرقاقة. '
-                'إن خرج ملصق فاقرأه بالقارئ هنا، وإلا اضغط «لم يخرج ملصق».'),
+            // The reader types on its own screen, not this one (ط6): its code
+            // read there and written here -- or no label came out.
+            const Text('انقطع الاتصال بالطابعة ولا يُعرف هل كُتبت الرقاقة.', key: Key('resolve-why')),
+            const SizedBox(height: 8),
+            const Text(
+              'إن خرج ملصق: اقرأه بالقارئ في تطبيق الملاحظات على القارئ — فالقارئ يكتب في شاشته هو — '
+              'ثم اكتب الرمز هنا (24 خانة تبدأ بـ 4B4A). وإلا اضغط «لم يخرج ملصق» وأتلف أي ملصق خرج.',
+              key: Key('resolve-how'),
+            ),
             const SizedBox(height: 12),
             TextField(
               key: const Key('resolve-read'),
