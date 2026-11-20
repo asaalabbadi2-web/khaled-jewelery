@@ -100,15 +100,34 @@ def test_a_damaged_tag_is_replaced_the_piece_as_it_was(auth_headers):
 
 
 def test_the_routes(app, auth_headers):
+    """A reader finds a piece by its active tag. No route mounts a tag at a press of a button
+    (ADR-097 law 3): a tag is the print engine's, read back and matching."""
     a, = _pieces(14.37)
+    mount_tag(a, by='t', now=NOW)
     c = app.test_client()
-    r = c.post(f'/api/pieces/{a.id}/tag', headers=auth_headers, json={})
-    assert r.status_code == 201 and r.get_json()['tag']['value'] == epc_of(a.item_code), r.get_data(as_text=True)
-    r = c.post(f'/api/pieces/{a.id}/tag', headers=auth_headers, json={})
-    assert r.status_code == 400 and r.get_json()['error'] == 'piece_has_active_tag'
-    r = c.post(f'/api/pieces/{a.id}/tag/replace', headers=auth_headers, json={'reason': 'تلفت'})
-    assert r.status_code == 201, r.get_data(as_text=True)
+    for path in (f'/api/pieces/{a.id}/tag', f'/api/pieces/{a.id}/tag/replace'):
+        assert c.post(path, headers=auth_headers, json={'reason': 'تلفت'}).status_code in (404, 405), path
     r = c.get(f'/api/pieces/by-tag/{epc_of(a.item_code)}', headers=auth_headers)
     assert r.status_code == 200 and r.get_json()['piece']['item_code'] == a.item_code
     assert r.get_json()['piece']['tag'] == epc_of(a.item_code)
     assert c.get('/api/pieces/by-tag/4B4A00000000000000999999', headers=auth_headers).status_code == 404
+
+
+def test_only_the_print_engine_mounts_a_tag():
+    """ADR-097 law 3: in the code that serves requests, a tag is mounted by the engine alone."""
+    import os
+    backend = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    offenders = []
+    for root, dirs, files in os.walk(backend):
+        dirs[:] = [d for d in dirs if d not in ('venv', 'tests', 'tools', 'alembic', 'devtools', '__pycache__')]
+        for name in files:
+            path = os.path.join(root, name)
+            if not name.endswith('.py') or path.endswith(os.path.join('services', 'label_printing.py')):
+                continue
+            src = open(path, encoding='utf-8').read()
+            if path.endswith(os.path.join('services', 'pieces.py')):
+                continue                      # where mount_tag lives, for the tests' worlds
+            if 'mount_tag(' in src or 'replace_tag(' in src or 'PieceTag(' in src:
+                offenders.append(os.path.relpath(path, backend))
+    offenders = [o for o in offenders if o != 'models.py']
+    assert offenders == [], offenders

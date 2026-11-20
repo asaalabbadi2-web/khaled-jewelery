@@ -5777,16 +5777,31 @@ class ApiService {
   Future<Map<String, dynamic>> pieceLine(int lineId) =>
       _getMap('/pieces/lines/$lineId', fallback: 'تعذّر تحميل السطر');
 
-  /// Its tag mounted (R3.7): by default the number's. `{tag, piece}`.
-  Future<Map<String, dynamic>> mountPieceTag(int pieceId) =>
-      _postJson('/pieces/$pieceId/tag', const {}, fallback: 'تعذّر تسجيل الرقاقة');
+  /// A piece's label (ADR-097): its job saved, then run -- printed, its tag
+  /// written, read back and adopted. `request_key`, `kind` (first, reprint),
+  /// `reason`, `run` (false: «تسجيل فقط»). `{job}`.
+  Future<Map<String, dynamic>> printPieceLabel(int pieceId, Map<String, dynamic> body) =>
+      _postJson('/pieces/$pieceId/print-jobs', body, fallback: 'تعذّرت طباعة البطاقة');
 
-  /// A damaged tag stopped with its reason, a new one mounted. `{tag, piece}`.
-  Future<Map<String, dynamic>> replacePieceTag(int pieceId, String reason) => _postJson(
-        '/pieces/$pieceId/tag/replace',
-        {'reason': reason},
-        fallback: 'تعذّر استبدال الرقاقة',
-      );
+  /// A job run again: pending, or failed -- a new attempt. `{job}`.
+  Future<Map<String, dynamic>> runPrintJob(int jobId) =>
+      _postJson('/print-jobs/$jobId/run', const {}, fallback: 'تعذّرت طباعة البطاقة');
+
+  /// An unknown end settled: `read_value` the reader read, or `no_label`. `{job}`.
+  Future<Map<String, dynamic>> resolvePrintAttempt(int attemptId, Map<String, dynamic> body) =>
+      _postJson('/print-attempts/$attemptId/resolve', body, fallback: 'تعذّر حسم المحاولة');
+
+  /// The labels waiting: `{jobs, counts: {pending, failed, needs_attention}}`.
+  Future<Map<String, dynamic>> printJobsOpen() =>
+      _getMap('/print-jobs', fallback: 'تعذّر تحميل قائمة الطباعة');
+
+  /// The label printers. `{printers}`.
+  Future<Map<String, dynamic>> labelPrinters() =>
+      _getMap('/label-printers', fallback: 'تعذّر تحميل الطابعات');
+
+  /// A printer's state: `{printer, status: {ready, stops, message}}`.
+  Future<Map<String, dynamic>> labelPrinterStatus(int printerId) =>
+      _getMap('/label-printers/$printerId/status', fallback: 'تعذّر سؤال الطابعة');
 
   /// A piece by its number and where it is (R3.6): `{piece, location}`.
   Future<Map<String, dynamic>> lookupPiece(String code) => _getMap(

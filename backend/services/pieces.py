@@ -625,7 +625,22 @@ def piece_view(piece: Item) -> dict:
             'coding_id': piece.coding_id,
             'wage': wage, 'wage_known': wage is not None, 'in_stock': piece_held(piece.id) > GRAM,
             'created_at': piece.created_at.isoformat() if piece.created_at else None,
-            'created_by': piece.created_by, 'tag': tag.value if tag is not None else None}
+            'created_by': piece.created_by, 'tag': tag.value if tag is not None else None,
+            'label': label_state(piece)}
+
+
+def label_state(piece: Item):
+    """Its label as the station shows it (ADR-097): its last print job and
+    that job's last attempt -- None when none was asked."""
+    job = PrintJob.query.filter_by(item_id=piece.id).order_by(PrintJob.id.desc()).first()
+    if job is None:
+        return None
+    attempt = PrintAttempt.query.filter_by(job_id=job.id).order_by(PrintAttempt.id.desc()).first()
+    return {'job_id': job.id, 'kind': job.kind, 'status': job.status,
+            'attempt_id': attempt.id if attempt else None, 'generation': attempt.generation if attempt else None,
+            'printed': attempt.printed if attempt else None, 'written': attempt.written if attempt else None,
+            'verified': attempt.verified if attempt else None,
+            'message': attempt.error_message if attempt else None}
 
 
 def coded_lines(invoice_id: int) -> dict:

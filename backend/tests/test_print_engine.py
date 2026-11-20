@@ -403,3 +403,33 @@ def test_a_completed_job_does_not_wait_for_the_printers_turn():
     finally:
         busy.__exit__(None, None, None)
     assert waited == [] and job.status == 'completed', 'answered at once: nothing to print'
+
+
+def test_the_waiting_labels_and_a_printers_status(auth_headers):
+    from flask import g
+    from tests.test_wage_treatment_follows_the_setting import flask_app
+    a, b, c = _pieces(10.0, 11.0, 12.0)
+    printer = _printer()
+    _run(_job(a, printer), FakeLink(before=PAPER_OUT))                 # failed
+    _job(b, printer)                                                    # pending: «تسجيل فقط»
+    _run(_job(c, printer), FakeLink(answer='lost'))                     # needs attention
+    g.pop('current_user', None)
+    client = flask_app.test_client()
+    body = client.get('/api/print-jobs', headers=auth_headers).get_json()
+    assert body['counts'] == {'pending': 1, 'failed': 1, 'needs_attention': 1}
+    assert [j['item_code'] for j in body['jobs']] == [a.item_code, b.item_code, c.item_code], 'the oldest first'
+    from services.pieces import piece_view
+    assert piece_view(a)['label']['status'] == 'failed' and 'الملصقات' in piece_view(a)['label']['message']
+    sock = SocketPrinter()
+    try:
+        printer.host, printer.port = '127.0.0.1', sock.port
+        db.session.flush()
+        g.pop('current_user', None)
+        r = client.get(f'/api/label-printers/{printer.id}/status', headers=auth_headers).get_json()
+        assert r['status']['ready'] is True
+    finally:
+        sock.close()
+    g.pop('current_user', None)
+    gone = client.get(f'/api/label-printers/{printer.id}/status', headers=auth_headers).get_json()
+    assert gone['status'] == {'ready': False, 'stops': ['unreachable'], 'message': gone['status']['message']}
+    assert 'لا تردّ' in gone['status']['message']

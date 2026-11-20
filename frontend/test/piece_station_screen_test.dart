@@ -69,16 +69,61 @@ class _Api extends ApiService {
   bool loseNext = false;
   int _n = 0;
 
-  final tagged = <int>[];
+  // Its label (ADR-097): the printer, the jobs, each request recorded.
+  bool printerReady = true;
+  String printOutcome = 'completed';
+  final printed = <Map<String, dynamic>>[];
+  final runs = <int>[];
+  final resolved = <Map<String, dynamic>>[];
+  Map<String, dynamic> counts = {'pending': 0, 'failed': 0, 'needs_attention': 0};
+  List<Map<String, dynamic>> openJobs = [];
+  int _job = 0;
+
+  Map<String, dynamic> _jobOf(int pieceId, String status, {String kind = 'first', int generation = 1}) => {
+    'id': ++_job, 'item_id': pieceId, 'item_code': 'KJ-00012${pieceId - 100}', 'kind': kind, 'status': status,
+    'last_attempt': status == 'pending' ? null : {
+      'id': 500 + _job, 'generation': generation, 'printed': status == 'completed',
+      'written': status == 'completed', 'verified': status == 'completed',
+      'message': status == 'failed'
+          ? 'انتهت الملصقات: ضع لفة جديدة ثم أعد المحاولة'
+          : status == 'needs_attention'
+              ? 'انقطع الاتصال بالطابعة أثناء الطباعة'
+              : null,
+    },
+  };
 
   @override
-  Future<Map<String, dynamic>> mountPieceTag(int pieceId) async {
-    tagged.add(pieceId);
-    return {
-      'tag': {'value': '4B4A00000000000000000121'},
-      'piece': {'id': pieceId, 'item_code': 'KJ-000121', 'weight': 14.37, 'stones_weight': 0,
-                'wage': null, 'wage_known': false, 'tag': '4B4A00000000000000000121'},
-    };
+  Future<Map<String, dynamic>> labelPrinters() async => {
+    'printers': [{'id': 1, 'name': 'طابعة المعرض', 'is_active': true}],
+  };
+
+  @override
+  Future<Map<String, dynamic>> labelPrinterStatus(int printerId) async => {
+    'status': printerReady
+        ? {'ready': true, 'stops': [], 'message': null}
+        : {'ready': false, 'stops': ['paper_out'], 'message': 'انتهت الملصقات: ضع لفة جديدة ثم أعد المحاولة'},
+  };
+
+  @override
+  Future<Map<String, dynamic>> printJobsOpen() async => {'jobs': openJobs, 'counts': counts};
+
+  @override
+  Future<Map<String, dynamic>> printPieceLabel(int pieceId, Map<String, dynamic> body) async {
+    printed.add({...body, 'piece_id': pieceId});
+    final status = body['run'] == false ? 'pending' : printOutcome;
+    return {'job': _jobOf(pieceId, status, kind: '${body['kind']}', generation: printed.length)};
+  }
+
+  @override
+  Future<Map<String, dynamic>> runPrintJob(int jobId) async {
+    runs.add(jobId);
+    return {'job': _jobOf(101, 'completed', generation: 2)};
+  }
+
+  @override
+  Future<Map<String, dynamic>> resolvePrintAttempt(int attemptId, Map<String, dynamic> body) async {
+    resolved.add({...body, 'attempt_id': attemptId});
+    return {'job': _jobOf(101, body['no_label'] == true ? 'failed' : 'completed')};
   }
 
   @override
@@ -263,16 +308,107 @@ void main() {
     expect(api.sent.single.containsKey('wage'), isFalse, reason: 'the server takes it from the pool');
   });
 
-  testWidgets('a piece\'s tag is recorded once written; then it is replaced, not doubled', (tester) async {
-    final api = _Api();
-    await _open(tester, api);
-    await tester.enterText(find.byKey(const Key('piece-weight')), '14.37');
+  Future<void> register(WidgetTester tester, [String weight = '14.37']) async {
+    await tester.enterText(find.byKey(const Key('piece-weight')), weight);
     await tester.tap(find.byKey(const Key('piece-register')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('station-tag-101')));
+  }
+
+  testWidgets('registered, its label printed at once: printed, its tag read back', (tester) async {
+    final api = _Api();
+    await _open(tester, api);
+    expect(find.text('الطابعة جاهزة'), findsOneWidget);
+    await register(tester);
+    expect(api.sent, hasLength(1), reason: 'the piece saved first');
+    expect((api.printed.single['piece_id'], api.printed.single['run'], api.printed.single['kind']), (101, true, 'first'));
+    expect(api.printed.single['request_key'], isNotEmpty);
+    expect(find.descendant(of: find.byKey(const Key('station-last')), matching: find.text('مطبوعة · الجيل 1')),
+        findsOneWidget);
+    expect(find.byKey(const Key('station-tag-101')), findsNothing, reason: 'no tag mounted by a button');
+  });
+
+  testWidgets('«تسجيل فقط»: the piece saved, its label waiting', (tester) async {
+    final api = _Api();
+    await _open(tester, api);
+    await tester.tap(find.text('تسجيل فقط'));
     await tester.pumpAndSettle();
-    expect(api.tagged, [101]);
-    expect(find.byKey(const Key('station-tag-101')), findsNothing);
-    expect(find.byKey(const Key('station-retag-101')), findsOneWidget);
+    await register(tester);
+    expect(api.printed.single['run'], isFalse);
+    expect(find.byKey(const Key('label-run-101')), findsWidgets, reason: 'waiting: printed when asked');
+    expect(find.textContaining('تعذّرت طباعة البطاقة'), findsNothing, reason: 'nothing failed');
+  });
+
+  testWidgets('a printer that fails stops no one: said, then tried again', (tester) async {
+    final api = _Api()..printOutcome = 'failed';
+    await _open(tester, api);
+    await register(tester);
+    expect(find.text('تم تسجيل القطعة بنجاح، لكن تعذّرت طباعة البطاقة. أُضيفت إلى قائمة انتظار الطباعة.'),
+        findsOneWidget);
+    expect(find.textContaining('انتهت الملصقات'), findsWidgets);
+    await tester.tap(find.byKey(const Key('label-retry-101')).first);
+    await tester.pumpAndSettle();
+    expect(api.runs, hasLength(1));
+    expect(find.text('مطبوعة · الجيل 2'), findsWidgets);
+    await register(tester, '10');
+    expect(api.sent, hasLength(2), reason: 'the next piece coded as before');
+  });
+
+  testWidgets('an unknown end settled by the reader: its own value adopted', (tester) async {
+    final api = _Api()..printOutcome = 'needs_attention';
+    await _open(tester, api);
+    await register(tester);
+    await tester.tap(find.byKey(const Key('label-resolve-101')).first);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('resolve-read')), '4B4A00010000000000000121');
+    await tester.tap(find.byKey(const Key('resolve-adopt')));
+    await tester.pumpAndSettle();
+    expect(api.resolved.single['read_value'], '4B4A00010000000000000121');
+    expect(find.text('مطبوعة · الجيل 1'), findsWidgets);
+  });
+
+  testWidgets('an unknown end where no label came out: failed, tried again with a new label', (tester) async {
+    final other = _Api()..printOutcome = 'needs_attention';
+    await _open(tester, other);
+    await register(tester);
+    await tester.tap(find.byKey(const Key('label-resolve-101')).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('resolve-no-label')));
+    await tester.pumpAndSettle();
+    expect(other.resolved.single['no_label'], isTrue);
+    expect(find.byKey(const Key('label-retry-101')), findsWidgets, reason: 'failed: tried again with a new label');
+  });
+
+  testWidgets('a reprint asks its reason', (tester) async {
+    final api = _Api();
+    await _open(tester, api);
+    await register(tester);
+    await tester.tap(find.byKey(const Key('label-reprint-101')).first);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('confirm-action')), findsOneWidget);
+    await tester.enterText(find.byKey(const Key('confirm-reason')), 'تلفت البطاقة');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('confirm-action')));
+    await tester.pumpAndSettle();
+    expect((api.printed.last['kind'], api.printed.last['reason']), ('reprint', 'تلفت البطاقة'));
+  });
+
+  testWidgets('the printer stopped and the labels waiting are said; the failures handled from the bar',
+      (tester) async {
+    final api = _Api()
+      ..printerReady = false
+      ..counts = {'pending': 2, 'failed': 1, 'needs_attention': 0}
+      ..openJobs = [
+        {'id': 9, 'item_id': 101, 'item_code': 'KJ-000121', 'status': 'failed',
+         'last_attempt': {'id': 509, 'message': 'انتهت الملصقات: ضع لفة جديدة ثم أعد المحاولة'}},
+      ];
+    await _open(tester, api);
+    expect(find.text('انتهت الملصقات: ضع لفة جديدة ثم أعد المحاولة'), findsOneWidget);
+    expect(find.text('بانتظار البطاقة 2 · فاشلة 1'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('station-failures')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.descendant(of: find.byKey(const Key('station-failures-sheet')),
+        matching: find.text('إعادة المحاولة')));
+    await tester.pumpAndSettle();
+    expect(api.runs, [9]);
   });
 }

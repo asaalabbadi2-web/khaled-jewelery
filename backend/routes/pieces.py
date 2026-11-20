@@ -21,9 +21,9 @@ PATCH /api/pieces/<id>            -- its words (ADR-093 §5): name, description,
      model_id, size_id -- recorded; its book facts stay.
 GET  /api/pieces/lookup?code=     -- a piece by its number: its view and
      where it is (the transfer screen, R3.6).
-POST /api/pieces/<id>/tag         -- its tag mounted: by default the number's
-     (value, technology optional).
-POST /api/pieces/<id>/tag/replace -- a damaged tag stopped (reason), a new one.
+POST /api/pieces/<id>/print-jobs  -- its label printed and its tag written,
+     read back and adopted (ADR-097): no tag is mounted by a press of a button
+     -- the routes that did (/tag, /tag/replace) are gone (law 3).
 GET  /api/pieces/by-tag/<value>   -- the piece a reader read.
 GET  /api/stock-codings/free      -- what a location holds of a category not
      yet pieced nor promised to an open batch (safe_box_id, category_id).
@@ -203,38 +203,6 @@ def piece_lookup():
                     'location': {'id': where.id, 'name': where.name} if where is not None else None}), 200
 
 
-def _tagged(piece_id: int, write):
-    piece = db.session.get(Item, piece_id)
-    if piece is None:
-        return jsonify({'error': 'not_found', 'message': 'القطعة غير موجودة'}), 404
-    try:
-        tag = write(piece)
-    except PieceRefused as refused:
-        db.session.rollback()
-        return jsonify({'error': refused.code, 'message': refused.message}), 400
-    db.session.commit()
-    return jsonify({'tag': {'value': tag.value, 'technology': tag.technology}, 'piece': piece_view(piece)}), 201
-
-
-@pieces_bp.route('/pieces/<int:piece_id>/tag', methods=['POST'])
-@require_permission('items.create')
-def piece_tag_mount(piece_id: int):
-    from services.pieces import mount_tag
-    data = request.get_json(silent=True) or {}
-    return _tagged(piece_id, lambda piece: mount_tag(piece, value=data.get('value'),
-                                                    technology=data.get('technology') or 'uhf_epc96',
-                                                    by=_by(), now=datetime.now()))
-
-
-@pieces_bp.route('/pieces/<int:piece_id>/tag/replace', methods=['POST'])
-@require_permission('items.create')
-def piece_tag_replace(piece_id: int):
-    from services.pieces import replace_tag
-    data = request.get_json(silent=True) or {}
-    return _tagged(piece_id, lambda piece: replace_tag(piece, reason=data.get('reason'), value=data.get('value'),
-                                                      by=_by(), now=datetime.now()))
-
-
 @pieces_bp.route('/pieces/by-tag/<value>', methods=['GET'])
 @require_permission('items.view')
 def piece_by_tag_route(value: str):
@@ -409,3 +377,36 @@ def label_printer_add():
     db.session.add(printer)
     db.session.commit()
     return jsonify({'printer': _printer_view(printer)}), 201
+
+
+@pieces_bp.route('/print-jobs', methods=['GET'])
+@require_permission('items.view')
+def print_jobs_open():
+    """The labels waiting (ADR-097 §8): the jobs not completed -- pending, failed,
+    or needing attention -- the oldest first, and their counts. «معالجة الفشل»."""
+    from models import PrintJob
+    from services.label_printing import job_view
+    jobs = (PrintJob.query.filter(PrintJob.status.in_(('pending', 'printing', 'verifying', 'failed',
+                                                      'needs_attention')))
+            .order_by(PrintJob.id).all())
+    counts = {'pending': 0, 'failed': 0, 'needs_attention': 0}
+    for j in jobs:
+        key = 'pending' if j.status in ('pending', 'printing', 'verifying') else j.status
+        counts[key] += 1
+    return jsonify({'jobs': [job_view(j) for j in jobs], 'counts': counts}), 200
+
+
+@pieces_bp.route('/label-printers/<int:printer_id>/status', methods=['GET'])
+@require_permission('items.view')
+def label_printer_status(printer_id: int):
+    """Ready, or what stops it -- in the shop's words; «لا تردّ» when it does not answer."""
+    from models import LabelPrinter
+    from services.printer_link import UNREACHABLE, PrinterUnreachable, ZebraLink
+    printer = db.session.get(LabelPrinter, printer_id)
+    if printer is None:
+        return jsonify({'error': 'not_found', 'message': 'الطابعة غير موجودة'}), 404
+    try:
+        state = ZebraLink(printer.host, printer.port).status()
+    except PrinterUnreachable:
+        state = {'ready': False, 'stops': ['unreachable'], 'message': UNREACHABLE}
+    return jsonify({'printer': _printer_view(printer), 'status': state}), 200
