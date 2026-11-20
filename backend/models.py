@@ -6203,6 +6203,86 @@ class PieceTag(db.Model):
     stopped_at = db.Column(db.DateTime, nullable=True)
     stopped_by = db.Column(db.String(100), nullable=True)
     stop_reason = db.Column(db.String(200), nullable=True)
+    # ADR-097: its generation (0: the labels before it), and the print attempt
+    # that wrote it and read it back -- none for one mounted by hand before.
+    generation = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    attempt_id = db.Column(db.Integer, db.ForeignKey('print_attempt.id', ondelete='RESTRICT'), nullable=True)
+
+
+class LabelPrinter(db.Model):
+    """A label printer on the shop's network (ADR-097 §3): a record, not a
+    setting -- a second printer is a row. One attempt at a time on each
+    (law 7); the manager keeps them (system.settings)."""
+    __tablename__ = 'label_printer'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False, unique=True)
+    host = db.Column(db.String(255), nullable=False)
+    port = db.Column(db.Integer, nullable=False, default=9100, server_default='9100')
+    is_active = db.Column(db.Boolean, nullable=False, default=True, server_default=db.true())
+    font_installed_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False)
+    created_by = db.Column(db.String(100), nullable=True)
+
+
+PRINT_JOB_KINDS = ('first', 'reprint')
+PRINT_JOB_STATES = ('pending', 'printing', 'verifying', 'completed', 'failed', 'needs_attention')
+
+
+class PrintJob(db.Model):
+    """A coder's request to print a piece's label (ADR-097 §3): its first,
+    or a reprint -- a new request with its own key and a reason, never an
+    attempt under the first. Saved before the printer is spoken to (law 9);
+    one request one job (law 6). Never deleted (law 11)."""
+    __tablename__ = 'print_job'
+    __table_args__ = (
+        db.CheckConstraint("kind IN ('first', 'reprint')", name='ck_print_job_kind'),
+        db.CheckConstraint("status IN ('pending', 'printing', 'verifying', 'completed', 'failed', "
+                           "'needs_attention')", name='ck_print_job_status'),
+        db.CheckConstraint("kind <> 'reprint' OR length(trim(coalesce(reason, ''))) > 0",
+                           name='ck_print_job_reprint_reason'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    item_id = db.Column(db.Integer, db.ForeignKey('item.id', ondelete='RESTRICT'), nullable=False, index=True)
+    printer_id = db.Column(db.Integer, db.ForeignKey('label_printer.id', ondelete='RESTRICT'), nullable=False)
+    kind = db.Column(db.String(10), nullable=False)
+    reason = db.Column(db.String(200), nullable=True)
+    request_key = db.Column(db.String(100), nullable=False, unique=True)
+    status = db.Column(db.String(20), nullable=False, default='pending', server_default='pending')
+    requested_by = db.Column(db.String(100), nullable=True)
+    requested_at = db.Column(db.DateTime, nullable=False)
+    completed_at = db.Column(db.DateTime, nullable=True)
+
+
+class PrintAttempt(db.Model):
+    """One real run of a print job (ADR-097 §3): its generation and the tag
+    value sent -- unique for ever, never another attempt's (law 2) -- the
+    value read back, and each stage on its own with its time: printed (as
+    the printer's status says after), written and verified (as the read
+    back says). An unknown end is resolved by the handheld reader or the
+    coder's word, and said how. Finished, it is not changed; never deleted
+    (law 11)."""
+    __tablename__ = 'print_attempt'
+
+    id = db.Column(db.Integer, primary_key=True)
+    job_id = db.Column(db.Integer, db.ForeignKey('print_job.id', ondelete='RESTRICT'), nullable=False, index=True)
+    generation = db.Column(db.Integer, nullable=False)
+    epc = db.Column(db.String(24), nullable=False, unique=True)
+    started_by = db.Column(db.String(100), nullable=True)
+    started_at = db.Column(db.DateTime, nullable=False)
+    sent_at = db.Column(db.DateTime, nullable=True)
+    read_value = db.Column(db.String(64), nullable=True)
+    printed = db.Column(db.Boolean, nullable=True)
+    printed_at = db.Column(db.DateTime, nullable=True)
+    written = db.Column(db.Boolean, nullable=True)
+    verified = db.Column(db.Boolean, nullable=True)
+    verified_at = db.Column(db.DateTime, nullable=True)
+    error_code = db.Column(db.String(50), nullable=True)
+    error_message = db.Column(db.String(300), nullable=True)
+    resolution = db.Column(db.String(20), nullable=True)        # 'reader' | 'no_label'
+    resolved_by = db.Column(db.String(100), nullable=True)
+    finished_at = db.Column(db.DateTime, nullable=True)
 
 
 class StockCoding(db.Model):
@@ -7285,6 +7365,14 @@ db.event.listen(JournalEntryLine.__table__, 'after_create',
                 _DDL(_PERIOD_LOCK_ENTRY_SQL.replace('%', '%%')).execute_if(dialect='postgresql'))
 db.event.listen(PeriodLock.__table__, 'after_create',
                 _DDL(_PERIOD_LOCK_LOG_SQL.replace('%', '%%')).execute_if(dialect='postgresql'))
+
+# ADR-097 law 11: a label's history is never erased -- the trigger's DDL is
+# the migration's, shared, so a database built by create_all carries it too.
+from piece_label_trigger import INSTALL_SQL as _LABEL_HISTORY_SQL, TABLE_SQL as _LABEL_HISTORY_TABLES  # noqa: E402
+for _table in (PieceTag.__table__, PrintJob.__table__, PrintAttempt.__table__):
+    db.event.listen(_table, 'after_create',
+                    _DDL((_LABEL_HISTORY_SQL + _LABEL_HISTORY_TABLES[_table.name]).replace('%', '%%'))
+                    .execute_if(dialect='postgresql'))
 
 # ADR-090 law 6: one entry for each period expense and month, one reclass for
 # each month -- held by the database too, not only by the run's own check.

@@ -57,11 +57,15 @@ FONT_ON_PRINTER = 'E:CAIRO.TTF'
 ELLIPSIS = '…'
 
 
-def epc_of(number: str) -> str:
-    """The number's tag value (ADR-085 law 2): 4B4A, then the digits padded to twenty."""
+def epc_of(number: str, generation: int = 0) -> str:
+    """The number's tag value (ADR-097 law 2): 4B4A, the generation in four
+    digits, the number in sixteen -- services.pieces.epc_of's, held one by a test."""
     if not NUMBER.match(str(number or '')):
         raise ValueError(f'رقم القطعة KJ- ثم ستة أرقام فأكثر: {number!r}')
-    return f'{EPC_PREFIX}{int(str(number)[3:]):020d}'
+    n, generation = int(str(number)[3:]), int(generation)
+    if not 1 <= n < 10 ** 16 or not 0 <= generation <= 9999:
+        raise ValueError(f'رقم القطعة أو جيل الرقاقة خارج حدّه: {number!r} {generation}')
+    return f'{EPC_PREFIX}{generation:04d}{n:016d}'
 
 
 @lru_cache(maxsize=1)
@@ -115,9 +119,12 @@ def _grams(value) -> str:
 
 
 def label_zpl(number: str, *, karat=None, weight=None, name=None, stones=None, size=None,
-              frame=False) -> str:
-    """One label in ZPL: the tag written and read back to the host, then its two faces."""
-    epc = epc_of(number)
+              frame=False, epc=None) -> str:
+    """One label in ZPL: the tag written and read back to the host, then its two
+    faces. *epc*: the attempt's value (ADR-097) -- generation 0 when not given."""
+    epc = epc or epc_of(number)
+    if epc[4:].isdigit() is False or int(epc[8:]) != int(str(number)[3:]):
+        raise ValueError(f'رمز الرقاقة {epc} ليس للقطعة {number}')
     first, second = TOP, TOP + FACE_H
     text_x = MARGIN + QR_SIDE + MARGIN
     column = FACE_W - MARGIN - text_x

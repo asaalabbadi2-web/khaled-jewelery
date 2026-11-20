@@ -99,6 +99,7 @@ def test_only_the_system_resets_open_the_purge():
     allowed = {
         os.path.join(BACKEND, 'journal_entry_guard.py'),     # defines it
         os.path.join(BACKEND, 'posted_entry_trigger.py'),    # the trigger reads it
+        os.path.join(BACKEND, 'piece_label_trigger.py'),     # a label's history trigger reads it (ADR-097)
         os.path.join(BACKEND, 'routes', 'system.py'),        # the resets
     }
     skip = ('venv', 'tests', 'devtools', 'tools', 'alembic', '__pycache__')

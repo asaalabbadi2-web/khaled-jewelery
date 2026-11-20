@@ -1877,6 +1877,13 @@ def _reset_full_system_wipe():
     _step('Delete PaymentMethod', lambda: PaymentMethod.query.delete())
     _step('Delete PaymentType', lambda: PaymentType.query.delete(), required=False)
 
+    # A piece's label history (ADR-097): its attempts, jobs and tags, then the
+    # printers -- inside the purge, the history trigger lets the wipe through.
+    from models import LabelPrinter, PieceTag, PrintAttempt, PrintJob
+    _step('Delete PrintAttempt', lambda: PrintAttempt.query.delete())
+    _step('Delete PrintJob', lambda: PrintJob.query.delete())
+    _step('Delete PieceTag', lambda: PieceTag.query.delete())
+    _step('Delete LabelPrinter', lambda: LabelPrinter.query.delete())
     _step('Delete Item', lambda: Item.query.delete())
     _step('Delete Category', lambda: Category.query.delete())
     _step('Delete GoldPrice', lambda: GoldPrice.query.delete(), required=False)

@@ -238,10 +238,12 @@ def piece_tag_replace(piece_id: int):
 @pieces_bp.route('/pieces/by-tag/<value>', methods=['GET'])
 @require_permission('items.view')
 def piece_by_tag_route(value: str):
-    from services.pieces import piece_by_tag, piece_location
+    from services.pieces import piece_by_tag, piece_location, tag_state
     piece = piece_by_tag(value)
     if piece is None:
-        return jsonify({'error': 'tag_unknown', 'message': f'لا قطعة برقاقة نشطة {value}'}), 404
+        # A stopped tag, an attempt's never confirmed, or unknown: said, not a piece (ADR-097 §2).
+        state = tag_state(value)
+        return jsonify({'error': f'tag_{state["state"]}', 'message': state['message'], 'tag': state}), 404
     where = piece_location(piece)
     return jsonify({'piece': piece_view(piece),
                     'location': {'id': where.id, 'name': where.name} if where is not None else None}), 200

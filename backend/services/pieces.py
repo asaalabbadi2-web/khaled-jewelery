@@ -22,7 +22,7 @@ import re
 from sqlalchemy import func, or_
 
 from models import (Category, Invoice, InvoiceItem, Item, JournalEntry, JournalEntryLine, PIECE_NUMBER,
-                    PieceTag, SafeBox, StockCoding, StockLineAllocation, db)
+                    PieceTag, PrintAttempt, PrintJob, SafeBox, StockCoding, StockLineAllocation, db)
 
 GRAM = 0.0005
 RECEIVED_STAGES = ('received', 'invoiced')
@@ -827,19 +827,85 @@ EPC_PREFIX = '4B4A'          # «KJ» in ASCII hexadecimal
 TECHNOLOGIES = ('uhf_epc96',)
 
 
-def epc_of(number: str) -> str:
-    """A number's tag value: 4B4A, then its digits padded to twenty -- 24
-    hexadecimal characters (EPC-96)."""
+GENERATIONS = 9999            # ADR-097 law 2: 0 the labels before it, 1..9999 an attempt's each
+NUMBER_DIGITS = 16
+
+
+def epc_of(number: str, generation: int = 0) -> str:
+    """A number's tag value (ADR-097 law 2): 4B4A, its generation in four
+    digits, its number in sixteen -- 24 hexadecimal characters (EPC-96).
+    Generation 0 is the value before ADR-097, character for character."""
     digits = ''.join(ch for ch in str(number) if ch.isdigit())
-    return f'{EPC_PREFIX}{int(digits):020d}'
+    n, generation = int(digits or 0), int(generation)
+    if not 1 <= n < 10 ** NUMBER_DIGITS:
+        raise ValueError(f'رقم القطعة من 1 إلى {NUMBER_DIGITS} خانة: {number!r}')
+    if not 0 <= generation <= GENERATIONS:
+        raise ValueError(f'جيل الرقاقة من 0 إلى {GENERATIONS}: {generation}')
+    return f'{EPC_PREFIX}{generation:04d}{n:0{NUMBER_DIGITS}d}'
 
 
-def number_of_epc(value: str):
-    """The number a value of ours says -- None for another's."""
+def epc_parts(value: str):
+    """(number, generation) a value of ours says -- None for another's."""
     value = str(value or '').strip().upper()
     if len(value) != 24 or not value.startswith(EPC_PREFIX) or not value[4:].isdigit():
         return None
-    return f'KJ-{int(value[4:]):06d}'
+    n = int(value[8:])
+    return (f'KJ-{n:06d}', int(value[4:8])) if n >= 1 else None
+
+
+def number_of_epc(value: str):
+    """The number a value of ours says, of any generation -- None for another's."""
+    parts = epc_parts(value)
+    return parts[0] if parts else None
+
+
+def next_generation(piece: Item) -> int:
+    """The generation a new attempt on *piece* takes (ADR-097 law 2): after
+    every generation an attempt or a tag of it ever had -- none reused, 0
+    kept for the labels before. Or PieceRefused when all are spent."""
+    attempts = (db.session.query(func.max(PrintAttempt.generation))
+                .join(PrintJob, PrintJob.id == PrintAttempt.job_id).filter(PrintJob.item_id == piece.id).scalar())
+    tags = db.session.query(func.max(PieceTag.generation)).filter(PieceTag.item_id == piece.id).scalar()
+    generation = max(int(attempts or 0), int(tags or 0)) + 1
+    if generation > GENERATIONS:
+        raise PieceRefused('tag_generations_spent', f'استُنفدت أجيال رقاقات القطعة {piece.item_code}')
+    return generation
+
+
+TAG_ACTIVE, TAG_STOPPED, TAG_UNCONFIRMED, TAG_UNKNOWN = 'active', 'stopped', 'unconfirmed', 'unknown'
+
+
+def tag_state(value: str) -> dict:
+    """What a value a reader read is (ADR-097 §2; the owner, 20 Nov 2026): an
+    active tag -- its piece counts; a stopped one -- not counted, said; one an
+    attempt wrote and never confirmed -- not counted, to be destroyed; else
+    unknown -- recorded, not counted. A stopped tag's history is kept to be
+    known again."""
+    value = str(value or '').strip().upper()
+    parts = epc_parts(value)
+    code, generation = parts if parts else (None, None)
+    said = f' — القطعة {code} — الجيل {generation:04d}' if parts else ''
+    active = PieceTag.query.filter_by(value=value, stopped_at=None).first()
+    if active is not None:
+        piece = db.session.get(Item, active.item_id)
+        return {'state': TAG_ACTIVE, 'counted': True, 'item_id': piece.id, 'item_code': piece.item_code,
+                'generation': active.generation, 'message': None}
+    stopped = PieceTag.query.filter_by(value=value).order_by(PieceTag.stopped_at.desc()).first()
+    if stopped is not None:
+        piece = db.session.get(Item, stopped.item_id)
+        return {'state': TAG_STOPPED, 'counted': False, 'item_id': piece.id, 'item_code': piece.item_code,
+                'generation': stopped.generation, 'stopped_at': stopped.stopped_at.isoformat(),
+                'stop_reason': stopped.stop_reason,
+                'message': f'رقاقة ملغاة{said} — لا تُحتسب في الجرد'}
+    attempt = PrintAttempt.query.filter_by(epc=value).first()
+    if attempt is not None:
+        job = db.session.get(PrintJob, attempt.job_id)
+        piece = db.session.get(Item, job.item_id)
+        return {'state': TAG_UNCONFIRMED, 'counted': False, 'item_id': piece.id, 'item_code': piece.item_code,
+                'generation': attempt.generation,
+                'message': f'رقاقة من محاولة لم تُعتمد{said} — أتلفها'}
+    return {'state': TAG_UNKNOWN, 'counted': False, 'item_id': None, 'item_code': code,
+            'generation': generation, 'message': f'رقاقة غير معروفة {value} — لا تُحتسب'}
 
 
 def _valid_epc96(value: str) -> bool:
@@ -871,7 +937,9 @@ def mount_tag(piece: Item, *, value=None, technology='uhf_epc96', by: str, now) 
     other = PieceTag.query.filter_by(value=value, stopped_at=None).first()
     if other is not None:
         raise PieceRefused('tag_in_use', f'الرمز {value} على رقاقة نشطة لقطعة أخرى')
-    tag = PieceTag(item_id=piece.id, value=value, technology=technology, mounted_at=now, mounted_by=by)
+    parts = epc_parts(value)
+    tag = PieceTag(item_id=piece.id, value=value, technology=technology, mounted_at=now, mounted_by=by,
+                   generation=parts[1] if parts else 0)
     db.session.add(tag)
     db.session.flush()
     return tag
