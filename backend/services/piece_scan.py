@@ -310,6 +310,28 @@ def finish_scan(scan_id, *, by: str, now, early=False, reason=None) -> PieceScan
     return scan
 
 
+def settle_read(scan_id, read_id, *, by: str, clock, commit) -> PieceScan:
+    """A read whose tag is an attempt's whose end was not known: settled by
+    that very value (ADR-085 ت2 §3) -- the attempt the server finds for it, the
+    value the reader read; written on the read, by whom and when. An open
+    scan only: a finished one is as it was."""
+    from models import PrintAttempt
+    from services.label_printing import resolve_attempt
+    scan = _open_scan(scan_id)
+    read = db.session.get(PieceScanRead, int(read_id))
+    if read is None or read.scan_id != scan.id:
+        raise ScanRefused('scan_read_not_found', 'القراءة ليست من هذا الجرد')
+    said = judge(scan, read.value)
+    if said['verdict'] != UNCONFIRMED or not said['unsettled'] or not said['attempt_id']:
+        raise ScanRefused('scan_read_not_unsettled', 'هذه القراءة ليست رقاقة محاولة لم تُحسم')
+    attempt = db.session.get(PrintAttempt, said['attempt_id'])
+    resolve_attempt(attempt, read_value=read.value, by=by, clock=clock, commit=lambda: None)
+    read.resolved_attempt_id, read.resolved_by, read.resolved_at = attempt.id, by, clock()
+    db.session.flush()
+    commit()
+    return scan
+
+
 def abandon_scan(scan_id, *, by: str, now) -> PieceScan:
     """A scan left: nothing judged, kept in the log as left."""
     scan = _open_scan(scan_id)

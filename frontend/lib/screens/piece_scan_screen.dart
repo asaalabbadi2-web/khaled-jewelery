@@ -465,6 +465,9 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
 
   Widget _readTile(BuildContext context, Map<String, dynamic> r) {
     final theme = Theme.of(context);
+    // a print attempt whose end is not known, its tag read here: settled by
+    // this very reading (ADR-085 ت2 §3) -- while the scan is open
+    final settle = _scan?['status'] == 'open' && r['verdict'] == 'unconfirmed' && r['unsettled'] == true;
     return ListTile(
       key: Key('scan-read-${r['value']}'),
       dense: true,
@@ -474,7 +477,44 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
         '${r['words'] ?? r['value']}',
         if (r['moved'] != null) '${r['moved']}',
       ].join(' — ')),
+      trailing: settle
+          ? TextButton(
+              key: Key('scan-settle-${r['value']}'),
+              onPressed: () => _settle(r),
+              child: const Text('اعتمد هذه البطاقة'),
+            )
+          : null,
     );
+  }
+
+  Future<void> _settle(Map<String, dynamic> read) async {
+    final scan = _scan;
+    if (scan == null) return;
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('اعتماد هذه البطاقة؟'),
+          content: Text('قرأ القارئ رقاقتها الآن: تُعتمد محاولتها بجيلها، ويُكتب ذلك باسمك.\n${read['words'] ?? ''}'),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(dialog).pop(false), child: const Text('رجوع')),
+            FilledButton(
+              key: const Key('scan-settle-sure'),
+              onPressed: () => Navigator.of(dialog).pop(true),
+              child: const Text('اعتمدها'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (sure != true || !mounted) return;
+    try {
+      final body = await _api.settlePieceScanRead(scan['id'] as int, read['id'] as int);
+      if (mounted) setState(() => _scan = body['scan'] as Map<String, dynamic>);
+    } catch (e) {
+      if (mounted) AppFeedback.error(context, e);
+    }
   }
 
   // ── the result ──

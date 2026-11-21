@@ -14,6 +14,7 @@ import 'package:frontend/theme/app_theme.dart';
 const _a = '4B4A00000000000000000101';
 const _b = '4B4A00000000000000000102';
 const _ring = '4B4A00000000000000000201';
+const _attempt = '4B4A00010000000000000301';
 
 class _Api extends ApiService {
   final started = <Map<String, dynamic>>[];
@@ -22,12 +23,22 @@ class _Api extends ApiService {
   int loseNext = 0;
   bool complete = false;
   List<Map<String, dynamic>> open = [];
+  final settled = <int>[];
 
   Map<String, dynamic> _view({String status = 'open', int presses = 0}) {
     final seen = {for (final b in batches) for (final e in b.events) if (e['value'] != null) e['value'] as String};
     final reads = [
-      for (final v in seen)
+      for (final (i, v) in seen.indexed)
+        if (v == _attempt)
+          {
+            'id': i + 1, 'value': v, 'verdict': settled.isEmpty ? 'unconfirmed' : 'found',
+            'verdict_words': settled.isEmpty ? 'محاولة لم تُعتمد' : 'موجودة',
+            'words': 'رقاقة من محاولة لم تُعتمد — القطعة KJ-000301 — الجيل 0001', 'unsettled': settled.isEmpty,
+            'moved': null,
+          }
+        else
         {
+          'id': i + 1,
           'value': v,
           'verdict': v == _ring ? 'other_scope' : (v == _b ? 'elsewhere' : 'found'),
           'verdict_words': v == _ring ? 'من نطاق آخر' : (v == _b ? 'في غير موقعها' : 'موجودة'),
@@ -87,6 +98,12 @@ class _Api extends ApiService {
       throw Exception('connection lost');
     }
     if (!batches.any((b) => b.key == batchKey)) batches.add((key: batchKey, events: events));
+    return {'scan': _view()};
+  }
+
+  @override
+  Future<Map<String, dynamic>> settlePieceScanRead(int scanId, int readId) async {
+    settled.add(readId);
     return {'scan': _view()};
   }
 
@@ -243,4 +260,25 @@ void main() {
     await _read(tester, '$_a\n');
     expect(api.batches.single.events.single['press'], 6, reason: 'five presses already: the next is the sixth');
   });
+
+  testWidgets('an unsettled attempt read in the scan is settled by that reading, asked once more', (tester) async {
+    final api = _Api();
+    await _open(tester, api);
+    await _startSection(tester);
+    await _read(tester, '$_attempt\n$_a\n$_b\n');
+    expect(find.byKey(const Key('scan-read-$_b')), findsOneWidget, reason: 'an alert, shown');
+    expect(find.byKey(const Key('scan-settle-$_b')), findsNothing, reason: 'an adopted tag elsewhere: nothing to settle');
+    await tester.tap(find.byKey(const Key('scan-settle-$_attempt')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('رجوع'));
+    await tester.pumpAndSettle();
+    expect(api.settled, isEmpty, reason: 'asked once more: «رجوع» settles nothing');
+    await tester.tap(find.byKey(const Key('scan-settle-$_attempt')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('scan-settle-sure')));
+    await tester.pumpAndSettle();
+    expect(api.settled, [1], reason: 'the read the reader made, by its id: nothing typed');
+    expect(find.byKey(const Key('scan-settle-$_attempt')), findsNothing, reason: 'settled: found, no button');
+  });
 }
+

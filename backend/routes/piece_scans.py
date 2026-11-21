@@ -8,6 +8,8 @@ POST /api/piece-scans                -- a scan opened: safe_box_id, kind (openin
 POST /api/piece-scans/<id>/reads     -- a batch of what the reader sent: batch_key,
      events [{kind: read | button, value, press, ms}]; answers the scan as it
      stands, each read judged (inventory.count)
+POST /api/piece-scans/<id>/reads/<read_id>/settle -- an unknown print attempt
+     settled by the tag the reader read (items.create)
 POST /api/piece-scans/<id>/finish    -- its verdicts frozen; early: true with a
      reason when not complete (inventory.count)
 POST /api/piece-scans/<id>/abandon   -- left, nothing judged (inventory.count)
@@ -74,6 +76,24 @@ def piece_scan_reads(scan_id: int):
     except ScanRefused as refused:
         return _refused(refused)
     db.session.commit()
+    return jsonify({'scan': scan_view(scan)}), 200
+
+
+@piece_scans_bp.route('/piece-scans/<int:scan_id>/reads/<int:read_id>/settle', methods=['POST'])
+@require_permission('items.create')
+def piece_scan_settle(scan_id: int, read_id: int):
+    """An attempt whose end was not known, settled by the tag this scan's reader
+    read (ADR-085 ت2 §3; ADR-097 law 10): the attempt is the server's reading
+    of the value, the value the reader's -- nothing typed, nothing chosen."""
+    from services.label_printing import PrintRefused
+    from services.piece_scan import settle_read
+    try:
+        scan = settle_read(scan_id, read_id, by=_by(), clock=datetime.now, commit=db.session.commit)
+    except ScanRefused as refused:
+        return _refused(refused)
+    except PrintRefused as refused:
+        db.session.rollback()
+        return jsonify({'error': refused.code, 'message': refused.message}), 400
     return jsonify({'scan': scan_view(scan)}), 200
 
 

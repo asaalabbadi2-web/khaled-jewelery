@@ -307,3 +307,99 @@ def test_one_scope_at_most_and_each_one_that_is(shelves):
     every = start_scan(safe_box_id=s['showroom'].id, kind='check', by='t', now=NOW)
     assert PieceScanExpected.query.filter_by(scan_id=every.id).count() == 3, 'no scope: every piece in the location'
 
+
+# ── an attempt settled from the reader (ج2; ADR-097 law 10) ──
+
+def _unsettled(piece):
+    from tests.test_print_engine import FakeLink, _attempts, _job, _printer, _run
+    job = _job(piece, _printer())
+    _run(job, FakeLink(answer='lost'))
+    [attempt] = _attempts(job)
+    assert job.status == 'needs_attention'
+    return job, attempt
+
+
+def test_an_unsettled_attempt_read_in_a_scan_is_settled_by_that_value(shop):
+    from services.piece_scan import settle_read
+    from services.pieces import active_tag
+    piece = shop['untagged']
+    job, attempt = _unsettled(piece)
+    scan = start_scan(safe_box_id=shop['showroom'].id, kind='check', by='t', now=NOW)
+    _read(scan, attempt.epc, _tag(shop['a']), press=1)
+    read = {r['value']: r for r in scan_view(scan)['reads']}[attempt.epc]
+    assert (read['verdict'], read['unsettled'], read['attempt_id']) == ('unconfirmed', True, attempt.id)
+    with pytest.raises(ScanRefused) as not_one:
+        settle_read(scan.id, {r['value']: r for r in scan_view(scan)['reads']}[_tag(shop['a'])]['id'],
+                    by='t', clock=lambda: NOW, commit=db.session.flush)
+    assert not_one.value.code == 'scan_read_not_unsettled', 'an adopted tag is not an attempt to settle'
+    settle_read(scan.id, read['id'], by='reader1', clock=lambda: NOW, commit=db.session.flush)
+    assert (job.status, attempt.resolution, attempt.resolved_by) == ('completed', 'reader', 'reader1')
+    assert active_tag(piece).value == attempt.epc, 'its own value, its own generation'
+    after = {r['value']: r for r in scan_view(scan)['reads']}[attempt.epc]
+    assert (after['verdict'], after['resolved_by']) == ('found', 'reader1'), 'the read\'s verdict follows, in the open scan'
+
+
+def test_an_attempt_settled_before_is_not_settled_again_from_the_reader(shop):
+    from services.label_printing import resolve_attempt
+    from services.piece_scan import settle_read
+    _, attempt = _unsettled(shop['untagged'])
+    resolve_attempt(attempt, destroyed=True, by='coder', clock=lambda: NOW, commit=db.session.flush)
+    scan = start_scan(safe_box_id=shop['showroom'].id, kind='check', by='t', now=NOW)
+    _read(scan, attempt.epc, press=1)                                      # said destroyed, still here
+    read = scan_view(scan)['reads'][0]
+    assert (read['verdict'], read['unsettled']) == ('unconfirmed', False)
+    with pytest.raises(ScanRefused) as settled:
+        settle_read(scan.id, read['id'], by='t', clock=lambda: NOW, commit=db.session.flush)
+    assert settled.value.code == 'scan_read_not_unsettled', 'its statement stands: the label is to be destroyed'
+
+
+def test_a_finished_scan_is_not_settled_from(shop):
+    from services.piece_scan import settle_read
+    _, attempt = _unsettled(shop['untagged'])
+    scan = start_scan(safe_box_id=shop['showroom'].id, kind='check', by='t', now=NOW)
+    _read(scan, attempt.epc, press=1)
+    read_id = scan_view(scan)['reads'][0]['id']
+    finish_scan(scan.id, by='t', now=NOW, early=True, reason='تجربة')
+    with pytest.raises(ScanRefused) as closed:
+        settle_read(scan.id, read_id, by='t', clock=lambda: NOW, commit=db.session.flush)
+    assert closed.value.code == 'scan_not_open'
+
+
+def test_never_an_older_generation_over_a_tag_adopted_since(shop):
+    from services.label_printing import PrintRefused, resolve_attempt
+    piece = shop['untagged']
+    job, attempt = _unsettled(piece)
+    mount_tag(piece, value=epc_of(piece.item_code, attempt.generation + 1), by='t', now=NOW)
+    with pytest.raises(PrintRefused) as older:
+        resolve_attempt(attempt, read_value=attempt.epc, by='t', clock=lambda: NOW, commit=db.session.flush)
+    assert older.value.code == 'attempt_older_than_tag'
+
+
+def test_a_tag_read_says_its_state_with_its_piece(app, auth_headers, shop):
+    from flask import g
+    from tests.test_wage_treatment_follows_the_setting import flask_app
+    g.pop('current_user', None)
+    body = flask_app.test_client().get(f'/api/pieces/by-tag/{_tag(shop["a"])}', headers=auth_headers).get_json()
+    assert (body['piece']['item_code'], body['tag']['state'], body['tag']['generation']) == \
+        (shop['a'].item_code, 'active', 0)
+
+
+def test_settling_from_the_reader_is_its_route_and_its_permission(app, auth_headers, shop):
+    from flask import g
+    from tests.test_count_return import _headers_for
+    from tests.test_wage_treatment_follows_the_setting import flask_app
+    _, attempt = _unsettled(shop['untagged'])
+    scan = start_scan(safe_box_id=shop['showroom'].id, kind='check', by='t', now=NOW)
+    _read(scan, attempt.epc, press=1)
+    read_id = scan_view(scan)['reads'][0]['id']
+    db.session.commit()
+    client = flask_app.test_client()
+    counter = _headers_for('inventory.count')
+    g.pop('current_user', None)
+    url = f'/api/piece-scans/{scan.id}/reads/{read_id}/settle'
+    assert client.post(url, headers=counter).status_code == 403, 'a counter does not settle a print attempt'
+    g.pop('current_user', None)
+    r = client.post(url, headers=auth_headers)
+    assert r.status_code == 200, r.get_data(as_text=True)
+    assert r.get_json()['scan']['reads'][0]['verdict'] == 'found'
+

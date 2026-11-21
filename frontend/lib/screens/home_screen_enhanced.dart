@@ -83,6 +83,7 @@ import '../widgets/goal_progress_ring.dart';
 import '../widgets/my_goal_card.dart';
 import 'inventory_balance_screen.dart';
 import 'piece_scan_screen.dart';
+import 'tag_check_screen.dart';
 import 'opening_screen.dart';
 import 'gold_reservations_list_screen.dart';
 import 'safe_transfer_screen.dart';
@@ -2134,7 +2135,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     // ════════════════════════════════════════════════════════════════════════
     // 9. الجرد الفعلي
     // ════════════════════════════════════════════════════════════════════════
-    if (auth.hasPermission('inventory.view') || auth.hasPermission('inventory.count')) {
+    if (auth.hasPermission('inventory.view') || auth.hasPermission('inventory.count') ||
+        auth.hasPermission('items.view')) {
       addDivider();
       addSection(isAr ? 'الجرد الفعلي' : 'Inventory', _tone.sectionTeal.fg);
       if (auth.hasPermission('inventory.view')) {
@@ -2159,6 +2161,18 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           color: _tone.sectionTeal.fg,
           onSelected: () async {
             await Navigator.push(context, MaterialPageRoute(builder: (_) => const PieceScanScreen()));
+          },
+        );
+      }
+      // one label read: its piece, its place, its tag's state (ADR-085 ت2 ج2)
+      if (auth.hasPermission('items.view')) {
+        addDestination(
+          icon: Icons.qr_code_scanner,
+          title: isAr ? 'تحقّق من بطاقة' : 'Check a label',
+          keywords: const ['قارئ', 'رقاقة', 'بطاقة', 'قطعة'],
+          color: _tone.sectionTeal.fg,
+          onSelected: () async {
+            await Navigator.push(context, MaterialPageRoute(builder: (_) => const TagCheckScreen()));
           },
         );
       }

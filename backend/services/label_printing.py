@@ -336,6 +336,15 @@ def resolve_attempt(attempt: PrintAttempt, *, by: str, clock, commit, read_value
         raise PrintRefused('read_value_invalid', 'رمز الرقاقة 24 خانة من الأرقام والحروف A–F كما يكتبها القارئ')
     if value != attempt.epc:
         raise PrintRefused('read_other_tag', f'القارئ قرأ رقاقة أخرى ({value})، لا رقاقة هذه المحاولة')
+    # never an older generation over a tag adopted since (ADR-085 ت2 §3): one
+    # open job a piece makes it so already -- said here in its own words too
+    from services.pieces import active_tag
+    piece = db.session.get(Item, job.item_id)
+    current = active_tag(piece)
+    if current is not None and (current.generation or 0) > (attempt.generation or 0):
+        raise PrintRefused('attempt_older_than_tag',
+                           f'للقطعة رقاقة معتمدة أحدث (الجيل {current.generation:04d}): لا تُعتمد محاولة الجيل '
+                           f'{attempt.generation:04d}')
     _finish(attempt, job, status='completed', clock=clock, resolution='reader', resolved_by=by, read_value=value,
             written=True, verified=True, verified_at=clock(), printed=True, printed_at=clock())
     _mount(attempt, job, db.session.get(Item, job.item_id), by=by, now=attempt.finished_at)

@@ -240,7 +240,7 @@ def piece_by_tag_route(value: str):
         state = tag_state(value)
         return jsonify({'error': f'tag_{state["state"]}', 'message': state['message'], 'tag': state}), 404
     where = piece_location(piece)
-    return jsonify({'piece': piece_view(piece),
+    return jsonify({'piece': piece_view(piece), 'tag': tag_state(value),
                     'location': {'id': where.id, 'name': where.name} if where is not None else None}), 200
 
 

@@ -5846,6 +5846,11 @@ class ApiService {
       '/piece-scans/$scanId/finish', {if (early) 'early': true, if (reason != null) 'reason': reason},
       fallback: 'تعذّر إنهاء الجرد');
 
+  /// An unknown print attempt settled by the tag this scan's reader read --
+  /// the attempt the server's reading of the value: `{scan}`.
+  Future<Map<String, dynamic>> settlePieceScanRead(int scanId, int readId) =>
+      _postJson('/piece-scans/$scanId/reads/$readId/settle', const {}, fallback: 'تعذّر اعتماد البطاقة');
+
   /// Left, nothing judged: `{scan}`.
   Future<Map<String, dynamic>> abandonPieceScan(int scanId) =>
       _postJson('/piece-scans/$scanId/abandon', const {}, fallback: 'تعذّر ترك الجرد');
