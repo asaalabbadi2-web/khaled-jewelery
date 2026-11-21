@@ -5,9 +5,9 @@ import 'package:flutter/material.dart';
 
 import '../api_service.dart';
 import '../theme/app_semantic_colors.dart';
-import '../utils/currency_utils.dart' show formatGrams;
 import '../widgets/app_feedback.dart';
 import '../widgets/app_state_views.dart';
+import '../widgets/piece_scan_result.dart';
 import '../widgets/reader_capture.dart';
 
 /// «جرد بالمسح» on the handheld reader (ADR-085 ت2 ج1; the owner, 21 Nov 2026).
@@ -517,69 +517,17 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
     }
   }
 
-  // ── the result ──
+  // ── the result: one view with the computer's log ──
 
-  Widget _resultView(BuildContext context, Map<String, dynamic> scan) {
-    final theme = Theme.of(context);
-    final tones = AppSemanticColors.of(context);
-    final pieces = (scan['expected_pieces'] as List? ?? []).cast<Map<String, dynamic>>();
-    final counts = (scan['expected_counts'] as Map?)?.cast<String, dynamic>() ?? const {};
-    final reads = (scan['reads'] as List? ?? []).cast<Map<String, dynamic>>();
-    final alerts = reads.where((r) => r['verdict'] != 'found' && r['verdict'] != 'other_scope').toList();
-    final abandoned = scan['status'] == 'abandoned';
-    final notFound = pieces.where((p) => p['verdict'] != 'found').toList();
-    return ListView(padding: const EdgeInsets.all(16), children: [
-      Text('${scan['safe_name']} — ${scan['kind_words']} — ${scan['scope_words']}', style: theme.textTheme.titleSmall),
-      const SizedBox(height: 8),
-      Text(
-        abandoned
-            ? 'تُرك الجرد: لا حكم فيه'
-            : scan['complete'] == true
-                ? 'انتهى الجرد ومسحه مكتمل'
-                : 'انتهى قبل اكتمال المسح: ${scan['early_reason'] ?? ''}',
-        key: const Key('scan-result-state'),
-        style: theme.textTheme.titleMedium?.copyWith(
-            color: abandoned || scan['complete'] != true ? tones.warning.fg : tones.ready.fg),
-      ),
-      if (!abandoned) ...[
-        const SizedBox(height: 12),
-        Wrap(spacing: 16, runSpacing: 8, children: [
-          for (final e in const {
-            'found': 'موجودة', 'missing': 'ناقصة', 'unread': 'لم تُقرأ', 'untagged': 'بلا رقاقة معتمدة',
-            'moved': 'تحرّكت أثناء الجرد',
-          }.entries)
-            if ((counts[e.key] as num? ?? 0) > 0 || e.key == 'found' || e.key == 'missing')
-              Text('${e.value}: ${counts[e.key] ?? 0}', key: Key('scan-count-${e.key}'),
-                  style: theme.textTheme.titleSmall),
-        ]),
-        const SizedBox(height: 12),
-        for (final p in notFound)
-          ListTile(
-            key: Key('scan-piece-${p['item_id']}'),
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            title: Text('${p['item_code']} · ${formatGrams((p['weight'] as num? ?? 0).toDouble(), decimals: 2)} جم',
-                textDirection: TextDirection.ltr, textAlign: TextAlign.right),
-            subtitle: Text([
-              '${p['verdict_words']}',
-              if (p['moved'] != null) '${p['moved']}',
-            ].join(' — ')),
-          ),
-        if (alerts.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          Text('تنبيهات القراءة (${alerts.length})', style: theme.textTheme.titleSmall),
-          for (final r in alerts) _readTile(context, r),
-        ],
-      ],
-      const SizedBox(height: 24),
-      OutlinedButton.icon(
-        key: const Key('scan-again'),
-        onPressed: _again,
-        icon: const Icon(Icons.restart_alt),
-        label: const Text('جرد جديد'),
-      ),
-    ]);
-  }
+  Widget _resultView(BuildContext context, Map<String, dynamic> scan) => PieceScanResult(
+        scan: scan,
+        trailing: OutlinedButton.icon(
+          key: const Key('scan-again'),
+          onPressed: _again,
+          icon: const Icon(Icons.restart_alt),
+          label: const Text('جرد جديد'),
+        ),
+      );
 }
 
 /// «إنهاء قبل اكتمال المسح»: its reason asked, its field its own -- disposed

@@ -83,6 +83,7 @@ import '../widgets/goal_progress_ring.dart';
 import '../widgets/my_goal_card.dart';
 import 'inventory_balance_screen.dart';
 import 'piece_scan_screen.dart';
+import 'piece_scans_log_screen.dart';
 import 'tag_check_screen.dart';
 import 'opening_screen.dart';
 import 'gold_reservations_list_screen.dart';
@@ -2149,6 +2150,17 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
               context,
               MaterialPageRoute(builder: (_) => const InventoryBalanceScreen()),
             );
+          },
+        );
+      }
+      if (auth.hasPermission('inventory.view')) {
+        addDestination(
+          icon: Icons.history,
+          title: isAr ? 'سجلّ الجرد بالمسح' : 'Counts by scan',
+          keywords: const ['جرد', 'قارئ', 'ناقصة'],
+          color: _tone.sectionTeal.fg,
+          onSelected: () async {
+            await Navigator.push(context, MaterialPageRoute(builder: (_) => const PieceScansLogScreen()));
           },
         );
       }

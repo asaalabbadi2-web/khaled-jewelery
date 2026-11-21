@@ -9,6 +9,7 @@ import '../theme/app_tokens.dart';
 import '../utils/currency_utils.dart' show formatGrams;
 import '../widgets/app_state_views.dart';
 import 'inventory_count_screen.dart';
+import 'piece_scans_log_screen.dart';
 
 /// «المخزون» (INV-1, ADR-086; the owner, 6 Nov 2026: «الموقع والعيار», the
 /// audit «داخل شاشة الأرصدة»): each stock location a card -- its karats and
@@ -77,6 +78,14 @@ class _InventoryBalanceScreenState extends State<InventoryBalanceScreen> {
         appBar: AppBar(
           title: const Text('المخزون'),
           actions: [
+            // the counts by scan, each with its frozen result (ADR-085 ت2 ج3)
+            IconButton(
+              key: const Key('stock-scans-log'),
+              icon: const Icon(Icons.sensors),
+              tooltip: 'سجلّ الجرد بالمسح',
+              onPressed: () => Navigator.of(context)
+                  .push(MaterialPageRoute<void>(builder: (_) => const PieceScansLogScreen())),
+            ),
             IconButton(
               icon: const Icon(Icons.refresh),
               tooltip: 'تحديث',

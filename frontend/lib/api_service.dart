@@ -5855,6 +5855,9 @@ class ApiService {
   Future<Map<String, dynamic>> abandonPieceScan(int scanId) =>
       _postJson('/piece-scans/$scanId/abandon', const {}, fallback: 'تعذّر ترك الجرد');
 
+  /// The scans, the newest first, with their counts: `{scans}` (inventory.view).
+  Future<Map<String, dynamic>> pieceScans() => _getMap('/piece-scans', fallback: 'تعذّر تحميل سجلّ الجرد');
+
   /// A scan and its lists: `{scan}`.
   Future<Map<String, dynamic>> pieceScan(int scanId) => _getMap('/piece-scans/$scanId', fallback: 'تعذّر تحميل الجرد');
 
