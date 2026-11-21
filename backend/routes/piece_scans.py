@@ -1,6 +1,7 @@
 """«الجرد بالمسح» (ADR-085 ت2): a location's pieces counted by their tags.
 
 GET  /api/piece-scans/locations      -- the stock safes a scan counts (inventory.count)
+GET  /api/piece-scans/open           -- the scans still open, to go back to (inventory.count)
 POST /api/piece-scans                -- a scan opened: safe_box_id, kind (opening |
      closing | check), its scope section_id or category_id or neither; its
      snapshot taken now (inventory.count)
@@ -42,6 +43,13 @@ def _refused(refused: ScanRefused):
 def piece_scan_locations():
     return jsonify({'locations': [{'id': s.id, 'name': s.name, 'stock_location': s.stock_location}
                                   for s in scan_locations()]}), 200
+
+
+@piece_scans_bp.route('/piece-scans/open', methods=['GET'])
+@require_permission('inventory.count')
+def piece_scans_open():
+    """The scans still open -- a reader's page reloaded goes back to its own."""
+    return jsonify({'scans': scans_list(limit=20, status='open')}), 200
 
 
 @piece_scans_bp.route('/piece-scans', methods=['POST'])

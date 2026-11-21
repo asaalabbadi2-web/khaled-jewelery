@@ -205,7 +205,7 @@ def test_the_routes_carry_it_and_each_is_guarded(app, auth_headers, shop):
     for method, url in (('get', '/api/piece-scans/locations'), ('post', '/api/piece-scans'),
                         ('post', '/api/piece-scans/1/reads'), ('post', '/api/piece-scans/1/finish'),
                         ('post', '/api/piece-scans/1/abandon'), ('get', '/api/piece-scans/1'),
-                        ('get', '/api/piece-scans')):
+                        ('get', '/api/piece-scans'), ('get', '/api/piece-scans/open')):
         g.pop('current_user', None)
         assert getattr(client, method)(url).status_code == 401, url
     from tests.test_count_return import _headers_for
@@ -214,7 +214,7 @@ def test_the_routes_carry_it_and_each_is_guarded(app, auth_headers, shop):
     g.pop('current_user', None)
     assert client.post('/api/piece-scans', headers=viewer,
                        json={'safe_box_id': shop['showroom'].id, 'kind': 'check'}).status_code == 403
-    for url in ('/api/piece-scans/locations',):
+    for url in ('/api/piece-scans/locations', '/api/piece-scans/open'):
         g.pop('current_user', None)
         assert client.get(url, headers=viewer).status_code == 403, url
     for url in ('/api/piece-scans', '/api/piece-scans/1'):
@@ -237,6 +237,9 @@ def test_the_routes_carry_it_and_each_is_guarded(app, auth_headers, shop):
     assert (done['status'], done['found'], done['expected']) == ('finished', 1, 4)
     g.pop('current_user', None)
     assert client.get('/api/piece-scans', headers=auth_headers).get_json()['scans'][0]['id'] == scan_id
+    g.pop('current_user', None)
+    assert scan_id not in [x['id'] for x in client.get('/api/piece-scans/open', headers=counter).get_json()['scans']], \
+        'finished: not open; and the counter sees the open ones without the log'
 
 
 # ── its scope: a section, a category, or every piece (the owner, 21 Nov 2026) ──

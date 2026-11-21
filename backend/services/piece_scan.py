@@ -382,7 +382,10 @@ def _scope_words(scan: PieceScan) -> str:
     return 'كل القطع'
 
 
-def scans_list(*, limit=100) -> list:
-    """The scans, the newest first, with their counts."""
-    rows = PieceScan.query.order_by(PieceScan.id.desc()).limit(int(limit)).all()
+def scans_list(*, limit=100, status=None) -> list:
+    """The scans, the newest first, with their counts -- or those of a status."""
+    query = PieceScan.query
+    if status is not None:
+        query = query.filter(PieceScan.status == status)
+    rows = query.order_by(PieceScan.id.desc()).limit(int(limit)).all()
     return [scan_view(s, with_lists=False) for s in rows]

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../api_service.dart';
 import '../theme/app_semantic_colors.dart';
 import '../utils/currency_utils.dart' show formatAmount;
+import '../widgets/reader_capture.dart';
 
 /// «فحص القارئ» (ADR-085 ت0; the owner, 21 Nov 2026): how a handheld reader
 /// writes in the browser, seen before the count by scan is built on it. The
@@ -17,11 +17,10 @@ import '../utils/currency_utils.dart' show formatAmount;
 /// typed, so a reader that puts nothing between two reads is read too.
 ///
 /// A press of the reader reads every tag near it, again at each press (the
-/// owner, 21 Nov 2026): the reads are grouped by press -- those arriving
-/// within [pressGap] of the one before are one press -- each press said with
-/// its reads and the new among them. The reader's button itself reaches the
-/// page as F12 (seen on the reader, 21 Nov): its presses are counted apart,
-/// to see that it does.
+/// owner, 21 Nov 2026): the reads are grouped by press ([ReaderCapture], one
+/// reading with «جرد بالمسح»), each press said with its reads and the new
+/// among them. The reader's button itself reaches the page as F12: its
+/// presses are counted apart, to see that it does.
 class ReaderCheckScreen extends StatefulWidget {
   const ReaderCheckScreen({super.key, this.api, this.elapsed});
   final ApiService? api;
@@ -37,77 +36,43 @@ class ReaderCheckScreen extends StatefulWidget {
 /// One read: its value, when from the first read, and its press.
 typedef ReaderRead = ({String value, int ms, int press});
 
-/// Reads closer than this to the one before are one press of the reader.
-const pressGap = 500;
-
 class _ReaderCheckScreenState extends State<ReaderCheckScreen> {
   late final ApiService _api = widget.api ?? ApiService();
-  final _field = TextEditingController();
   final _focus = FocusNode();
 
-  /// Time from the first read -- a stopwatch, not the clock: only the gaps
-  /// between reads are asked.
-  final _since = Stopwatch();
-
-  int get _now {
-    if (!_since.isRunning) _since.start();
-    return widget.elapsed?.call() ?? _since.elapsedMilliseconds;
-  }
+  /// The reader's tags and its button, read the one way «جرد بالمسح» reads them.
+  late final ReaderCapture _capture = ReaderCapture(onEvents: _took, elapsed: widget.elapsed);
   final List<ReaderRead> _reads = [];
   final List<String> _between = [];
-  int _taken = 0;
-  int _press = 0;
-
-  /// The reader's button (F12) pressed: a key held repeats every ~50 ms, so a
-  /// press is one more than [pressGap] after the last.
-  int _buttonPresses = 0;
-  int? _lastButton;
 
   /// What the server says of each value, asked once a value.
   final Map<String, ({bool counted, String words})?> _said = {};
 
-  static final _value = RegExp(r'4B4A[0-9A-F]{20}|KJ-\d{6,}');
-
   @override
   void initState() {
     super.initState();
-    HardwareKeyboard.instance.addHandler(_key);
-  }
-
-  bool _key(KeyEvent event) {
-    if (event.logicalKey != LogicalKeyboardKey.f12 || event is KeyUpEvent) return false;
-    final now = _now;
-    final last = _lastButton;
-    _lastButton = now;
-    if (last == null || now - last > pressGap) setState(() => _buttonPresses++);
-    return false;
+    _capture.start();
   }
 
   @override
   void dispose() {
-    HardwareKeyboard.instance.removeHandler(_key);
-    _field.dispose();
+    _capture.dispose();
     _focus.dispose();
     super.dispose();
   }
 
-  void _typed(String text) {
-    final upper = text.toUpperCase();
-    final found = _value.allMatches(upper).toList();
-    if (found.length <= _taken) return;
-    final now = _now;
+  void _took(List<ReaderEvent> events) {
     setState(() {
-      if (_reads.isEmpty || now - _reads.last.ms > pressGap) _press++;
-      for (var i = _taken; i < found.length; i++) {
-        final value = found[i].group(0)!;
-        if (i > 0) _between.add(upper.substring(found[i - 1].end, found[i].start));
-        _reads.add((value: value, ms: now, press: _press));
+      for (final e in events) {
+        if (e.kind != 'read') continue;
+        final value = e.value!;
+        if (_reads.isNotEmpty) _between.add(e.gapBefore);
+        _reads.add((value: value, ms: e.ms, press: e.press));
         if (!_said.containsKey(value)) {
           _said[value] = null;
           _ask(value);
         }
       }
-      _taken = found.length;
     });
   }
 
@@ -132,17 +97,10 @@ class _ReaderCheckScreenState extends State<ReaderCheckScreen> {
 
   void _clear() {
     setState(() {
-      _field.clear();
+      _capture.reset();
       _reads.clear();
       _between.clear();
       _said.clear();
-      _taken = 0;
-      _press = 0;
-      _buttonPresses = 0;
-      _lastButton = null;
-      _since
-        ..stop()
-        ..reset();
     });
     _focus.requestFocus();
   }
@@ -186,7 +144,7 @@ class _ReaderCheckScreenState extends State<ReaderCheckScreen> {
     // each press: its reads, and the values no press before it had read
     final presses = <({int press, int reads, int fresh})>[];
     final seen = <String>{};
-    for (var p = 1; p <= _press; p++) {
+    for (var p = 1; p <= _capture.press; p++) {
       final these = _reads.where((r) => r.press == p).toList();
       final values = these.map((r) => r.value).toSet();
       presses.add((press: p, reads: values.length, fresh: values.difference(seen).length));
@@ -220,21 +178,21 @@ class _ReaderCheckScreenState extends State<ReaderCheckScreen> {
             const SizedBox(height: 12),
             TextField(
               key: const Key('reader-field'),
-              controller: _field,
+              controller: _capture.field,
               focusNode: _focus,
               autofocus: true,
               maxLines: 4,
               textDirection: TextDirection.ltr,
               decoration: const InputDecoration(labelText: 'ما يكتبه القارئ', border: OutlineInputBorder()),
-              onChanged: _typed,
+              onChanged: _capture.typed,
             ),
             const SizedBox(height: 12),
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Wrap(spacing: 24, runSpacing: 8, children: [
-                  _figure(context, 'reader-presses', 'الضغطات', '$_press'),
-                  _figure(context, 'reader-button', 'ضغطات الزرّ (F12)', '$_buttonPresses'),
+                  _figure(context, 'reader-presses', 'الضغطات', '${_capture.press}'),
+                  _figure(context, 'reader-button', 'ضغطات الزرّ (F12)', '${_capture.buttonPresses}'),
                   _figure(context, 'reader-reads', 'القراءات', '${_reads.length}'),
                   _figure(context, 'reader-unique', 'رقاقات مختلفة', '${unique.length}'),
                   _figure(context, 'reader-repeats', 'مكرّرة', '${_reads.length - unique.length}'),
@@ -268,7 +226,7 @@ class _ReaderCheckScreenState extends State<ReaderCheckScreen> {
                         : (_said[e.key]!.counted ? tones.ready.fg : tones.warning.fg),
                   ),
                   title: Text(e.key, textDirection: TextDirection.ltr, textAlign: TextAlign.right),
-                  subtitle: Text('في ${pressesOf(e.key)} من $_press ضغطة · ${_said[e.key]?.words ?? 'يُسأل الخادم…'}'),
+                  subtitle: Text('في ${pressesOf(e.key)} من ${_capture.press} ضغطة · ${_said[e.key]?.words ?? 'يُسأل الخادم…'}'),
                 ),
               ),
           ],

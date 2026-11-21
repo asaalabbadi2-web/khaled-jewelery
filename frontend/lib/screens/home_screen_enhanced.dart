@@ -82,6 +82,7 @@ import '../widgets/goal_achievement_celebration.dart';
 import '../widgets/goal_progress_ring.dart';
 import '../widgets/my_goal_card.dart';
 import 'inventory_balance_screen.dart';
+import 'piece_scan_screen.dart';
 import 'opening_screen.dart';
 import 'gold_reservations_list_screen.dart';
 import 'safe_transfer_screen.dart';
@@ -2133,20 +2134,34 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     // ════════════════════════════════════════════════════════════════════════
     // 9. الجرد الفعلي
     // ════════════════════════════════════════════════════════════════════════
-    if (auth.hasPermission('inventory.view')) {
+    if (auth.hasPermission('inventory.view') || auth.hasPermission('inventory.count')) {
       addDivider();
       addSection(isAr ? 'الجرد الفعلي' : 'Inventory', _tone.sectionTeal.fg);
-      addDestination(
-        icon: Icons.scale_outlined,
-        title: isAr ? 'المخزون' : 'Stock',
-        color: _tone.sectionTeal.fg,
-        onSelected: () async {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const InventoryBalanceScreen()),
-          );
-        },
-      );
+      if (auth.hasPermission('inventory.view')) {
+        addDestination(
+          icon: Icons.scale_outlined,
+          title: isAr ? 'المخزون' : 'Stock',
+          color: _tone.sectionTeal.fg,
+          onSelected: () async {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const InventoryBalanceScreen()),
+            );
+          },
+        );
+      }
+      // the handheld reader's count of the pieces by their tags (ADR-085 ت2)
+      if (auth.hasPermission('inventory.count')) {
+        addDestination(
+          icon: Icons.sensors,
+          title: isAr ? 'جرد بالمسح' : 'Count by scan',
+          keywords: const ['قارئ', 'رقاقة', 'جرد القطع', 'فترينة'],
+          color: _tone.sectionTeal.fg,
+          onSelected: () async {
+            await Navigator.push(context, MaterialPageRoute(builder: (_) => const PieceScanScreen()));
+          },
+        );
+      }
     }
 
     // ════════════════════════════════════════════════════════════════════════

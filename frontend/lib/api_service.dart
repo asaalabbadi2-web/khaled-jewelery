@@ -5823,6 +5823,36 @@ class ApiService {
   Future<Map<String, dynamic>> labelPrinterAction(int printerId, String action) =>
       _postJson('/label-printers/$printerId/$action', const {}, fallback: 'تعذّر الوصول إلى الطابعة');
 
+  // ── «جرد بالمسح» (ADR-085 ت2) ─────────────────────────────────────────
+
+  /// The stock locations a scan counts: `{locations}`.
+  Future<Map<String, dynamic>> pieceScanLocations() =>
+      _getMap('/piece-scans/locations', fallback: 'تعذّر تحميل مواقع الجرد');
+
+  /// The scans still open, to go back to: `{scans}`.
+  Future<Map<String, dynamic>> openPieceScans() => _getMap('/piece-scans/open', fallback: 'تعذّر تحميل الجلسات');
+
+  /// A scan opened -- safe_box_id, kind, section_id or category_id: `{scan}`.
+  Future<Map<String, dynamic>> startPieceScan(Map<String, dynamic> body) =>
+      _postJson('/piece-scans', body, fallback: 'تعذّر بدء الجرد');
+
+  /// A batch of what the reader sent, once by its key: `{scan}` as it stands.
+  Future<Map<String, dynamic>> pieceScanReads(int scanId, String batchKey, List<Map<String, dynamic>> events) =>
+      _postJson('/piece-scans/$scanId/reads', {'batch_key': batchKey, 'events': events},
+          fallback: 'تعذّر إرسال القراءات');
+
+  /// Its verdicts frozen -- early with its reason when not complete: `{scan}`.
+  Future<Map<String, dynamic>> finishPieceScan(int scanId, {bool early = false, String? reason}) => _postJson(
+      '/piece-scans/$scanId/finish', {if (early) 'early': true, if (reason != null) 'reason': reason},
+      fallback: 'تعذّر إنهاء الجرد');
+
+  /// Left, nothing judged: `{scan}`.
+  Future<Map<String, dynamic>> abandonPieceScan(int scanId) =>
+      _postJson('/piece-scans/$scanId/abandon', const {}, fallback: 'تعذّر ترك الجرد');
+
+  /// A scan and its lists: `{scan}`.
+  Future<Map<String, dynamic>> pieceScan(int scanId) => _getMap('/piece-scans/$scanId', fallback: 'تعذّر تحميل الجرد');
+
   // ── the sections (ADR-093 amendment) ─────────────────────────────────────
 
   /// The sections in their order, each with its categories: `{sections}`.
