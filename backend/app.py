@@ -546,6 +546,8 @@ from routes.purchase_receipts import purchase_receipts_bp
 app.register_blueprint(purchase_receipts_bp, url_prefix='/api')  # الاستلام قبل الفاتورة (ADR-087 R2)
 from routes.pieces import pieces_bp
 app.register_blueprint(pieces_bp, url_prefix='/api')  # محطة ترميز القطع (ADR-087 R3.4)
+from routes.piece_scans import piece_scans_bp
+app.register_blueprint(piece_scans_bp, url_prefix='/api')  # الجرد بالمسح (ADR-085 ت2)
 from routes.size_systems import size_systems_bp
 app.register_blueprint(size_systems_bp, url_prefix='/api')  # أنظمة المقاسات (ADR-093 M0)
 from routes.piece_models import piece_models_bp

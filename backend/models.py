@@ -2998,6 +2998,12 @@ class Settings(db.Model):
     # by the owner or the manager (ADR-087 §4; the owner, 8 Nov 2026: 0.10).
     receiving_weight_tolerance = db.Column(db.Float, nullable=False, default=0.10,
                                            server_default=db.text('0.10'))
+    # A count by scan is complete -- may be finished, its pieces not read
+    # said missing -- when this many presses in a row read no new tag, or the
+    # button is held this many seconds with none (ADR-085 ت2; the owner,
+    # 21 Nov 2026: 3 and 3). Policy: set here, read by services/piece_scan.
+    scan_quiet_presses = db.Column(db.Integer, nullable=False, default=3, server_default=db.text('3'))
+    scan_quiet_seconds = db.Column(db.Float, nullable=False, default=3.0, server_default=db.text('3.0'))
     # ترحيل القيود تلقائياً فور الحفظ
     auto_post_entries = db.Column(db.Boolean, default=True)
     # طلب موافقة قبل الترحيل (يؤثر على بوابات الاعتماد - below_cost/large_discount)
@@ -6305,6 +6311,100 @@ class StockCoding(db.Model):
     note = db.Column(db.String(200), nullable=True)
     created_at = db.Column(db.DateTime, nullable=False)
     created_by = db.Column(db.String(100), nullable=True)
+
+
+PIECE_SCAN_KINDS = ('opening', 'closing', 'check')
+PIECE_SCAN_STATES = ('open', 'finished', 'abandoned')
+
+
+class PieceScan(db.Model):
+    """A count of a location's pieces by their tags (ADR-085 ت2): for reading,
+    no entry, no stock moved. Its moment is its start -- the pieces expected
+    there and where every piece in stock was are its snapshot, and each read
+    is judged by it; its result frozen at its finish (§13)."""
+    __tablename__ = 'piece_scan'
+
+    id = db.Column(db.Integer, primary_key=True)
+    safe_box_id = db.Column(db.Integer, db.ForeignKey('safe_box.id', ondelete='RESTRICT'), nullable=False, index=True)
+    kind = db.Column(db.String(10), nullable=False)
+    status = db.Column(db.String(10), nullable=False, default='open', server_default='open')
+    started_by = db.Column(db.String(100), nullable=True)
+    started_at = db.Column(db.DateTime, nullable=False)
+    # The snapshot's other half: {piece id: its safe's id} -- every piece in
+    # stock elsewhere at the start (the location's own are the expected rows).
+    places = db.Column(db.JSON, nullable=False, default=dict)
+    presses = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    finished_by = db.Column(db.String(100), nullable=True)
+    finished_at = db.Column(db.DateTime, nullable=True)
+    # Set at its finish: the presses read nothing new (complete), or it was
+    # finished before, said so with its reason.
+    complete = db.Column(db.Boolean, nullable=True)
+    early_reason = db.Column(db.String(200), nullable=True)
+
+    __table_args__ = (
+        db.CheckConstraint("kind IN ('opening', 'closing', 'check')", name='ck_piece_scan_kind'),
+        db.CheckConstraint("status IN ('open', 'finished', 'abandoned')", name='ck_piece_scan_status'),
+    )
+
+
+class PieceScanEvent(db.Model):
+    """What the reader sent, as it came (ADR-085 ت2): a tag's value or a
+    printed code read, or its button pressed -- each with its press and its
+    time on the reader -- repeated as often as it came. For reviewing the
+    reader; the result is the reads'."""
+    __tablename__ = 'piece_scan_event'
+
+    id = db.Column(db.Integer, primary_key=True)
+    scan_id = db.Column(db.Integer, db.ForeignKey('piece_scan.id', ondelete='CASCADE'), nullable=False, index=True)
+    batch_key = db.Column(db.String(64), nullable=False)
+    kind = db.Column(db.String(10), nullable=False)           # 'read' | 'button'
+    value = db.Column(db.String(40), nullable=True)
+    press = db.Column(db.Integer, nullable=False)
+    at_ms = db.Column(db.Integer, nullable=False)              # from the reader's first, on the reader
+    received_at = db.Column(db.DateTime, nullable=False)
+
+    __table_args__ = (
+        db.CheckConstraint("kind IN ('read', 'button')", name='ck_piece_scan_event_kind'),
+        db.Index('ix_piece_scan_event_batch', 'scan_id', 'batch_key'),
+    )
+
+
+class PieceScanRead(db.Model):
+    """A value read in a scan, once (ADR-085 ت2): its first press and time;
+    at the finish its verdict and words frozen, and what moved since the
+    start. An attempt settled from the reader is written on it."""
+    __tablename__ = 'piece_scan_read'
+
+    id = db.Column(db.Integer, primary_key=True)
+    scan_id = db.Column(db.Integer, db.ForeignKey('piece_scan.id', ondelete='CASCADE'), nullable=False, index=True)
+    value = db.Column(db.String(40), nullable=False)
+    first_press = db.Column(db.Integer, nullable=False)
+    first_ms = db.Column(db.Integer, nullable=False)
+    item_id = db.Column(db.Integer, db.ForeignKey('item.id', ondelete='RESTRICT'), nullable=True)
+    verdict = db.Column(db.String(20), nullable=True)
+    words = db.Column(db.String(300), nullable=True)
+    moved = db.Column(db.String(200), nullable=True)
+    resolved_attempt_id = db.Column(db.Integer, db.ForeignKey('print_attempt.id', ondelete='RESTRICT'), nullable=True)
+    resolved_by = db.Column(db.String(100), nullable=True)
+    resolved_at = db.Column(db.DateTime, nullable=True)
+
+    __table_args__ = (db.UniqueConstraint('scan_id', 'value', name='uq_piece_scan_read_value'),)
+
+
+class PieceScanExpected(db.Model):
+    """A piece in the location at the scan's start (ADR-085 ت2): its verdict
+    at the finish -- found, missing (its tag not read in a complete scan),
+    unread (a scan finished before complete), untagged (no adopted tag to
+    read), or moved (its place changed in the books during the scan)."""
+    __tablename__ = 'piece_scan_expected'
+
+    id = db.Column(db.Integer, primary_key=True)
+    scan_id = db.Column(db.Integer, db.ForeignKey('piece_scan.id', ondelete='CASCADE'), nullable=False, index=True)
+    item_id = db.Column(db.Integer, db.ForeignKey('item.id', ondelete='RESTRICT'), nullable=False)
+    verdict = db.Column(db.String(20), nullable=True)
+    moved = db.Column(db.String(200), nullable=True)
+
+    __table_args__ = (db.UniqueConstraint('scan_id', 'item_id', name='uq_piece_scan_expected_item'),)
 
 
 class InventoryLedger(db.Model):

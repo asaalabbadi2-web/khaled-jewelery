@@ -982,7 +982,9 @@ def tag_state(value: str) -> dict:
         message = (f'رقاقة سُجّل إتلافها{said} (بإفادة {attempt.resolved_by}) وما زالت موجودة — أتلفها'
                    if attempt.resolution == 'destroyed' else f'رقاقة من محاولة لم تُعتمد{said} — أتلفها')
         return {'state': TAG_UNCONFIRMED, 'counted': False, 'item_id': piece.id, 'item_code': piece.item_code,
-                'generation': attempt.generation, 'resolution': attempt.resolution, 'message': message}
+                'generation': attempt.generation, 'resolution': attempt.resolution, 'message': message,
+                # its end still unknown: the reader that read it may settle it (ADR-085 ت2)
+                'attempt_id': attempt.id, 'unsettled': job.status == 'needs_attention' and attempt.finished_at is None}
     return {'state': TAG_UNKNOWN, 'counted': False, 'item_id': None, 'item_code': code,
             'generation': generation, 'message': f'رقاقة غير معروفة {value} — لا تُحتسب'}
 
