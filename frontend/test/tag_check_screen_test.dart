@@ -3,6 +3,7 @@
 // words; an unsettled attempt's tag settled here by that very value.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/api_service.dart';
 import 'package:frontend/screens/tag_check_screen.dart';
@@ -14,10 +15,12 @@ const _attempt = '4B4A00010000000000000301';
 
 class _Api extends ApiService {
   final resolved = <(int, Map<String, dynamic>)>[];
+  final asked = <String>[];
   bool settledOne = false;
 
   @override
   Future<Map<String, dynamic>> pieceByTag(String value) async {
+    asked.add(value);
     if (value == _active || (value == _attempt && settledOne)) {
       return {
         'piece': {'item_code': value == _active ? 'KJ-000101' : 'KJ-000301', 'weight': 12.40, 'stones_weight': 0.35,
@@ -44,11 +47,14 @@ class _Api extends ApiService {
   }
 }
 
+int _ms = 0;
+
 Future<void> _open(WidgetTester tester, _Api api) async {
+  _ms = 0;
   tester.view.physicalSize = const Size(390, 1400);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
-  await tester.pumpWidget(MaterialApp(theme: LightTheme.theme, home: TagCheckScreen(api: api)));
+  await tester.pumpWidget(MaterialApp(theme: LightTheme.theme, home: TagCheckScreen(api: api, elapsed: () => _ms)));
   await tester.pumpAndSettle();
 }
 
@@ -86,4 +92,80 @@ void main() {
     expect(api.resolved.single.$2, {'read_value': _attempt}, reason: 'the reader\'s value; the server matches it');
     expect(_said(tester, 'check-state-$_attempt'), 'رقاقة معتمدة — الجيل 0001');
   });
+
+  // ── each press its own check (the owner, 21 Nov 2026) ──
+
+  testWidgets('held on one label: the field never piles its codes, the label asked once', (tester) async {
+    final api = _Api();
+    await _open(tester, api);
+    final field = find.byKey(const Key('check-field'));
+    for (var i = 0; i < 4; i++) {
+      // a one-line field takes no Enter: the reader's codes would follow one another
+      await tester.enterText(field, '${tester.widget<TextField>(field).controller!.text}$_active');
+      await tester.pump();
+      expect(tester.widget<TextField>(field).controller!.text, isEmpty, reason: 'emptied after each code taken');
+      expect(find.text('آخر قراءة: $_active · الضغطة 1'), findsOneWidget, reason: 'what was read said under it');
+    }
+    await tester.pumpAndSettle();
+    expect(api.asked, [_active], reason: 'one press, one label, asked once');
+    expect(find.byKey(const Key('check-$_active')), findsOneWidget);
+  });
+
+  testWidgets('a new press empties the screen: the next label alone', (tester) async {
+    final api = _Api();
+    await _open(tester, api);
+    await _read(tester, _active);
+    _ms = 2000;
+    await _read(tester, _stopped);
+    expect(find.byKey(const Key('check-$_active')), findsNothing, reason: 'the last press\'s label gone');
+    expect(find.byKey(const Key('check-$_stopped')), findsOneWidget);
+  });
+
+  testWidgets('the reader\'s button alone empties it, and «مسح» does', (tester) async {
+    final api = _Api();
+    await _open(tester, api);
+    await _read(tester, _active);
+    _ms = 2000;
+    await tester.sendKeyEvent(LogicalKeyboardKey.f12);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('check-$_active')), findsNothing, reason: 'one press of the button: ready for another piece');
+    _ms = 4000;
+    await _read(tester, _active);
+    expect(find.byKey(const Key('check-$_active')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('check-clear')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('check-$_active')), findsNothing);
+  });
+
+  // ── «استقبال القارئ» (the owner, 21 Nov 2026) ──
+
+  testWidgets('the receiver says whether the reader is heard; a tap on it hears it again', (tester) async {
+    await _open(tester, _Api());
+    String state() => tester.widget<Text>(find.byKey(const Key('reader-receiver-state'))).data!;
+    expect(state(), 'القارئ جاهز — اضغط زرّه', reason: 'its field focused on opening');
+    tester
+        .widget<EditableText>(find.descendant(of: find.byKey(const Key('check-field')), matching: find.byType(EditableText)))
+        .focusNode
+        .unfocus();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));     // its focus changed, the panel redrawn -- before it is taken back
+    expect(state(), 'اضغط هنا ليستقبل القارئ', reason: 'nothing comes in while it is not focused: said');
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pumpAndSettle();
+    expect(state(), 'القارئ جاهز — اضغط زرّه', reason: 'its focus lost after a read on the reader: taken back by itself');
+    await tester.tap(find.byKey(const Key('reader-receiver')));
+    await tester.pumpAndSettle();
+    expect(state(), 'القارئ جاهز — اضغط زرّه');
+  });
+
+  testWidgets('its field opens no keyboard, is not seen, and the last read is said on the panel', (tester) async {
+    await _open(tester, _Api());
+    final field = tester.widget<TextField>(find.byKey(const Key('check-field')));
+    expect(field.keyboardType, TextInputType.none, reason: 'the reader types; the screen needs no keyboard');
+    final hidden = tester.widget<Opacity>(find.ancestor(of: find.byKey(const Key('check-field')), matching: find.byType(Opacity)).first);
+    expect(hidden.opacity, 0);
+    await _read(tester, _active);
+    expect(tester.widget<Text>(find.byKey(const Key('reader-receiver-last'))).data, 'آخر قراءة: $_active · الضغطة 1');
+  });
 }
+

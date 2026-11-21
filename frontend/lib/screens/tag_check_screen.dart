@@ -5,15 +5,24 @@ import '../theme/app_semantic_colors.dart';
 import '../utils/currency_utils.dart' show formatGrams;
 import '../widgets/app_feedback.dart';
 import '../widgets/reader_capture.dart';
+import '../widgets/reader_receiver.dart';
 
 /// «تحقّق من بطاقة» on the handheld reader (ADR-085 ت2 ج2): one label read --
 /// its tag, or its printed code -- and what it is to the server: its piece,
 /// its facts, where the books have it, its tag's state and generation. A tag
 /// of a print attempt whose end is not known is settled here by that very
 /// reading (ADR-097 law 10); the server matches it. Nothing else is written.
+///
+/// Each press of the reader is a check of its own (the owner, 21 Nov 2026):
+/// a new press empties the screen and shows what that press read -- a label
+/// held under the reader is asked once, however often it is read -- and
+/// «مسح» empties it by hand.
 class TagCheckScreen extends StatefulWidget {
-  const TagCheckScreen({super.key, this.api});
+  const TagCheckScreen({super.key, this.api, this.elapsed});
   final ApiService? api;
+
+  /// Milliseconds on the reader -- a stopwatch unless given (a test's).
+  final int Function()? elapsed;
 
   @override
   State<TagCheckScreen> createState() => _TagCheckScreenState();
@@ -30,10 +39,14 @@ typedef TagCheck = ({
 
 class _TagCheckScreenState extends State<TagCheckScreen> {
   late final ApiService _api = widget.api ?? ApiService();
-  late final ReaderCapture _capture = ReaderCapture(onEvents: _took, clearAfterRead: true);
+  late final ReaderCapture _capture = ReaderCapture(onEvents: _took, elapsed: widget.elapsed, clearAfterRead: true);
   final _focus = FocusNode();
   final List<TagCheck> _checks = [];
-  bool _asking = false;
+
+  /// The press shown, and the values it read -- each asked once.
+  int? _press;
+  final Set<String> _asked = {};
+  int _asking = 0;
 
   @override
   void initState() {
@@ -48,16 +61,33 @@ class _TagCheckScreenState extends State<TagCheckScreen> {
     super.dispose();
   }
 
-  /// The last value read is the one asked: a label checked is one label.
+  /// A new press empties the screen; each value of the press shown is asked once.
   void _took(List<ReaderEvent> events) {
-    final reads = events.where((e) => e.kind == 'read').toList();
-    if (reads.isEmpty) return;
-    _ask(reads.last.value!);
+    for (final e in events) {
+      if (e.press != _press) {
+        _press = e.press;
+        setState(() {
+          _checks.clear();
+          _asked.clear();
+        });
+      }
+      final value = e.value;
+      if (e.kind == 'read' && value != null && _asked.add(value)) _ask(value);
+    }
+  }
+
+  void _clear() {
+    setState(() {
+      _checks.clear();
+      _asked.clear();
+      _capture.field.clear();
+    });
+    _focus.requestFocus();
   }
 
   Future<void> _ask(String value) async {
-    if (_asking) return;
-    setState(() => _asking = true);
+    final press = _press;
+    setState(() => _asking++);
     TagCheck check;
     try {
       final body = value.startsWith('KJ-') ? await _api.lookupPiece(value) : await _api.pieceByTag(value);
@@ -75,9 +105,9 @@ class _TagCheckScreenState extends State<TagCheckScreen> {
     }
     if (!mounted) return;
     setState(() {
-      _checks.insert(0, check);
-      if (_checks.length > 5) _checks.removeLast();
-      _asking = false;
+      _asking--;
+      // an answer for a press already gone is not shown on the next one
+      if (press == _press && _asked.contains(value)) _checks.add(check);
     });
   }
 
@@ -89,6 +119,7 @@ class _TagCheckScreenState extends State<TagCheckScreen> {
       if (!mounted) return;
       AppFeedback.success(context, 'اعتُمدت البطاقة');
       setState(() => _checks.remove(check));
+      _asked.add(check.value);
       await _ask(check.value);
     } catch (e) {
       if (mounted) AppFeedback.error(context, e);
@@ -101,21 +132,24 @@ class _TagCheckScreenState extends State<TagCheckScreen> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        appBar: AppBar(title: const Text('تحقّق من بطاقة')),
+        appBar: AppBar(
+          title: const Text('تحقّق من بطاقة'),
+          actions: [
+            TextButton.icon(
+              key: const Key('check-clear'),
+              style: TextButton.styleFrom(foregroundColor: Theme.of(context).appBarTheme.foregroundColor),
+              onPressed: _clear,
+              icon: const Icon(Icons.clear_all),
+              label: const Text('مسح'),
+            ),
+          ],
+        ),
         body: ListView(padding: const EdgeInsets.all(16), children: [
-          Text('اضغط في الحقل، ثم اقرأ بطاقة واحدة بالقارئ: رقاقتها أو رمزها المطبوع.', style: theme.textTheme.bodyMedium),
+          Text('اقرأ بطاقة بالقارئ: رقاقتها أو رمزها المطبوع. كل ضغطة جديدة تبدأ فحصًا جديدًا.',
+              style: theme.textTheme.bodyMedium),
           const SizedBox(height: 8),
-          TextField(
-            key: const Key('check-field'),
-            controller: _capture.field,
-            focusNode: _focus,
-            autofocus: true,
-            maxLines: 1,
-            textDirection: TextDirection.ltr,
-            decoration: const InputDecoration(labelText: 'ما يكتبه القارئ', isDense: true),
-            onChanged: _capture.typed,
-          ),
-          if (_asking) const Padding(padding: EdgeInsets.all(12), child: LinearProgressIndicator()),
+          ReaderReceiver(capture: _capture, focusNode: _focus, fieldKey: const Key('check-field')),
+          if (_asking > 0) const Padding(padding: EdgeInsets.all(12), child: LinearProgressIndicator()),
           const SizedBox(height: 12),
           for (final c in _checks) _card(context, c),
         ]),

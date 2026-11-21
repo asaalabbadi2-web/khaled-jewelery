@@ -183,6 +183,7 @@ void main() {
     expect(api.batches.single.key, isNotEmpty);
     expect(tester.widget<TextField>(find.byKey(const Key('scan-field'))).controller!.text, isEmpty,
         reason: 'a long count never grows its field');
+    expect(find.text('آخر قراءة: $_ring · الضغطة 1'), findsOneWidget, reason: 'the field emptied, what was read said');
     expect((_said(tester, 'scan-found'), _said(tester, 'scan-alerts')), ('1 من 2', '1'));
     expect(find.text('في غير موقعها'), findsOneWidget);
     expect(find.textContaining('العرض الخارجي'), findsOneWidget);
@@ -280,5 +281,23 @@ void main() {
     expect(api.settled, [1], reason: 'the read the reader made, by its id: nothing typed');
     expect(find.byKey(const Key('scan-settle-$_attempt')), findsNothing, reason: 'settled: found, no button');
   });
-}
 
+  testWidgets('a dialog over the scan: the reader\'s panel does not take the focus back from it', (tester) async {
+    final api = _Api();
+    await _open(tester, api);
+    await _startSection(tester);
+    FocusNode panel() => tester
+        .widget<EditableText>(find.descendant(of: find.byKey(const Key('scan-field')), matching: find.byType(EditableText)))
+        .focusNode;
+    await tester.tap(find.byKey(const Key('scan-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('scan-early')));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(panel().hasFocus, isFalse, reason: 'the reason\'s dialog is over it: its field is the dialog\'s');
+    await tester.tap(find.text('رجوع'));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(panel().hasFocus, isTrue, reason: 'the dialog gone: the panel hears the reader again');
+  });
+}

@@ -29,7 +29,9 @@ class ReaderCapture {
   /// Milliseconds from the first event -- a stopwatch unless given (a test's).
   final int Function()? elapsed;
 
-  /// A long count's field emptied after each value taken, so it never grows.
+  /// The field emptied after each value taken, so it never grows: what follows
+  /// the last value kept -- not waiting for Enter, which a one-line field
+  /// never takes (the owner, 21 Nov 2026: «الحقل يكدّس الأكواد»).
   final bool clearAfterRead;
 
   final TextEditingController field = TextEditingController();
@@ -42,6 +44,14 @@ class ReaderCapture {
   /// The presses so far, and the button's own (F12): a key held is one press.
   int get press => _press;
   int buttonPresses = 0;
+
+  /// The last value taken and its press -- said under an emptied field, so the
+  /// coder sees what the reader read (the owner, 21 Nov 2026).
+  String? lastValue;
+  int? lastPress;
+
+  /// «آخر قراءة: … · الضغطة n», or null before the first.
+  String? get lastWords => lastValue == null ? null : 'آخر قراءة: $lastValue · الضغطة $lastPress';
 
   int get _now {
     if (!_since.isRunning) _since.start();
@@ -90,8 +100,11 @@ class ReaderCapture {
         ),
     ];
     _taken = found.length;
-    if (clearAfterRead && upper.endsWith('\n')) {
-      field.clear();
+    lastValue = events.last.value;
+    lastPress = press;
+    if (clearAfterRead) {
+      final rest = upper.substring(found.last.end).replaceFirst(RegExp(r'^\s+'), '');
+      field.value = TextEditingValue(text: rest, selection: TextSelection.collapsed(offset: rest.length));
       _taken = 0;
     }
     onEvents(events);
@@ -105,6 +118,8 @@ class ReaderCapture {
     _lastEvent = null;
     _lastButton = null;
     buttonPresses = 0;
+    lastValue = null;
+    lastPress = null;
     _since
       ..stop()
       ..reset();

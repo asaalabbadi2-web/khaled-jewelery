@@ -9,6 +9,7 @@ import '../widgets/app_feedback.dart';
 import '../widgets/app_state_views.dart';
 import '../widgets/piece_scan_result.dart';
 import '../widgets/reader_capture.dart';
+import '../widgets/reader_receiver.dart';
 
 /// «جرد بالمسح» on the handheld reader (ADR-085 ت2 ج1; the owner, 21 Nov 2026).
 ///
@@ -410,16 +411,7 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
               key: const Key('scan-offline'), style: TextStyle(color: tones.blocked.fg)),
         ),
       const SizedBox(height: 8),
-      TextField(
-        key: const Key('scan-field'),
-        controller: _capture!.field,
-        focusNode: _focus,
-        autofocus: true,
-        maxLines: 2,
-        textDirection: TextDirection.ltr,
-        decoration: const InputDecoration(labelText: 'ما يكتبه القارئ (اضغط هنا ثم امسح)', isDense: true),
-        onChanged: _capture!.typed,
-      ),
+      ReaderReceiver(capture: _capture!, focusNode: _focus, fieldKey: const Key('scan-field')),
       const SizedBox(height: 12),
       FilledButton.icon(
         key: const Key('scan-finish'),
