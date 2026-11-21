@@ -374,7 +374,8 @@ class SocketPrinter:
         self.server.listen(4)
         self.port = self.server.getsockname()[1]
         self.received = []
-        threading.Thread(target=self._serve, daemon=True).start()
+        self.thread = threading.Thread(target=self._serve, daemon=True)
+        self.thread.start()
 
     def _serve(self):
         while True:
@@ -389,7 +390,15 @@ class SocketPrinter:
                 conn.sendall((f'EPC={found.group(1)}\r\n' if found else READY).encode())
 
     def close(self):
+        # shutdown before close (21 Nov 2026): on Linux a close alone leaves the
+        # thread blocked in accept() with the port still listening -- it went on
+        # answering READY in CI; on macOS the close alone stops it
+        try:
+            self.server.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
         self.server.close()
+        self.thread.join(timeout=2)
 
 
 def test_the_link_reads_a_printers_status_and_tag():

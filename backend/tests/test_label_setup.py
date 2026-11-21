@@ -39,7 +39,8 @@ class Printer:
         self.server.bind(('127.0.0.1', 0))
         self.server.listen(8)
         self.port = self.server.getsockname()[1]
-        threading.Thread(target=self._serve, daemon=True).start()
+        self.thread = threading.Thread(target=self._serve, daemon=True)
+        self.thread.start()
 
     def _serve(self):
         while True:
@@ -68,7 +69,15 @@ class Printer:
                     conn.sendall(b'- DIR E:CAIRO.* \r\n* E:CAIRO.TTF    164632\r\n')
 
     def close(self):
+        # shutdown before close (21 Nov 2026): on Linux a close alone leaves the
+        # thread blocked in accept() with the port still listening -- it went on
+        # answering READY in CI; on macOS the close alone stops it
+        try:
+            self.server.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
         self.server.close()
+        self.thread.join(timeout=2)
 
 
 def _client(auth_headers):
