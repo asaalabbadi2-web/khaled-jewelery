@@ -1130,6 +1130,25 @@ def _last_exits(item_ids) -> dict:
             for item_id, (when, ref_type, ref_id) in last.items()}
 
 
+EXITS = {'sold': 'بيعت', 'returned_to_supplier': 'أُرجعت للمورد', 'out': 'خرجت'}
+
+
+def out_of_stock(piece: Item) -> dict | None:
+    """How a piece no longer held left -- {state, date, words}, the words
+    «ليست في المخزون — بيعت <day>» -- or None while it is held. What a reader
+    says of it, in a count by scan and in «تحقّق من بطاقة» alike (the owner,
+    21 Nov 2026)."""
+    if piece_held(piece.id) > GRAM:
+        return None
+    exit_ = _last_exits([piece.id]).get(piece.id)
+    if exit_ is None:
+        return {'state': 'out', 'date': None, 'words': 'ليست في المخزون'}
+    when, state = exit_
+    day = f'{when:%Y-%m-%d}' if when else None
+    went = f' — {EXITS[state]}' + (f' {day}' if day else '')
+    return {'state': state, 'date': day, 'words': f'ليست في المخزون{went}'}
+
+
 def _received_view(piece: Item) -> dict | None:
     """Where the piece was born: its receipt (date, document, supplier) or its batch of stock."""
     from models import Supplier

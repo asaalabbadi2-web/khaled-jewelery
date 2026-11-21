@@ -31,7 +31,7 @@ import re
 
 from models import (Category, Item, ItemSection, PieceScan, PieceScanEvent, PieceScanExpected, PieceScanRead,
                     SafeBox, Settings, db)
-from services.pieces import (_last_exits, active_tag, stock_pieces, tag_state)
+from services.pieces import (EXITS, _last_exits, active_tag, out_of_stock, stock_pieces, tag_state)
 
 KINDS = {'opening': 'جرد فتح', 'closing': 'جرد إغلاق', 'check': 'تحقّق'}
 NOT_A_SCAN_LOCATION = ('deposit',)          # an office's deposit is not the shop's stock (ADR-052)
@@ -47,7 +47,6 @@ WORDS = {
     UNCONFIRMED: 'محاولة لم تُعتمد', UNKNOWN: 'ليست من رموزنا', OTHER_SCOPE: 'من نطاق آخر', MISSING: 'ناقصة',
     UNREAD: 'لم تُقرأ (مسح غير مكتمل)', UNTAGGED: 'بلا رقاقة معتمدة', MOVED: 'تحرّكت أثناء الجرد',
 }
-EXITS = {'sold': 'بيعت', 'returned_to_supplier': 'أُرجعت للمورد', 'out': 'خرجت'}
 
 
 class ScanRefused(ValueError):
@@ -175,9 +174,8 @@ def _placed(scan, piece, expected, *, how) -> dict:
     if place != 'out':
         return {**said, 'verdict': ELSEWHERE,
                 'words': f'{piece.item_code} — مكانها في الدفاتر «{_safe_name(place)}»{suffix}'}
-    exit_ = _last_exits([piece.id]).get(piece.id)
-    went = f' — {EXITS.get(exit_[1], "خرجت")} {exit_[0]:%Y-%m-%d}' if exit_ else ''
-    return {**said, 'verdict': OUT, 'words': f'{piece.item_code} — ليست في المخزون{went}{suffix}'}
+    out = out_of_stock(piece) or {'words': 'ليست في المخزون'}
+    return {**said, 'verdict': OUT, 'words': f'{piece.item_code} — {out["words"]}{suffix}'}
 
 
 # ── the reads, as they come ──────────────────────────────────────────────────

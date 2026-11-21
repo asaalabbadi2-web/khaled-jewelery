@@ -26,11 +26,13 @@ PATCH /api/pieces/<id>            -- its words (ADR-093 §5): name, description,
      model_id, size_id -- recorded; its book facts stay.
 GET  /api/pieces/lookup?code=     -- a piece by its number: its view and
      where it is (the transfer screen, R3.6; the sale's input) -- its number
-     as typed, «1» or «١» or «KJ-000001» (services/pieces.piece_code).
+     as typed, «1» or «١» or «KJ-000001» (services/pieces.piece_code);
+     «out»: how it left when it is not held (services/pieces.out_of_stock).
 POST /api/pieces/<id>/print-jobs  -- its label printed and its tag written,
      read back and adopted (ADR-097): no tag is mounted by a press of a button
      -- the routes that did (/tag, /tag/replace) are gone (law 3).
-GET  /api/pieces/by-tag/<value>   -- the piece a reader read.
+GET  /api/pieces/by-tag/<value>   -- the piece a reader read, and «out» as
+     the lookup's: «ليست في المخزون — بيعت <day>».
 GET  /api/stock-codings/free      -- what a location holds of a category not
      yet pieced nor promised to an open batch (safe_box_id, category_id).
 GET  /api/wage-pools/cost         -- a category's wage cost a gram now, its
@@ -221,27 +223,27 @@ def piece_words(piece_id: int):
 @pieces_bp.route('/pieces/lookup', methods=['GET'])
 @require_permission('items.view')
 def piece_lookup():
-    from services.pieces import is_piece, piece_by_code, piece_code, piece_location
+    from services.pieces import is_piece, out_of_stock, piece_by_code, piece_code, piece_location
     typed = (request.args.get('code') or '').strip()
     piece = piece_by_code(typed) if typed else None
     if not is_piece(piece):
         return jsonify({'error': 'piece_unknown', 'message': f'لا قطعة بالرقم {piece_code(typed) or typed.upper()}'}), 404
     where = piece_location(piece)
-    return jsonify({'piece': piece_view(piece),
+    return jsonify({'piece': piece_view(piece), 'out': out_of_stock(piece),
                     'location': {'id': where.id, 'name': where.name} if where is not None else None}), 200
 
 
 @pieces_bp.route('/pieces/by-tag/<value>', methods=['GET'])
 @require_permission('items.view')
 def piece_by_tag_route(value: str):
-    from services.pieces import piece_by_tag, piece_location, tag_state
+    from services.pieces import out_of_stock, piece_by_tag, piece_location, tag_state
     piece = piece_by_tag(value)
     if piece is None:
         # A stopped tag, an attempt's never confirmed, or unknown: said, not a piece (ADR-097 §2).
         state = tag_state(value)
         return jsonify({'error': f'tag_{state["state"]}', 'message': state['message'], 'tag': state}), 404
     where = piece_location(piece)
-    return jsonify({'piece': piece_view(piece), 'tag': tag_state(value),
+    return jsonify({'piece': piece_view(piece), 'tag': tag_state(value), 'out': out_of_stock(piece),
                     'location': {'id': where.id, 'name': where.name} if where is not None else None}), 200
 
 

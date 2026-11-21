@@ -12,6 +12,7 @@ import 'package:frontend/theme/app_theme.dart';
 const _active = '4B4A00020000000000000101';
 const _stopped = '4B4A00010000000000000101';
 const _attempt = '4B4A00010000000000000301';
+const _sold = '4B4A00010000000000000401';
 
 class _Api extends ApiService {
   final resolved = <(int, Map<String, dynamic>)>[];
@@ -27,6 +28,14 @@ class _Api extends ApiService {
                   'stones_kind': 'as_gold', 'in_stock': true, 'model': {'name': 'بنجرة الشمس'}, 'size': null},
         'tag': {'state': 'active', 'generation': value == _active ? 2 : 1},
         'location': {'name': 'الذهب المعروض'},
+      };
+    }
+    if (value == _sold) {
+      return {
+        'piece': {'item_code': 'KJ-000401', 'weight': 9.10, 'stones_weight': 0, 'in_stock': false},
+        'tag': {'state': 'active', 'generation': 1},
+        'location': null,
+        'out': {'state': 'sold', 'date': '2026-11-21', 'words': 'ليست في المخزون — بيعت 2026-11-21'},
       };
     }
     if (value == _stopped) {
@@ -73,6 +82,14 @@ void main() {
     expect(_said(tester, 'check-state-$_active'), 'رقاقة معتمدة — الجيل 0002');
     expect(find.text('12.40 جم · فصوص 0.35 جم · بنجرة الشمس'), findsOneWidget);
     expect(_said(tester, 'check-place-$_active'), 'مكانها في الدفاتر: الذهب المعروض');
+  });
+
+  testWidgets('a sold piece: how it left, in the server\'s words, and not shown as ready', (tester) async {
+    await _open(tester, _Api());
+    await _read(tester, _sold);
+    expect(find.text('KJ-000401'), findsOneWidget);
+    expect(_said(tester, 'check-place-$_sold'), 'ليست في المخزون — بيعت 2026-11-21');
+    expect(find.byIcon(Icons.verified_outlined), findsNothing, reason: 'a piece sold is not a piece found');
   });
 
   testWidgets('a stopped tag is said in the server\'s words, nothing to settle', (tester) async {

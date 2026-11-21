@@ -35,6 +35,10 @@ typedef TagCheck = ({
   Map<String, dynamic>? tag,
   String? place,
   String? words,
+
+  /// How it left when it is not held -- «ليست في المخزون — بيعت <day>», the
+  /// server's words, the count by scan's too.
+  String? out,
 });
 
 class _TagCheckScreenState extends State<TagCheckScreen> {
@@ -97,11 +101,13 @@ class _TagCheckScreenState extends State<TagCheckScreen> {
         tag: body['tag'] as Map<String, dynamic>?,
         place: (body['location'] as Map?)?['name']?.toString(),
         words: null,
+        out: (body['out'] as Map?)?['words']?.toString(),
       );
     } on ApiException catch (e) {
-      check = (value: value, piece: null, tag: e.details['tag'] as Map<String, dynamic>?, place: null, words: e.message);
+      check = (value: value, piece: null, tag: e.details['tag'] as Map<String, dynamic>?, place: null, words: e.message,
+          out: null);
     } catch (_) {
-      check = (value: value, piece: null, tag: null, place: null, words: 'تعذّر سؤال الخادم');
+      check = (value: value, piece: null, tag: null, place: null, words: 'تعذّر سؤال الخادم', out: null);
     }
     if (!mounted) return;
     setState(() {
@@ -162,8 +168,9 @@ class _TagCheckScreenState extends State<TagCheckScreen> {
     final tones = AppSemanticColors.of(context);
     final state = c.tag?['state'] as String?;
     final adopted = c.piece != null && (state == null || state == 'active');
-    final tone = adopted ? tones.ready : tones.warning;
     final piece = c.piece;
+    final held = piece?['in_stock'] != false;                        // a piece sold is not a piece found
+    final tone = adopted && held ? tones.ready : tones.warning;
     final unsettled = state == 'unconfirmed' && c.tag?['unsettled'] == true;
     final generation = c.tag?['generation'];
     return Card(
@@ -172,7 +179,7 @@ class _TagCheckScreenState extends State<TagCheckScreen> {
         padding: const EdgeInsets.all(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Row(children: [
-            Icon(adopted ? Icons.verified_outlined : Icons.help_outline, color: tone.fg),
+            Icon(adopted && held ? Icons.verified_outlined : Icons.help_outline, color: tone.fg),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -203,9 +210,7 @@ class _TagCheckScreenState extends State<TagCheckScreen> {
               if (piece['size'] != null) 'مقاس ${(piece['size'] as Map)['label']}',
             ].join(' · ')),
             Text(
-              piece['in_stock'] == false
-                  ? 'ليست في المخزون'
-                  : 'مكانها في الدفاتر: ${c.place ?? 'أكثر من موقع'}',
+              !held ? (c.out ?? 'ليست في المخزون') : 'مكانها في الدفاتر: ${c.place ?? 'أكثر من موقع'}',
               key: Key('check-place-${c.value}'),
             ),
           ],
