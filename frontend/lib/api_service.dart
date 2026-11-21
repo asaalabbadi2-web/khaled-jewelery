@@ -5823,6 +5823,30 @@ class ApiService {
   Future<Map<String, dynamic>> labelPrinterAction(int printerId, String action) =>
       _postJson('/label-printers/$printerId/$action', const {}, fallback: 'تعذّر الوصول إلى الطابعة');
 
+  // ── the sections (ADR-093 amendment) ─────────────────────────────────────
+
+  /// The sections in their order, each with its categories: `{sections}`.
+  Future<Map<String, dynamic>> itemSections() => _getMap('/item-sections', fallback: 'تعذّر تحميل الأقسام');
+
+  /// Each category that may have a section, its section and the name
+  /// suggested: `{categories}`.
+  Future<Map<String, dynamic>> itemSectionSuggestions() =>
+      _getMap('/item-sections/suggestions', fallback: 'تعذّر تحميل اقتراح الأقسام');
+
+  /// [{category_id, section_name}] saved at once; each named section made
+  /// once, an empty name takes its section away: `{sections}`.
+  Future<Map<String, dynamic>> assignItemSections(List<Map<String, dynamic>> assignments) =>
+      _postJson('/item-sections/assign', {'assignments': assignments}, fallback: 'تعذّر حفظ الأقسام');
+
+  /// A section renamed, ordered, stopped or restarted: `{section}`.
+  Future<Map<String, dynamic>> updateItemSection(int id, Map<String, dynamic> body) =>
+      _sizeSystemWrite(() => _authedPatch(Uri.parse('$_baseUrl/item-sections/$id'), body: json.encode(body)),
+          'تعذّر تعديل القسم');
+
+  /// A section no category is in, deleted.
+  Future<Map<String, dynamic>> deleteItemSection(int id) =>
+      _sizeSystemWrite(() => _authedDelete(Uri.parse('$_baseUrl/item-sections/$id')), 'تعذّر حذف القسم');
+
   /// A tag's value a reader read (ADR-097 §2): `{piece, location}` for an
   /// active tag; else an ApiException whose words say it -- stopped, an
   /// attempt's never adopted, destroyed and still here, or unknown.

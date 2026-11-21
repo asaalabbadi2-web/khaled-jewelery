@@ -816,9 +816,25 @@ class Customer(db.Model):
     def to_dict_with_account(self):
         return self.to_dict()
 
-def _category_group_name(name, karat):
-    from services.categories import group_name
-    return group_name(name, karat)
+def _section_name(section_id):
+    section = db.session.get(ItemSection, section_id) if section_id else None
+    return section.name if section is not None else None
+
+
+class ItemSection(db.Model):
+    """A section of the shop's goods (ADR-093 amendment; the owner, 21 Nov
+    2026): the kind with no karat, over its categories -- «أساور» over «سوار
+    ذهب 18» and «سوار ذهب 21» and «سوار ذهب (دائري) 21». A grouping only: no
+    balance, no posting -- its figures are its categories'. A count by scan
+    may be of one section (ADR-085 ت2)."""
+    __tablename__ = 'item_section'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(60), nullable=False, unique=True)
+    sort_order = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    is_active = db.Column(db.Boolean, nullable=False, default=True, server_default=db.true())
+    created_at = db.Column(db.DateTime, nullable=False)
+    created_by = db.Column(db.String(100), nullable=True)
 
 
 class Attachment(db.Model):
@@ -926,6 +942,11 @@ class Category(db.Model):
     # The size system its pieces' sizes come from, or none (ADR-093 §2).
     size_system_id = db.Column(db.Integer, db.ForeignKey('size_system.id', ondelete='RESTRICT'), nullable=True,
                                index=True)
+    # Its section (ADR-093 amendment, the owner, 21 Nov 2026): the kind with no
+    # karat -- «أساور» over «سوار ذهب 18» and «سوار ذهب 21». A grouping only:
+    # no balance, no posting; set by the owner (services/item_sections).
+    section_id = db.Column(db.Integer, db.ForeignKey('item_section.id', ondelete='RESTRICT'), nullable=True,
+                           index=True)
 
     # العلاقة مع الأصناف
     items = db.relationship('Item', backref='category', lazy=True)
@@ -943,7 +964,8 @@ class Category(db.Model):
             'is_scrap': bool(self.is_scrap),
             'tracking': self.tracking or 'weight',
             'size_system_id': self.size_system_id,
-            'group_name': _category_group_name(self.name, self.karat),
+            'section_id': self.section_id,
+            'section_name': _section_name(self.section_id),
         }
 
 

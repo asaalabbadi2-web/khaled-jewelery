@@ -461,6 +461,14 @@ def update_category(category_id):
     except PieceRefused as refused:
         db.session.rollback()
         return jsonify({'error': refused.code, 'message': refused.message}), 400
+    # its section (ADR-093 amendment) -- its law the sections'
+    if 'section_id' in data:
+        from services.item_sections import SectionRefused, set_category_section
+        try:
+            set_category_section(category, data['section_id'])
+        except SectionRefused as refused:
+            db.session.rollback()
+            return jsonify({'error': refused.code, 'message': refused.message}), 400
     # the size system its pieces' sizes come from (ADR-093 §2) -- its law the sizes'
     if 'size_system_id' in data:
         from services.size_systems import SizeRefused, set_category_system
@@ -484,6 +492,96 @@ def delete_category(category_id):
     db.session.delete(category)
     db.session.commit()
     return jsonify({'message': 'تم حذف التصنيف بنجاح'})
+
+# ── the sections (ADR-093 amendment; the owner, 21 Nov 2026) ────────────────
+
+def _by():
+    from flask import g
+    return getattr(getattr(g, 'current_user', None), 'username', None) or 'system'
+
+
+def _section_refused(refused):
+    db.session.rollback()
+    return jsonify({'error': refused.code, 'message': refused.message}), (409 if refused.code in (
+        'section_exists', 'section_in_use') else 400)
+
+
+@catalog_bp.route('/item-sections', methods=['GET'])
+@require_permission('items.view')
+def item_sections_get():
+    """The sections in their order, each with its categories."""
+    from services.item_sections import sections
+    return jsonify({'sections': sections()}), 200
+
+
+@catalog_bp.route('/item-sections/suggestions', methods=['GET'])
+@require_permission('items.edit')
+def item_sections_suggestions():
+    """Each category that may have a section: its section, and the name suggested."""
+    from services.item_sections import suggestions
+    return jsonify({'categories': suggestions()}), 200
+
+
+@catalog_bp.route('/item-sections', methods=['POST'])
+@require_permission('items.edit')
+def item_section_create():
+    from services.item_sections import SectionRefused, create_section, sections
+    data = request.get_json(silent=True) or {}
+    try:
+        section = create_section(data.get('name'), sort_order=data.get('sort_order'), by=_by(), now=datetime.now())
+    except SectionRefused as refused:
+        return _section_refused(refused)
+    db.session.commit()
+    return jsonify({'section': next(s for s in sections() if s['id'] == section.id)}), 201
+
+
+@catalog_bp.route('/item-sections/assign', methods=['POST'])
+@require_permission('items.edit')
+def item_sections_assign():
+    """[{category_id, section_name}] saved at once; each named section made once."""
+    from services.item_sections import SectionRefused, assign
+    data = request.get_json(silent=True) or {}
+    try:
+        result = assign(data.get('assignments'), by=_by(), now=datetime.now())
+    except SectionRefused as refused:
+        return _section_refused(refused)
+    db.session.commit()
+    return jsonify({'sections': result}), 200
+
+
+@catalog_bp.route('/item-sections/<int:section_id>', methods=['PATCH'])
+@require_permission('items.edit')
+def item_section_update(section_id: int):
+    from models import ItemSection
+    from services.item_sections import SectionRefused, sections, update_section
+    section = db.session.get(ItemSection, section_id)
+    if section is None:
+        return jsonify({'error': 'section_not_found', 'message': 'القسم غير موجود'}), 404
+    data = request.get_json(silent=True) or {}
+    try:
+        update_section(section, name=data.get('name'), sort_order=data.get('sort_order'),
+                       is_active=data.get('is_active') if 'is_active' in data else None)
+    except SectionRefused as refused:
+        return _section_refused(refused)
+    db.session.commit()
+    return jsonify({'section': next(s for s in sections() if s['id'] == section.id)}), 200
+
+
+@catalog_bp.route('/item-sections/<int:section_id>', methods=['DELETE'])
+@require_permission('items.delete')
+def item_section_delete(section_id: int):
+    from models import ItemSection
+    from services.item_sections import SectionRefused, delete_section
+    section = db.session.get(ItemSection, section_id)
+    if section is None:
+        return jsonify({'error': 'section_not_found', 'message': 'القسم غير موجود'}), 404
+    try:
+        delete_section(section)
+    except SectionRefused as refused:
+        return _section_refused(refused)
+    db.session.commit()
+    return jsonify({'message': 'حُذف القسم'}), 200
+
 
 @catalog_bp.route('/category-weight/balances', methods=['GET'])
 @require_permission('items.view')

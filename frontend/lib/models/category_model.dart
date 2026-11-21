@@ -16,7 +16,9 @@ class Category {
   final bool isScrap;
 
   /// Derived from the name by the server (the name without its karat).
-  final String? groupName;
+  /// Its section: the kind with no karat (ADR-093 amendment) -- none until set.
+  final int? sectionId;
+  final String? sectionName;
 
   /// 'weight' or 'piece' -- its gold coded piece by piece (ADR-087 §5).
   final String tracking;
@@ -36,7 +38,8 @@ class Category {
     this.itemsCount,
     this.isActive = true,
     this.isScrap = false,
-    this.groupName,
+    this.sectionId,
+    this.sectionName,
     this.tracking = 'weight',
     this.sizeSystemId,
   });
@@ -55,7 +58,8 @@ class Category {
       itemsCount: json['items_count'] ?? 0,
       isActive: json['is_active'] as bool? ?? true,
       isScrap: json['is_scrap'] as bool? ?? false,
-      groupName: json['group_name'] as String?,
+      sectionId: json['section_id'] as int?,
+      sectionName: json['section_name'] as String?,
       tracking: json['tracking'] as String? ?? 'weight',
       sizeSystemId: json['size_system_id'] as int?,
     );
@@ -92,7 +96,8 @@ class Category {
       itemsCount: itemsCount ?? this.itemsCount,
       isActive: isActive,
       isScrap: isScrap,
-      groupName: groupName,
+      sectionId: sectionId,
+      sectionName: sectionName,
       tracking: tracking,
       sizeSystemId: sizeSystemId,
     );

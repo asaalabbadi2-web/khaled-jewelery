@@ -15,6 +15,7 @@ import '../utils/currency_utils.dart' as cu;
 import '../theme/app_semantic_colors.dart';
 import 'piece_models_screen.dart';
 import 'size_systems_screen.dart';
+import 'item_sections_screen.dart';
 
 /// The theme's colours (ADR-038): the scheme and the semantic tones.
 ColorScheme _cs(BuildContext context) => Theme.of(context).colorScheme;
@@ -1610,6 +1611,17 @@ class _CategoriesManagementDialogState
                     ),
                   ),
                   IconButton(
+                    key: const Key('categories-sections'),
+                    icon: const Icon(Icons.account_tree_outlined),
+                    tooltip: 'الأقسام',
+                    onPressed: () => Navigator.of(context)
+                        .push(MaterialPageRoute<void>(builder: (_) => ItemSectionsScreen(api: widget.api)))
+                        .then((_) {
+                      _reloadAll();
+                      widget.onCategoriesChanged();
+                    }),
+                  ),
+                  IconButton(
                     key: const Key('categories-size-systems'),
                     icon: const Icon(Icons.straighten),
                     tooltip: 'أنظمة المقاسات',
@@ -1683,8 +1695,8 @@ class _CategoriesManagementDialogState
                             [
                               if (!category.isActive) 'موقوف',
                               if (category.isScrap) 'كسر',
-                              if ((category.groupName ?? '').isNotEmpty)
-                                'المجموعة: ${category.groupName}',
+                              if ((category.sectionName ?? '').isNotEmpty)
+                                'القسم: ${category.sectionName}',
                               if ((category.description ?? '').isNotEmpty)
                                 category.description!,
                             ].join(' · '),
