@@ -815,10 +815,33 @@ def piece_location(piece: Item):
     return SafeBox.query.filter_by(account_id=held[0]).first() if len(held) == 1 else None
 
 
+# A piece's number as it is typed (the owner, 21 Nov 2026): its prefix «KJ-»
+# optional -- the same for every piece -- its digits its number, Arabic or
+# Latin (\d and int() read Arabic-Indic digits as they are).
+_PIECE_NUMBER = re.compile(r'^(?:KJ-?)?0*(\d{1,16})$')
+
+
+def piece_code(text) -> str | None:
+    """The piece number a text names, or None: «1», «١», «000001», «kj-1» and
+    «KJ-000001» are all KJ-000001; a number longer than six digits as it is
+    (KJ-1234567). The one reading of a typed piece number -- the screens ask,
+    they do not build it."""
+    text = ''.join(str(text or '').split()).upper()
+    found = _PIECE_NUMBER.match(text)
+    if not found or int(found.group(1)) <= 0:
+        return None
+    return f'KJ-{int(found.group(1)):06d}'
+
+
+def piece_by_code(text):
+    """The item a typed piece number names, or None -- its number read by
+    [piece_code], else the code as typed. A number alone is never an id."""
+    code = piece_code(text) or ''.join(str(text or '').split()).upper()
+    return Item.query.filter_by(item_code=code).first() if code else None
+
+
 def _piece_by_ref(ref):
-    if isinstance(ref, int) or (isinstance(ref, str) and ref.strip().isdigit()):
-        return db.session.get(Item, int(ref))
-    return Item.query.filter_by(item_code=str(ref or '').strip().upper()).first()
+    return piece_by_code(ref)
 
 
 def pieces_grams_at(safe_box: SafeBox, karat: int) -> float:
@@ -1163,7 +1186,11 @@ def pieces_list(*, q=None, category_id=None, karat=None, safe_box_id=None, model
             except (TypeError, ValueError):
                 raise PiecesFilterInvalid('الموديل والمقاس رقمان، أو «none» لما ليس له') from None
     text = str(q or '').strip()
-    if text:
+    number = piece_code(text)
+    if number:
+        # a number alone is a piece's number (the owner, 21 Nov 2026): that piece
+        query = query.filter(Item.item_code == number)
+    elif text:
         tagged = db.session.query(PieceTag.item_id).filter(PieceTag.value == text.upper(),
                                                            PieceTag.stopped_at.is_(None))
         query = query.filter(Item.item_code.ilike(f'%{text}%') | Item.name.ilike(f'%{text}%')

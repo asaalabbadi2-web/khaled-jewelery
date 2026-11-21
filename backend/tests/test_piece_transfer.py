@@ -77,11 +77,11 @@ def test_a_piece_named_moves_with_its_category(auth_headers):
     assert category_held(showroom, 21, category.id) == round(60.0 - 14.37, 3)
 
 
-def test_by_id_too_and_with_more_gold_than_its_pieces(auth_headers):
+def test_by_its_number_alone_too_and_with_more_gold_than_its_pieces(auth_headers):
     showroom, custody = _safe('showroom'), _safe('custody')
     category = _bangles()
     a, = _pieces(showroom, category, 14.37)
-    r = _transfer(auth_headers, showroom, custody, 20.0, [a.id])
+    r = _transfer(auth_headers, showroom, custody, 20.0, [str(int(a.item_code[3:]))])   # its number alone, as typed
     assert r.status_code == 201, r.get_data(as_text=True)[:400]
     assert piece_location(a).id == custody.id
 
@@ -98,7 +98,8 @@ def test_the_pieces_laws(auth_headers, case):
     elif case == 'lighter':
         r, code = _transfer(auth_headers, showroom, other, 20.0, [a.item_code, b.item_code]), 'transfer_lighter_than_pieces'
     elif case == 'twice':
-        r, code = _transfer(auth_headers, showroom, other, 30.0, [a.item_code, a.id]), 'piece_named_twice'
+        r, code = (_transfer(auth_headers, showroom, other, 30.0, [a.item_code, str(int(a.item_code[3:]))]),
+                   'piece_named_twice')   # its code and its number alone: one piece
     elif case == 'unknown':
         r, code = _transfer(auth_headers, showroom, other, 10.0, ['KJ-999999']), 'piece_unknown'
     else:

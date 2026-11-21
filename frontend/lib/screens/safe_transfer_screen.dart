@@ -1216,19 +1216,19 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
   String? _pieceProblem;
 
   Future<void> _addPiece() async {
-    final code = _pieceCode.text.trim().toUpperCase();
-    if (code.isEmpty) return;
-    if (_pieces.any((p) => p['item_code'] == code)) {
-      setState(() => _pieceProblem = 'القطعة $code مذكورة');
-      return;
-    }
+    final typed = _pieceCode.text.trim();
+    if (typed.isEmpty) return;
     try {
-      final found = await widget.api.lookupPiece(code);
+      // its number as typed -- «5» or «KJ-000005» -- read by the server (the owner, 21 Nov 2026)
+      final found = await widget.api.lookupPiece(typed);
       if (!mounted) return;
       final piece = found['piece'] as Map<String, dynamic>;
       final where = found['location'] as Map<String, dynamic>?;
+      final code = '${piece['item_code']}';
       setState(() {
-        if (piece['in_stock'] != true) {
+        if (_pieces.any((p) => p['item_code'] == code)) {
+          _pieceProblem = 'القطعة $code مذكورة';
+        } else if (piece['in_stock'] != true) {
           _pieceProblem = 'القطعة $code ليست في المخزون';
         } else if (where == null || where['id'] != _fromSafeId) {
           _pieceProblem =

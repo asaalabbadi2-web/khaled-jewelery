@@ -352,6 +352,39 @@ void main() {
       expect(find.textContaining('لم تُستكمل فاتورة استلامها'), findsOneWidget);
     });
 
+    // The owner, 21 Nov 2026: «رمز بادئة رقم الصنف اختياري ... يتم كتابة
+    // الرقم ١ فيتم التعرف على القطعة». A number alone is a piece's number,
+    // read by the server; never a name searched.
+    testWidgets('a number alone is a piece\'s number: «5» or «٥» is KJ-000005, asked of the server', (tester) async {
+      final api = FakeSalesApi()
+        ..stockItems = [coded]
+        ..piecesByTyped = {'5': coded, '٥': coded};
+      await open(tester, api: api, items: [coded]);
+      await scan(tester, '5');
+      expect(api.piecesAsked, ['5'], reason: 'the server reads the number, the screen builds no code');
+      expect(find.text('1 صنف'), findsWidgets);
+      await scan(tester, '٥');
+      expect(find.textContaining('مضافة في الفاتورة'), findsOneWidget, reason: 'the same piece, in Arabic digits');
+    });
+
+    testWidgets('a number is never a name searched: «21» is no «بنجرة ذهب 21»', (tester) async {
+      final api = FakeSalesApi()..stockItems = [coded];
+      await open(tester, api: api, items: [coded]);
+      await scan(tester, '21');
+      expect(api.piecesAsked, ['21']);
+      expect(find.text('لم تتم إضافة أصناف بعد'), findsOneWidget);
+      expect(find.text('لا قطعة بالرقم 21'), findsOneWidget, reason: 'the server\'s words, no list of names');
+    });
+
+    testWidgets('a piece the server knows but this sale does not offer is said so', (tester) async {
+      final api = FakeSalesApi()
+        ..stockItems = [piece]
+        ..piecesByTyped = {'5': {...coded, 'in_stock': false}};
+      await open(tester, api: api, items: [piece]);
+      await scan(tester, '5');
+      expect(find.text('القطعة KJ-000005 ليست في المخزون'), findsOneWidget);
+    });
+
     testWidgets('a piece scanned twice is in the invoice once', (tester) async {
       await open(tester, api: FakeSalesApi(), items: [piece]);
 

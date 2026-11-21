@@ -148,8 +148,10 @@ void main() {
           }, 201);
         }
         if (path.endsWith('/pieces/lookup')) {
-          // ADR-087 R3.6: KJ-000001 is in the source, KJ-000002 elsewhere
-          final code = request.url.queryParameters['code'];
+          // ADR-087 R3.6: KJ-000001 is in the source, KJ-000002 elsewhere. The
+          // server reads a number typed alone as the piece's (piece_code): «1» is KJ-000001.
+          final typed = request.url.queryParameters['code'] ?? '';
+          final code = const {'1': 'KJ-000001'}[typed] ?? typed.toUpperCase();
           return json({
             'piece': {'id': 5, 'item_code': code, 'karat': '21', 'weight': 14.37, 'in_stock': true},
             'location': code == 'KJ-000001'
@@ -227,6 +229,20 @@ void main() {
         await submitAndConfirm(tester);
       });
       expect((sent.single['body'] as Map)['pieces'], ['KJ-000001']);
+    });
+
+    testWidgets('its number alone names it, and named twice -- by its number and its code -- it is said once', (tester) async {
+      await run(tester, 'gold', () async {
+        await type(tester, 'transfer-piece-code', '1');
+        await tester.tap(find.byKey(const Key('transfer-piece-add')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('transfer-piece-KJ-000001')), findsOneWidget, reason: '«1» is KJ-000001');
+        await type(tester, 'transfer-piece-code', 'KJ-000001');
+        await tester.tap(find.byKey(const Key('transfer-piece-add')));
+        await tester.pumpAndSettle();
+        expect(find.text('القطعة KJ-000001 مذكورة'), findsOneWidget);
+        expect(find.byKey(const Key('transfer-piece-KJ-000001')), findsOneWidget, reason: 'once in the voucher');
+      });
     });
   });
 

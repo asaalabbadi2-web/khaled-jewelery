@@ -1453,7 +1453,15 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
     }
 
     try {
+      // A code or a barcode scanned whole is taken as it always was. A number
+      // alone otherwise is a piece's number (the owner, 21 Nov 2026): «1» is
+      // KJ-000001 -- the server reads it (services/pieces.piece_code), never
+      // a name searched, never a code built here.
       var foundItem = _findItemByCode(normalizedInput);
+      if (foundItem == null && pieceNumberTyped.hasMatch(normalizedInput.replaceAll(RegExp(r'\s'), ''))) {
+        await _addPieceByNumber(normalizedInput);
+        return;
+      }
       if (foundItem == null) {
         final byName = _findItemsByName(normalizedInput);
         if (byName.length > 1) {
@@ -1477,6 +1485,36 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
     } catch (e) {
       _showError(e, title: 'خطأ في البحث');
     }
+  }
+
+  /// A piece number as typed: its digits -- Latin or Arabic -- and its prefix
+  /// «KJ-» optional. Its reading is the server's.
+  static final pieceNumberTyped = RegExp(r'^(?:[kK][jJ]-?)?[0-9٠-٩۰-۹]+$');
+
+  /// The piece a typed number names, asked of the server, then added as any
+  /// piece offered for sale -- or said why not.
+  Future<void> _addPieceByNumber(String typed) async {
+    Map<String, dynamic> body;
+    try {
+      body = await _api.lookupPiece(typed);
+    } on ApiException catch (e) {
+      _showError(e.message);
+      return;
+    }
+    final piece = (body['piece'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final code = '${piece['item_code'] ?? ''}';
+    final offered = _findItemByCode(code);
+    if (offered == null) {
+      _showError(piece['in_stock'] == false
+          ? 'القطعة $code ليست في المخزون'
+          : 'القطعة $code ليست في أصناف هذا البيع'
+              '${(body['location'] as Map?)?['name'] == null ? '' : ' — مكانها «${(body['location'] as Map)['name']}»'}');
+      return;
+    }
+    final added = await _addItemFromData(offered);
+    _smartInputController.clear();
+    _smartInputFocus.requestFocus();
+    if (added && mounted) AppFeedback.success(context, 'تمت إضافة: $code — ${offered['name']}');
   }
 
   /// Whether the piece went into the invoice.
@@ -4038,7 +4076,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
             decoration: InputDecoration(
               labelText: 'امسح الباركود أو ابحث...',
               labelStyle: theme.textTheme.bodyMedium,
-              hintText: 'YAS000001 • اسم الصنف • I-000001',
+              hintText: 'رقم القطعة (1 = KJ-000001) • اسم الصنف • I-000001',
               hintStyle: theme.textTheme.bodySmall,
               prefixIcon: Icon(Icons.search, color: colorScheme.primary),
               suffixIcon: _smartInputController.text.isNotEmpty

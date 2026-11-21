@@ -80,6 +80,21 @@ class FakeSalesApi extends ApiService {
     return stockItems;
   }
 
+  /// The server's answer to a piece number typed: each test says what the
+  /// server reads its text as (services/pieces.piece_code is the server's).
+  Map<String, Map<String, dynamic>> piecesByTyped = const {};
+  final piecesAsked = <String>[];
+
+  @override
+  Future<Map<String, dynamic>> lookupPiece(String code) async {
+    piecesAsked.add(code);
+    final piece = piecesByTyped[code];
+    if (piece == null) {
+      throw ApiException(statusCode: 404, code: 'piece_unknown', message: 'لا قطعة بالرقم $code');
+    }
+    return {'piece': piece, 'location': {'id': 30, 'name': 'الذهب المعروض'}};
+  }
+
   @override
   Future<List<dynamic>> getActivePaymentMethods({String? invoiceType}) async {
     // As the server filters: a method with no list is set for every type.

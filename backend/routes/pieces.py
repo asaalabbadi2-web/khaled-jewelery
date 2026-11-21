@@ -25,7 +25,8 @@ GET  /api/pieces                  -- the pieces' list (the owner, 16 Nov 2026):
 PATCH /api/pieces/<id>            -- its words (ADR-093 §5): name, description,
      model_id, size_id -- recorded; its book facts stay.
 GET  /api/pieces/lookup?code=     -- a piece by its number: its view and
-     where it is (the transfer screen, R3.6).
+     where it is (the transfer screen, R3.6; the sale's input) -- its number
+     as typed, «1» or «١» or «KJ-000001» (services/pieces.piece_code).
 POST /api/pieces/<id>/print-jobs  -- its label printed and its tag written,
      read back and adopted (ADR-097): no tag is mounted by a press of a button
      -- the routes that did (/tag, /tag/replace) are gone (law 3).
@@ -220,11 +221,11 @@ def piece_words(piece_id: int):
 @pieces_bp.route('/pieces/lookup', methods=['GET'])
 @require_permission('items.view')
 def piece_lookup():
-    from services.pieces import is_piece, piece_location
-    code = (request.args.get('code') or '').strip().upper()
-    piece = Item.query.filter_by(item_code=code).first() if code else None
+    from services.pieces import is_piece, piece_by_code, piece_code, piece_location
+    typed = (request.args.get('code') or '').strip()
+    piece = piece_by_code(typed) if typed else None
     if not is_piece(piece):
-        return jsonify({'error': 'piece_unknown', 'message': f'لا قطعة بالرقم {code}'}), 404
+        return jsonify({'error': 'piece_unknown', 'message': f'لا قطعة بالرقم {piece_code(typed) or typed.upper()}'}), 404
     where = piece_location(piece)
     return jsonify({'piece': piece_view(piece),
                     'location': {'id': where.id, 'name': where.name} if where is not None else None}), 200
