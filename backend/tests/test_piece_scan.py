@@ -237,3 +237,70 @@ def test_the_routes_carry_it_and_each_is_guarded(app, auth_headers, shop):
     assert (done['status'], done['found'], done['expected']) == ('finished', 1, 4)
     g.pop('current_user', None)
     assert client.get('/api/piece-scans', headers=auth_headers).get_json()['scans'][0]['id'] == scan_id
+
+
+# ── its scope: a section, a category, or every piece (the owner, 21 Nov 2026) ──
+
+@pytest.fixture
+def shelves():
+    from services.item_sections import create_section, set_category_section
+    showroom, branch = _safe('showroom'), _safe('showroom', 'العرض الخارجي')
+    bangles18, bangles21, rings = _bangles(), _bangles(), _bangles()
+    section = create_section(f'بناجر {uuid.uuid4().hex[:5]}', by='t', now=NOW)
+    set_category_section(bangles18, section.id)
+    set_category_section(bangles21, section.id)
+    b18, = _pieces(showroom, bangles18, 10.0)
+    b21, = _pieces(showroom, bangles21, 11.0)
+    ring, = _pieces(showroom, rings, 5.0)
+    far, = _pieces(branch, bangles21, 9.0)
+    far_ring, = _pieces(branch, rings, 4.0)
+    for piece in (b18, b21, ring, far, far_ring):
+        mount_tag(piece, by='t', now=NOW)
+    return {'showroom': showroom, 'section': section, 'bangles21': bangles21, 'b18': b18, 'b21': b21,
+            'ring': ring, 'far': far, 'far_ring': far_ring}
+
+
+def test_a_category_s_scan_expects_its_pieces_and_says_the_rest_other_scope(shelves):
+    s = shelves
+    scan = start_scan(safe_box_id=s['showroom'].id, kind='check', by='t', now=NOW, category_id=s['bangles21'].id)
+    assert {e.item_id for e in PieceScanExpected.query.filter_by(scan_id=scan.id)} == {s['b21'].id}
+    for press in range(1, 5):
+        _read(scan, _tag(s['b21']), _tag(s['b18']), _tag(s['ring']), _tag(s['far']), _tag(s['far_ring']),
+              press=press)
+    said = _verdicts(scan)
+    assert said[_tag(s['b21'])] == 'found'
+    assert said[_tag(s['b18'])] == 'other_scope' and said[_tag(s['ring'])] == 'other_scope', \
+        'the location\'s pieces outside the scope: not found, not an alert'
+    assert said[_tag(s['far'])] == 'elsewhere', 'of the scope, in another location: said'
+    assert said[_tag(s['far_ring'])] == 'other_scope', 'outside the scope wherever it is'
+    view = scan_view(scan)
+    assert (view['found'], view['alerts'], view['scope_words']) == (1, 1, s['bangles21'].name)
+    finish_scan(scan.id, by='t', now=NOW)
+    assert {p['item_id']: p['verdict'] for p in scan_view(scan)['expected_pieces']} == {s['b21'].id: 'found'}
+
+
+def test_a_section_s_scan_is_every_karat_of_it(shelves):
+    s = shelves
+    scan = start_scan(safe_box_id=s['showroom'].id, kind='closing', by='t', now=NOW, section_id=s['section'].id)
+    assert {e.item_id for e in PieceScanExpected.query.filter_by(scan_id=scan.id)} == {s['b18'].id, s['b21'].id}
+    for press in range(1, 5):
+        _read(scan, _tag(s['b21']), _tag(s['ring']), press=press)
+    finish_scan(scan.id, by='t', now=NOW)
+    view = scan_view(scan)
+    by_piece = {p['item_id']: p['verdict'] for p in view['expected_pieces']}
+    assert by_piece == {s['b18'].id: 'missing', s['b21'].id: 'found'}, 'the ring is no part of it: never missing'
+    assert view['scope_words'] == f'قسم {s["section"].name}'
+
+
+def test_one_scope_at_most_and_each_one_that_is(shelves):
+    s = shelves
+    with pytest.raises(ScanRefused) as both:
+        start_scan(safe_box_id=s['showroom'].id, kind='check', by='t', now=NOW, section_id=s['section'].id,
+                   category_id=s['bangles21'].id)
+    assert both.value.code == 'scan_scope_one'
+    with pytest.raises(ScanRefused) as none:
+        start_scan(safe_box_id=s['showroom'].id, kind='check', by='t', now=NOW, category_id=999999)
+    assert none.value.code == 'scan_category_not_found'
+    every = start_scan(safe_box_id=s['showroom'].id, kind='check', by='t', now=NOW)
+    assert PieceScanExpected.query.filter_by(scan_id=every.id).count() == 3, 'no scope: every piece in the location'
+

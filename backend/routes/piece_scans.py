@@ -2,7 +2,8 @@
 
 GET  /api/piece-scans/locations      -- the stock safes a scan counts (inventory.count)
 POST /api/piece-scans                -- a scan opened: safe_box_id, kind (opening |
-     closing | check); its snapshot taken now (inventory.count)
+     closing | check), its scope section_id or category_id or neither; its
+     snapshot taken now (inventory.count)
 POST /api/piece-scans/<id>/reads     -- a batch of what the reader sent: batch_key,
      events [{kind: read | button, value, press, ms}]; answers the scan as it
      stands, each read judged (inventory.count)
@@ -48,7 +49,8 @@ def piece_scan_locations():
 def piece_scan_start():
     data = request.get_json(silent=True) or {}
     try:
-        scan = start_scan(safe_box_id=data.get('safe_box_id'), kind=data.get('kind'), by=_by(), now=datetime.now())
+        scan = start_scan(safe_box_id=data.get('safe_box_id'), kind=data.get('kind'), by=_by(), now=datetime.now(),
+                          section_id=data.get('section_id'), category_id=data.get('category_id'))
     except ScanRefused as refused:
         return _refused(refused)
     db.session.commit()

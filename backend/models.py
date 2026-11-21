@@ -6356,6 +6356,10 @@ class PieceScan(db.Model):
     # stock elsewhere at the start (the location's own are the expected rows).
     places = db.Column(db.JSON, nullable=False, default=dict)
     presses = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    # Its scope (the owner, 21 Nov 2026): one section, or one category, or
+    # neither -- every piece in the location. Never both.
+    section_id = db.Column(db.Integer, db.ForeignKey('item_section.id', ondelete='RESTRICT'), nullable=True)
+    category_id = db.Column(db.Integer, db.ForeignKey('category.id', ondelete='RESTRICT'), nullable=True)
     finished_by = db.Column(db.String(100), nullable=True)
     finished_at = db.Column(db.DateTime, nullable=True)
     # Set at its finish: the presses read nothing new (complete), or it was
@@ -6366,6 +6370,7 @@ class PieceScan(db.Model):
     __table_args__ = (
         db.CheckConstraint("kind IN ('opening', 'closing', 'check')", name='ck_piece_scan_kind'),
         db.CheckConstraint("status IN ('open', 'finished', 'abandoned')", name='ck_piece_scan_status'),
+        db.CheckConstraint('section_id IS NULL OR category_id IS NULL', name='ck_piece_scan_one_scope'),
     )
 
 

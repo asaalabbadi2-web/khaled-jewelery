@@ -12,6 +12,13 @@ from the reader during the scan changes its read's verdict on purpose. At
 the finish the verdicts are frozen, and what moved in the books since the
 start is said apart («تحرّكت أثناء الجرد»).
 
+A scan's scope (the owner, 21 Nov 2026): every piece in its location, or one
+section's, or one category's -- the reader reads every tag near it whatever
+it is, so a piece of the location outside the scope, or of another location
+outside it, is said «من نطاق آخر»: not found, not an alert, never missing.
+A piece of the scope elsewhere is «في غير موقعها»; one out of the stock is
+«خرجت» whatever its scope -- its tag in the shop is the books' question.
+
 A scan is complete -- may be finished, its pieces not read said missing --
 when the last Settings.scan_quiet_presses presses read no new value, or the
 reader's button was held Settings.scan_quiet_seconds since the last new one.
@@ -22,7 +29,8 @@ from __future__ import annotations
 
 import re
 
-from models import (Item, PieceScan, PieceScanEvent, PieceScanExpected, PieceScanRead, SafeBox, Settings, db)
+from models import (Category, Item, ItemSection, PieceScan, PieceScanEvent, PieceScanExpected, PieceScanRead,
+                    SafeBox, Settings, db)
 from services.pieces import (_last_exits, active_tag, stock_pieces, tag_state)
 
 KINDS = {'opening': 'جرد فتح', 'closing': 'جرد إغلاق', 'check': 'تحقّق'}
@@ -31,12 +39,12 @@ EVENTS_A_BATCH = 2000
 PRINTED = re.compile(r'^KJ-\d{6,}$')
 
 # A read's verdicts, and an expected piece's (ADR-085 ت2 §2).
-FOUND, ELSEWHERE, OUT, STOPPED, UNCONFIRMED, UNKNOWN = (
-    'found', 'elsewhere', 'out', 'stopped', 'unconfirmed', 'unknown')
+FOUND, ELSEWHERE, OUT, STOPPED, UNCONFIRMED, UNKNOWN, OTHER_SCOPE = (
+    'found', 'elsewhere', 'out', 'stopped', 'unconfirmed', 'unknown', 'other_scope')
 MISSING, UNREAD, UNTAGGED, MOVED = 'missing', 'unread', 'untagged', 'moved'
 WORDS = {
     FOUND: 'موجودة', ELSEWHERE: 'في غير موقعها', OUT: 'خرجت من المخزون', STOPPED: 'بطاقة ملغاة',
-    UNCONFIRMED: 'محاولة لم تُعتمد', UNKNOWN: 'ليست من رموزنا', MISSING: 'ناقصة',
+    UNCONFIRMED: 'محاولة لم تُعتمد', UNKNOWN: 'ليست من رموزنا', OTHER_SCOPE: 'من نطاق آخر', MISSING: 'ناقصة',
     UNREAD: 'لم تُقرأ (مسح غير مكتمل)', UNTAGGED: 'بلا رقاقة معتمدة', MOVED: 'تحرّكت أثناء الجرد',
 }
 EXITS = {'sold': 'بيعت', 'returned_to_supplier': 'أُرجعت للمورد', 'out': 'خرجت'}
@@ -63,11 +71,40 @@ def scan_locations() -> list:
             .order_by(SafeBox.id).all())
 
 
-def start_scan(*, safe_box_id, kind, by: str, now) -> PieceScan:
-    """A scan opened: its location's pieces and every other piece's place, as
-    the books hold them now -- or ScanRefused."""
+def _scope(section_id, category_id):
+    """(section, category) of a scan: one at most, each one that is."""
+    def read(raw, model, code, words):
+        if raw in (None, '', 0, '0'):
+            return None
+        try:
+            row = db.session.get(model, int(raw))
+        except (TypeError, ValueError):
+            row = None
+        if row is None:
+            raise ScanRefused(code, words)
+        return row
+    section = read(section_id, ItemSection, 'scan_section_not_found', 'القسم غير موجود')
+    category = read(category_id, Category, 'scan_category_not_found', 'التصنيف غير موجود')
+    if section is not None and category is not None:
+        raise ScanRefused('scan_scope_one', 'نطاق الجرد قسم أو تصنيف، لا الاثنان')
+    return section, category
+
+
+def _in_scope(scan: PieceScan, piece: Item) -> bool:
+    if scan.category_id is not None:
+        return piece.category_id == scan.category_id
+    if scan.section_id is not None:
+        category = db.session.get(Category, piece.category_id) if piece.category_id else None
+        return category is not None and category.section_id == scan.section_id
+    return True
+
+
+def start_scan(*, safe_box_id, kind, by: str, now, section_id=None, category_id=None) -> PieceScan:
+    """A scan opened: its location's pieces of its scope and every other
+    piece's place, as the books hold them now -- or ScanRefused."""
     if kind not in KINDS:
         raise ScanRefused('scan_kind_invalid', 'نوع الجرد: فتح، أو إغلاق، أو تحقّق')
+    section, category = _scope(section_id, category_id)
     try:
         safe = db.session.get(SafeBox, int(safe_box_id))
     except (TypeError, ValueError):
@@ -75,11 +112,16 @@ def start_scan(*, safe_box_id, kind, by: str, now) -> PieceScan:
     if safe is None or safe not in scan_locations():
         raise ScanRefused('scan_location_invalid', 'الجرد بالمسح لموقع مخزون من مواقع المحل، لا لوديعة مكتب')
     places = _places_now()
-    scan = PieceScan(safe_box_id=safe.id, kind=kind, status='open', started_by=by, started_at=now,
-                     places={str(i): p for i, p in places.items() if p != safe.id}, presses=0)
+    scan = PieceScan(safe_box_id=safe.id, kind=kind, status='open', started_by=by, started_at=now, presses=0,
+                     section_id=getattr(section, 'id', None), category_id=getattr(category, 'id', None), places={})
+    here = {i for i, p in places.items() if p == safe.id}
+    pieces = {p.id: p for p in Item.query.filter(Item.id.in_(here))} if here else {}
+    expected = {i for i in here if _in_scope(scan, pieces[i])}
+    # the snapshot's other half: every piece in stock not expected -- here outside the scope, or elsewhere
+    scan.places = {str(i): p for i, p in places.items() if i not in expected}
     db.session.add(scan)
     db.session.flush()
-    for item_id in sorted(i for i, p in places.items() if p == safe.id):
+    for item_id in sorted(expected):
         db.session.add(PieceScanExpected(scan_id=scan.id, item_id=item_id))
     db.session.flush()
     return scan
@@ -128,6 +170,8 @@ def _placed(scan, piece, expected, *, how) -> dict:
     if piece.id in expected:
         return {**said, 'verdict': FOUND, 'words': f'{piece.item_code}{suffix}'}
     place = (scan.places or {}).get(str(piece.id), 'out')
+    if place != 'out' and not _in_scope(scan, piece):
+        return {**said, 'verdict': OTHER_SCOPE, 'words': f'{piece.item_code} — ليست من نطاق هذا الجرد{suffix}'}
     if place != 'out':
         return {**said, 'verdict': ELSEWHERE,
                 'words': f'{piece.item_code} — مكانها في الدفاتر «{_safe_name(place)}»{suffix}'}
@@ -310,7 +354,8 @@ def scan_view(scan: PieceScan, *, with_lists=True) -> dict:
             'finished_at': scan.finished_at.isoformat() if scan.finished_at else None,
             'complete': scan.complete, 'early_reason': scan.early_reason, 'presses': scan.presses or 0,
             'expected': len(expected_rows), 'found': len(found & expected),
-            'alerts': sum(1 for r in read_views if r['verdict'] != FOUND), 'counts': counts}
+            'section_id': scan.section_id, 'category_id': scan.category_id, 'scope_words': _scope_words(scan),
+            'alerts': sum(1 for r in read_views if r['verdict'] not in (FOUND, OTHER_SCOPE)), 'counts': counts}
     if open_:
         view['completeness'] = completeness(scan)
     else:
@@ -327,6 +372,14 @@ def scan_view(scan: PieceScan, *, with_lists=True) -> dict:
                  'verdict_words': WORDS.get(row.verdict), 'moved': row.moved}
                 for row in expected_rows]
     return view
+
+
+def _scope_words(scan: PieceScan) -> str:
+    if scan.category_id is not None:
+        return getattr(db.session.get(Category, scan.category_id), 'name', None) or 'تصنيف'
+    if scan.section_id is not None:
+        return f'قسم {getattr(db.session.get(ItemSection, scan.section_id), "name", None) or ""}'.strip()
+    return 'كل القطع'
 
 
 def scans_list(*, limit=100) -> list:
