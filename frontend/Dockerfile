@@ -21,7 +21,10 @@ ARG API_BASE_URL=/api
 # (used by GoogleDriveBackupService on web)
 ARG GOOGLE_WEB_CLIENT_ID=
 
-RUN flutter build web --release --no-tree-shake-icons \
+# --pwa-strategy none (the owner, 21 Nov 2026): no service worker keeping a
+# build on the device -- every device on the deployed build at its next load;
+# the handheld reader kept an old one until its site data was cleared.
+RUN flutter build web --release --no-tree-shake-icons --pwa-strategy none \
 	--dart-define=API_BASE_URL=${API_BASE_URL} \
 	--dart-define=GOOGLE_WEB_CLIENT_ID=${GOOGLE_WEB_CLIENT_ID}
 
