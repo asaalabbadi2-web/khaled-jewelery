@@ -1,0 +1,24 @@
+# The name over HTTPS (ADR-098) -- written by 40-pos-https.sh from this
+# template, ${POS_HOST} its only substitution, and only while the certificate
+# is there and nginx accepts it. No HSTS until renewal has held two months on
+# production: it would forbid falling back to HTTP.
+
+server {
+    listen 80;
+    server_name ${POS_HOST};
+    return 301 https://${POS_HOST}$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name ${POS_HOST};
+
+    ssl_certificate /etc/letsencrypt/live/pos/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/pos/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:pos_tls:10m;
+    ssl_session_timeout 1d;
+
+    include /etc/nginx/snippets/app.conf;
+}

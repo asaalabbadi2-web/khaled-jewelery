@@ -842,6 +842,63 @@ void main() {
         matching: find.byIcon(Icons.warning_amber_rounded)), findsOneWidget, reason: 'an icon, not a colour alone');
   });
 
+  // ADR-098 (22 Nov 2026): the shop name's certificate -- its expiry and last renewal when well, and a
+  // warning in words when the last renewal failed, the days run low, the tool is silent or wrote nothing.
+  group('the system health: the HTTPS certificate', () {
+    Future<String?> certificateSaid(WidgetTester tester, Map<String, dynamic>? certificate, {IconData? icon}) async {
+      final saved = jsonDecode(jsonEncode(_standing)) as Map<String, dynamic>;
+      addTearDown(() => _standing..clear()..addAll(saved));
+      _standing['health'] = {...(saved['health'] as Map<String, dynamic>), 'certificate': certificate};
+      await open(tester);
+      final row = find.byKey(const Key('dashboard-health-certificate'));
+      if (row.evaluate().isEmpty) return null;
+      if (icon != null) {
+        expect(find.descendant(of: row, matching: find.byIcon(icon)), findsOneWidget, reason: 'an icon, not a colour alone');
+      }
+      return tester.widgetList<Text>(find.descendant(of: row, matching: find.byType(Text))).map((t) => t.data ?? '').join(' | ');
+    }
+
+    testWidgets('not configured, or HTTPS not yet on: not said', (tester) async {
+      expect(await certificateSaid(tester, null), isNull);
+    });
+
+    testWidgets('no HTTPS yet: nothing to alarm', (tester) async {
+      expect(await certificateSaid(tester, {'state': 'disabled', 'reasons': []}), isNull);
+    });
+
+    testWidgets('well: its expiry and its last renewal', (tester) async {
+      final said = await certificateSaid(tester, {
+        'state': 'ok', 'reasons': [], 'host': 'pos.khaledjewels.com', 'expires_at': '2027-02-10T08:00:00Z',
+        'days_left': 80, 'last_renewed_at': '2026-11-12T08:00:00Z', 'result': 'not_due', 'error': null,
+      }, icon: Icons.check_circle_outline_rounded);
+      expect(said, allOf(contains('شهادة HTTPS'), contains('تنتهي بعد 80 يومًا'), contains('آخر تجديد')));
+    });
+
+    testWidgets('the last renewal failed: said with its reason, whatever the days left', (tester) async {
+      final said = await certificateSaid(tester, {
+        'state': 'alert', 'reasons': ['failed', 'expiring'], 'host': 'pos.khaledjewels.com',
+        'expires_at': '2026-12-08T08:00:00Z', 'days_left': 15, 'last_renewed_at': '2026-09-09T08:00:00Z',
+        'result': 'failed', 'error': 'Error determining zone_id: 9109 Invalid access token',
+      }, icon: Icons.warning_amber_rounded);
+      expect(said, allOf(contains('فشل آخر تجديد'), contains('Invalid access token'), contains('تنتهي بعد 15 يومًا')));
+    });
+
+    testWidgets('the tool silent, no status written, a staging certificate', (tester) async {
+      expect(await certificateSaid(tester, {'state': 'alert', 'reasons': ['stale'], 'days_left': 60,
+        'attempt_at': '2026-11-20T08:00:00Z', 'expires_at': '2027-01-21T08:00:00Z'}, icon: Icons.warning_amber_rounded),
+          contains('أداة التجديد صامتة'));
+    });
+
+    testWidgets('no status written', (tester) async {
+      expect(await certificateSaid(tester, {'state': 'alert', 'reasons': ['missing']}), contains('لم تكتب أداة الشهادة حالتها'));
+    });
+
+    testWidgets('a staging certificate', (tester) async {
+      expect(await certificateSaid(tester, {'state': 'alert', 'reasons': ['staging'], 'days_left': 89,
+        'expires_at': '2027-02-19T08:00:00Z'}), contains('شهادة تجربة'));
+    });
+  });
+
   // «صافي المركز المالي» was the cash and the gold with nothing owed taken off (15 Nov 2026).
   testWidgets('the net position is what we have less what we owe, and says both', (tester) async {
     await open(tester);

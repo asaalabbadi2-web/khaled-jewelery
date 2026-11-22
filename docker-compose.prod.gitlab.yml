@@ -47,12 +47,14 @@ services:
       MEDIA_ROOT: ${MEDIA_ROOT:-/data/media}   # the photos (ADR-094)
       ALLOW_DANGEROUS_RESETS: ${ALLOW_DANGEROUS_RESETS:-false}
       LOG_STARTUP_IMPORTS: ${LOG_STARTUP_IMPORTS:-0}
+      TLS_STATUS_FILE: /data/tls-status/pos-cert.json   # the certificate's status, for «صحة النظام» (ADR-098)
     depends_on:
       db:
         condition: service_healthy
     volumes:
       - backup_data:/data/backups
       - media_data:/data/media
+      - tls_status:/data/tls-status:ro
 
   scheduler:
     image: registry.gitlab.com/sasalabbadi/khaledjewels/backend:${IMAGE_TAG:-latest}
@@ -81,12 +83,40 @@ services:
     restart: unless-stopped
     # No env_file: nginx serves a static config baked into the image and needs
     # none of the app's secrets.
+    # ADR-098: the name (POS_HOST, in .env.production -- not a secret) over
+    # HTTPS once its certificate is there; the internal address over HTTP as
+    # before, the fallback when the internet is cut.
+    environment:
+      POS_HOST: ${POS_HOST:-}
     ports:
       - "80:80"
+      - "443:443"
+    volumes:
+      - tls_certs:/etc/letsencrypt:ro
     depends_on:
       - backend
+
+  # The name's certificate (ADR-098): Let's Encrypt by DNS-01 through
+  # Cloudflare -- no port opened. The token is a file on the server
+  # (CLOUDFLARE_CREDENTIALS_FILE, default ./secrets/cloudflare.ini, never in
+  # Git), mounted read-only here alone; the certificates are nginx's and this
+  # tool's alone; the backend reads only the status file. No POS_HOST: it rests.
+  certbot:
+    image: registry.gitlab.com/sasalabbadi/khaledjewels/certbot:${IMAGE_TAG:-latest}
+    container_name: yasargold-certbot
+    restart: unless-stopped
+    environment:
+      POS_HOST: ${POS_HOST:-}
+      CERTBOT_STAGING: ${CERTBOT_STAGING:-0}
+      CERTBOT_EMAIL: ${CERTBOT_EMAIL:-}
+    volumes:
+      - tls_certs:/etc/letsencrypt
+      - tls_status:/status
+      - ${CLOUDFLARE_CREDENTIALS_FILE:-./secrets/cloudflare.ini}:/run/secrets/cloudflare.ini:ro
 
 volumes:
   postgres_data:
   backup_data:
   media_data:
+  tls_certs:
+  tls_status:

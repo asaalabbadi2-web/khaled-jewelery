@@ -195,6 +195,20 @@ build-web:
     - docker push "$CI_REGISTRY_IMAGE/web:$CI_COMMIT_SHORT_SHA"
 
 # ─────────────────────────────────────────────
+# Build the shop name's certificate tool (ADR-098)
+# ─────────────────────────────────────────────
+build-certbot:
+  extends: .docker-build
+  script:
+    - |
+      docker build \
+        -t "$CI_REGISTRY_IMAGE/certbot:latest" \
+        -t "$CI_REGISTRY_IMAGE/certbot:$CI_COMMIT_SHORT_SHA" \
+        -f ops/certbot/Dockerfile .
+    - docker push "$CI_REGISTRY_IMAGE/certbot:latest"
+    - docker push "$CI_REGISTRY_IMAGE/certbot:$CI_COMMIT_SHORT_SHA"
+
+# ─────────────────────────────────────────────
 # Deploy to production via local Windows runner
 # ─────────────────────────────────────────────
 deploy-production:
@@ -204,6 +218,7 @@ deploy-production:
   needs:
     - build-backend
     - build-web
+    - build-certbot
   before_script:
     - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
   script:

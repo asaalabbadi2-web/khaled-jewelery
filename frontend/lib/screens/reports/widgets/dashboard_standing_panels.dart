@@ -452,6 +452,28 @@ class DashboardHealthPanel extends StatelessWidget {
         rows.add(Text(isArabic ? 'النسخ التلقائي على الخادم غير مفعّل' : 'Automatic server backups are off',
             style: muted));
       }
+      // ADR-098: the shop name's HTTPS certificate -- not said when not configured or not yet on
+      final cert = h['certificate'] as Map?;
+      if (cert != null && cert['state'] != 'disabled') {
+        final reasons = [for (final r in (cert['reasons'] as List? ?? const [])) '$r'];
+        final days = cert['days_left'];
+        final said = <String>[
+          if (reasons.contains('missing')) isArabic ? 'لم تكتب أداة الشهادة حالتها' : 'The certificate tool wrote no status',
+          if (reasons.contains('failed'))
+            (isArabic ? 'فشل آخر تجديد' : 'The last renewal failed') +
+                (cert['error'] == null ? '' : ': ${cert['error']}'),
+          if (reasons.contains('stale'))
+            (isArabic ? 'أداة التجديد صامتة منذ ' : 'The renewal tool silent since ') +
+                (cert['attempt_at'] == null ? '—' : _when(cert['attempt_at'])),
+          if (reasons.contains('staging'))
+            isArabic ? 'شهادة تجربة لا يثق بها المتصفح' : 'A staging certificate no browser trusts',
+          if (days != null) isArabic ? 'تنتهي بعد $days يومًا' : 'Expires in $days days',
+          if (reasons.isEmpty && cert['last_renewed_at'] != null)
+            (isArabic ? 'آخر تجديد ' : 'Last renewed ') + _when(cert['last_renewed_at']),
+        ];
+        rows.add(line('certificate', isArabic ? 'شهادة HTTPS' : 'HTTPS certificate', cert['state'] == 'ok',
+            said.join(' · ')));
+      }
     }
 
     return DashboardPanel(

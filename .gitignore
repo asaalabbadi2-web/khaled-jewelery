@@ -81,3 +81,6 @@ graphify-out/
 
 # the photos kept in development (ADR-094); production keeps them in the media_data volume
 backend/media_data/
+
+# The Cloudflare token for the shop name's certificate (ADR-098): a file on the server, never in Git
+secrets/
