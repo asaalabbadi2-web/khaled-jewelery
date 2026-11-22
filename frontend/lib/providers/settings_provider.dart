@@ -14,6 +14,11 @@ class SettingsProvider with ChangeNotifier {
     'cash_safe_box_id': null,
   };
 
+  SettingsProvider({Future<Map<String, dynamic>> Function()? fetch}) : _fetch = fetch;
+
+  /// The server's settings, asked (a test hands its own).
+  final Future<Map<String, dynamic>> Function()? _fetch;
+
   Map<String, dynamic> _settings = {};
   bool _isLoading = false;
   String? _error;
@@ -449,9 +454,25 @@ class SettingsProvider with ChangeNotifier {
     }
   }
 
+  /// The settings follow the sign-in (the owner, 23 Nov 2026: «الفاتورة
+  /// احتسبت ضريبة والضريبة غير مفعله في الاعدادات»): read from the server
+  /// when the app opens only if someone was signed in -- a device opened
+  /// first and signed in after, at an address with no copy kept (the trial's,
+  /// pos.khaledjewels.com's first day), sold with the defaults: VAT charged
+  /// where the settings charge none, and the server refused the sale. From
+  /// each sign-in on, they are asked of the server again.
+  void followSignIn(Listenable auth, bool Function() signedIn) {
+    var was = signedIn();
+    auth.addListener(() {
+      final now = signedIn();
+      if (now && !was) fetchSettings().catchError((_) {});
+      was = now;
+    });
+  }
+
   Future<void> fetchSettings() async {
     try {
-      _settings = await ApiService().getSettings();
+      _settings = await (_fetch ?? ApiService().getSettings)();
 
       // Cache settings locally
       final prefs = await SharedPreferences.getInstance();

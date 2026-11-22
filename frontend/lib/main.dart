@@ -65,6 +65,9 @@ Future<void> main() async {
               // only changing them is system.settings (ADR-036).
               fetchRemote: auth.isAuthenticated,
             );
+            // and again on each sign-in: a device signed in after it opened
+            // sold with the defaults (VAT charged; the owner, 23 Nov 2026)
+            provider.followSignIn(auth, () => auth.isAuthenticated);
             return provider;
           },
         ),
