@@ -75,9 +75,17 @@ def test_the_token_and_the_certificates_reach_no_other_container():
 
 
 def test_the_token_never_enters_git():
+    """Asked of git where it is; in CI's image there is no git (22 Nov 2026: the
+    first run of this test failed there on FileNotFoundError) -- and its copy of
+    the repository holds the tracked files alone: a secrets folder there is one
+    tracked."""
     ignored = (ROOT / '.gitignore').read_text().splitlines()
     assert 'secrets/' in ignored
-    tracked = subprocess.run(['git', 'ls-files', 'secrets'], cwd=ROOT, capture_output=True, text=True).stdout
+    try:
+        tracked = subprocess.run(['git', 'ls-files', 'secrets'], cwd=ROOT, capture_output=True, text=True).stdout
+    except FileNotFoundError:
+        folder = ROOT / 'secrets'
+        tracked = '\n'.join(str(p) for p in folder.rglob('*')) if folder.exists() else ''
     assert tracked.strip() == ''
 
 
