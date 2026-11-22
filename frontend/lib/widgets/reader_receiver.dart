@@ -166,15 +166,27 @@ class _ReaderReceiverState extends State<ReaderReceiver> with AutomaticKeepAlive
             child: Stack(
               alignment: Alignment.center,
               children: [
-                Container(
+                // the reader's mark on no fill -- not one of the card's filled buttons (the owner,
+                // 22 Nov 2026) -- and a small dot its state
+                Icon(
+                  heard ? Icons.sensors : Icons.sensors_off,
                   key: const Key('reader-receiver-state'),
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: tone.container,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: tone.fg),
+                  size: 24,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                PositionedDirectional(
+                  end: 8,
+                  bottom: 8,
+                  child: Container(
+                    key: const Key('reader-receiver-dot'),
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: tone.fg,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: theme.colorScheme.surface, width: 1.5),
+                    ),
                   ),
-                  child: Icon(heard ? Icons.sensors : Icons.sensors_off, size: 20, color: tone.onContainer),
                 ),
                 Positioned.fill(child: door),
               ],

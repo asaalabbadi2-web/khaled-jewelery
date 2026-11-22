@@ -564,6 +564,20 @@ void main() {
     expect(tester.widget<Text>(find.byKey(const Key('station-current'))).data, 'بلا موديل · تسجيل فقط');
   });
 
+  // The owner, 22 Nov 2026 (the screens by a designer's eye): on the reader the weight -- the field most
+  // used -- began half way down, under the line's card and a three-line model card. On a phone the model
+  // is one line; the weight rises.
+  testWidgets('on a phone the model is one line, and the weight rises', (tester) async {
+    await _open(tester, _Api(), size: const Size(360, 760));
+    expect(tester.getSize(find.byKey(const Key('station-model'))).height, lessThanOrEqualTo(48),
+        reason: 'one line: its name and its change');
+    expect(find.descendant(of: find.byKey(const Key('station-model')), matching: find.textContaining('بلا موديل')),
+        findsOneWidget);
+    final model = tester.getRect(find.byKey(const Key('station-model')));
+    expect(tester.getTopLeft(find.byKey(const Key('piece-weight'))).dy - model.bottom, lessThan(120),
+        reason: 'after the model\'s one line, only the current settings\' line before the weight');
+  });
+
   testWidgets('on a phone nothing is squeezed: the bar\'s words, the weight, the button, each piece', (tester) async {
     final api = _Api();
     await _open(tester, api, size: const Size(390, 844));

@@ -7,6 +7,7 @@ import '../utils/scan_feedback.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/reader_capture.dart';
 import '../widgets/reader_receiver.dart';
+import '../utils/bidi.dart';
 
 /// «تحقّق من بطاقة» on the handheld reader (ADR-085 ت2 ج2): one label read --
 /// its tag, or its printed code -- and what it is to the server: its piece,
@@ -38,8 +39,9 @@ typedef TagCheck = ({
   String? words,
 
   /// How it left when it is not held -- «ليست في المخزون — بيعت <day>», the
-  /// server's words, the count by scan's too.
+  /// server's words, the count by scan's too -- and its state (sold, ...).
   String? out,
+  String? outState,
 });
 
 class _TagCheckScreenState extends State<TagCheckScreen> {
@@ -103,14 +105,18 @@ class _TagCheckScreenState extends State<TagCheckScreen> {
         place: (body['location'] as Map?)?['name']?.toString(),
         words: null,
         out: (body['out'] as Map?)?['words']?.toString(),
+        outState: (body['out'] as Map?)?['state']?.toString(),
       );
     } on ApiException catch (e) {
       check = (value: value, piece: null, tag: e.details['tag'] as Map<String, dynamic>?, place: null, words: e.message,
-          out: null);
+          out: null, outState: null);
     } catch (_) {
-      check = (value: value, piece: null, tag: null, place: null, words: 'تعذّر سؤال الخادم', out: null);
+      check = (value: value, piece: null, tag: null, place: null, words: 'تعذّر سؤال الخادم', out: null, outState: null);
     }
     if (!mounted) return;
+    // the panel says the piece the server named, not the tag's raw value
+    final code = check.piece?['item_code'] ?? check.tag?['item_code'];
+    _capture.describe(value, code != null ? '$code' : (check.words ?? 'ليست من رموزنا'));
     final shown = press == _press && _asked.contains(value);
     setState(() {
       _asking--;
@@ -173,42 +179,75 @@ class _TagCheckScreenState extends State<TagCheckScreen> {
     );
   }
 
+  /// The card heads with its verdict -- its words, its colour and its own
+  /// icon (the owner, 22 Nov 2026, the screens by a designer's eye): in stock
+  /// and where; how it left; a stopped tag; an attempt never adopted; not
+  /// ours. The tag drops to a small line, its generation only in the
+  /// server's words where it matters.
+  ({String words, IconData icon, SemanticTone tone}) _verdict(TagCheck c, AppSemanticColors tones) {
+    final state = c.tag?['state'] as String?;
+    final adopted = c.piece != null && (state == null || state == 'active');
+    final held = c.piece?['in_stock'] != false;
+    final message = c.words ?? c.tag?['message']?.toString();
+    if (adopted && held) {
+      return (words: 'في المخزون — ${c.place ?? 'أكثر من موقع'}', icon: Icons.verified_outlined, tone: tones.ready);
+    }
+    if (adopted) {
+      final icon = switch (c.outState) {
+        'sold' => Icons.sell_outlined,
+        'returned_to_supplier' => Icons.assignment_return_outlined,
+        _ => Icons.logout,
+      };
+      return (words: c.out ?? 'ليست في المخزون', icon: icon, tone: tones.warning);
+    }
+    if (state == 'stopped') return (words: message ?? 'رقاقة ملغاة', icon: Icons.block, tone: tones.blocked);
+    if (state == 'unconfirmed') {
+      return (words: message ?? 'محاولة لم تُعتمد', icon: Icons.hourglass_empty, tone: tones.warning);
+    }
+    return (words: message ?? 'ليست من رموزنا', icon: Icons.help_outline, tone: tones.blocked);
+  }
+
   Widget _card(BuildContext context, TagCheck c) {
     final theme = Theme.of(context);
     final tones = AppSemanticColors.of(context);
     final state = c.tag?['state'] as String?;
     final adopted = c.piece != null && (state == null || state == 'active');
     final piece = c.piece;
-    final held = piece?['in_stock'] != false;                        // a piece sold is not a piece found
-    final tone = adopted && held ? tones.ready : tones.warning;
     final unsettled = state == 'unconfirmed' && c.tag?['unsettled'] == true;
-    final generation = c.tag?['generation'];
+    final verdict = _verdict(c, tones);
+    final muted = theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant);
     return Card(
       key: Key('check-${c.value}'),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Row(children: [
-            Icon(adopted && held ? Icons.verified_outlined : Icons.help_outline, color: tone.fg),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                piece != null ? '${piece['item_code']}' : '${c.tag?['item_code'] ?? c.value}',
-                textDirection: TextDirection.ltr,
-                textAlign: TextAlign.right,
-                style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
-              ),
-            ),
-          ]),
-          const SizedBox(height: 4),
           Text(
-            adopted
-                ? (c.value.startsWith('KJ-')
-                    ? 'الرمز المطبوع'
-                    : 'رقاقة معتمدة${generation == null ? '' : ' — الجيل ${generation.toString().padLeft(4, '0')}'}')
-                : (c.words ?? '${c.tag?['message'] ?? ''}'),
-            key: Key('check-state-${c.value}'),
-            style: theme.textTheme.titleSmall?.copyWith(color: tone.fg),
+            piece != null ? '${piece['item_code']}' : '${c.tag?['item_code'] ?? c.value}',
+            textDirection: TextDirection.ltr,
+            textAlign: TextAlign.right,
+            style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            key: Key('check-verdict-${c.value}'),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: verdict.tone.container,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: verdict.tone.fg),
+            ),
+            child: Row(children: [
+              Icon(verdict.icon, color: verdict.tone.onContainer),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  isolateLatin(verdict.words),
+                  key: Key('check-verdict-text-${c.value}'),
+                  style: theme.textTheme.titleSmall
+                      ?.copyWith(color: verdict.tone.onContainer, fontWeight: FontWeight.w800),
+                ),
+              ),
+            ]),
           ),
           if (piece != null) ...[
             const SizedBox(height: 8),
@@ -219,10 +258,11 @@ class _TagCheckScreenState extends State<TagCheckScreen> {
               if (piece['model'] != null) '${(piece['model'] as Map)['name']}',
               if (piece['size'] != null) 'مقاس ${(piece['size'] as Map)['label']}',
             ].join(' · ')),
-            Text(
-              !held ? (c.out ?? 'ليست في المخزون') : 'مكانها في الدفاتر: ${c.place ?? 'أكثر من موقع'}',
-              key: Key('check-place-${c.value}'),
-            ),
+          ],
+          if (adopted) ...[
+            const SizedBox(height: 4),
+            Text(c.value.startsWith('KJ-') ? 'الرمز المطبوع' : 'رقاقة معتمدة',
+                key: Key('check-tag-${c.value}'), style: muted),
           ],
           if (unsettled) ...[
             const SizedBox(height: 12),
@@ -236,4 +276,5 @@ class _TagCheckScreenState extends State<TagCheckScreen> {
       ),
     );
   }
+
 }

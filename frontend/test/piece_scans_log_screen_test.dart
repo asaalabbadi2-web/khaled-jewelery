@@ -6,25 +6,36 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/api_service.dart';
 import 'package:frontend/screens/piece_scans_log_screen.dart';
+import 'package:frontend/utils/bidi.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
-Map<String, dynamic> _scan(int id, {String status = 'finished', bool? complete = true, String? early}) => {
+Map<String, dynamic> _scan(int id, {String status = 'finished', bool? complete = true, String? early, int missing = 1}) => {
   'id': id, 'safe_name': 'الذهب المعروض', 'kind_words': 'جرد إغلاق', 'scope_words': 'قسم بناجر',
   'status': status, 'complete': status == 'finished' ? complete : null, 'early_reason': early,
-  'started_by': 'saleh', 'started_at': '2027-01-04T21:05:00', 'finished_by': status == 'open' ? null : 'saleh',
+  'started_by': 'saleh', 'started_by_name': 'صالح العبادي', 'started_at': '2027-01-04T21:05:00',
+  'finished_by': status == 'open' ? null : 'saleh', 'finished_by_name': status == 'open' ? null : 'صالح العبادي',
   'finished_at': status == 'open' ? null : '2027-01-04T21:12:00',
   'expected': 40, 'found': 38, 'alerts': 2,
-  if (status == 'finished') 'expected_counts': {'found': 38, 'missing': 1, 'untagged': 1},
+  if (status == 'finished') 'expected_counts': {'found': 38, 'missing': missing, 'untagged': 1},
 };
 
 class _Api extends ApiService {
   _Api(this.scans);
   final List<Map<String, dynamic>> scans;
   final opened = <int>[];
+  final asked = <({int? safeBoxId, String? period})>[];
 
   @override
-  Future<Map<String, dynamic>> pieceScans() async => {'scans': scans};
+  Future<Map<String, dynamic>> pieceScans({int? safeBoxId, String? period}) async {
+    asked.add((safeBoxId: safeBoxId, period: period));
+    return {'scans': scans};
+  }
+
+  @override
+  Future<Map<String, dynamic>> pieceScanLocations() async => {
+    'locations': [{'id': 30, 'name': 'الذهب المعروض'}, {'id': 31, 'name': 'العرض الخارجي'}],
+  };
 
   @override
   Future<Map<String, dynamic>> pieceScan(int scanId) async {
@@ -66,7 +77,32 @@ void main() {
     expect(find.byKey(const Key('scans-table')), findsOneWidget);
     expect((_said(tester, 'scans-state-3'), _said(tester, 'scans-state-2'), _said(tester, 'scans-state-1'),
             _said(tester, 'scans-state-4')), ('مكتمل', 'أُنهي مبكرًا', 'متروكة', 'مفتوحة'));
-    expect(find.text('38 من 40'), findsNWidgets(4));
+    expect(find.text(isolateLatin('38 من 40')), findsNWidgets(4), reason: 'each run isolated: «38 من 40», not «من 40 38»');
+    expect(find.text('صالح العبادي'), findsNWidgets(4), reason: 'who, by his name -- not his login');
+  });
+
+  // The owner, 22 Nov 2026 (the screens by a designer's eye): daily counts pile up -- the log by its
+  // location and its period, asked of the server; a scan that found pieces missing marked, and alone if asked.
+  testWidgets('by location and period, the server asked; one with missing pieces marked and shown alone', (tester) async {
+    final api = _Api([_scan(3), _scan(2, missing: 0)]);
+    await _open(tester, api);
+    expect(api.asked.last, (safeBoxId: null, period: null), reason: 'all, at first');
+    await tester.tap(find.byKey(const Key('scans-period-week')));
+    await tester.pumpAndSettle();
+    expect(api.asked.last, (safeBoxId: null, period: 'week'));
+    await tester.tap(find.byKey(const Key('scans-location')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('العرض الخارجي').last);
+    await tester.pumpAndSettle();
+    expect(api.asked.last, (safeBoxId: 31, period: 'week'));
+    expect(find.descendant(of: find.byKey(const Key('scans-missing-3')), matching: find.byIcon(Icons.report_outlined)),
+        findsOneWidget, reason: 'its missing marked by an icon, not a colour alone');
+    expect(find.descendant(of: find.byKey(const Key('scans-missing-2')), matching: find.byIcon(Icons.report_outlined)),
+        findsNothing);
+    await tester.tap(find.byKey(const Key('scans-only-missing')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('scans-state-3')), findsOneWidget);
+    expect(find.byKey(const Key('scans-state-2')), findsNothing, reason: 'only the scans that found pieces missing');
   });
 
   testWidgets('a phone: cards', (tester) async {
@@ -83,10 +119,24 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.opened, [3]);
     expect(_said(tester, 'scan-result-state'), 'انتهى الجرد ومسحه مكتمل');
-    expect(_said(tester, 'scan-result-who'), contains('أنهاه saleh'));
+    expect(_said(tester, 'scan-result-who'), contains('أنهاه صالح العبادي'));
+    expect(_said(tester, 'scan-result-who'), contains(ltrIsolate('2027-01-04 21:12')), reason: 'its date isolated, never reversed');
     expect(find.textContaining('KJ-000103'), findsOneWidget);
     expect(find.textContaining('KJ-000101'), findsNothing, reason: 'the found counted, not listed');
     expect(find.text('في غير موقعها'), findsOneWidget);
+    // The owner, 22 Nov 2026 (the screens by a designer's eye): the result was a line of plain text. Its
+    // figures as the scanning screen's tiles, coloured; the missing -- what a count is for -- first, in
+    // the warning's colour, each with its icon; the rest after them.
+    expect((_said(tester, 'scan-count-found'), _said(tester, 'scan-count-missing')), (isolateLatin('38'), isolateLatin('1')));
+    final missingTile = tester.widget<Container>(find.ancestor(
+        of: find.byKey(const Key('scan-count-missing')), matching: find.byType(Container)).first);
+    expect((missingTile.decoration as BoxDecoration).color, AppSemanticColors.of(tester.element(
+        find.byKey(const Key('scan-count-missing')))).warning.container, reason: 'a missing piece is a warning');
+    expect(_said(tester, 'scan-missing-title'), 'الناقصة (1)');
+    expect(find.descendant(of: find.byKey(const Key('scan-piece-3')), matching: find.byIcon(Icons.report_outlined)),
+        findsOneWidget, reason: 'each missing piece with its icon, not a colour alone');
+    expect(tester.getTopLeft(find.byKey(const Key('scan-missing-title'))).dy,
+        lessThan(tester.getTopLeft(find.text('في غير موقعها')).dy), reason: 'the missing before the alerts');
   });
 
   testWidgets('an open scan from the log says it is open, no verdicts yet', (tester) async {

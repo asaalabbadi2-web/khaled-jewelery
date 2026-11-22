@@ -140,6 +140,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(focus.hasFocus, isTrue);
     expect(find.byIcon(Icons.sensors), findsOneWidget, reason: 'heard: its icon says so');
+    // The owner, 22 Nov 2026 (the screens by a designer's eye): a filled circle the size of the card's
+    // buttons was taken for one of them. The reader's mark on no fill, a small dot its state.
+    final dot = tester.widget<Container>(find.byKey(const Key('reader-receiver-dot')));
+    expect((dot.decoration as BoxDecoration).color,
+        AppSemanticColors.of(tester.element(find.byKey(const Key('reader-receiver-dot')))).ready.fg);
+    expect(tester.getSize(find.byKey(const Key('reader-receiver-dot'))).width, lessThanOrEqualTo(12));
+    expect(find.descendant(of: find.byKey(const Key('reader-receiver')), matching: find.byWidgetPredicate(
+        (w) => w is Container && w.decoration is BoxDecoration && (w.decoration as BoxDecoration).shape == BoxShape.circle
+            && w.key != const Key('reader-receiver-dot'))), findsNothing, reason: 'no filled circle like the buttons');
     expect(tester.getSize(find.byKey(const Key('reader-receiver'))).width, lessThanOrEqualTo(48), reason: 'one icon');
     await tester.enterText(find.byKey(const Key('rx')), 'KJ-000005');
     await tester.pumpAndSettle();

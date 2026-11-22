@@ -279,8 +279,7 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
   }
 
   void _setLabel(int pieceId, Map<String, dynamic> label) {
-    Map<String, dynamic> withIt(Map<String, dynamic> p) =>
-        p['id'] == pieceId ? {...p, 'label': label} : p;
+    Map<String, dynamic> withIt(Map<String, dynamic> p) => p['id'] == pieceId ? {...p, 'label': label} : p;
     setState(() {
       _pieces = [for (final p in _pieces) withIt(p)];
       if (_last != null) _last = withIt(_last!);
@@ -304,32 +303,44 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
     final state = _printerState;
     final ready = state?['ready'] == true;
     final pending = (_queueCounts['pending'] as num?)?.toInt() ?? 0;
-    final failed = ((_queueCounts['failed'] as num?)?.toInt() ?? 0) +
-        ((_queueCounts['needs_attention'] as num?)?.toInt() ?? 0);
+    final failed =
+        ((_queueCounts['failed'] as num?)?.toInt() ?? 0) + ((_queueCounts['needs_attention'] as num?)?.toInt() ?? 0);
     final text = _printerId == null
         ? 'لا طابعة بطاقات مفعّلة'
         : state == null
-            ? 'حالة الطابعة غير معروفة'
-            : ready
-                ? 'الطابعة جاهزة'
-                : '${state['message'] ?? 'الطابعة متوقفة'}';
+        ? 'حالة الطابعة غير معروفة'
+        : ready
+        ? 'الطابعة جاهزة'
+        : '${state['message'] ?? 'الطابعة متوقفة'}';
     final ink = ready ? theme.colorScheme.onSurface : theme.colorScheme.onErrorContainer;
-    final said = Row(children: [
-      Icon(ready ? Icons.print : Icons.print_disabled, color: ready ? tones.ready.fg : ink),
-      const SizedBox(width: 8),
-      Expanded(child: Text(text, key: const Key('station-printer'), style: TextStyle(color: ink))),
-    ]);
-    final counts = [
-      if (pending > 0) 'بانتظار البطاقة $pending',
-      if (failed > 0) 'فاشلة $failed',
-    ];
+    final said = Row(
+      children: [
+        Icon(ready ? Icons.print : Icons.print_disabled, color: ready ? tones.ready.fg : ink),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            key: const Key('station-printer'),
+            style: TextStyle(color: ink),
+          ),
+        ),
+      ],
+    );
+    final counts = [if (pending > 0) 'بانتظار البطاقة $pending', if (failed > 0) 'فاشلة $failed'];
     final queue = counts.isEmpty
         ? null
-        : Row(mainAxisSize: MainAxisSize.min, children: [
-            Text(counts.join(' · '), key: const Key('station-queue'), style: TextStyle(color: ink)),
-            if (failed > 0)
-              TextButton(key: const Key('station-failures'), onPressed: _failures, child: const Text('معالجة الفشل')),
-          ]);
+        : Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                counts.join(' · '),
+                key: const Key('station-queue'),
+                style: TextStyle(color: ink),
+              ),
+              if (failed > 0)
+                TextButton(key: const Key('station-failures'), onPressed: _failures, child: const Text('معالجة الفشل')),
+            ],
+          );
     // how the next piece's label is printed: the station's, beside its printer
     final mode = _line == null
         ? null
@@ -357,9 +368,9 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
           key: const Key('station-printers-setup'),
           tooltip: 'إعداد الطابعات',
           icon: const Icon(Icons.settings_outlined),
-          onPressed: () => Navigator.of(context)
-              .push(MaterialPageRoute<void>(builder: (_) => LabelPrintersScreen(api: _api)))
-              .then((_) => _loadPrinter()),
+          onPressed: () => Navigator.of(
+            context,
+          ).push(MaterialPageRoute<void>(builder: (_) => LabelPrintersScreen(api: _api))).then((_) => _loadPrinter()),
         ),
     ];
     return Material(
@@ -369,17 +380,27 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         // a phone: its words on a line of their own, never squeezed letter by letter
         child: AppBreakpoints.isPhone(context)
-            ? Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                Row(children: [Expanded(child: said), ...acts]),
-                if (queue != null) Align(alignment: AlignmentDirectional.centerStart, child: queue),
-                if (mode != null) SizedBox(width: double.infinity, child: mode),
-              ])
-            : Row(children: [
-                Expanded(child: said),
-                if (queue != null) ...[queue, const SizedBox(width: 12)],
-                if (mode != null) mode,
-                ...acts,
-              ]),
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(child: said),
+                      ...acts,
+                    ],
+                  ),
+                  if (queue != null) Align(alignment: AlignmentDirectional.centerStart, child: queue),
+                  if (mode != null) SizedBox(width: double.infinity, child: mode),
+                ],
+              )
+            : Row(
+                children: [
+                  Expanded(child: said),
+                  if (queue != null) ...[queue, const SizedBox(width: 12)],
+                  if (mode != null) mode,
+                  ...acts,
+                ],
+              ),
       ),
     );
   }
@@ -396,17 +417,19 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
     ];
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: Row(children: [
-        Icon(Icons.tune, size: 18, color: theme.colorScheme.primary),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(
-            words.join(' · '),
-            key: const Key('station-current'),
-            style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+      child: Row(
+        children: [
+          Icon(Icons.tune, size: 18, color: theme.colorScheme.primary),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              words.join(' · '),
+              key: const Key('station-current'),
+              style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+            ),
           ),
-        ),
-      ]),
+        ],
+      ),
     );
   }
 
@@ -417,7 +440,8 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
     final others = [
       // the scale's figure against the scale's: the pieces' standing weights
       for (final p in _pieces)
-        if (((p['standing_weight'] ?? p['weight']) as num? ?? 0) > 0) ((p['standing_weight'] ?? p['weight']) as num).toDouble(),
+        if (((p['standing_weight'] ?? p['weight']) as num? ?? 0) > 0)
+          ((p['standing_weight'] ?? p['weight']) as num).toDouble(),
     ];
     if (others.length < 2) return true;
     final average = others.reduce((a, b) => a + b) / others.length;
@@ -476,14 +500,20 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
                           Navigator.of(sheet).pop();
                           _labels.retry(context, j['item_id'] as int, j['id'] as int);
                         },
-                        child: const Text('إعادة المحاولة'))
+                        child: const Text('إعادة المحاولة'),
+                      )
                     : TextButton(
                         onPressed: () {
                           Navigator.of(sheet).pop();
-                          _labels.resolve(context, j['item_id'] as int, '${j['item_code']}',
-                              (j['last_attempt'] as Map)['id'] as int);
+                          _labels.resolve(
+                            context,
+                            j['item_id'] as int,
+                            '${j['item_code']}',
+                            (j['last_attempt'] as Map)['id'] as int,
+                          );
                         },
-                        child: const Text('حسم المحاولة')),
+                        child: const Text('حسم المحاولة'),
+                      ),
               ),
           ],
         ),
@@ -538,15 +568,11 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
     }
     // One attempt, one key: sent again after a lost answer, the same piece.
     // 0x7fffffff, not 1 << 32: on the web a shift is 32-bit.
-    _requestKey ??=
-        '${Random.secure().nextInt(0x7fffffff)}-${Random.secure().nextInt(0x7fffffff)}';
+    _requestKey ??= '${Random.secure().nextInt(0x7fffffff)}-${Random.secure().nextInt(0x7fffffff)}';
     setState(() => _saving = true);
     try {
       final saved = await _api.registerPiece({
-        if (_isBatch(line))
-          'coding_id': line['coding_id']
-        else
-          'line_id': line['line_id'],
+        if (_isBatch(line)) 'coding_id': line['coding_id'] else 'line_id': line['line_id'],
         'weight': weight,
         'stones_weight': readTypedNumber(_stones.text) ?? 0,
         if (_model != null) 'model_id': _model!['id'],
@@ -617,11 +643,7 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
   Widget _list(BuildContext context) {
     final pending = _pending;
     if (_error != null) {
-      return AppErrorView(
-        title: 'تعذّر تحميل أسطر الترميز',
-        error: _error,
-        onRetry: _loadPending,
-      );
+      return AppErrorView(title: 'تعذّر تحميل أسطر الترميز', error: _error, onRetry: _loadPending);
     }
     if (pending == null) return const AppLoadingView();
     if (pending.isEmpty) {
@@ -654,14 +676,8 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
           for (final l in pending)
             Card(
               child: ListTile(
-                key: Key(
-                  _isBatch(l)
-                      ? 'station-coding-${l['coding_id']}'
-                      : 'station-line-${l['line_id']}',
-                ),
-                leading: Icon(
-                  _isBatch(l) ? Icons.inventory_outlined : Icons.qr_code_2,
-                ),
+                key: Key(_isBatch(l) ? 'station-coding-${l['coding_id']}' : 'station-line-${l['line_id']}'),
+                leading: Icon(_isBatch(l) ? Icons.inventory_outlined : Icons.qr_code_2),
                 title: Text('${l['category_name'] ?? '-'} — ${_whence(l)}'),
                 subtitle: Text('${l['invoice_number'] ?? ''}\n${_counter(l)}'),
                 isThreeLine: true,
@@ -685,14 +701,9 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
     final perGram = l['pool_wage_per_gram'] as num?;
     return InputDecorator(
       key: const Key('piece-wage-from-pool'),
-      decoration: const InputDecoration(
-        labelText: 'الأجرة من الوعاء',
-        helperText: 'بمتوسط أجور التصنيف',
-      ),
+      decoration: const InputDecoration(labelText: 'الأجرة من الوعاء', helperText: 'بمتوسط أجور التصنيف'),
       child: Text(
-        perGram == null
-            ? 'لا أجرة في الوعاء'
-            : '${formatAmount(perGram.toDouble())} للجرام',
+        perGram == null ? 'لا أجرة في الوعاء' : '${formatAmount(perGram.toDouble())} للجرام',
         textDirection: perGram == null ? null : TextDirection.ltr,
       ),
     );
@@ -728,23 +739,19 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       decoration: InputDecoration(
         labelText: _wageWhole ? 'أجرة القطعة كلها' : 'أجرة الجرام',
-        helperText: expected == null
-            ? null
-            : 'الموديل: ${formatAmount(expected.toDouble())} للجرام',
+        helperText: expected == null ? null : 'الموديل: ${formatAmount(expected.toDouble())} للجرام',
       ),
       onSubmitted: (_) => _register(),
     );
   }
 
   /// A receipt line's supplier, or a batch's location.
-  static String _whence(Map<String, dynamic> l) =>
-      '${(_isBatch(l) ? l['safe_name'] : l['supplier_name']) ?? '-'}';
+  static String _whence(Map<String, dynamic> l) => '${(_isBatch(l) ? l['safe_name'] : l['supplier_name']) ?? '-'}';
 
   String _counter(Map<String, dynamic> l) =>
       'الوزن ${_g(l['weight'])} جم · رُمّز ${l['pieces']} قطعة · الباقي ${_g(l['rest'])} جم';
 
-  static String _g(Object? v) =>
-      formatGrams((v as num? ?? 0).toDouble(), decimals: 2);
+  static String _g(Object? v) => formatGrams((v as num? ?? 0).toDouble(), decimals: 2);
 
   /// The line's model (optional) and the wage warning: the invoice's wage per
   /// gram against the model's expected one -- the piece keeps the invoice's.
@@ -752,37 +759,76 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
     final theme = Theme.of(context);
     final model = _model;
     final check = _wageCheck;
+    final failedWords = _modelsFailed ? 'تعذّر تحميل الموديلات: القطعة تُسجَّل بلا موديل' : null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Card(
-          child: ListTile(
-            key: const Key('station-model'),
-            leading: SizedBox(
-              width: 56,
-              height: 56,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: ModelImage(api: _api, attachmentId: model?['thumbnail_id'] as int?),
+        // on a phone -- the reader -- one line (the owner, 22 Nov 2026): the weight, the field most used,
+        // rises to the screen's upper half
+        if (AppBreakpoints.isPhone(context))
+          Card(
+            child: Padding(
+              key: const Key('station-model'),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 32,
+                    height: 32,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: ModelImage(api: _api, attachmentId: model?['thumbnail_id'] as int?),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'الموديل: ${model == null ? 'بلا موديل' : '${model['name']}'}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                  ),
+                  if (_models.isNotEmpty)
+                    TextButton(
+                      key: const Key('station-model-change'),
+                      onPressed: _chooseModel,
+                      child: Text(model == null ? 'اختيار' : 'تغيير'),
+                    ),
+                ],
               ),
             ),
-            title: Text(model == null ? 'بلا موديل' : '${model['name']}'),
-            subtitle: Text(
-              _modelsFailed
-                  ? 'تعذّر تحميل الموديلات: القطعة تُسجَّل بلا موديل'
-                  : _models.isEmpty
-                      ? 'لا موديلات لهذا التصنيف'
-                      : 'الموديل (اختياري)',
+          )
+        else
+          Card(
+            child: ListTile(
+              key: const Key('station-model'),
+              leading: SizedBox(
+                width: 56,
+                height: 56,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: ModelImage(api: _api, attachmentId: model?['thumbnail_id'] as int?),
+                ),
+              ),
+              title: Text(model == null ? 'بلا موديل' : '${model['name']}'),
+              subtitle: Text(
+                failedWords ?? (_models.isEmpty ? 'لا موديلات لهذا التصنيف' : 'الموديل (اختياري)'),
+              ),
+              trailing: _models.isEmpty
+                  ? null
+                  : OutlinedButton(
+                      key: const Key('station-model-change'),
+                      onPressed: _chooseModel,
+                      child: Text(model == null ? 'اختيار' : 'تغيير'),
+                    ),
             ),
-            trailing: _models.isEmpty
-                ? null
-                : OutlinedButton(
-                    key: const Key('station-model-change'),
-                    onPressed: _chooseModel,
-                    child: Text(model == null ? 'اختيار' : 'تغيير'),
-                  ),
           ),
-        ),
+        if (failedWords != null && AppBreakpoints.isPhone(context))
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Text(failedWords, style: theme.textTheme.bodySmall),
+          ),
         if (check != null && check['state'] == 'model_wage_differs')
           Card(
             key: const Key('station-wage-differs'),
@@ -858,8 +904,8 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
     final wage = _wageByPiece(line)
         ? _wageField()
         : _wageFromPool(line)
-            ? _poolWage(line)
-            : null;
+        ? _poolWage(line)
+        : null;
     final button = FilledButton.icon(
       key: const Key('piece-register'),
       onPressed: _saving ? null : _register,
@@ -867,28 +913,35 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
       label: const Text('تسجيل القطعة'),
     );
     if (AppBreakpoints.isPhone(context)) {
-      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        weight,
-        const SizedBox(height: 8),
-        if (stones != null || wage != null)
-          Row(children: [
-            if (stones != null) Expanded(child: stones),
-            if (stones != null && wage != null) const SizedBox(width: 12),
-            if (wage != null) Expanded(child: wage),
-          ]),
-        if (stones == null) Align(alignment: AlignmentDirectional.centerStart, child: addStones),
-        const SizedBox(height: 12),
-        button,
-      ]);
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          weight,
+          const SizedBox(height: 8),
+          if (stones != null || wage != null)
+            Row(
+              children: [
+                if (stones != null) Expanded(child: stones),
+                if (stones != null && wage != null) const SizedBox(width: 12),
+                if (wage != null) Expanded(child: wage),
+              ],
+            ),
+          if (stones == null) Align(alignment: AlignmentDirectional.centerStart, child: addStones),
+          const SizedBox(height: 12),
+          button,
+        ],
+      );
     }
-    return Row(children: [
-      Expanded(flex: 2, child: weight),
-      const SizedBox(width: 12),
-      if (stones != null) Expanded(child: stones) else addStones,
-      if (wage != null) ...[const SizedBox(width: 12), Expanded(child: wage)],
-      const SizedBox(width: 12),
-      button,
-    ]);
+    return Row(
+      children: [
+        Expanded(flex: 2, child: weight),
+        const SizedBox(width: 12),
+        if (stones != null) Expanded(child: stones) else addStones,
+        if (wage != null) ...[const SizedBox(width: 12), Expanded(child: wage)],
+        const SizedBox(width: 12),
+        button,
+      ],
+    );
   }
 
   /// The weight typed, asked of the server a moment after the last key: the
@@ -938,15 +991,19 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
     final tone = refused != null ? tones.blocked : tones.info;
     return Padding(
       padding: const EdgeInsets.only(top: 8),
-      child: Row(children: [
-        Icon(refused != null ? Icons.error_outline : Icons.scale_outlined, size: 18, color: tone.fg),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(words,
+      child: Row(
+        children: [
+          Icon(refused != null ? Icons.error_outline : Icons.scale_outlined, size: 18, color: tone.fg),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              words,
               key: const Key('station-weighed'),
-              style: theme.textTheme.bodyMedium?.copyWith(color: tone.fg, fontWeight: FontWeight.w700)),
-        ),
-      ]),
+              style: theme.textTheme.bodyMedium?.copyWith(color: tone.fg, fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -955,11 +1012,11 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
   /// beside it: within it, or «+» out of it when priced apart (the owner,
   /// 20 Nov 2026).
   static String _facts(Map<String, dynamic> p) => [
-        '${_g(p['weight'])} جم',
-        if (((p['stones_weight'] as num?) ?? 0) > 0) _stonesWords(p['stones_weight'], p['stones_kind']),
-        if (p['size'] != null) 'مقاس ${(p['size'] as Map)['label']}',
-        if (p['model'] != null) '${(p['model'] as Map)['name']}',
-      ].join(' · ');
+    '${_g(p['weight'])} جم',
+    if (((p['stones_weight'] as num?) ?? 0) > 0) _stonesWords(p['stones_weight'], p['stones_kind']),
+    if (p['size'] != null) 'مقاس ${(p['size'] as Map)['label']}',
+    if (p['model'] != null) '${(p['model'] as Map)['name']}',
+  ].join(' · ');
 
   /// Stones counted as gold are within the weight; priced apart, added to it.
   static String _stonesWords(Object? stones, Object? kind) =>
@@ -973,20 +1030,27 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
   Widget _steps(BuildContext context, Map<String, dynamic> label) {
     final theme = Theme.of(context);
     final tones = AppSemanticColors.of(context);
-    Widget step(String word, Object? done) => Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(
-            done == true ? Icons.check_circle : (done == false ? Icons.cancel : Icons.remove_circle_outline),
-            size: 18,
-            color: done == true ? tones.ready.fg : (done == false ? tones.blocked.fg : theme.colorScheme.outline),
-          ),
-          const SizedBox(width: 4),
-          Text(word, style: theme.textTheme.bodySmall),
-        ]);
-    return Wrap(spacing: 16, runSpacing: 4, children: [
-      step('طُبعت', label['printed']),
-      step('كُتبت الرقاقة', label['written']),
-      step('قُرئت وطابقت', label['verified']),
-    ]);
+    Widget step(String word, Object? done) => Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          done == true ? Icons.check_circle : (done == false ? Icons.cancel : Icons.remove_circle_outline),
+          size: 18,
+          color: done == true ? tones.ready.fg : (done == false ? tones.blocked.fg : theme.colorScheme.outline),
+        ),
+        const SizedBox(width: 4),
+        Text(word, style: theme.textTheme.bodySmall),
+      ],
+    );
+    return Wrap(
+      spacing: 16,
+      runSpacing: 4,
+      children: [
+        step('طُبعت', label['printed']),
+        step('كُتبت الرقاقة', label['written']),
+        step('قُرئت وطابقت', label['verified']),
+      ],
+    );
   }
 
   /// Zone 2: the line -- what it is, and how far it is coded.
@@ -997,33 +1061,36 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Text('${line['category_name'] ?? '-'} · عيار ${line['karat']}', style: theme.textTheme.titleMedium),
-          Text('${_whence(line)} — ${line['invoice_number'] ?? ''}', style: theme.textTheme.bodySmall),
-          if (line['stones_kind'] == 'priced') ...[
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('${line['category_name'] ?? '-'} · عيار ${line['karat']}', style: theme.textTheme.titleMedium),
+            Text('${_whence(line)} — ${line['invoice_number'] ?? ''}', style: theme.textTheme.bodySmall),
+            if (line['stones_kind'] == 'priced') ...[
+              const SizedBox(height: 6),
+              Text(
+                'فصوص هذا السطر مسعَّرة بالقيراط: خارج ذهبه، فوزن القطعة صافيها والفصوص تُضاف عليه.',
+                key: const Key('station-stones-priced'),
+                style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700),
+              ),
+            ],
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                key: const Key('station-progress'),
+                value: weight > 0 ? (coded / weight).clamp(0.0, 1.0) : 0,
+                minHeight: 8,
+              ),
+            ),
             const SizedBox(height: 6),
             Text(
-              'فصوص هذا السطر مسعَّرة بالقيراط: خارج ذهبه، فوزن القطعة صافيها والفصوص تُضاف عليه.',
-              key: const Key('station-stones-priced'),
-              style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700),
+              'رُمّز ${_g(coded)} من ${_g(weight)} جم · ${line['pieces']} قطعة · الباقي ${_g(line['rest'])} جم',
+              key: const Key('station-counter'),
+              style: theme.textTheme.titleSmall,
             ),
           ],
-          const SizedBox(height: 12),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              key: const Key('station-progress'),
-              value: weight > 0 ? (coded / weight).clamp(0.0, 1.0) : 0,
-              minHeight: 8,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'رُمّز ${_g(coded)} من ${_g(weight)} جم · ${line['pieces']} قطعة · الباقي ${_g(line['rest'])} جم',
-            key: const Key('station-counter'),
-            style: theme.textTheme.titleSmall,
-          ),
-        ]),
+        ),
       ),
     );
   }
@@ -1038,13 +1105,18 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
         key: const Key('station-current-empty'),
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: Column(children: [
-            Icon(Icons.qr_code_2, size: 40, color: theme.colorScheme.outline),
-            const SizedBox(height: 8),
-            Text('القطعة الحالية', style: theme.textTheme.titleSmall),
-            Text('سجّل قطعة: تظهر هنا مع حالة بطاقتها ومعاينتها.',
-                style: theme.textTheme.bodySmall, textAlign: TextAlign.center),
-          ]),
+          child: Column(
+            children: [
+              Icon(Icons.qr_code_2, size: 40, color: theme.colorScheme.outline),
+              const SizedBox(height: 8),
+              Text('القطعة الحالية', style: theme.textTheme.titleSmall),
+              Text(
+                'سجّل قطعة: تظهر هنا مع حالة بطاقتها ومعاينتها.',
+                style: theme.textTheme.bodySmall,
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -1055,34 +1127,45 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
       key: const Key('station-last'),
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          // a Wrap: on a phone its state goes under its number, never squeezing it
-          Wrap(spacing: 12, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
-            Text(
-              '${last['item_code']}',
-              key: const Key('station-last-code'),
-              textDirection: TextDirection.ltr,
-              style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // a Wrap: on a phone its state goes under its number, never squeezing it
+            Wrap(
+              spacing: 12,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(
+                  '${last['item_code']}',
+                  key: const Key('station-last-code'),
+                  textDirection: TextDirection.ltr,
+                  style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+                ),
+                LabelBadge(piece: last, large: true),
+              ],
             ),
-            LabelBadge(piece: last, large: true),
-          ]),
-          Text(_facts(last), style: theme.textTheme.bodyMedium),
-          if (message != null) ...[
-            const SizedBox(height: 8),
-            Text('$message', key: const Key('station-last-message'), style: theme.textTheme.bodyMedium),
+            Text(_facts(last), style: theme.textTheme.bodyMedium),
+            if (message != null) ...[
+              const SizedBox(height: 8),
+              Text('$message', key: const Key('station-last-message'), style: theme.textTheme.bodyMedium),
+            ],
+            if (label?['attempt_id'] != null) ...[const SizedBox(height: 8), _steps(context, label!)],
+            Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: PieceLabelCell(
+                piece: last,
+                busy: _printing.contains(last['id']),
+                actions: _labels,
+                showState: false,
+              ),
+            ),
+            // its label as it prints, both faces (ADR-097 ط5)
+            Center(
+              child: PieceLabelPreview(api: _api, pieceId: last['id'] as int),
+            ),
           ],
-          if (label?['attempt_id'] != null) ...[
-            const SizedBox(height: 8),
-            _steps(context, label!),
-          ],
-          Align(
-            alignment: AlignmentDirectional.centerEnd,
-            child: PieceLabelCell(
-                piece: last, busy: _printing.contains(last['id']), actions: _labels, showState: false),
-          ),
-          // its label as it prints, both faces (ADR-097 ط5)
-          Center(child: PieceLabelPreview(api: _api, pieceId: last['id'] as int)),
-        ]),
+        ),
       ),
     );
   }
@@ -1096,15 +1179,25 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
     void open() => _details(p);
     if (!AppBreakpoints.isPhone(context)) {
       return ListTile(
-          key: Key('station-piece-${p['id']}'), dense: true, title: title, subtitle: subtitle, trailing: cell, onTap: open);
+        key: Key('station-piece-${p['id']}'),
+        dense: true,
+        title: title,
+        subtitle: subtitle,
+        trailing: cell,
+        onTap: open,
+      );
     }
-    return Column(key: Key('station-piece-${p['id']}'), crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      ListTile(dense: true, title: title, subtitle: subtitle, onTap: open),
-      Padding(
-        padding: const EdgeInsetsDirectional.only(start: 16, end: 16, bottom: 8),
-        child: Align(alignment: AlignmentDirectional.centerEnd, child: cell),
-      ),
-    ]);
+    return Column(
+      key: Key('station-piece-${p['id']}'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ListTile(dense: true, title: title, subtitle: subtitle, onTap: open),
+        Padding(
+          padding: const EdgeInsetsDirectional.only(start: 16, end: 16, bottom: 8),
+          child: Align(alignment: AlignmentDirectional.centerEnd, child: cell),
+        ),
+      ],
+    );
   }
 
   /// A piece's details: its facts and its label's -- which print, which
@@ -1117,14 +1210,18 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
         final theme = Theme.of(sheet);
         final label = p['label'] as Map<String, dynamic>?;
         Widget fact(String name, String value, {bool ltr = false}) => Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(children: [
-                Expanded(child: Text(name, style: theme.textTheme.bodyMedium)),
-                Text(value,
-                    textDirection: ltr ? TextDirection.ltr : null,
-                    style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
-              ]),
-            );
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            children: [
+              Expanded(child: Text(name, style: theme.textTheme.bodyMedium)),
+              Text(
+                value,
+                textDirection: ltr ? TextDirection.ltr : null,
+                style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+              ),
+            ],
+          ),
+        );
         final message = label?['printer_message'] ?? label?['message'];
         return Directionality(
           textDirection: TextDirection.rtl,
@@ -1132,34 +1229,45 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
             child: SingleChildScrollView(
               key: Key('piece-details-${p['id']}'),
               padding: const EdgeInsets.all(16),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                Wrap(spacing: 12, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
-                  Text('${p['item_code']}', textDirection: TextDirection.ltr, style: theme.textTheme.titleLarge),
-                  LabelBadge(piece: p, large: true),
-                ]),
-                const SizedBox(height: 8),
-                fact('الوزن', '${_g(p['weight'])} جم'),
-                if (((p['stones_weight'] as num?) ?? 0) > 0) ...[
-                  fact('الفصوص', _stonesWords(p['stones_weight'], p['stones_kind'])),
-                  if (p['stones_kind'] == 'priced' && p['standing_weight'] != null)
-                    fact('القائم على الميزان', '${_g(p['standing_weight'])} جم'),
-                  if (p['stones_kind'] != 'priced' && p['net_weight'] != null)
-                    fact('ذهبها وحده', '${_g(p['net_weight'])} جم'),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      Text('${p['item_code']}', textDirection: TextDirection.ltr, style: theme.textTheme.titleLarge),
+                      LabelBadge(piece: p, large: true),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  fact('الوزن', '${_g(p['weight'])} جم'),
+                  if (((p['stones_weight'] as num?) ?? 0) > 0) ...[
+                    fact('الفصوص', _stonesWords(p['stones_weight'], p['stones_kind'])),
+                    if (p['stones_kind'] == 'priced' && p['standing_weight'] != null)
+                      fact('القائم على الميزان', '${_g(p['standing_weight'])} جم'),
+                    if (p['stones_kind'] != 'priced' && p['net_weight'] != null)
+                      fact('ذهبها وحده', '${_g(p['net_weight'])} جم'),
+                  ],
+                  if (p['size'] != null) fact('المقاس', '${(p['size'] as Map)['label']}'),
+                  if (p['model'] != null) fact('الموديل', '${(p['model'] as Map)['name']}'),
+                  fact(
+                    'الأجرة',
+                    p['wage_known'] == true ? formatAmount((p['wage'] as num).toDouble()) : 'بانتظار الفاتورة',
+                  ),
+                  const Divider(height: 24),
+                  Text('البطاقة', style: theme.textTheme.titleSmall),
+                  if (label == null)
+                    Text(p['tag'] != null ? 'رقاقة معتمدة قبل سجلّ الطباعة' : 'لم تُطلب لها بطاقة بعد')
+                  else ...[
+                    fact('الطلب', label['kind'] == 'reprint' ? 'إعادة طباعة' : 'الطباعة الأولى'),
+                    if (label['generation'] != null) fact('الجيل', '${label['generation']}', ltr: true),
+                    if (label['attempt_id'] != null) ...[const SizedBox(height: 4), _steps(sheet, label)],
+                    if (message != null) ...[const SizedBox(height: 8), Text('$message')],
+                  ],
                 ],
-                if (p['size'] != null) fact('المقاس', '${(p['size'] as Map)['label']}'),
-                if (p['model'] != null) fact('الموديل', '${(p['model'] as Map)['name']}'),
-                fact('الأجرة', p['wage_known'] == true ? formatAmount((p['wage'] as num).toDouble()) : 'بانتظار الفاتورة'),
-                const Divider(height: 24),
-                Text('البطاقة', style: theme.textTheme.titleSmall),
-                if (label == null)
-                  Text(p['tag'] != null ? 'رقاقة معتمدة قبل سجلّ الطباعة' : 'لم تُطلب لها بطاقة بعد')
-                else ...[
-                  fact('الطلب', label['kind'] == 'reprint' ? 'إعادة طباعة' : 'الطباعة الأولى'),
-                  if (label['generation'] != null) fact('الجيل', '${label['generation']}', ltr: true),
-                  if (label['attempt_id'] != null) ...[const SizedBox(height: 4), _steps(sheet, label)],
-                  if (message != null) ...[const SizedBox(height: 8), Text('$message')],
-                ],
-              ]),
+              ),
             ),
           ),
         );
@@ -1173,31 +1281,34 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
     final theme = Theme.of(context);
     final rest = (line['rest'] as num? ?? 0).toDouble();
     final work = rest > 0.0005
-        ? Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            _modelSection(context),
-            if (_offeredSizes.isNotEmpty) ...[
-              Text('المقاس', style: theme.textTheme.titleSmall),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final s in _offeredSizes)
-                    ChoiceChip(
-                      key: Key('station-size-${s['id']}'),
-                      selected: _sizeId == s['id'],
-                      label: Text('${s['label']}', textDirection: TextDirection.ltr),
-                      onSelected: (on) => setState(() => _sizeId = on ? s['id'] as int : null),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 12),
+        ? Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _modelSection(context),
+              if (_offeredSizes.isNotEmpty) ...[
+                Text('المقاس', style: theme.textTheme.titleSmall),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final s in _offeredSizes)
+                      ChoiceChip(
+                        key: Key('station-size-${s['id']}'),
+                        selected: _sizeId == s['id'],
+                        label: Text('${s['label']}', textDirection: TextDirection.ltr),
+                        onSelected: (on) => setState(() => _sizeId = on ? s['id'] as int : null),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+              ],
+              if (_wageByPiece(line)) _wageKind(),
+              _current(context),
+              _entry(context, line),
+              _weighedLine(context),
             ],
-            if (_wageByPiece(line)) _wageKind(),
-            _current(context),
-            _entry(context, line),
-            _weighedLine(context),
-          ])
+          )
         : const AppEmptyView(title: 'رُمّز السطر كله', icon: Icons.task_alt);
     final wide = AppBreakpoints.of(context) == DeviceClass.wide;
     return Align(
@@ -1210,11 +1321,14 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
             _lineCard(context, line),
             const SizedBox(height: 12),
             if (wide)
-              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Expanded(flex: 3, child: work),
-                const SizedBox(width: 16),
-                Expanded(flex: 2, child: _currentCard(context)),
-              ])
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(flex: 3, child: work),
+                  const SizedBox(width: 16),
+                  Expanded(flex: 2, child: _currentCard(context)),
+                ],
+              )
             else ...[
               work,
               const SizedBox(height: 16),
@@ -1270,28 +1384,16 @@ class _FromStockDialogState extends State<_FromStockDialog> {
 
   Future<void> _load() async {
     try {
-      final safes = await widget.api.getSafeBoxes(
-        safeType: 'gold',
-        isActive: true,
-      );
+      final safes = await widget.api.getSafeBoxes(safeType: 'gold', isActive: true);
       final categories = await widget.api.getCategories();
       if (!mounted) return;
       setState(() {
         // an office's deposit is its gold, not ours to code (ADR-052)
-        _safes = safes
-            .where(
-              (s) =>
-                  s.id != null &&
-                  s.stockLocation != null &&
-                  s.stockLocation != 'deposit',
-            )
-            .toList();
+        _safes = safes.where((s) => s.id != null && s.stockLocation != null && s.stockLocation != 'deposit').toList();
         _categories = categories
             .whereType<Map<String, dynamic>>()
             .map(Category.fromJson)
-            .where(
-              (c) => c.id != null && c.isActive && !c.isScrap && c.byThePiece,
-            )
+            .where((c) => c.id != null && c.isActive && !c.isScrap && c.byThePiece)
             .toList();
       });
     } catch (e) {
@@ -1340,11 +1442,7 @@ class _FromStockDialogState extends State<_FromStockDialog> {
       content: SizedBox(
         width: 420,
         child: _error != null
-            ? AppErrorView(
-                title: 'تعذّر تحميل المواقع والتصنيفات',
-                error: _error,
-                onRetry: _load,
-              )
+            ? AppErrorView(title: 'تعذّر تحميل المواقع والتصنيفات', error: _error, onRetry: _load)
             : safes == null
             ? const AppLoadingView()
             : _categories.isEmpty
@@ -1362,10 +1460,7 @@ class _FromStockDialogState extends State<_FromStockDialog> {
                       key: const Key('coding-safe'),
                       initialValue: _safeId,
                       decoration: const InputDecoration(labelText: 'الموقع'),
-                      items: [
-                        for (final s in safes)
-                          DropdownMenuItem(value: s.id, child: Text(s.name)),
-                      ],
+                      items: [for (final s in safes) DropdownMenuItem(value: s.id, child: Text(s.name))],
                       onChanged: (v) {
                         setState(() => _safeId = v);
                         _readRoom();
@@ -1376,10 +1471,7 @@ class _FromStockDialogState extends State<_FromStockDialog> {
                       key: const Key('coding-category'),
                       initialValue: _categoryId,
                       decoration: const InputDecoration(labelText: 'التصنيف'),
-                      items: [
-                        for (final c in _categories)
-                          DropdownMenuItem(value: c.id, child: Text(c.name)),
-                      ],
+                      items: [for (final c in _categories) DropdownMenuItem(value: c.id, child: Text(c.name))],
                       onChanged: (v) {
                         setState(() => _categoryId = v);
                         _readRoom();
@@ -1387,22 +1479,15 @@ class _FromStockDialogState extends State<_FromStockDialog> {
                     ),
                     if (_room != null) ...[
                       const SizedBox(height: 8),
-                      Text(
-                        'المتاح للترميز: ${formatGrams(_room!, decimals: 2)} جم',
-                        key: const Key('coding-room'),
-                      ),
+                      Text('المتاح للترميز: ${formatGrams(_room!, decimals: 2)} جم', key: const Key('coding-room')),
                     ],
                     const SizedBox(height: 12),
                     TextField(
                       key: const Key('coding-weight'),
                       controller: _weight,
                       textDirection: TextDirection.ltr,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(
-                        labelText: 'وزن الدفعة (جم)',
-                      ),
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(labelText: 'وزن الدفعة (جم)'),
                     ),
                     const SizedBox(height: 8),
                     Text(
@@ -1416,28 +1501,18 @@ class _FromStockDialogState extends State<_FromStockDialog> {
                     TextField(
                       key: const Key('coding-note'),
                       controller: _note,
-                      decoration: const InputDecoration(
-                        labelText: 'ملاحظة (اختياري)',
-                      ),
+                      decoration: const InputDecoration(labelText: 'ملاحظة (اختياري)'),
                     ),
                     if (_problem != null) ...[
                       const SizedBox(height: 8),
-                      Text(
-                        _problem!,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      ),
+                      Text(_problem!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
                     ],
                   ],
                 ),
               ),
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('إلغاء'),
-        ),
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('إلغاء')),
         FilledButton(
           key: const Key('coding-open'),
           onPressed: _categories.isEmpty ? null : _submit,

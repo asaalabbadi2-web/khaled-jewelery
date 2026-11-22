@@ -69,6 +69,21 @@ void main() {
     expect(find.text('حفظ (2)'), findsOneWidget);
   });
 
+  // The owner, 22 Nov 2026 (the screens by a designer's eye): three sentences in one block, and a wide gap
+  // between a category and its section. Three short lines; a narrow two-column table with its heads.
+  testWidgets('three short lines, then a narrow table: the category beside its section, under their heads', (tester) async {
+    await _open(tester, _Api());
+    for (var i = 0; i < 3; i++) {
+      expect(find.byKey(Key('sections-rule-$i')), findsOneWidget);
+    }
+    expect(find.text('التصنيف'), findsOneWidget);
+    expect(find.text('القسم'), findsOneWidget);
+    final name = tester.getRect(find.text('سوار ذهب 21'));
+    final field = tester.getRect(find.byKey(const Key('section-field-33')));
+    expect(name.left - field.right, lessThan(120), reason: 'the category next to its section, not across the screen');
+    expect(tester.getSize(find.byKey(const Key('sections-body'))).width, lessThanOrEqualTo(640));
+  });
+
   testWidgets('the owner changes the suggestion; only what differs is sent, at once', (tester) async {
     final api = _Api();
     await _open(tester, api);

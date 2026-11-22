@@ -133,4 +133,10 @@ def piece_scan_get(scan_id: int):
 @piece_scans_bp.route('/piece-scans', methods=['GET'])
 @require_permission('inventory.view')
 def piece_scans_get():
-    return jsonify({'scans': scans_list()}), 200
+    # the log by its location and period (the owner, 22 Nov 2026); the period by this clock
+    try:
+        return jsonify({'scans': scans_list(safe_box_id=request.args.get('safe_box_id', type=int),
+                                            period=request.args.get('period') or None,
+                                            now=datetime.now())}), 200  # clock-guard: boundary
+    except ScanRefused as refused:
+        return jsonify({'error': refused.code, 'message': refused.message}), 400

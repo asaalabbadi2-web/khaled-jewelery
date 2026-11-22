@@ -161,17 +161,27 @@ class _ItemSectionsScreenState extends State<ItemSectionsScreen> {
     final names = [for (final s in _sections ?? const <Map<String, dynamic>>[]) '${s['name']}'];
     return Align(
       alignment: Alignment.topCenter,
+      // narrow (the owner, 22 Nov 2026): a category beside its section, not across the screen
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 900),
+        key: const Key('sections-body'),
+        constraints: const BoxConstraints(maxWidth: 640),
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
           children: [
-            Text(
-              'القسم هو النوع بلا عيار، فوق تصنيفاته: «أساور» فوق «سوار ذهب 18» و«سوار ذهب 21». '
-              'يُجرد به ويُجمع به، ولا رصيد له. التصنيف الذي لا قسم له مكتوب في حقله اقتراح: '
-              'اسمه بلا عيار وبلا ما بين قوسين. عدّل ما تريد ثم احفظ، ولا يُحفظ شيء قبل ذلك.',
-              style: theme.textTheme.bodyMedium,
-            ),
+            // three short lines, not one block of three sentences
+            for (final (i, rule) in const [
+              'القسم هو النوع بلا عيار، فوق تصنيفاته: «أساور» فوق «سوار ذهب 18» و«سوار ذهب 21».',
+              'يُجرد به ويُجمع به، ولا رصيد له.',
+              'التصنيف الذي لا قسم له مكتوب في حقله اقتراح؛ عدّل ما تريد ثم احفظ، ولا يُحفظ شيء قبل ذلك.',
+            ].indexed)
+              Padding(
+                key: Key('sections-rule-$i'),
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('•  ', style: theme.textTheme.bodyMedium),
+                  Expanded(child: Text(rule, style: theme.textTheme.bodyMedium)),
+                ]),
+              ),
             const SizedBox(height: 16),
             if ((_sections ?? const []).isNotEmpty) ...[
               Text('الأقسام', style: theme.textTheme.titleSmall),
@@ -190,6 +200,13 @@ class _ItemSectionsScreenState extends State<ItemSectionsScreen> {
               const SizedBox(height: 16),
             ],
             Text('التصنيفات', style: theme.textTheme.titleSmall),
+            const SizedBox(height: 8),
+            Row(children: [
+              Expanded(flex: 2, child: Text('التصنيف', style: theme.textTheme.labelLarge)),
+              const SizedBox(width: 12),
+              Expanded(flex: 3, child: Text('القسم', style: theme.textTheme.labelLarge)),
+            ]),
+            const Divider(),
             for (final r in _rows!) _row(context, r, names),
           ],
         ),

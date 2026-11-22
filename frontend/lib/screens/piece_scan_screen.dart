@@ -10,6 +10,7 @@ import '../widgets/app_state_views.dart';
 import '../widgets/piece_scan_result.dart';
 import '../widgets/reader_capture.dart';
 import '../widgets/reader_receiver.dart';
+import '../utils/bidi.dart';
 
 /// «جرد بالمسح» on the handheld reader (ADR-085 ت2 ج1; the owner, 21 Nov 2026).
 ///
@@ -178,6 +179,11 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
     try {
       final body = await _api.pieceScanReads(scan['id'] as int, batch.key, batch.events);
       if (!mounted) return;
+      // the panel says each value as the server judged it, not the tag's raw value
+      for (final r in ((body['scan'] as Map?)?['reads'] as List? ?? const []).whereType<Map>()) {
+        final words = r['words'] ?? r['verdict_words'];
+        if (r['value'] != null && words != null) _capture?.describe('${r['value']}', '$words');
+      }
       setState(() {
         _scan = body['scan'] as Map<String, dynamic>;
         _sending = null;
@@ -308,7 +314,8 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
           child: ListTile(
             leading: const Icon(Icons.play_circle_outline),
             title: Text('جلسة مفتوحة: ${o['safe_name']} — ${o['kind_words']} — ${o['scope_words']}'),
-            subtitle: Text('بدأها ${o['started_by'] ?? ''} · موجودة ${o['found']} من ${o['expected']}'),
+            subtitle: Text(isolateLatin(
+                'بدأها ${o['started_by_name'] ?? o['started_by'] ?? ''} · موجودة ${o['found']} من ${o['expected']}')),
             trailing: TextButton(onPressed: () => _resume(o['id'] as int), child: const Text('متابعة')),
           ),
         ),
@@ -371,11 +378,22 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
 
   // ── the scan ──
 
+  /// «ضغطة واحدة», «ضغطتان», «3 ضغطات», «11 ضغطة».
+  static String _presses(int n) => switch (n) {
+        <= 1 => 'ضغطة واحدة',
+        2 => 'ضغطتان',
+        >= 3 && <= 10 => '$n ضغطات',
+        _ => '$n ضغطة',
+      };
+
   Widget _scanView(BuildContext context, Map<String, dynamic> scan) {
     final theme = Theme.of(context);
     final tones = AppSemanticColors.of(context);
     final complete = (scan['completeness'] as Map?)?['complete'] == true;
     final needs = (scan['completeness'] as Map?)?['needs_presses'] ?? 3;
+    final quiet = ((scan['completeness'] as Map?)?['quiet_presses'] as num? ?? 0).toInt();
+    final expected = (scan['expected'] as num? ?? 0).toInt();
+    final foundCount = (scan['found'] as num? ?? 0).toInt();
     final reads = (scan['reads'] as List? ?? []).cast<Map<String, dynamic>>();
     final alerts = reads.where((r) => r['verdict'] != 'found' && r['verdict'] != 'other_scope').toList();
     final found = reads.where((r) => r['verdict'] == 'found').toList();
@@ -385,11 +403,28 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
           key: const Key('scan-title'), style: theme.textTheme.titleSmall),
       const SizedBox(height: 12),
       Row(children: [
-        Expanded(child: _figure(context, 'scan-found', 'موجودة', '${scan['found']} من ${scan['expected']}', tones.ready)),
+        Expanded(child: ScanFigure(figureKey: 'scan-found', name: 'موجودة',
+            value: '${scan['found']} من ${scan['expected']}', tone: tones.ready)),
         const SizedBox(width: 12),
-        Expanded(child: _figure(context, 'scan-alerts', 'تنبيهات', '${scan['alerts']}',
-            (scan['alerts'] as num? ?? 0) > 0 ? tones.warning : null)),
+        Expanded(child: ScanFigure(figureKey: 'scan-alerts', name: 'تنبيهات', value: '${scan['alerts']}',
+            tone: (scan['alerts'] as num? ?? 0) > 0 ? tones.warning : null)),
       ]),
+      if (expected > 0) ...[
+        const SizedBox(height: 8),
+        Semantics(
+          label: 'موجودة $foundCount من $expected',
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              key: const Key('scan-progress'),
+              value: foundCount / expected,
+              minHeight: 8,
+              color: tones.ready.fg,
+              backgroundColor: tones.ready.container,
+            ),
+          ),
+        ),
+      ],
       const SizedBox(height: 12),
       Row(children: [
         Icon(complete ? Icons.check_circle_outline : Icons.sensors, color: complete ? tones.ready.fg : theme.colorScheme.primary),
@@ -419,6 +454,16 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
         icon: const Icon(Icons.flag_outlined),
         label: const Text('إنهاء الجرد'),
       ),
+      if (!complete)
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Text(
+            'يُتاح الإنهاء بعد ${_presses(needs as int)} بلا قراءة جديدة — بقي ${_presses(needs - quiet)}',
+            key: const Key('scan-finish-hint'),
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          ),
+        ),
       const SizedBox(height: 16),
       if (alerts.isNotEmpty) ...[
         Text('التنبيهات (${alerts.length})', style: theme.textTheme.titleSmall),
@@ -427,7 +472,7 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
       if (others > 0)
         Padding(
           padding: const EdgeInsets.only(top: 8),
-          child: Text('من نطاق آخر: $others — لا تُحسب في هذا الجرد', key: const Key('scan-other-scope'),
+          child: Text('من نطاق آخر: $others — خارج حساب هذا الجرد', key: const Key('scan-other-scope'),
               style: theme.textTheme.bodySmall),
         ),
       if (found.isNotEmpty)
@@ -437,22 +482,6 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
           children: [for (final r in found) _readTile(context, r)],
         ),
     ]);
-  }
-
-  Widget _figure(BuildContext context, String key, String name, String value, SemanticTone? tone) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: tone?.container ?? theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(name, style: theme.textTheme.bodySmall?.copyWith(color: tone?.onContainer)),
-        Text(value, key: Key(key),
-            style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800, color: tone?.onContainer)),
-      ]),
-    );
   }
 
   Widget _readTile(BuildContext context, Map<String, dynamic> r) {
@@ -465,10 +494,10 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
       dense: true,
       contentPadding: EdgeInsets.zero,
       title: Text('${r['verdict_words'] ?? r['verdict']}', style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
-      subtitle: Text([
+      subtitle: Text(isolateLatin([
         '${r['words'] ?? r['value']}',
         if (r['moved'] != null) '${r['moved']}',
-      ].join(' — ')),
+      ].join(' — '))),
       trailing: settle
           ? TextButton(
               key: Key('scan-settle-${r['value']}'),
@@ -488,7 +517,7 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
         textDirection: TextDirection.rtl,
         child: AlertDialog(
           title: const Text('اعتماد هذه البطاقة؟'),
-          content: Text('قرأ القارئ رقاقتها الآن: تُعتمد محاولتها بجيلها، ويُكتب ذلك باسمك.\n${read['words'] ?? ''}'),
+          content: Text(isolateLatin('قرأ القارئ رقاقتها الآن: تُعتمد محاولتها بجيلها، ويُكتب ذلك باسمك.\n${read['words'] ?? ''}')),
           actions: [
             TextButton(onPressed: () => Navigator.of(dialog).pop(false), child: const Text('رجوع')),
             FilledButton(

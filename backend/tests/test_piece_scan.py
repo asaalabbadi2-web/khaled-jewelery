@@ -403,3 +403,56 @@ def test_settling_from_the_reader_is_its_route_and_its_permission(app, auth_head
     assert r.status_code == 200, r.get_data(as_text=True)
     assert r.get_json()['scan']['reads'][0]['verdict'] == 'found'
 
+
+# The owner, 22 Nov 2026 (the screens seen by a designer's eye): who began and ended a scan is said by
+# his name, as everywhere else -- not his login. One not found is said by what was written.
+def test_who_is_said_by_his_name(shop):
+    from models import User
+    db.session.add(User(username='scan_sb', full_name='صالح العبادي', password_hash='x'))
+    db.session.flush()
+    scan = start_scan(safe_box_id=shop['showroom'].id, kind='check', by='scan_sb', now=NOW)
+    finish_scan(scan.id, by='nobody_known', now=NOW, early=True, reason='تجربة')
+    view = scan_view(scan)
+    assert view['started_by_name'] == 'صالح العبادي'
+    assert view['finished_by_name'] == 'nobody_known'
+    assert view['started_by'] == 'scan_sb', 'the login kept beside it'
+
+
+# The owner, 22 Nov 2026 (the screens by a designer's eye): a log of daily counts needs its location and
+# its period -- today, the last 7 days, this month -- asked of the server, by the server's clock.
+def test_the_log_by_location_and_period(shop):
+    from datetime import timedelta
+    from services.piece_scan import abandon_scan, scans_list
+    today = start_scan(safe_box_id=shop['showroom'].id, kind='check', by='t', now=NOW)
+    abandon_scan(today.id, by='t', now=NOW)
+    branch = start_scan(safe_box_id=shop['branch'].id, kind='check', by='t', now=NOW - timedelta(days=3))
+    abandon_scan(branch.id, by='t', now=NOW)
+    old = start_scan(safe_box_id=shop['showroom'].id, kind='check', by='t', now=NOW - timedelta(days=40))
+    abandon_scan(old.id, by='t', now=NOW)
+    ids = lambda **kw: {s['id'] for s in scans_list(now=NOW, **kw)} & {today.id, branch.id, old.id}
+    assert ids() == {today.id, branch.id, old.id}
+    assert ids(period='today') == {today.id}
+    assert ids(period='week') == {today.id, branch.id}
+    assert ids(safe_box_id=shop['showroom'].id) == {today.id, old.id}
+    assert ids(safe_box_id=shop['showroom'].id, period='week') == {today.id}
+    with pytest.raises(ScanRefused) as refused:
+        scans_list(now=NOW, period='decade')
+    assert refused.value.code == 'scan_period_invalid'
+
+
+def test_the_log_route_reads_its_location_and_period(shop, auth_headers):
+    from flask import g
+    from app import app as flask_app
+    scan = start_scan(safe_box_id=shop['showroom'].id, kind='check', by='t', now=NOW)
+
+    def get(query):
+        g.pop('current_user', None)
+        return flask_app.test_client().get(f'/api/piece-scans{query}', headers=auth_headers)
+
+    mine = get(f'?safe_box_id={shop["showroom"].id}')
+    assert mine.status_code == 200 and scan.id in {s['id'] for s in mine.get_json()['scans']}
+    other = get(f'?safe_box_id={shop["branch"].id}')
+    assert scan.id not in {s['id'] for s in other.get_json()['scans']}
+    refused = get('?period=decade')
+    assert refused.status_code == 400 and refused.get_json()['error'] == 'scan_period_invalid'
+

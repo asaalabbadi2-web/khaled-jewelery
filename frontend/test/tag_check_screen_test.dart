@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/api_service.dart';
 import 'package:frontend/screens/tag_check_screen.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/utils/bidi.dart';
 import 'package:frontend/utils/scan_feedback.dart';
 
 const _active = '4B4A00020000000000000101';
@@ -76,21 +77,29 @@ Future<void> _read(WidgetTester tester, String value) async {
 String _said(WidgetTester tester, String key) => tester.widget<Text>(find.byKey(Key(key))).data!;
 
 void main() {
-  testWidgets('an adopted tag: its piece, its facts, its place, its generation', (tester) async {
+  // The owner, 22 Nov 2026 (the screens by a designer's eye): the verdict heads the card -- its words, its
+  // colour and its own icon -- and the tag drops to a small line; its generation only where it matters.
+  bool verdictIcon(WidgetTester tester, String value, IconData icon) =>
+      find.descendant(of: find.byKey(Key('check-verdict-$value')), matching: find.byIcon(icon)).evaluate().isNotEmpty;
+
+  testWidgets('an adopted tag: «in stock» and where heads the card; its tag a small line', (tester) async {
     await _open(tester, _Api());
     await _read(tester, _active);
     expect(find.text('KJ-000101'), findsOneWidget);
-    expect(_said(tester, 'check-state-$_active'), 'رقاقة معتمدة — الجيل 0002');
+    expect(_said(tester, 'check-verdict-text-$_active'), 'في المخزون — الذهب المعروض');
+    expect(verdictIcon(tester, _active, Icons.verified_outlined), isTrue);
     expect(find.text('12.40 جم · فصوص 0.35 جم · بنجرة الشمس'), findsOneWidget);
-    expect(_said(tester, 'check-place-$_active'), 'مكانها في الدفاتر: الذهب المعروض');
+    expect(_said(tester, 'check-tag-$_active'), 'رقاقة معتمدة', reason: 'no generation where it does not matter');
   });
 
-  testWidgets('a sold piece: how it left, in the server\'s words, and not shown as ready', (tester) async {
+  testWidgets('a sold piece: how it left heads the card, its own icon, its date never reversed', (tester) async {
     await _open(tester, _Api());
     await _read(tester, _sold);
     expect(find.text('KJ-000401'), findsOneWidget);
-    expect(_said(tester, 'check-place-$_sold'), 'ليست في المخزون — بيعت 2026-11-21');
+    expect(_said(tester, 'check-verdict-text-$_sold'), isolateLatin('ليست في المخزون — بيعت 2026-11-21'));
+    expect(verdictIcon(tester, _sold, Icons.sell_outlined), isTrue, reason: 'sold, said by its own icon');
     expect(find.byIcon(Icons.verified_outlined), findsNothing, reason: 'a piece sold is not a piece found');
+    expect(_said(tester, 'check-tag-$_sold'), 'رقاقة معتمدة', reason: 'its tag is sound: not the warning');
   });
 
   testWidgets('the system\'s tone: a piece in stock, and a label to look at', (tester) async {
@@ -110,7 +119,9 @@ void main() {
   testWidgets('a stopped tag is said in the server\'s words, nothing to settle', (tester) async {
     await _open(tester, _Api());
     await _read(tester, _stopped);
-    expect(_said(tester, 'check-state-$_stopped'), 'رقاقة ملغاة — القطعة KJ-000101 — الجيل 0001 — لا تُحتسب في الجرد');
+    expect(_said(tester, 'check-verdict-text-$_stopped'),
+        isolateLatin('رقاقة ملغاة — القطعة KJ-000101 — الجيل 0001 — لا تُحتسب في الجرد'));
+    expect(verdictIcon(tester, _stopped, Icons.block), isTrue);
     expect(find.byKey(const Key('check-settle-$_stopped')), findsNothing);
   });
 
@@ -122,7 +133,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.resolved.single.$1, 77);
     expect(api.resolved.single.$2, {'read_value': _attempt}, reason: 'the reader\'s value; the server matches it');
-    expect(_said(tester, 'check-state-$_attempt'), 'رقاقة معتمدة — الجيل 0001');
+    expect(_said(tester, 'check-verdict-text-$_attempt'), 'في المخزون — الذهب المعروض');
+    expect(_said(tester, 'check-tag-$_attempt'), 'رقاقة معتمدة');
   });
 
   // ── each press its own check (the owner, 21 Nov 2026) ──
@@ -136,7 +148,8 @@ void main() {
       await tester.enterText(field, '${tester.widget<TextField>(field).controller!.text}$_active');
       await tester.pump();
       expect(tester.widget<TextField>(field).controller!.text, isEmpty, reason: 'emptied after each code taken');
-      expect(find.text('آخر قراءة: $_active · الضغطة 1'), findsOneWidget, reason: 'what was read said under it');
+      expect(find.textContaining('آخر قراءة:'), findsOneWidget, reason: 'what was read said under it');
+      expect(find.textContaining(_active), findsNothing, reason: 'never the tag\'s raw 24 characters');
     }
     await tester.pumpAndSettle();
     expect(api.asked, [_active], reason: 'one press, one label, asked once');
@@ -197,7 +210,9 @@ void main() {
     final hidden = tester.widget<Opacity>(find.ancestor(of: find.byKey(const Key('check-field')), matching: find.byType(Opacity)).first);
     expect(hidden.opacity, 0);
     await _read(tester, _active);
-    expect(tester.widget<Text>(find.byKey(const Key('reader-receiver-last'))).data, 'آخر قراءة: $_active · الضغطة 1');
+    expect(tester.widget<Text>(find.byKey(const Key('reader-receiver-last'))).data,
+        isolateLatin('آخر قراءة: KJ-000101 · الضغطة 1'),
+        reason: 'the piece the server named, not the tag\'s raw value (the owner, 22 Nov 2026)');
   });
 }
 

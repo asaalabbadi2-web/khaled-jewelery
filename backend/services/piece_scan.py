@@ -362,7 +362,7 @@ def scan_view(scan: PieceScan, *, with_lists=True) -> dict:
                            'verdict_words': WORDS.get(said['verdict']), 'item_id': said['item_id'],
                            'words': said['words'], 'moved': read.moved,
                            'attempt_id': said['attempt_id'], 'unsettled': said['unsettled'],
-                           'resolved_by': read.resolved_by})
+                           'resolved_by': read.resolved_by, 'resolved_by_name': name_of(read.resolved_by)})
     counts: dict = {}
     for r in read_views:
         counts[r['verdict']] = counts.get(r['verdict'], 0) + 1
@@ -370,7 +370,8 @@ def scan_view(scan: PieceScan, *, with_lists=True) -> dict:
     view = {'id': scan.id, 'safe_box_id': scan.safe_box_id, 'safe_name': getattr(safe, 'name', None),
             'kind': scan.kind, 'kind_words': KINDS.get(scan.kind), 'status': scan.status,
             'started_by': scan.started_by, 'started_at': scan.started_at.isoformat(),
-            'finished_by': scan.finished_by,
+            'started_by_name': name_of(scan.started_by),
+            'finished_by': scan.finished_by, 'finished_by_name': name_of(scan.finished_by),
             'finished_at': scan.finished_at.isoformat() if scan.finished_at else None,
             'complete': scan.complete, 'early_reason': scan.early_reason, 'presses': scan.presses or 0,
             'expected': len(expected_rows), 'found': len(found & expected),
@@ -394,6 +395,18 @@ def scan_view(scan: PieceScan, *, with_lists=True) -> dict:
     return view
 
 
+def name_of(username) -> str | None:
+    """Who, by his name as everywhere else -- the login only when no name is known."""
+    if not username:
+        return None
+    from models import AppUser, User
+    for model in (User, AppUser):
+        user = model.query.filter_by(username=username).first()
+        if user is not None and (user.full_name or '').strip():
+            return user.full_name.strip()
+    return username
+
+
 def _scope_words(scan: PieceScan) -> str:
     if scan.category_id is not None:
         return getattr(db.session.get(Category, scan.category_id), 'name', None) or 'تصنيف'
@@ -402,10 +415,24 @@ def _scope_words(scan: PieceScan) -> str:
     return 'كل القطع'
 
 
-def scans_list(*, limit=100, status=None) -> list:
-    """The scans, the newest first, with their counts -- or those of a status."""
+PERIODS = ('today', 'week', 'month')
+
+
+def scans_list(*, limit=100, status=None, safe_box_id=None, period=None, now=None) -> list:
+    """The scans, the newest first, with their counts -- or those of a status,
+    a location, a period by the clock given (the owner, 22 Nov 2026: a log of
+    daily counts): today, the last 7 days, this month."""
+    from datetime import timedelta
     query = PieceScan.query
     if status is not None:
         query = query.filter(PieceScan.status == status)
+    if safe_box_id is not None:
+        query = query.filter(PieceScan.safe_box_id == int(safe_box_id))
+    if period:
+        if period not in PERIODS or now is None:
+            raise ScanRefused('scan_period_invalid', 'الفترة: اليوم، أو آخر 7 أيام، أو هذا الشهر')
+        day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        since = {'today': day, 'week': day - timedelta(days=6), 'month': day.replace(day=1)}[period]
+        query = query.filter(PieceScan.started_at >= since)
     rows = query.order_by(PieceScan.id.desc()).limit(int(limit)).all()
     return [scan_view(s, with_lists=False) for s in rows]

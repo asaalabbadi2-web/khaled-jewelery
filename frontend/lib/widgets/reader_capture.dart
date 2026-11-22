@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
+import '../utils/bidi.dart';
 
 /// One thing a handheld reader sent: a value read -- a tag's or a label's
 /// printed code -- or its button pressed; its press, and when on the reader.
@@ -50,8 +51,21 @@ class ReaderCapture {
   String? lastValue;
   int? lastPress;
 
-  /// «آخر قراءة: … · الضغطة n», or null before the first.
-  String? get lastWords => lastValue == null ? null : 'آخر قراءة: $lastValue · الضغطة $lastPress';
+  /// What the screen learned of a value from the server -- the piece and its
+  /// verdict -- said in its place (the owner, 22 Nov 2026: a tag's raw 24
+  /// characters meant nothing on the panel).
+  final Map<String, String> _described = {};
+
+  void describe(String value, String words) => _described[value] = words;
+
+  /// «آخر قراءة: … · الضغطة n», or null before the first: what the server
+  /// said of it, a printed code as read, a tag not yet answered «رقاقة».
+  String? get lastWords {
+    final value = lastValue;
+    if (value == null) return null;
+    final said = _described[value] ?? (value.startsWith('KJ-') ? value : 'رقاقة');
+    return isolateLatin('آخر قراءة: $said · الضغطة $lastPress');
+  }
 
   int get _now {
     if (!_since.isRunning) _since.start();
@@ -120,6 +134,7 @@ class ReaderCapture {
     buttonPresses = 0;
     lastValue = null;
     lastPress = null;
+    _described.clear();
     _since
       ..stop()
       ..reset();

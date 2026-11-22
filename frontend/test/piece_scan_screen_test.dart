@@ -7,6 +7,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:frontend/utils/bidi.dart';
 import 'package:frontend/api_service.dart';
 import 'package:frontend/screens/piece_scan_screen.dart';
 import 'package:frontend/theme/app_theme.dart';
@@ -22,6 +23,7 @@ class _Api extends ApiService {
   final finishes = <Map<String, dynamic>>[];
   int loseNext = 0;
   bool complete = false;
+  int quiet = 0;
   List<Map<String, dynamic>> open = [];
   final settled = <int>[];
 
@@ -42,7 +44,9 @@ class _Api extends ApiService {
           'value': v,
           'verdict': v == _ring ? 'other_scope' : (v == _b ? 'elsewhere' : 'found'),
           'verdict_words': v == _ring ? 'من نطاق آخر' : (v == _b ? 'في غير موقعها' : 'موجودة'),
-          'words': v == _b ? 'KJ-000102 — مكانها في الدفاتر «العرض الخارجي»' : v,
+          'words': v == _b
+              ? 'KJ-000102 — مكانها في الدفاتر «العرض الخارجي»'
+              : (v == _ring ? 'KJ-000201 — ليست من نطاق هذا الجرد' : v),
           'moved': null,
         },
     ];
@@ -51,7 +55,7 @@ class _Api extends ApiService {
       'status': status, 'presses': presses, 'expected': 2, 'found': seen.contains(_a) ? 1 : 0,
       'alerts': seen.contains(_b) ? 1 : 0, 'complete': status == 'open' ? null : !finishes.last.containsKey('early'),
       'early_reason': finishes.isEmpty ? null : finishes.last['reason'],
-      'completeness': {'complete': complete, 'needs_presses': 3},
+      'completeness': {'complete': complete, 'needs_presses': 3, 'quiet_presses': quiet},
       'reads': reads,
       if (status != 'open') ...{
         'expected_counts': {'found': 1, 'missing': 1},
@@ -183,12 +187,31 @@ void main() {
     expect(api.batches.single.key, isNotEmpty);
     expect(tester.widget<TextField>(find.byKey(const Key('scan-field'))).controller!.text, isEmpty,
         reason: 'a long count never grows its field');
-    expect(find.text('آخر قراءة: $_ring · الضغطة 1'), findsOneWidget, reason: 'the field emptied, what was read said');
-    expect((_said(tester, 'scan-found'), _said(tester, 'scan-alerts')), ('1 من 2', '1'));
+    expect(find.text(isolateLatin('آخر قراءة: KJ-000201 — ليست من نطاق هذا الجرد · الضغطة 1')), findsOneWidget,
+        reason: 'the field emptied, what was read said -- in the server\'s words, not the tag\'s raw value');
+    expect((_said(tester, 'scan-found'), _said(tester, 'scan-alerts')), (isolateLatin('1 من 2'), isolateLatin('1')));
     expect(find.text('في غير موقعها'), findsOneWidget);
     expect(find.textContaining('العرض الخارجي'), findsOneWidget);
-    expect(find.text('من نطاق آخر: 1 — لا تُحسب في هذا الجرد'), findsOneWidget, reason: 'not an alert');
+    expect(find.text('من نطاق آخر: 1 — خارج حساب هذا الجرد'), findsOneWidget, reason: 'not an alert');
     expect(find.text('من نطاق آخر'), findsNothing, reason: 'counted apart, never listed with the alerts');
+  });
+
+  // The owner, 22 Nov 2026 (the screens by a designer's eye): «إنهاء الجرد» greyed with no reason said, and
+  // «1 من 2» a bare figure. Under the button, what is left before it can be pressed; under the figure, a bar.
+  testWidgets('while scanning: how many quiet presses are left before finishing, and how far the count is', (tester) async {
+    final api = _Api()..quiet = 1;
+    await _open(tester, api);
+    await _startSection(tester);
+    await _read(tester, '$_a\n');
+    expect(_said(tester, 'scan-finish-hint'), 'يُتاح الإنهاء بعد 3 ضغطات بلا قراءة جديدة — بقي ضغطتان',
+        reason: 'why the button waits, and how long');
+    final bar = tester.widget<LinearProgressIndicator>(find.byKey(const Key('scan-progress')));
+    expect(bar.value, 0.5, reason: 'one of two found');
+    api
+      ..quiet = 3
+      ..complete = true;
+    await _read(tester, '$_a\n');
+    expect(find.byKey(const Key('scan-finish-hint')), findsNothing, reason: 'complete: the button speaks for itself');
   });
 
   testWidgets('a batch that met no answer is sent again under its key, once', (tester) async {
@@ -225,7 +248,8 @@ void main() {
     expect(api.finishes.single, isEmpty, reason: 'complete: no early, no reason');
     expect(_said(tester, 'scan-result-state'), 'انتهى الجرد ومسحه مكتمل');
     expect(find.textContaining('KJ-000103'), findsOneWidget);
-    expect(find.text('ناقصة'), findsOneWidget);
+    expect(find.descendant(of: find.byKey(const Key('scan-piece-103')), matching: find.text('ناقصة')), findsOneWidget);
+    expect(_said(tester, 'scan-count-missing'), isolateLatin('1'), reason: 'and counted in its tile');
     expect(find.textContaining('KJ-000101'), findsNothing, reason: 'the found are counted, not listed');
   });
 
