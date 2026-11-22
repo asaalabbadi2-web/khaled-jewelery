@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; // 🆕 للـ FilteringTextInputFormatter
 import 'dart:convert';
@@ -38,6 +39,9 @@ import '../utils/payment_fee.dart';
 import '../utils/sales_readiness.dart';
 import '../utils/spread_amount.dart';
 import '../widgets/app_feedback.dart';
+import '../widgets/reader_capture.dart';
+import '../widgets/reader_receiver.dart';
+import '../utils/scan_feedback.dart';
 import '../widgets/app_shortcuts.dart';
 
 /// شاشة فاتورة البيع - النسخة الهجينة المحسّنة
@@ -64,6 +68,13 @@ class SalesInvoiceScreenV2 extends StatefulWidget {
   /// as a scrap sale, out of the main scrap safe, with no barter.
   final bool scrap;
 
+  /// «استقبال القارئ» as an icon in the quick entry card's top-left corner
+  /// (the owner, 22 Nov 2026): on a phone or the handheld reader in the
+  /// browser, where a touch on the screen leaves no field focused and the
+  /// reader's code goes nowhere.
+  /// Null: by the device; a test says.
+  final bool? readerPanel;
+
   const SalesInvoiceScreenV2({
     super.key,
     required this.items,
@@ -72,6 +83,7 @@ class SalesInvoiceScreenV2 extends StatefulWidget {
     this.editInvoiceData,
     this.apiService,
     this.scrap = false,
+    this.readerPanel,
   });
 
   @override
@@ -100,6 +112,25 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
   // ==================== State Variables ====================
   final _smartInputController = TextEditingController();
   final _smartInputFocus = FocusNode();
+
+  /// The reader's panel on a phone or the reader (see [SalesInvoiceScreenV2.readerPanel]).
+  late final bool _readerPanel = widget.readerPanel ??
+      (kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS));
+  final _readerFocus = FocusNode();
+  late final ReaderCapture _readerCapture = ReaderCapture(onEvents: _readerRead, clearAfterRead: true);
+
+  /// Where the focus goes back after a line: the reader's panel when shown --
+  /// never the search field, whose keyboard would open after every scan.
+  void _backToInput() => (_readerPanel ? _readerFocus : _smartInputFocus).requestFocus();
+
+  /// What the reader's panel took: a label's printed code, as from the field.
+  /// A tag's chip is not a sale's (ADR-085: a neighbour's is read too).
+  void _readerRead(List<ReaderEvent> events) {
+    for (final e in events) {
+      final value = e.value;
+      if (e.kind == 'read' && value != null && value.startsWith('KJ-')) _scanned(value);
+    }
+  }
   final _customAmountController = TextEditingController(); // 🆕 للمبلغ المخصص
   /// «المبلغ المطلوب»: while it holds an amount, it is the invoice's total,
   /// spread over the lines as it is typed (the owner, 10 Nov 2026).
@@ -229,7 +260,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
       _selectedBarterGoldDepositSafeBoxId = null;
       _isLoadingBarterGoldDepositSafeBoxes = false;
     });
-    _smartInputFocus.requestFocus();
+    _backToInput();
   }
 
   String _localDraftKey() => 'yasargold_sales_invoice_complete_later_v2';
@@ -589,7 +620,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
     if (widget.scrap && !_isEditMode) _loadScrapSafeBox();
     _ensureCategoriesLoaded();
     _loadPaymentMethods(); // 🆕 جلب وسائل الدفع
-    _smartInputFocus.requestFocus();
+    if (_readerPanel) _readerCapture.start();
+    _backToInput();
     if (_isEditMode) {
       // In edit mode, prefill after data loads
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -730,6 +762,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
     stopLiveGoldPrices();
     _smartInputController.dispose();
     _smartInputFocus.dispose();
+    _readerCapture.dispose();
+    _readerFocus.dispose();
     _customAmountController.dispose(); // 🆕
     _targetAmountController.dispose();
     for (final line in _barterLines) {
@@ -1437,9 +1471,19 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
         .toList();
   }
 
-  Future<void> _processSmartInput(String input) async {
+  /// What was entered -- typed and submitted, or scanned -- with the system's
+  /// tone on it (utils/scan_feedback.dart): added, or refused.
+  Future<void> _entered(String input) async {
+    final outcome = await _processSmartInput(input);
+    if (outcome == true) ScanFeedback.added();
+    if (outcome == false) ScanFeedback.refused();
+  }
+
+  /// A line added (true), refused with its reason said (false), or neither
+  /// -- nothing entered, a list of names offered to choose from (null).
+  Future<bool?> _processSmartInput(String input) async {
     final normalizedInput = input.trim();
-    if (normalizedInput.isEmpty) return;
+    if (normalizedInput.isEmpty) return null;
 
     if (_availableItems.isEmpty) {
       await _loadAvailableItems();
@@ -1448,7 +1492,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
             _itemsLoadingError ??
             'قائمة الأصناف غير متاحة حالياً. حاول مجدداً.';
         _showError(message);
-        return;
+        return false;
       }
     }
 
@@ -1459,14 +1503,13 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
       // a name searched, never a code built here.
       var foundItem = _findItemByCode(normalizedInput);
       if (foundItem == null && pieceNumberTyped.hasMatch(normalizedInput.replaceAll(RegExp(r'\s'), ''))) {
-        await _addPieceByNumber(normalizedInput);
-        return;
+        return _addPieceByNumber(normalizedInput);
       }
       if (foundItem == null) {
         final byName = _findItemsByName(normalizedInput);
         if (byName.length > 1) {
           await _showItemSelectionDialog(initialQuery: normalizedInput);
-          return;
+          return null;
         }
         if (byName.length == 1) foundItem = byName.single;
       }
@@ -1474,17 +1517,54 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
       if (foundItem != null && foundItem.isNotEmpty) {
         final added = await _addItemFromData(foundItem);
         _smartInputController.clear();
-        _smartInputFocus.requestFocus();
+        _backToInput();
 
         if (added && mounted) {
           AppFeedback.success(context, 'تمت إضافة: ${foundItem['name']}');
         }
+        return added;
       } else {
         _showError('⚠️ لم يتم العثور على الصنف');
+        return false;
       }
     } catch (e) {
       _showError(e, title: 'خطأ في البحث');
+      return false;
     }
+  }
+
+  /// A label's printed code whole, wherever it is in the field (as
+  /// ReaderCapture reads it): the handheld reader types it in and its Enter
+  /// never reaches the field (the owner, 22 Nov 2026) -- so it is taken as it
+  /// comes, the field emptied for the next one.
+  static final pieceCodeScanned = RegExp(r'KJ-\d{6,}', caseSensitive: false);
+
+  /// The same code read again this soon is the reader's button held on one
+  /// label, not a second sale of it: said nothing.
+  static const heldOnOneLabel = Duration(milliseconds: 1500);
+  final Stopwatch _sinceScanned = Stopwatch();
+  String? _lastScanned;
+
+  void _smartInputChanged(String value) {
+    final codes = [for (final m in pieceCodeScanned.allMatches(value)) m.group(0)!.toUpperCase()];
+    if (codes.isEmpty) {
+      setState(() {});
+      return;
+    }
+    _smartInputController.clear();
+    setState(() {});
+    codes.forEach(_scanned);
+  }
+
+  /// One printed code scanned -- from the field or the reader's panel -- the
+  /// button held on its label said once.
+  void _scanned(String code) {
+    final held = code == _lastScanned && _sinceScanned.isRunning && _sinceScanned.elapsed < heldOnOneLabel;
+    _lastScanned = code;
+    _sinceScanned
+      ..reset()
+      ..start();
+    if (!held) _entered(code);
   }
 
   /// A piece number as typed: its digits -- Latin or Arabic -- and its prefix
@@ -1493,13 +1573,13 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
 
   /// The piece a typed number names, asked of the server, then added as any
   /// piece offered for sale -- or said why not.
-  Future<void> _addPieceByNumber(String typed) async {
+  Future<bool> _addPieceByNumber(String typed) async {
     Map<String, dynamic> body;
     try {
       body = await _api.lookupPiece(typed);
     } on ApiException catch (e) {
       _showError(e.message);
-      return;
+      return false;
     }
     final piece = (body['piece'] as Map?)?.cast<String, dynamic>() ?? const {};
     final code = '${piece['item_code'] ?? ''}';
@@ -1509,12 +1589,13 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
           ? 'القطعة $code ليست في المخزون'
           : 'القطعة $code ليست في أصناف هذا البيع'
               '${(body['location'] as Map?)?['name'] == null ? '' : ' — مكانها «${(body['location'] as Map)['name']}»'}');
-      return;
+      return false;
     }
     final added = await _addItemFromData(offered);
     _smartInputController.clear();
-    _smartInputFocus.requestFocus();
+    _backToInput();
     if (added && mounted) AppFeedback.success(context, 'تمت إضافة: $code — ${offered['name']}');
+    return added;
   }
 
   /// Whether the piece went into the invoice.
@@ -2913,8 +2994,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
 
     if (barcode != null && barcode.isNotEmpty && mounted) {
       _smartInputController.text = barcode;
-      await _processSmartInput(barcode);
-      _smartInputFocus.requestFocus(); // إعادة التركيز للإدخال
+      await _entered(barcode);
+      _backToInput(); // إعادة التركيز للإدخال
     }
   }
 
@@ -4061,6 +4142,16 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
                     ? _showCategoryLineDialog
                     : _showManualItemFeatureGuide,
               ),
+              // the reader's icon in the quick entry card's top-left corner (the owner, 22 Nov 2026)
+              if (_readerPanel) ...[
+                const SizedBox(width: 8),
+                ReaderReceiver(
+                  capture: _readerCapture,
+                  focusNode: _readerFocus,
+                  fieldKey: const Key('sale-reader-field'),
+                  compact: true,
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 16),
@@ -4069,7 +4160,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
           TextField(
             controller: _smartInputController,
             focusNode: _smartInputFocus,
-            autofocus: true,
+            autofocus: !_readerPanel,
             style: theme.textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.w500,
             ),
@@ -4096,8 +4187,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
                 borderSide: BorderSide(color: colorScheme.primary, width: 2),
               ),
             ),
-            onChanged: (value) => setState(() {}),
-            onSubmitted: _processSmartInput,
+            onChanged: _smartInputChanged,
+            onSubmitted: _entered,
           ),
           if (_isLoadingItems)
             Padding(

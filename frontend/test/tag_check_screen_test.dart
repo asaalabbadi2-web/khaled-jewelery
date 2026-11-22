@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/api_service.dart';
 import 'package:frontend/screens/tag_check_screen.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/utils/scan_feedback.dart';
 
 const _active = '4B4A00020000000000000101';
 const _stopped = '4B4A00010000000000000101';
@@ -92,6 +93,20 @@ void main() {
     expect(find.byIcon(Icons.verified_outlined), findsNothing, reason: 'a piece sold is not a piece found');
   });
 
+  testWidgets('the system\'s tone: a piece in stock, and a label to look at', (tester) async {
+    final said = <bool>[];
+    final before = ScanFeedback.say;
+    ScanFeedback.say = said.add;
+    addTearDown(() => ScanFeedback.say = before);
+    await _open(tester, _Api());
+    await _read(tester, _active);
+    _ms += 1000;
+    await _read(tester, _sold);
+    _ms += 1000;
+    await _read(tester, _stopped);
+    expect(said, [true, false, false], reason: 'in stock; sold; a stopped tag');
+  });
+
   testWidgets('a stopped tag is said in the server\'s words, nothing to settle', (tester) async {
     await _open(tester, _Api());
     await _read(tester, _stopped);
@@ -165,8 +180,8 @@ void main() {
         .focusNode
         .unfocus();
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 20));     // its focus changed, the panel redrawn -- before it is taken back
-    expect(state(), 'اضغط هنا ليستقبل القارئ', reason: 'nothing comes in while it is not focused: said');
+    await tester.pump(const Duration(milliseconds: 20));     // its focus changed -- before it is taken back
+    expect(state(), 'القارئ جاهز — اضغط زرّه', reason: 'a moment unheard is not shown: no green to orange and back');
     await tester.pump(const Duration(milliseconds: 200));
     await tester.pumpAndSettle();
     expect(state(), 'القارئ جاهز — اضغط زرّه', reason: 'its focus lost after a read on the reader: taken back by itself');

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../api_service.dart';
 import '../theme/app_semantic_colors.dart';
 import '../utils/currency_utils.dart' show formatGrams;
+import '../utils/scan_feedback.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/reader_capture.dart';
 import '../widgets/reader_receiver.dart';
@@ -110,11 +111,20 @@ class _TagCheckScreenState extends State<TagCheckScreen> {
       check = (value: value, piece: null, tag: null, place: null, words: 'تعذّر سؤال الخادم', out: null);
     }
     if (!mounted) return;
+    final shown = press == _press && _asked.contains(value);
     setState(() {
       _asking--;
       // an answer for a press already gone is not shown on the next one
-      if (press == _press && _asked.contains(value)) _checks.add(check);
+      if (shown) _checks.add(check);
     });
+    // the system's word on it: a label of a piece in stock, or one to look at
+    if (shown) _found(check) ? ScanFeedback.added() : ScanFeedback.refused();
+  }
+
+  /// A label of a piece in stock with its adopted tag -- the card's green.
+  static bool _found(TagCheck c) {
+    final state = c.tag?['state'] as String?;
+    return c.piece != null && (state == null || state == 'active') && c.piece?['in_stock'] != false;
   }
 
   Future<void> _settle(TagCheck check) async {

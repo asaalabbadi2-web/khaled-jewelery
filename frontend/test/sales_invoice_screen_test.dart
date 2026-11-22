@@ -10,6 +10,8 @@ import 'package:frontend/models/safe_box_model.dart';
 import 'package:frontend/providers/settings_provider.dart';
 import 'package:frontend/screens/invoices_list_screen.dart';
 import 'package:frontend/screens/sales_invoice_screen_v2.dart';
+import 'package:frontend/utils/scan_feedback.dart';
+import 'package:frontend/widgets/card_header_row.dart';
 import 'package:frontend/widgets/inline_number_cell.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:provider/provider.dart';
@@ -88,6 +90,7 @@ void main() {
     int? editId,
     Map<String, dynamic>? editData,
     ThemeData? theme,
+    bool readerPanel = false,
   }) async {
     SharedPreferences.setMockInitialValues({
       if (saved != null) draftKey: jsonEncode(saved),
@@ -132,6 +135,7 @@ void main() {
                             scrap: scrap,
                             editInvoiceId: editId,
                             editInvoiceData: editData,
+                            readerPanel: readerPanel,
                           ),
                         ),
                       ),
@@ -383,6 +387,106 @@ void main() {
       await open(tester, api: api, items: [piece]);
       await scan(tester, '5');
       expect(find.text('القطعة KJ-000005 ليست في المخزون'), findsOneWidget);
+    });
+
+    // The owner, 22 Nov 2026: «القارئ أثناء توجيهه إلى الرمز يكتب الرمز في الحقل ولا يضيف القطعة».
+    // The handheld reader types the printed code into the field and its Enter never reaches it
+    // (as on «جرد بالمسح», ADR-085 ت2): a whole printed code is taken as it comes.
+    testWidgets('the reader\'s printed code is added as it comes, no Enter; held on its label, once', (tester) async {
+      final other = {...coded, 'id': 42, 'item_code': 'KJ-000006', 'barcode': 'KJ-000006'};
+      await open(tester, api: FakeSalesApi()..stockItems = [coded, other], items: [coded, other]);
+      final field = find.widgetWithText(TextField, 'امسح الباركود أو ابحث...');
+      await tester.enterText(field, 'KJ-000005');
+      await tester.pumpAndSettle();
+      expect(find.text('1 صنف'), findsWidgets, reason: 'added with no Enter');
+      expect(tester.widget<TextField>(field).controller!.text, isEmpty, reason: 'emptied for the next code');
+      await tester.enterText(field, 'KJ-000005');
+      await tester.pumpAndSettle();
+      expect(find.textContaining('مضافة في الفاتورة'), findsNothing, reason: 'the button held on one label: read again, said once');
+      await tester.enterText(field, 'kj-000006');
+      await tester.pumpAndSettle();
+      expect(find.text('2 صنف'), findsWidgets, reason: 'the next label');
+    });
+
+    // The owner, 22 Nov 2026: on the reader a touch on the screen left no field focused and the reader's
+    // code went nowhere, its beep saying read. On a phone or the reader the sale shows «استقبال القارئ»:
+    // the focus is its whenever nothing holds it, never the search field's after a line -- whose keyboard
+    // would open after every scan -- and never taken from the field typed in.
+    group('on a phone or the reader', () {
+      EditableText editable(WidgetTester tester, Finder field) =>
+          tester.widget<EditableText>(find.descendant(of: field, matching: find.byType(EditableText)));
+      final search = find.widgetWithText(TextField, 'امسح الباركود أو ابحث...');
+      final panel = find.byKey(const Key('sale-reader-field'));
+
+      testWidgets('the reader\'s code comes in by its panel, and the panel keeps the focus', (tester) async {
+        await open(tester, api: FakeSalesApi()..stockItems = [coded], items: [coded], readerPanel: true);
+        expect(editable(tester, panel).focusNode.hasFocus, isTrue, reason: 'the reader\'s door on opening');
+        await tester.enterText(panel, 'KJ-000005');
+        await tester.pumpAndSettle();
+        expect(find.text('1 صنف'), findsWidgets);
+        expect(editable(tester, panel).focusNode.hasFocus, isTrue, reason: 'back to the panel, no keyboard opened');
+        expect(editable(tester, search).focusNode.hasFocus, isFalse);
+      });
+
+      testWidgets('a piece typed by hand: the search field keeps its focus while typed in, then the panel', (tester) async {
+        final api = FakeSalesApi()
+          ..stockItems = [coded]
+          ..piecesByTyped = {'5': coded};
+        await open(tester, api: api, items: [coded], readerPanel: true);
+        await tester.tap(search);
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(editable(tester, search).focusNode.hasFocus, isTrue, reason: 'never taken from the field typed in');
+        await tester.enterText(search, '5');
+        await tester.testTextInput.receiveAction(TextInputAction.done);
+        await tester.pumpAndSettle();
+        expect(find.text('1 صنف'), findsWidgets);
+        expect(editable(tester, panel).focusNode.hasFocus, isTrue, reason: 'the line added: the reader\'s again');
+      });
+
+      // The owner, 22 Nov 2026: «الصوت الصادر من القارئ يوهمنا أن القطعة مضافة»: the system says what it did.
+      testWidgets('the system\'s tone: added, refused, and nothing for a label held', (tester) async {
+        final said = <bool>[];
+        final before = ScanFeedback.say;
+        ScanFeedback.say = said.add;
+        addTearDown(() => ScanFeedback.say = before);
+        await open(tester, api: FakeSalesApi()..stockItems = [coded], items: [coded], readerPanel: true);
+        await tester.enterText(panel, 'KJ-000005');
+        await tester.pumpAndSettle();
+        expect(said, [true], reason: 'added');
+        await tester.enterText(panel, 'KJ-000005');
+        await tester.pumpAndSettle();
+        expect(said, [true], reason: 'the button held on its label: nothing more said');
+        await tester.enterText(panel, 'KJ-000099');
+        await tester.pumpAndSettle();
+        expect(said, [true, false], reason: 'no such piece: refused');
+      });
+
+      testWidgets('it is one icon, in the quick entry card\'s top-left corner', (tester) async {
+        await open(tester, api: FakeSalesApi()..stockItems = [coded], items: [coded], readerPanel: true);
+        final icon = find.byKey(const Key('reader-receiver'));
+        expect(tester.getSize(icon).width, lessThanOrEqualTo(48), reason: 'an icon, not a panel');
+        final card = find.ancestor(of: find.text('إدخال سريع'), matching: find.byType(CardHeaderRow)).first;
+        expect(find.descendant(of: card, matching: icon), findsOneWidget, reason: 'in the quick entry card');
+        final buttons = find.descendant(of: card, matching: find.byIcon(Icons.camera_alt));
+        expect(tester.getCenter(icon).dx, lessThan(tester.getCenter(buttons).dx), reason: 'to the left of its buttons');
+        expect(find.descendant(of: find.byType(AppBar), matching: icon), findsNothing, reason: 'not in the bar');
+      });
+
+      testWidgets('on a computer there is no panel', (tester) async {
+        await open(tester, api: FakeSalesApi()..stockItems = [coded], items: [coded]);
+        expect(panel, findsNothing);
+      });
+    });
+
+    testWidgets('a printed code not added still empties the field: the next read is not glued to it', (tester) async {
+      await open(tester, api: FakeSalesApi()..stockItems = [coded], items: [coded]);
+      final field = find.widgetWithText(TextField, 'امسح الباركود أو ابحث...');
+      await tester.enterText(field, 'KJ-000099');
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(field).controller!.text, isEmpty);
+      await tester.enterText(field, 'KJ-000005');
+      await tester.pumpAndSettle();
+      expect(find.text('1 صنف'), findsWidgets);
     });
 
     testWidgets('a piece scanned twice is in the invoice once', (tester) async {
