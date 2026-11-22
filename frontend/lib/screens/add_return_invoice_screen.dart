@@ -8,7 +8,10 @@ import '../providers/settings_provider.dart';
 import '../api_service.dart';
 import '../widgets/currency_manager_dialog.dart';
 import '../widgets/widgets.dart'; // Import shared widgets
+import '../widgets/app_feedback.dart';
 import '../widgets/pay_box.dart';
+import '../widgets/piece_label_actions.dart';
+import '../widgets/return_label_field.dart';
 import '../theme/app_theme.dart';
 import '../utils.dart';
 import '../utils/invoice_direct_print.dart';
@@ -103,6 +106,9 @@ class ReturnItemRow {
   /// What comes back for it, typed; nothing until it is.
   double? amount;
 
+  /// A piece's label as a sale return found it (ADR-097): read, or missing.
+  ReturnLabel? label;
+
   ReturnItemRow({
     this.originalItemId,
     this.itemId,
@@ -163,6 +169,7 @@ class ReturnItemRow {
       'tax': 0.0,
       'tax_amount': 0.0,
       'price': total,
+      if (isPiece && label != null) 'tag': label!.toPayload(),
     };
   }
 }
@@ -202,6 +209,12 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
   double _legacyEditAmount = 0;
 
   bool _uiAutoOpenPrintAfterSave = false;
+
+  /// A sale return's pieces say their label (ADR-097; the owner, 23 Nov 2026).
+  bool get _isSaleReturn => widget.returnType == 'مرتجع بيع';
+
+  /// The new labels of pieces back with theirs missing: printed now, or waiting.
+  bool _autoPrintLabels = true;
   String _uiPaperSize = 'A4';
 
   Future<void> _loadInvoiceUiSettingsFromPrefs() async {
@@ -833,6 +846,13 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
 
   Future<void> _saveReturnInvoiceOnce() async {
     final selectedItems = _selectedItems;
+    final unsaid = _isSaleReturn
+        ? selectedItems.where((i) => i.isPiece && i.label == null).map((i) => i.itemCode ?? i.itemName).toList()
+        : const <String>[];
+    if (unsaid.isNotEmpty) {
+      AppFeedback.warning(context, 'امسح بطاقة ${unsaid.join('، ')}، أو اختر «البطاقة مفقودة أو تالفة»');
+      return;
+    }
     if (selectedItems.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -893,12 +913,27 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
           : await widget.api.addInvoice(payload);
       if (!mounted) return;
 
+      _printMissingLabels(selectedItems, response);
       await _afterSaved(response);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('خطأ في الحفظ: $e')));
+      }
+    }
+  }
+
+  /// Each piece back with its label missing: a label printed again (ADR-097
+  /// law 1 -- the return is saved first; the old tag stopped when the new one
+  /// is adopted), its reason the return.
+  void _printMissingLabels(List<ReturnItemRow> rows, Map<String, dynamic> saved) {
+    if (!_isSaleReturn) return;
+    final labels = PieceLabelActions(api: widget.api, onLabel: (_, _) {}, onBusy: (_, _) {});
+    for (final row in rows) {
+      if (row.isPiece && row.label?.missing == true && row.itemId != null) {
+        labels.print(context, {'id': row.itemId}, kind: 'reprint', run: _autoPrintLabels,
+            reason: 'مرتجع بيع #${saved['invoice_type_id'] ?? saved['id'] ?? ''} — البطاقة مفقودة أو تالفة');
       }
     }
   }
@@ -1813,6 +1848,30 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                         inputFormatters: [NormalizeNumberFormatter()],
                         onChanged: (value) => setState(() => item.setAmount(readTypedNumber(value))),
                       ),
+                      if (_isSaleReturn && item.isPiece) ...[
+                        const SizedBox(height: 12),
+                        ReturnLabelField(
+                          key: ValueKey('return-label-${item.originalItemId}'),
+                          keyBase: 'return-tag-${item.originalItemId}',
+                          api: widget.api,
+                          itemCode: item.itemCode ?? '',
+                          onSettled: (label) => setState(() => item.label = label),
+                        ),
+                        if (item.label?.missing == true) ...[
+                          const SizedBox(height: 8),
+                          SegmentedButton<bool>(
+                            key: ValueKey('return-print-mode-${item.originalItemId}'),
+                            showSelectedIcon: false,
+                            style: const ButtonStyle(visualDensity: VisualDensity.compact),
+                            segments: const [
+                              ButtonSegment(value: true, label: Text('طباعة تلقائية')),
+                              ButtonSegment(value: false, label: Text('تسجيل فقط')),
+                            ],
+                            selected: {_autoPrintLabels},
+                            onSelectionChanged: (v) => setState(() => _autoPrintLabels = v.first),
+                          ),
+                        ],
+                      ],
                     ],
                   ],
                 ),

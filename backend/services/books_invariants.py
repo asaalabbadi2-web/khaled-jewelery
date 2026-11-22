@@ -88,6 +88,8 @@ BACKUP_TOOLS_MISMATCH = 'BACKUP_TOOLS_MISMATCH'
 WAGES_NOT_ALLOCATED = 'WAGES_NOT_ALLOCATED'
 WAGE_POOL_NEGATIVE = 'WAGE_POOL_NEGATIVE'
 WAGE_POOL_OVERSOLD = 'WAGE_POOL_OVERSOLD'
+PIECE_SPLIT_UNBALANCED = 'PIECE_SPLIT_UNBALANCED'
+RETURNED_PIECE_UNLABELED = 'RETURNED_PIECE_UNLABELED'
 
 KINDS = (
     ORPHAN_POSTED_ENTRY,
@@ -118,6 +120,8 @@ KINDS = (
     WAGES_NOT_ALLOCATED,
     WAGE_POOL_NEGATIVE,
     WAGE_POOL_OVERSOLD,
+    PIECE_SPLIT_UNBALANCED,
+    RETURNED_PIECE_UNLABELED,
 )
 
 # An invoice in one of these states is retracted: its entries must not count
@@ -932,6 +936,52 @@ def check_wage_pools_oversold() -> list:
     return facts
 
 
+def check_piece_splits() -> list:
+    """A split (ADR-099) that is not what it says: its entry moves the
+    location's gold by more than its difference, its parts do not weigh the
+    piece and the difference, their wage is not the piece's, or the piece is
+    still held. Keyed 'piece_split:<id>', the metric the grams adrift."""
+    from models import Item, PieceSplit, StockLineAllocation
+    from services.pieces import GRAM, piece_held, piece_wage
+    from services.stock_ledger import KARATS, TOLERANCE
+    facts = []
+    for split in PieceSplit.query.order_by(PieceSplit.id).all():
+        piece = db.session.get(Item, split.piece_id)
+        lines = JournalEntryLine.query.filter_by(journal_entry_id=split.journal_entry_id, is_deleted=False).all()
+        safe_accounts = {b.account_id for b in SafeBox.query.filter(SafeBox.stock_location.isnot(None))}
+        moved = sum(float(getattr(l, f'debit_{k}k') or 0) - float(getattr(l, f'credit_{k}k') or 0)
+                    for l in lines if l.account_id in safe_accounts for k in KARATS)
+        difference = float(split.difference or 0.0)
+        out = float(db.session.query(func.coalesce(func.sum(StockLineAllocation.grams), 0.0))
+                    .filter(StockLineAllocation.item_id == piece.id,
+                            StockLineAllocation.journal_entry_line_id.in_([l.id for l in lines] or [-1]))
+                    .scalar() or 0.0)
+        parts = round(sum(float(p.weight) for p in split.parts), 3)
+        wage = piece_wage(piece)
+        adrift = {
+            'entry_moves': round(moved - difference, 3),
+            'parts_weigh': round(parts - (-out + difference), 3),
+            'wage': round(sum(float(p.wage) for p in split.parts) - float(wage or 0.0), 2),
+            'piece_held': round(piece_held(piece.id), 3),
+        }
+        if (abs(adrift['entry_moves']) > TOLERANCE or abs(adrift['parts_weigh']) > TOLERANCE
+                or abs(adrift['wage']) > 0.005 or adrift['piece_held'] > GRAM):
+            facts.append(Fact(PIECE_SPLIT_UNBALANCED, f'piece_split:{split.id}',
+                              max(abs(adrift['entry_moves']), abs(adrift['parts_weigh'])),
+                              {'split_id': split.id, 'item_code': piece.item_code, **adrift}))
+    return facts
+
+
+def check_returned_pieces_unlabeled() -> list:
+    """A piece a sale return brought back whose label is not settled (ADR-097,
+    the sale return): said missing and no label adopted since, or its printed
+    number alone and its tag not read by a count since -- still in the stock.
+    Keyed 'invoice:<id>:piece:<id>'."""
+    from services.return_tags import unlabeled_returns
+    return [Fact(RETURNED_PIECE_UNLABELED, f"invoice:{r['invoice_id']}:piece:{r['item_id']}", 1.0, r)
+            for r in unlabeled_returns()]
+
+
 def _tool_major(tool: str):
     """The major version of a PostgreSQL tool on the PATH -- None when it is not there."""
     import re
@@ -996,6 +1046,8 @@ CHECKS = {
     WAGES_NOT_ALLOCATED: check_wages_not_allocated,
     WAGE_POOL_NEGATIVE: check_wage_pools_negative,
     WAGE_POOL_OVERSOLD: check_wage_pools_oversold,
+    PIECE_SPLIT_UNBALANCED: check_piece_splits,
+    RETURNED_PIECE_UNLABELED: check_returned_pieces_unlabeled,
 }
 
 

@@ -196,6 +196,7 @@ class _TagCheckScreenState extends State<TagCheckScreen> {
       final icon = switch (c.outState) {
         'sold' => Icons.sell_outlined,
         'returned_to_supplier' => Icons.assignment_return_outlined,
+        'split' => Icons.call_split,          // its parts are pieces or weight of their own (ADR-099)
         _ => Icons.logout,
       };
       return (words: c.out ?? 'ليست في المخزون', icon: icon, tone: tones.warning);

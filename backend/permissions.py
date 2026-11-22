@@ -93,6 +93,7 @@ INVENTORY_PERMISSIONS = {
     'items.edit': 'تعديل الأصناف',
     'items.delete': 'حذف أصناف',
     'items.adjust': 'تعديل المخزون',
+    'items.split': 'تفكيك قطعة',          # ADR-099: the manager's; given to others by their overrides
     'gold_price.view': 'عرض أسعار الذهب',
     'gold_price.update': 'تحديث أسعار الذهب',
     'costing.recompute': 'إعادة حساب تكلفة الذهب',
@@ -203,7 +204,7 @@ ROLE_PERMISSIONS = {
         'invoices.unpost', 'invoices.supplier', 'invoices.correct', 'invoices.return',
         'customers.view', 'customers.create', 'customers.edit', 'customers.delete',
         'suppliers.view', 'suppliers.create', 'suppliers.edit', 'suppliers.delete',
-        'items.view', 'items.create', 'items.edit', 'items.delete', 'items.adjust',
+        'items.view', 'items.create', 'items.edit', 'items.delete', 'items.adjust', 'items.split',
         'gold_price.view', 'gold_price.update', 'costing.recompute', 'costing.view',
         'inventory.view', 'inventory.count', 'inventory.approve', 'opening.enter', 'receiving.approve_difference',
         'accounts.view',

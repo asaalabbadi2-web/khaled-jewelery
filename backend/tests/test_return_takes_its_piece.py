@@ -111,7 +111,9 @@ def test_a_piece_comes_back_with_its_wages_whatever_the_screen_sent(auth_headers
     sale = _sell(auth_headers, piece, _cash())
     released = _wages(sale['id'])
     assert released == (-215.55, 215.55), 'the sale released 15.00 x 14.37'
-    resp = _post(auth_headers, _return(sale, weight=piece.weight, price=9500.0))
+    payload = _return(sale, weight=piece.weight, price=9500.0)
+    payload['items'][0]['tag'] = {'missing': True}      # its label said (ADR-097, tests/test_return_tags.py)
+    resp = _post(auth_headers, payload)
     assert resp.status_code == 201, resp.get_json()
     ret = resp.get_json()
     assert _piece_moves(ret['id']) == [(piece.id, piece.weight)], 'the piece came back, not grams of its category'

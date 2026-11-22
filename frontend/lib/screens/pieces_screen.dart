@@ -14,6 +14,7 @@ import '../widgets/app_feedback.dart';
 import '../widgets/app_state_views.dart';
 import '../widgets/label_preview.dart';
 import '../widgets/piece_label_actions.dart';
+import '../widgets/piece_split_dialog.dart';
 import 'items_screen_enhanced.dart' show showCategoriesManagement;
 import 'piece_models_screen.dart';
 import 'size_systems_screen.dart';
@@ -24,6 +25,7 @@ const pieceStateLabels = <String, String>{
   'in_stock': 'في المخزون',
   'sold': 'بيعت',
   'returned_to_supplier': 'رُدّت إلى المورد',
+  'split': 'فُكِّكت',
   'out': 'خرجت من المخزون',
 };
 
@@ -259,6 +261,7 @@ class _PiecesScreenState extends State<PiecesScreen> {
     final received = p['received'] as Map?;
     if (received == null) return '—';
     if (received['kind'] == 'coding') return 'ترميز من «${received['safe_name'] ?? 'المخزون'}»';
+    if (received['kind'] == 'split') return 'تفكيك ${received['document'] ?? 'قطعة'}';
     return '${received['supplier_name'] ?? 'مورد'}';
   }
 
@@ -516,14 +519,46 @@ class _PiecesScreenState extends State<PiecesScreen> {
 
   bool get _canEdit => context.read<AuthProvider>().hasPermission('items.edit');
 
+  /// «تفكيك قطعة» (ADR-099): the manager's, and whoever is given it -- a piece in the stock.
+  bool _canSplit(Map<String, dynamic> p) =>
+      p['state'] == 'in_stock' && context.read<AuthProvider>().hasPermission('items.split');
+
+  Future<void> _split(Map<String, dynamic> p) async {
+    List<Map<String, dynamic>> categories;
+    try {
+      categories = (await widget.api.getCategories()).cast<Map<String, dynamic>>();
+    } catch (e) {
+      if (mounted) AppFeedback.error(context, AppFeedback.messageOf(e));
+      return;
+    }
+    if (!mounted) return;
+    final done = await PieceSplitDialog.show(
+      context,
+      api: widget.api,
+      pieceId: p['id'] as int,
+      code: '${p['item_code']}',
+      grams: (p['weight'] as num).toDouble(),
+      karat: int.tryParse('${p['karat']}') ?? 0,
+      categories: categories,
+    );
+    if (done == null || !mounted) return;
+    AppFeedback.success(context, 'فُكِّكت ${p['item_code']} — القيد ${done.split['entry_number'] ?? ''}');
+    _load();
+  }
+
   Widget _actions(Map<String, dynamic> p) => PopupMenuButton<String>(
     key: Key('piece-actions-${p['item_code']}'),
     tooltip: 'إجراءات القطعة ${p['item_code']}',
     icon: const Icon(Icons.more_horiz),
-    onSelected: (choice) => choice == 'print' ? _print(p) : _editText(p),
+    onSelected: (choice) => switch (choice) {
+      'print' => _print(p),
+      'split' => _split(p),
+      _ => _editText(p),
+    },
     itemBuilder: (_) => [
       const PopupMenuItem(value: 'print', child: Text('طباعة البطاقة')),
       if (_canEdit) const PopupMenuItem(value: 'edit', child: Text('تعديل الوصف والموديل والمقاس')),
+      if (_canSplit(p)) const PopupMenuItem(value: 'split', child: Text('تفكيك القطعة')),
     ],
   );
 

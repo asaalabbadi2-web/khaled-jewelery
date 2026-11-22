@@ -15,6 +15,7 @@ const _active = '4B4A00020000000000000101';
 const _stopped = '4B4A00010000000000000101';
 const _attempt = '4B4A00010000000000000301';
 const _sold = '4B4A00010000000000000401';
+const _split = '4B4A00010000000000000501';
 
 class _Api extends ApiService {
   final resolved = <(int, Map<String, dynamic>)>[];
@@ -38,6 +39,14 @@ class _Api extends ApiService {
         'tag': {'state': 'active', 'generation': 1},
         'location': null,
         'out': {'state': 'sold', 'date': '2026-11-21', 'words': 'ليست في المخزون — بيعت 2026-11-21'},
+      };
+    }
+    if (value == _split) {
+      return {
+        'piece': {'item_code': 'KJ-000501', 'weight': 40.0, 'stones_weight': 0, 'in_stock': false},
+        'tag': {'state': 'active', 'generation': 1},
+        'location': null,
+        'out': {'state': 'split', 'date': '2026-12-05', 'words': 'ليست في المخزون — فُكِّكت 2026-12-05'},
       };
     }
     if (value == _stopped) {
@@ -100,6 +109,13 @@ void main() {
     expect(verdictIcon(tester, _sold, Icons.sell_outlined), isTrue, reason: 'sold, said by its own icon');
     expect(find.byIcon(Icons.verified_outlined), findsNothing, reason: 'a piece sold is not a piece found');
     expect(_said(tester, 'check-tag-$_sold'), 'رقاقة معتمدة', reason: 'its tag is sound: not the warning');
+  });
+
+  testWidgets('a split set\'s tag: «فُكِّكت» heads the card, its own icon (ADR-099)', (tester) async {
+    await _open(tester, _Api());
+    await _read(tester, _split);
+    expect(_said(tester, 'check-verdict-text-$_split'), isolateLatin('ليست في المخزون — فُكِّكت 2026-12-05'));
+    expect(verdictIcon(tester, _split, Icons.call_split), isTrue, reason: 'its parts are pieces or weight of their own');
   });
 
   testWidgets('the system\'s tone: a piece in stock, and a label to look at', (tester) async {

@@ -5932,6 +5932,20 @@ class ApiService {
   Future<Map<String, dynamic>> registerPiece(Map<String, dynamic> body) =>
       _postJson('/pieces', body, fallback: 'تعذّر تسجيل القطعة');
 
+  /// A split read before it is made (ADR-099): `{split: {grams, total,
+  /// difference, tolerance, wage, parts: [{category_id, category_name,
+  /// tracking, weight, stones_weight, wage}]}}` or `{refused: {code,
+  /// message}}` -- nothing written.
+  Future<Map<String, dynamic>> checkPieceSplit(int pieceId, List<Map<String, dynamic>> parts) =>
+      _postJson('/pieces/$pieceId/split/check', {'parts': parts}, fallback: 'تعذّر حساب التفكيك');
+
+  /// The split made: `{split: {id, item_code, entry_number, difference,
+  /// parts: [{category_id, category_name, weight, wage, piece_id, item_code}]}}`.
+  Future<Map<String, dynamic>> splitPiece(int pieceId,
+          {required List<Map<String, dynamic>> parts, required String reason, required String requestKey}) =>
+      _postJson('/pieces/$pieceId/split', {'parts': parts, 'reason': reason, 'request_key': requestKey},
+          fallback: 'تعذّر تفكيك القطعة');
+
   /// A line's or a batch's wage per gram against a model's expected one
   /// (ADR-093 §1): `{state, invoice_per_gram, expected_per_gram}` -- a
   /// warning, never a refusal.

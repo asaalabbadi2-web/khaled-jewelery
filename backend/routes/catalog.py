@@ -27,7 +27,7 @@ def update_item(id):
     إذا تم تحديث barcode إلى فارغ، يُولّد تلقائياً من item_code
     """
     from code_generator import generate_barcode_from_item_code
-    from services.pieces import PieceRefused, refuse_piece_edit
+    from services.pieces import PieceRefused, is_piece, refuse_piece_edit
 
     item = Item.query.get_or_404(id)
     data = request.json or {}
@@ -38,7 +38,7 @@ def update_item(id):
 
     item.name = data.get('name', item.name)
     item.description = data.get('description', item.description)
-    if item.receipt_item_id is None:           # the catalogue's item; a piece's facts are its receipt's
+    if not is_piece(item):                     # the catalogue's item; a piece's facts are its source's
         # إذا تم حذف barcode، أعد توليده
         new_barcode = data.get('barcode', item.barcode)
         if not new_barcode:

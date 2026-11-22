@@ -54,7 +54,7 @@ MATRIX = {
     'invoices.return': 'MC',     # customers' returns: never the seller's (the owner, 11 Nov 2026)
     'customers.view': 'MCE', 'customers.create': 'MCE', 'customers.edit': 'MC', 'customers.delete': 'M',
     'suppliers.view': 'MCE', 'suppliers.create': 'MC', 'suppliers.edit': 'MC', 'suppliers.delete': 'M',
-    'items.view': 'MCSE', 'items.create': 'MS', 'items.edit': 'MS', 'items.delete': 'M', 'items.adjust': 'M',
+    'items.view': 'MCSE', 'items.create': 'MS', 'items.edit': 'MS', 'items.delete': 'M', 'items.adjust': 'M', 'items.split': 'M',
     'gold_price.view': 'MCSE', 'gold_price.update': 'MCSE', 'costing.recompute': 'MC', 'costing.view': 'MC',
     'inventory.view': 'MCSE', 'inventory.count': 'MS', 'inventory.approve': 'M',
     'opening.enter': 'M', 'opening.approve': '',   # «المدير يُدخل، والمالك يعتمد» (6 Nov 2026)

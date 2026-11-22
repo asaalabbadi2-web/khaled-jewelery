@@ -557,9 +557,93 @@ void main() {
       expect(tester.widget<EditableText>(weight).readOnly, isTrue);
       await tester.enterText(find.byKey(const ValueKey('amount-100-0')), '1000');
       await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('return-tag-100-missing')));
+      await tester.pumpAndSettle();
       await toReview(tester);
       final line = ((await save(tester, api))['items'] as List).single as Map;
       expect((line['item_id'], line['weight']), (43, 13.0));
+    });
+
+    // «الزبون قد يتلف البطاقة» (the owner, 23 Nov 2026; ADR-097): the reader
+    // decides -- its tag read, its printed number, or a label printed again.
+    FakeSalesApi pieceSold() => FakeSalesApi(invoices: {10: original}, returnLines: {
+          10: {
+            'invoice_id': 10, 'returned_before': false, 'refundable': 1000.0,
+            'lines': [
+              {'id': 100, 'name': 'بنجرة', 'karat': 21, 'sold_grams': 13.0, 'remaining_grams': 13.0,
+               'sold_pieces': 1, 'remaining_pieces': 1, 'sold_amount': 1000.0, 'remaining_amount': 1000.0,
+               'item_id': 43, 'item_code': 'KJ-000007', 'is_piece': true},
+            ],
+          },
+        })
+          ..activeTags = {'4B4A00010000000000000007': 'KJ-000007', '4B4A00010000000000000008': 'KJ-000008'}
+          ..piecesByTyped = {
+            'KJ-000007': {'id': 43, 'item_code': 'KJ-000007'},
+          };
+
+    Future<void> lineOf(WidgetTester tester) async {
+      await tester.tap(find.text('إرجاع جزء فقط'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const ValueKey('amount-100-0')), '1000');
+      await tester.pumpAndSettle();
+    }
+
+    String said(WidgetTester tester) => tester.widget<Text>(find.byKey(const Key('return-tag-100-state'))).data!;
+
+    testWidgets('a piece does not come back with its label unsaid', (tester) async {
+      final api = await open(tester, api: pieceSold());
+      await lineOf(tester);
+      await toReview(tester);
+      await tester.tap(find.text('حفظ').hitTestable());
+      await tester.pumpAndSettle();
+      if (find.text('اعتماد وحفظ').evaluate().isNotEmpty) {
+        await tester.tap(find.text('اعتماد وحفظ'));
+        await tester.pumpAndSettle();
+      }
+      expect(api.added, isEmpty);
+      expect(find.textContaining('امسح بطاقة KJ-000007'), findsOneWidget);
+    });
+
+    testWidgets('its own tag, read by the reader with no Enter: it comes back with its label', (tester) async {
+      final api = await open(tester, api: pieceSold());
+      await lineOf(tester);
+      await tester.enterText(find.byKey(const Key('return-tag-100')), '4B4A00010000000000000008');
+      await tester.pumpAndSettle();
+      expect(said(tester), contains('KJ-000008'), reason: 'another piece\'s tag is never taken');
+      await tester.enterText(find.byKey(const Key('return-tag-100')), '4B4A00010000000000000007');
+      await tester.pumpAndSettle();
+      expect(said(tester), 'رقاقة القطعة — تعود ببطاقتها');
+      await toReview(tester);
+      final line = ((await save(tester, api))['items'] as List).single as Map;
+      expect(line['tag'], {'value': '4B4A00010000000000000007'});
+      expect(api.printsAsked, isEmpty, reason: 'its label is with it');
+    });
+
+    testWidgets('its printed number typed: its tag read by the first count', (tester) async {
+      final api = await open(tester, api: pieceSold());
+      await lineOf(tester);
+      await tester.enterText(find.byKey(const Key('return-tag-100')), 'KJ-000007');
+      await tester.pumpAndSettle();
+      expect(said(tester), 'الرقم المطبوع للقطعة — تُقرأ رقاقتها في أول جرد بالمسح');
+      await toReview(tester);
+      final line = ((await save(tester, api))['items'] as List).single as Map;
+      expect(line['tag'], {'value': 'KJ-000007'});
+    });
+
+    testWidgets('its label missing: printed again after the save, now or waiting', (tester) async {
+      final api = await open(tester, api: pieceSold());
+      await lineOf(tester);
+      await tester.tap(find.byKey(const Key('return-tag-100-missing')));
+      await tester.pumpAndSettle();
+      expect(said(tester), 'تُطبع للقطعة بطاقة جديدة بعد حفظ المرتجع');
+      await tester.tap(find.text('تسجيل فقط'));
+      await tester.pumpAndSettle();
+      await toReview(tester);
+      final line = ((await save(tester, api))['items'] as List).single as Map;
+      expect(line['tag'], {'missing': true});
+      final (pieceId, body) = api.printsAsked.single;
+      expect((pieceId, body['kind'], body['run']), (43, 'reprint', false));
+      expect(body['reason'], contains('مرتجع بيع'));
     });
   });
 }

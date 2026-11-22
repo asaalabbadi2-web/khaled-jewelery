@@ -3815,6 +3815,8 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
     _refused_return = refuse_customer_return_without_permission(invoice_type)
     if _refused_return:
         return _refused_return
+    # A sale return's pieces: each one's label as the return found it (ADR-097; the owner, 23 Nov 2026).
+    _return_tag_decisions = []
     if invoice_type in return_types:
         original_invoice = None
 
@@ -3874,6 +3876,8 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 _return_lines.refuse_return_amounts(
                     original_invoice, invoice_type, data.get('items') or [], data.get('total'),
                     data.get('payments') or [])
+                from services.return_tags import read_return_tags
+                _return_tag_decisions = read_return_tags(invoice_type, data.get('items') or [])
             except _return_lines.ReturnRefused as refused:
                 return jsonify({'error': refused.code, 'message': refused.message, **refused.detail}), 400
             except Exception as fault:  # noqa: BLE001 -- refused, never let through
@@ -5039,6 +5043,10 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
         new_invoice.manufacturing_wage_mode_snapshot = wage_mode_snapshot
         db.session.add(new_invoice)
         db.session.flush()
+        if _return_tag_decisions:
+            from services.return_tags import record_return_tags
+            record_return_tags(new_invoice, _return_tag_decisions,
+                               by=new_invoice.posted_by or posted_by_username or 'system', now=datetime.now())
         if _attachment_ids:
             _link_attachments(_attachment_ids, entity_type=_ATTACHED_TO, entity_id=new_invoice.id,
                               role=SCRAP_GOLD_PHOTO, by=_attaching_by, now=datetime.now())

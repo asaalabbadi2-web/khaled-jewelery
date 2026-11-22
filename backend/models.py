@@ -1050,6 +1050,11 @@ class Item(db.Model):
     # A piece's model (ADR-093 §1): of its category, or none -- a description.
     model_id = db.Column(db.Integer, db.ForeignKey('piece_model.id', ondelete='RESTRICT'), nullable=True,
                          index=True)
+    # Or the part of a split piece it was born of (ADR-099): a piece has one
+    # source -- a receipt line, a batch, or a split's part.
+    split_part_id = db.Column(db.Integer, db.ForeignKey('piece_split_part.id', use_alter=True,
+                                                        name='fk_item_piece_split_part', ondelete='RESTRICT'),
+                              nullable=True, unique=True)
     invoice_items = db.relationship('InvoiceItem', backref='item', lazy=True,
                                     foreign_keys='InvoiceItem.item_id')
 
@@ -3026,6 +3031,10 @@ class Settings(db.Model):
     # 21 Nov 2026: 3 and 3). Policy: set here, read by services/piece_scan.
     scan_quiet_presses = db.Column(db.Integer, nullable=False, default=3, server_default=db.text('3'))
     scan_quiet_seconds = db.Column(db.Float, nullable=False, default=3.0, server_default=db.text('3.0'))
+    # A split's parts may weigh this far from their piece in the books, the
+    # difference written a count's shortage or surplus in the split's own
+    # entry (ADR-099; the owner, 23 Nov 2026: 0.05). Policy.
+    piece_split_tolerance = db.Column(db.Float, nullable=False, default=0.05, server_default=db.text('0.05'))
     # ترحيل القيود تلقائياً فور الحفظ
     auto_post_entries = db.Column(db.Boolean, default=True)
     # طلب موافقة قبل الترحيل (يؤثر على بوابات الاعتماد - below_cost/large_discount)
@@ -6337,6 +6346,77 @@ class StockCoding(db.Model):
 
 PIECE_SCAN_KINDS = ('opening', 'closing', 'check')
 PIECE_SCAN_STATES = ('open', 'finished', 'abandoned')
+
+
+class PieceSplit(db.Model):
+    """A composite piece split into its parts (ADR-099): once, by one entry --
+    two lines on its location's safe netting nothing, and the difference the
+    owner accepts on a count's shortage or surplus. Kept as written: no
+    update, no delete (the listeners below)."""
+    __tablename__ = 'piece_split'
+
+    id = db.Column(db.Integer, primary_key=True)
+    piece_id = db.Column(db.Integer, db.ForeignKey('item.id', ondelete='RESTRICT'), nullable=False, unique=True)
+    journal_entry_id = db.Column(db.Integer, db.ForeignKey('journal_entry.id', ondelete='RESTRICT'), nullable=False)
+    reason = db.Column(db.String(200), nullable=False)
+    # the parts' grams less the piece's: what went to the shortage (below zero) or the surplus
+    difference = db.Column(db.Float, nullable=False, default=0.0)
+    split_by = db.Column(db.String(100), nullable=False)
+    split_at = db.Column(db.DateTime, nullable=False)
+    request_key = db.Column(db.String(64), nullable=True, unique=True)
+    parts = db.relationship('PieceSplitPart', backref='split', lazy=True, order_by='PieceSplitPart.position')
+
+
+class PieceSplitPart(db.Model):
+    """One part of a split, as weighed: its category, its grams, its stones,
+    its share of the piece's wage. A part of a category tracked by the piece
+    is a piece born of it (Item.split_part_id); else its grams are its
+    category's weight."""
+    __tablename__ = 'piece_split_part'
+
+    id = db.Column(db.Integer, primary_key=True)
+    split_id = db.Column(db.Integer, db.ForeignKey('piece_split.id', ondelete='RESTRICT'), nullable=False, index=True)
+    position = db.Column(db.Integer, nullable=False)
+    category_id = db.Column(db.Integer, db.ForeignKey('category.id', ondelete='RESTRICT'), nullable=False)
+    weight = db.Column(db.Float, nullable=False)
+    stones_weight = db.Column(db.Float, nullable=False, default=0.0)
+    wage = db.Column(db.Float, nullable=False)
+
+    __table_args__ = (
+        db.CheckConstraint('weight > 0', name='ck_piece_split_part_weight'),
+        db.CheckConstraint('stones_weight >= 0 AND stones_weight < weight', name='ck_piece_split_part_stones'),
+        db.CheckConstraint('wage >= 0', name='ck_piece_split_part_wage'),
+    )
+
+
+class PieceReturnTag(db.Model):
+    """A piece sold and brought back: its label as the return found it
+    (ADR-097, the sale return; the owner, 23 Nov 2026: «الزبون قد يتلف
+    البطاقة»). `read` -- its active tag read by the reader; `printed` -- its
+    printed number typed or its code read, its tag not read; `missing` --
+    no label, or one not its own: a label printed again after the return.
+    One a piece of a return; kept as written."""
+    __tablename__ = 'piece_return_tag'
+    __table_args__ = (db.UniqueConstraint('invoice_id', 'item_id', name='uq_piece_return_tag_piece'),
+                      db.CheckConstraint("kind IN ('read', 'printed', 'missing')", name='ck_piece_return_tag_kind'))
+
+    id = db.Column(db.Integer, primary_key=True)
+    invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id', ondelete='CASCADE'), nullable=False, index=True)
+    item_id = db.Column(db.Integer, db.ForeignKey('item.id', ondelete='RESTRICT'), nullable=False, index=True)
+    kind = db.Column(db.String(10), nullable=False)
+    value = db.Column(db.String(64), nullable=True)
+    tag_id = db.Column(db.Integer, db.ForeignKey('piece_tag.id', ondelete='RESTRICT'), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False)
+    created_by = db.Column(db.String(100), nullable=True)
+
+
+def _split_kept_as_written(mapper, connection, target):
+    raise ValueError(f'{target.__tablename__} #{target.id}: التفكيك يبقى كما كُتب -- لا تعديل ولا حذف (ADR-099)')
+
+
+for _model in (PieceSplit, PieceSplitPart):
+    event.listen(_model, 'before_update', _split_kept_as_written)
+    event.listen(_model, 'before_delete', _split_kept_as_written)
 
 
 class PieceScan(db.Model):

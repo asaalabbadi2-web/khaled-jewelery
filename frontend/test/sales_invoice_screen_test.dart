@@ -13,6 +13,7 @@ import 'package:frontend/screens/sales_invoice_screen_v2.dart';
 import 'package:frontend/utils/scan_feedback.dart';
 import 'package:frontend/widgets/card_header_row.dart';
 import 'package:frontend/widgets/inline_number_cell.dart';
+import 'package:frontend/widgets/piece_split_dialog.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -91,6 +92,7 @@ void main() {
     Map<String, dynamic>? editData,
     ThemeData? theme,
     bool readerPanel = false,
+    AuthProvider? auth,
   }) async {
     SharedPreferences.setMockInitialValues({
       if (saved != null) draftKey: jsonEncode(saved),
@@ -111,7 +113,7 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-          ChangeNotifierProvider(create: (_) => AuthProvider()),
+          ChangeNotifierProvider<AuthProvider>(create: (_) => auth ?? AuthProvider()),
           ChangeNotifierProvider.value(value: settings),
           ChangeNotifierProvider(create: (_) => SalesRaceRefreshProvider()),
         ],
@@ -328,6 +330,87 @@ void main() {
       await scan(tester, 'KJ-000005');
       expect(api.poolAsked, [1], reason: 'a piece is not asked of the pool');
       expect(find.text('15.00'), findsWidgets, reason: 'its own');
+    });
+
+    // «بيع جزء منه» (ADR-099; the owner, 23 Nov 2026): a set with one tag, the
+    // customer buys a part -- the set split, its line gone, the parts chosen added
+    // as any: a part by weight as its category's line, a part that is a piece by
+    // its new number. Only for whoever is given «تفكيك قطعة».
+    const set = {
+      'id': 42, 'item_code': 'KJ-000123', 'barcode': 'KJ-000123', 'name': 'طقم ذهب 21', 'karat': 21,
+      'weight': 40.0, 'wage': 30.0, 'is_piece': true, 'wage_known': true, 'category_id': 2,
+    };
+    const bracelet = {
+      'id': 99, 'item_code': 'KJ-000456', 'barcode': 'KJ-000456', 'name': 'اساور 21', 'karat': 21,
+      'weight': 10.0, 'wage': 30.0, 'is_piece': true, 'wage_known': true, 'category_id': 3,
+    };
+    const shopCategories = [
+      {'id': 1, 'name': 'عقد ذهب 21', 'karat': 21, 'tracking': 'weight'},
+      {'id': 2, 'name': 'طقم ذهب 21', 'karat': 21, 'tracking': 'piece'},
+      {'id': 3, 'name': 'اساور 21', 'karat': 21, 'tracking': 'piece'},
+    ];
+
+    testWidgets('a piece line sells a part of it only for whoever may split', (tester) async {
+      await open(tester, api: FakeSalesApi(categories: shopCategories)..stockItems = [set], items: [set]);
+      await scan(tester, 'KJ-000123');
+      expect(find.byKey(const ValueKey('sale-line-split-0')), findsNothing);
+    });
+
+    testWidgets('«بيع جزء منه»: the set split, its line gone, the parts chosen added', (tester) async {
+      final api = FakeSalesApi(categories: shopCategories)
+        ..stockItems = [set]
+        ..stockAfterSplit = [bracelet]
+        ..piecesByTyped = {'KJ-000456': bracelet}
+        ..splitAnswer = {
+          'id': 1, 'item_code': 'KJ-000123', 'entry_number': 'JE-2026-08000', 'difference': 0.0,
+          'parts': [
+            {'category_id': 1, 'category_name': 'عقد ذهب 21', 'weight': 30.0, 'wage': 900.0, 'item_code': null},
+            {'category_id': 3, 'category_name': 'اساور 21', 'weight': 10.0, 'wage': 300.0, 'item_code': 'KJ-000456'},
+          ],
+        };
+      await open(tester, api: api, items: [set], auth: _Splitter());
+      await scan(tester, 'KJ-000123');
+      await tester.tap(find.byKey(const ValueKey('sale-line-split-0')));
+      await tester.pumpAndSettle();
+      for (final (n, name, weight) in [(0, 'عقد ذهب 21', '30'), (1, 'اساور 21', '10')]) {
+        await tester.tap(find.byKey(Key('split-part-category-$n')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(name).last);
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byKey(Key('split-part-weight-$n')), weight);
+        await tester.pump(PieceSplitDialog.askAfter);
+        await tester.pumpAndSettle();
+      }
+      await tester.enterText(find.byKey(const Key('split-reason')), 'الزبون يريد العقد والإسوارة');
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('split-confirm')));
+      await tester.pumpAndSettle();
+      expect(api.splitsMade.single['piece_id'], 42);
+      await tester.tap(find.byKey(const Key('split-choose-0')));
+      await tester.tap(find.byKey(const Key('split-choose-1')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('split-add-chosen')));
+      await tester.pumpAndSettle();
+      expect(find.text('طقم ذهب 21'), findsNothing, reason: 'the set is not sold: its line is gone');
+      expect(find.text('عقد ذهب 21'), findsWidgets, reason: 'the necklace, its category\'s line');
+      expect(api.piecesAsked, contains('KJ-000456'), reason: 'the bracelet, by its new number');
+      expect(find.text('اساور 21'), findsWidgets);
+      expect(find.text('2 صنف'), findsWidgets);
+
+      // saved untaxed, as the settings say (the owner, 23 Nov 2026: «الفاتورة احتسبت ضريبة والضريبة غير مفعله»)
+      final target = find.byKey(const Key('target-amount'));
+      await tester.ensureVisible(target);
+      await tester.enterText(target, '20000');
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(addPaymentButton());
+      await tester.tap(addPaymentButton());
+      await tester.pumpAndSettle();
+      await tester.tap(saveButton());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('حفظ الفاتورة').last);
+      await settle(tester);
+      final lines = (api.added.single['items'] as List).cast<Map>();
+      expect([for (final l in lines) l['tax']], everyElement(0), reason: '$lines');
     });
 
     testWidgets('a piece line offers no weight nor wage to change', (tester) async {
@@ -1796,4 +1879,11 @@ class _MovingPriceApi extends FakeSalesApi {
 
   @override
   Future<Map<String, dynamic>> getGoldPrice() async => goldPriceAnswer(price24k);
+}
+
+
+/// Whoever is given «تفكيك قطعة» (ADR-099).
+class _Splitter extends AuthProvider {
+  @override
+  bool hasPermission(String key) => key == 'items.split';
 }

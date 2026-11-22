@@ -41,7 +41,15 @@ GET  /api/wage-pools/cost         -- a category's wage cost a gram now, its
 POST /api/stock-codings           -- «ترميز من المخزون الموجود»: a batch --
      safe_box_id, category_id, weight, note; no wage: each of its pieces is
      sent with its own (wage, wage_whole; ADR-096 §4).
-The laws are services/pieces.py's; these only carry them.
+POST /api/pieces/<id>/split/check -- a split read before it is made (ADR-099):
+     parts [{category_id, weight, stones_weight, wage?}] -- each part's wage
+     (written, or its share by weight), the total, the difference allowed --
+     {'split': ...} or {'refused': {code, message}}, a 200 either way. Nothing
+     written.
+POST /api/pieces/<id>/split       -- the split made: parts, reason,
+     request_key (pressed twice, one) -- its parts, each a piece's number or
+     its category's grams, and the entry's number.
+The laws are services/pieces.py's and services/piece_split.py's; these only carry them.
 """
 from datetime import datetime
 
@@ -555,3 +563,52 @@ def label_printer_test_label(printer_id: int):
                                 write_tag=False), wait=3.0)
         return 'طُبعت بطاقة تجربة بلا رقاقة: أتلفها بعد النظر فيها'
     return _printer_call(printer_id, test)
+
+
+# ── a composite piece split (ADR-099) ───────────────────────────────────────
+
+@pieces_bp.route('/pieces/<int:piece_id>/split/check', methods=['POST'])
+@require_permission('items.split')
+def piece_split_check(piece_id: int):
+    """A split read before it is made: an answer to a question, never a refusal."""
+    from services.piece_split import read, view
+    data = request.get_json(silent=True) or {}
+    try:
+        done = read(db.session.get(Item, piece_id), data.get('parts'))
+    except PieceRefused as refused:
+        db.session.rollback()
+        return jsonify({'refused': {'code': refused.code, 'message': refused.message}}), 200
+    db.session.rollback()
+    return jsonify({'split': view(done)}), 200
+
+
+@pieces_bp.route('/pieces/<int:piece_id>/split', methods=['POST'])
+@require_permission('items.split')
+def piece_split(piece_id: int):
+    from models import PieceSplit
+    from services.piece_split import split_piece, split_view
+    data = request.get_json(silent=True) or {}
+    key = (str(data.get('request_key') or '').strip() or None)
+    if key and len(key) > 64:
+        return jsonify({'error': 'request_key_invalid', 'message': 'مفتاح المحاولة أطول من 64'}), 400
+    if db.session.get(Item, piece_id) is None:
+        return jsonify({'error': 'not_found', 'message': 'القطعة غير موجودة'}), 404
+    saved = PieceSplit.query.filter_by(request_key=key).first() if key else None
+    if saved is not None:
+        return jsonify({'split': split_view(saved), 'already_saved': True}), 200
+    try:
+        with db.session.begin_nested():
+            split = split_piece(piece_id, data.get('parts'), reason=data.get('reason'), by=_by(),
+                                now=datetime.now(), request_key=key)
+    except PieceRefused as refused:
+        db.session.rollback()
+        return jsonify({'error': refused.code, 'message': refused.message}), 400
+    except IntegrityError:
+        # two presses, one key, the same moment: the second meets the first's split
+        db.session.rollback()
+        split = PieceSplit.query.filter_by(request_key=key).first() if key else None
+        if split is None:
+            raise
+        return jsonify({'split': split_view(split), 'already_saved': True}), 200
+    db.session.commit()
+    return jsonify({'split': split_view(split)}), 201

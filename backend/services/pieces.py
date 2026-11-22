@@ -32,7 +32,7 @@ import re
 from sqlalchemy import func, or_
 
 from models import (Category, Invoice, InvoiceItem, Item, JournalEntry, JournalEntryLine, PIECE_NUMBER,
-                    PieceTag, PrintAttempt, PrintJob, SafeBox, StockCoding, StockLineAllocation, db)
+                    PieceSplitPart, PieceTag, PrintAttempt, PrintJob, SafeBox, StockCoding, StockLineAllocation, db)
 
 GRAM = 0.0005
 RECEIVED_STAGES = ('received', 'invoiced')
@@ -46,11 +46,19 @@ class PieceRefused(ValueError):
 
 
 def is_piece(item) -> bool:
-    """An item born a piece: under a receipt line or in a batch of stock."""
-    return item is not None and (item.receipt_item_id is not None or getattr(item, 'coding_id', None) is not None)
+    """An item born a piece: under a receipt line, in a batch of stock, or of a split's part (ADR-099)."""
+    return item is not None and (item.receipt_item_id is not None or getattr(item, 'coding_id', None) is not None
+                                 or getattr(item, 'split_part_id', None) is not None)
+
+
+def born_a_piece():
+    """The one filter of the items that are pieces -- is_piece's, in a query."""
+    return or_(Item.receipt_item_id.isnot(None), Item.coding_id.isnot(None), Item.split_part_id.isnot(None))
 
 
 def _source_filter(source):
+    if isinstance(source, PieceSplitPart):
+        return Item.split_part_id == source.id
     return (Item.coding_id == source.id) if isinstance(source, StockCoding) else (Item.receipt_item_id == source.id)
 
 
@@ -132,7 +140,7 @@ def stones_kind(source) -> str:
 
 
 def _rest_of(source) -> float:
-    if isinstance(source, StockCoding):
+    if isinstance(source, (StockCoding, PieceSplitPart)):
         return round(float(source.weight or 0.0) - pieces_weight(source), 3)
     return line_rest(source)
 
@@ -187,6 +195,11 @@ def _source_of(source):
     if isinstance(source, StockCoding):
         source = StockCoding.query.with_for_update().get(source.id)
         return source, db.session.get(Category, source.category_id), int(source.karat)
+    if isinstance(source, PieceSplitPart):
+        # written in the split's own transaction (services/piece_split): its karat its piece's
+        from models import PieceSplit
+        piece = db.session.get(Item, db.session.get(PieceSplit, source.split_id).piece_id)
+        return source, db.session.get(Category, source.category_id), int(piece.karat)
     line = InvoiceItem.query.with_for_update().get(source.id)      # its pieces counted alone
     invoice = db.session.get(Invoice, line.invoice_id)
     if (invoice is None or (invoice.invoice_type or '').strip() != 'شراء' or not invoice.is_posted
@@ -246,6 +259,7 @@ def register_piece(source, *, weight, stones_weight=0.0, model_id=None, size_id=
 
     source, category, karat = _source_of(source)
     batch = isinstance(source, StockCoding)
+    part = isinstance(source, PieceSplitPart)
     if category is None or (category.tracking or 'weight') != 'piece':
         raise PieceRefused('piece_category_by_weight', 'تصنيف السطر يُتابَع بالوزن: لا تُسجَّل فيه قطع')
     model, size = model_and_size(category, model_id, size_id)
@@ -255,7 +269,12 @@ def register_piece(source, *, weight, stones_weight=0.0, model_id=None, size_id=
     from services.wage_ledger import pools, riyals_at_average, wage_pools_on
     from_pool = wage_pools_on(now)
     written = wage is not None and not (isinstance(wage, str) and not wage.strip())
-    if batch and from_pool:
+    if part:
+        # its share of its piece's wage, written at the split (ADR-099 law 7)
+        if written:
+            raise PieceRefused('piece_wage_from_split', 'جزء التفكيك يأخذ نصيبه من أجرة قطعته: لا تُكتب له أجرة')
+        coded_wage = round(float(source.wage), 2)
+    elif batch and from_pool:
         # From 2027's opening a piece coded from the stock takes its pool's
         # average (the owner, 20 Nov 2026): its wage moves with its grams.
         if written:
@@ -266,7 +285,15 @@ def register_piece(source, *, weight, stones_weight=0.0, model_id=None, size_id=
         coded_wage = _written_wage(wage, wage_whole, weight)
     elif written:
         raise PieceRefused('piece_wage_from_invoice', 'قطعة الاستلام تأخذ أجرة فاتورتها: لا تُكتب لها أجرة')
-    if batch:
+    if part:
+        # the split entry's line in, laid on the part's category, not yet pieced
+        rows = (StockLineAllocation.query.join(JournalEntryLine,
+                                               JournalEntryLine.id == StockLineAllocation.journal_entry_line_id)
+                .filter(JournalEntryLine.journal_entry_id == source.split.journal_entry_id,
+                        StockLineAllocation.karat == int(karat), StockLineAllocation.category_id == category.id,
+                        StockLineAllocation.item_id.is_(None), StockLineAllocation.grams > GRAM)
+                .order_by(StockLineAllocation.id).all())
+    elif batch:
         safe = db.session.get(SafeBox, source.safe_box_id)
         rows = (_free_allocations(safe, karat, category.id).filter(StockLineAllocation.grams > GRAM)
                 .order_by(StockLineAllocation.id).all())
@@ -279,8 +306,8 @@ def register_piece(source, *, weight, stones_weight=0.0, model_id=None, size_id=
                  category_id=category.id, karat=str(karat), model_id=model.id if model else None,
                  size_id=size.id if size else None,
                  weight=weight, has_stones=stones > GRAM, stones_weight=stones, price=0.0, stock=1, count=1,
-                 receipt_item_id=None if batch else source.id, coding_id=source.id if batch else None,
-                 coded_wage=coded_wage if batch else None,
+                 receipt_item_id=None if batch or part else source.id, coding_id=source.id if batch else None,
+                 split_part_id=source.id if part else None, coded_wage=coded_wage if batch or part else None,
                  created_at=now, created_by=by, request_key=request_key or None)
     db.session.add(piece)
     db.session.flush()
@@ -303,7 +330,7 @@ def register_piece(source, *, weight, stones_weight=0.0, model_id=None, size_id=
         raise PieceRefused('piece_line_not_allocated',
                            'ذهب السطر غير موزَّع على تصنيفه في خزينة مخزون: لا يُسجَّل تحته قطع')
     db.session.flush()
-    if from_pool:
+    if from_pool and not part:      # a part's wage is laid by its split's entry (services/piece_split)
         _wage_to_the_piece(piece, source, batch, karat, category, now=now, by=by)
     return piece
 
@@ -503,8 +530,7 @@ def category_pieces_held(category_id: int) -> int:
     """How many pieces of the category are in the stock."""
     from sqlalchemy import or_
     return sum(1 for (item_id,) in db.session.query(Item.id).filter(
-                   Item.category_id == int(category_id),
-                   or_(Item.receipt_item_id.isnot(None), Item.coding_id.isnot(None)))
+                   Item.category_id == int(category_id), born_a_piece())
                if piece_held(item_id) > GRAM)
 
 
@@ -561,7 +587,7 @@ def line_wages(source):
     line per bar size; unknown until the invoice is completed. A batch's is
     its pieces' own, each written at its coding (ADR-096 §4): no wage per
     gram, nothing left over."""
-    if isinstance(source, StockCoding):
+    if isinstance(source, (StockCoding, PieceSplitPart)):
         shares = {p.id: round(float(p.coded_wage or 0.0), 2) for p in line_pieces(source)}
         return {'line': round(sum(shares.values()), 2), 'pieces': shares, 'rest': 0.0, 'per_gram': None}
     invoice = db.session.get(Invoice, source.invoice_id)
@@ -571,6 +597,8 @@ def line_wages(source):
 
 
 def piece_source(piece: Item):
+    if getattr(piece, 'split_part_id', None) is not None:
+        return db.session.get(PieceSplitPart, piece.split_part_id)
     if piece.coding_id is not None:
         return db.session.get(StockCoding, piece.coding_id)
     if piece.receipt_item_id is not None:
@@ -593,7 +621,7 @@ def piece_wage_per_gram(piece: Item):
     """A piece's wage per gram, as a sale line reads it: its receipt line's,
     or its own over its weight, unrounded -- None while unknown (law 8)."""
     source = piece_source(piece)
-    if isinstance(source, StockCoding):
+    if isinstance(source, (StockCoding, PieceSplitPart)):
         weight = float(piece.weight or 0.0)
         return None if piece.coded_wage is None or weight <= GRAM else round(float(piece.coded_wage) / weight, 6)
     return source_wage_per_gram(source) if source is not None else None
@@ -608,7 +636,7 @@ def wages_per_gram(pieces) -> dict:
     for piece in pieces:
         if piece.receipt_item_id:
             by_line.setdefault(piece.receipt_item_id, []).append(piece.id)
-        elif getattr(piece, 'coding_id', None):
+        elif getattr(piece, 'coding_id', None) or getattr(piece, 'split_part_id', None):
             out[piece.id] = piece_wage_per_gram(piece)
     for line_id, ids in by_line.items():
         line = db.session.get(InvoiceItem, line_id)
@@ -683,7 +711,7 @@ def piece_view(piece: Item) -> dict:
             'karat': piece.karat, 'weight': round(float(piece.weight or 0.0), 3),
             'stones_weight': round(float(piece.stones_weight or 0.0), 3), **piece_weights(piece),
             'line_id': piece.receipt_item_id,
-            'coding_id': piece.coding_id,
+            'coding_id': piece.coding_id, 'split_part_id': piece.split_part_id,
             'wage': wage, 'wage_known': wage is not None, 'in_stock': piece_held(piece.id) > GRAM,
             'created_at': piece.created_at.isoformat() if piece.created_at else None,
             'created_by': piece.created_by, 'tag': tag.value if tag is not None else None,
@@ -854,7 +882,7 @@ def pieces_grams_at(safe_box: SafeBox, karat: int) -> float:
              .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
              .join(Item, Item.id == StockLineAllocation.item_id)
              .filter(JournalEntryLine.account_id == safe_box.account_id, StockLineAllocation.karat == int(karat),
-                     or_(Item.receipt_item_id.isnot(None), Item.coding_id.isnot(None)), *counted_line_filters())
+                     born_a_piece(), *counted_line_filters())
              .scalar())
     return round(float(grams or 0.0), 3)
 
@@ -1065,7 +1093,7 @@ def replace_tag(piece: Item, *, reason, value=None, by: str, now) -> PieceTag:
 
 # ── the pieces' list (the owner, 16 Nov 2026) ───────────────────────────────
 
-PIECE_STATES = ('in_stock', 'sold', 'returned_to_supplier', 'out')
+PIECE_STATES = ('in_stock', 'sold', 'returned_to_supplier', 'split', 'out')
 PIECE_SORTS = {'number': Item.item_code, 'weight': Item.weight, 'name': Item.name}
 PIECES_PER_PAGE_MAX = 100
 
@@ -1095,7 +1123,7 @@ def stock_pieces(category_id=None) -> list:
     all: their allocations hold more than nothing (the list's reading), their
     place the one stock safe that holds them."""
     held = _held_by_piece()
-    query = Item.query.filter((Item.receipt_item_id.isnot(None)) | (Item.coding_id.isnot(None)))
+    query = Item.query.filter(born_a_piece())
     if category_id is not None:
         query = query.filter(Item.category_id == int(category_id))
     account_of_safe = {s.account_id: s for s in SafeBox.query.filter(SafeBox.account_id.isnot(None))}
@@ -1126,11 +1154,16 @@ def _last_exits(item_ids) -> dict:
     kinds = dict(db.session.query(Invoice.id, Invoice.invoice_type).filter(Invoice.id.in_(invoice_ids)).all()
                  if invoice_ids else [])
     state_of = {'بيع': 'sold', 'مرتجع شراء (مورد)': 'returned_to_supplier'}
-    return {item_id: (when, state_of.get(kinds.get(ref_id) if ref_type == 'invoice' else None, 'out'))
-            for item_id, (when, ref_type, ref_id) in last.items()}
+
+    def state(ref_type, ref_id):
+        if ref_type == SPLIT_REFERENCE:
+            return 'split'
+        return state_of.get(kinds.get(ref_id) if ref_type == 'invoice' else None, 'out')
+    return {item_id: (when, state(ref_type, ref_id)) for item_id, (when, ref_type, ref_id) in last.items()}
 
 
-EXITS = {'sold': 'بيعت', 'returned_to_supplier': 'أُرجعت للمورد', 'out': 'خرجت'}
+SPLIT_REFERENCE = 'piece_split'     # services/piece_split: the entry that split a piece (ADR-099)
+EXITS = {'sold': 'بيعت', 'returned_to_supplier': 'أُرجعت للمورد', 'split': 'فُكِّكت', 'out': 'خرجت'}
 
 
 def out_of_stock(piece: Item) -> dict | None:
@@ -1164,6 +1197,10 @@ def _received_view(piece: Item) -> dict | None:
         return {'kind': 'receipt', 'date': invoice.date.date().isoformat() if invoice and invoice.date else None,
                 'document': getattr(invoice, 'invoice_number', None), 'invoice_id': source.invoice_id,
                 'supplier_name': getattr(supplier, 'name', None)}
+    if isinstance(source, PieceSplitPart):
+        whole = db.session.get(Item, source.split.piece_id)
+        return {'kind': 'split', 'date': source.split.split_at.date().isoformat(), 'document': whole.item_code,
+                'invoice_id': None, 'supplier_name': None, 'safe_name': None}
     return None
 
 
@@ -1189,7 +1226,7 @@ def pieces_list(*, q=None, category_id=None, karat=None, safe_box_id=None, model
     if page < 1 or not 1 <= per_page <= PIECES_PER_PAGE_MAX:
         raise PiecesFilterInvalid(f'الصفحة من 1، والقطع فيها من 1 إلى {PIECES_PER_PAGE_MAX}')
 
-    query = Item.query.filter((Item.receipt_item_id.isnot(None)) | (Item.coding_id.isnot(None)))
+    query = Item.query.filter(born_a_piece())
     if category_id is not None:
         query = query.filter(Item.category_id == int(category_id))
     if karat is not None:
@@ -1217,7 +1254,7 @@ def pieces_list(*, q=None, category_id=None, karat=None, safe_box_id=None, model
     every = query.all()
 
     held = _held_by_piece()
-    every_piece = Item.query.filter((Item.receipt_item_id.isnot(None)) | (Item.coding_id.isnot(None))).all()
+    every_piece = Item.query.filter(born_a_piece()).all()
     in_stock = {p.id for p in every_piece if sum(held.get(p.id, {}).values()) > GRAM}
     exits = _last_exits([p.id for p in every_piece if p.id not in in_stock])
     account_of_safe = {s.account_id: s for s in SafeBox.query.filter(SafeBox.account_id.isnot(None))}

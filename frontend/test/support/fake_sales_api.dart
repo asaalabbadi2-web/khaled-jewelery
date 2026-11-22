@@ -95,6 +95,50 @@ class FakeSalesApi extends ApiService {
     return {'piece': piece, 'location': {'id': 30, 'name': 'الذهب المعروض'}};
   }
 
+  /// The tags the server knows: value -> its piece's number (an active tag).
+  Map<String, String> activeTags = const {};
+
+  @override
+  Future<Map<String, dynamic>> pieceByTag(String value) async {
+    final code = activeTags[value.toUpperCase()];
+    if (code == null) {
+      throw ApiException(statusCode: 404, code: 'tag_unknown', message: 'رقاقة غير معروفة $value — لا تُحتسب');
+    }
+    return {'piece': {'item_code': code}, 'tag': {'state': 'active'}};
+  }
+
+  /// The labels asked to print: (piece id, the request's body).
+  final printsAsked = <(int, Map<String, dynamic>)>[];
+
+  @override
+  Future<Map<String, dynamic>> printPieceLabel(int pieceId, Map<String, dynamic> body) async {
+    printsAsked.add((pieceId, body));
+    return {'job': {'id': printsAsked.length, 'kind': body['kind'], 'status': body['run'] == true ? 'completed' : 'pending'}};
+  }
+
+  /// A split (ADR-099): the check answers each part's share; the split made
+  /// answers [splitAnswer] and the stock becomes [stockAfterSplit].
+  Map<String, dynamic> splitAnswer = const {};
+  List<Map<String, dynamic>>? stockAfterSplit;
+  final splitsMade = <Map<String, dynamic>>[];
+
+  @override
+  Future<Map<String, dynamic>> checkPieceSplit(int pieceId, List<Map<String, dynamic>> parts) async => {
+        'split': {
+          'grams': parts.fold<double>(0, (s, p) => s + (p['weight'] as num)), 'difference': 0.0, 'tolerance': 0.05,
+          'total': parts.fold<double>(0, (s, p) => s + (p['weight'] as num)),
+          'parts': [for (final p in parts) {...p, 'wage': 300.0}],
+        },
+      };
+
+  @override
+  Future<Map<String, dynamic>> splitPiece(int pieceId,
+      {required List<Map<String, dynamic>> parts, required String reason, required String requestKey}) async {
+    splitsMade.add({'piece_id': pieceId, 'parts': parts, 'reason': reason});
+    if (stockAfterSplit != null) stockItems = stockAfterSplit!;
+    return {'split': splitAnswer};
+  }
+
   @override
   Future<List<dynamic>> getActivePaymentMethods({String? invoiceType}) async {
     // As the server filters: a method with no list is set for every type.

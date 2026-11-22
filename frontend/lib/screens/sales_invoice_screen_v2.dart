@@ -11,6 +11,7 @@ import '../models/safe_box_model.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/settings_provider.dart';
+import '../models/permissions_model.dart' show PermissionCodes;
 import '../providers/auth_provider.dart';
 import '../providers/sales_race_refresh_provider.dart';
 import 'add_customer_screen.dart';
@@ -19,6 +20,7 @@ import '../widgets/invoice_bar_actions.dart';
 import '../widgets/invoice_price_strip.dart';
 import '../widgets/inline_number_cell.dart';
 import '../widgets/pay_box.dart';
+import '../widgets/piece_split_dialog.dart';
 import '../widgets/invoice_settings_sheet.dart';
 import '../widgets/sales_category_entry_row.dart';
 import '../widgets/invoice_review_dialog.dart';
@@ -4568,8 +4570,64 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
                   ),
                 );
 
+  /// Whoever is given «تفكيك قطعة» (ADR-099): a piece's line sells a part of it.
+  bool get _canSplit => context.read<AuthProvider>().hasPermission(PermissionCodes.itemsSplit);
+
+  /// «بيع جزء منه» (ADR-099; the owner, 23 Nov 2026): the piece split, its
+  /// line taken off, the parts chosen added as any -- a part that is a piece
+  /// by its new number, a part by weight as its category's line.
+  Future<void> _splitLine(int index) async {
+    final item = _items[index];
+    final pieceId = item.id;
+    if (pieceId == null) return;
+    await _ensureCategoriesLoaded();
+    if (!mounted) return;
+    final done = await PieceSplitDialog.show(
+      context,
+      api: _api,
+      pieceId: pieceId,
+      code: item.barcode,
+      grams: item.weight,
+      karat: item.karat.round(),
+      categories: _categories,
+      choose: true,
+    );
+    if (done == null || !mounted) return;
+    final at = _items.indexWhere((i) => i.id == pieceId);
+    setState(() {
+      if (at >= 0) _items.removeAt(at);
+      _respreadIfAsked();
+    });
+    await _loadAvailableItems();
+    for (final part in done.chosen) {
+      if (!mounted) return;
+      final code = part['item_code'];
+      if (code != null) {
+        await _addPieceByNumber('$code');
+        continue;
+      }
+      final weight = _parseDouble(part['weight']);
+      await _addCategoryLine(
+        categoryId: _parseInt(part['category_id']),
+        categoryName: '${part['category_name'] ?? ''}',
+        karat: item.karat.round(),
+        weight: weight,
+        wage: weight > 0 ? _parseDouble(part['wage']) / weight : 0,
+        count: 1,
+        amount: 0,
+      );
+    }
+  }
+
   Widget _saleLineActions(int index, InvoiceItem item) => Row(
                   children: [
+                    if (item.isPiece && _canSplit)
+                      IconButton(
+                        key: ValueKey('sale-line-split-$index'),
+                        icon: const Icon(Icons.call_split, size: 20),
+                        onPressed: () => _splitLine(index),
+                        tooltip: 'بيع جزء منه',
+                      ),
                     IconButton(
                       icon: Icon(
                         item.sellsStones

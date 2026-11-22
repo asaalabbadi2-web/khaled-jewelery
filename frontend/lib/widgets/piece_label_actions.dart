@@ -24,6 +24,9 @@ class PieceLabelActions {
   /// After each request: the printer and the labels waiting read again.
   final VoidCallback? afterEach;
 
+  /// A request the server refused: nothing waits in the queue.
+  static const refusedWords = 'لم تُطبع البطاقة ولم تُضف إلى قائمة الانتظار: ';
+
   static const failedWords =
       'تم تسجيل القطعة بنجاح، لكن تعذّرت طباعة البطاقة. أُضيفت إلى قائمة انتظار الطباعة.';
 
@@ -77,6 +80,11 @@ class PieceLabelActions {
         }
       }
       return label;
+    } on ApiException catch (e) {
+      // refused by the server (no printer, a job open…): no job was made --
+      // its words, never «added to the queue» (the owner's trial, 23 Nov 2026)
+      if (!quiet && context.mounted) AppFeedback.warning(context, '$refusedWords${e.message}');
+      return null;
     } catch (e) {
       if (!quiet && context.mounted) AppFeedback.warning(context, failedWords);
       return null;
