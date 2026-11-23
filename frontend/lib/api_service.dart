@@ -1766,10 +1766,12 @@ class ApiService {
     required int invoiceId,
     required String reason,
     required List<Map<String, dynamic>> payments,
+    Map<String, Map<String, dynamic>> tags = const {},
   }) async {
     final response = await _authedPost(
       Uri.parse('$_baseUrl/invoices/$invoiceId/reverse'),
-      body: json.encode({'reason': reason, 'payments': payments}),
+      // a sale's pieces, each its label as the return found it (ADR-097): {original line id: …}
+      body: json.encode({'reason': reason, 'payments': payments, if (tags.isNotEmpty) 'tags': tags}),
     );
     if (response.statusCode == 201) {
       return json.decode(utf8.decode(response.bodyBytes));
@@ -5938,6 +5940,12 @@ class ApiService {
   /// message}}` -- nothing written.
   Future<Map<String, dynamic>> checkPieceSplit(int pieceId, List<Map<String, dynamic>> parts) =>
       _postJson('/pieces/$pieceId/split/check', {'parts': parts}, fallback: 'تعذّر حساب التفكيك');
+
+  /// «سجلّ التفكيك»: every split, the newest first -- who, when, why, into what.
+  Future<List<Map<String, dynamic>>> pieceSplits() async {
+    final body = await _getMap('/pieces/splits', fallback: 'تعذّر تحميل سجلّ التفكيك');
+    return (body['splits'] as List? ?? []).cast<Map<String, dynamic>>();
+  }
 
   /// The split made: `{split: {id, item_code, entry_number, difference,
   /// parts: [{category_id, category_name, weight, wage, piece_id, item_code}]}}`.

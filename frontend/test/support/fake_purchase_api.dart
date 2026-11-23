@@ -34,6 +34,21 @@ class FakePurchaseApi extends ApiService {
   @override
   Future<Map<String, dynamic>> getInvoiceCodedLines(int invoiceId) async => {'lines': codedLines};
 
+  /// The tags the server knows (value -> its piece's number); a number typed is read as itself.
+  Map<String, String> activeTags = const {};
+
+  @override
+  Future<Map<String, dynamic>> pieceByTag(String value) async {
+    final code = activeTags[value.toUpperCase()];
+    if (code == null) {
+      throw ApiException(statusCode: 404, code: 'tag_unknown', message: 'رقاقة غير معروفة $value — لا تُحتسب');
+    }
+    return {'piece': {'item_code': code}};
+  }
+
+  @override
+  Future<Map<String, dynamic>> lookupPiece(String code) async => {'piece': {'item_code': code.toUpperCase()}};
+
   @override
   Future<List<Map<String, dynamic>>> getBranches({
     bool activeOnly = false,

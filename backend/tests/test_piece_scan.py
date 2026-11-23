@@ -136,6 +136,34 @@ def test_complete_is_three_quiet_presses_or_three_seconds_held(shop):
     assert scan_view(waited)['completeness']['complete'] is False, 'a pause between presses is no reading'
 
 
+def test_every_piece_expected_found_at_once_is_complete(shop):
+    """The owner's rehearsal, 23 Nov 2026: «تظهر جميع القطع من أول مسحة وزر إنهاء
+    الجرد لا زال غير مفعّل» -- a reader reads a showcase in one press; none
+    left to wait for, the count may finish."""
+    scan = start_scan(safe_box_id=shop['showroom'].id, kind='check', by='t', now=NOW)
+    _read(scan, _tag(shop['a']), _tag(shop['b']), press=1)
+    said = scan_view(scan)['completeness']
+    assert (said['complete'], said['all_found']) == (False, False), 'two of four: the quiet presses wait'
+    _read(scan, _tag(shop['c']), shop['untagged'].item_code, press=1)       # the last, its printed code
+    said = scan_view(scan)['completeness']
+    assert (said['complete'], said['all_found'], said['quiet_presses']) == (True, True, 0)
+    finished = finish_scan(scan.id, by='t', now=NOW)
+    assert finished.complete is True
+
+
+def test_each_piece_read_says_its_weight_and_the_grams_found(shop):
+    """The owner's rehearsal, 23 Nov 2026: «عرض لبيانات مثل الوزن الممسوح»."""
+    scan = start_scan(safe_box_id=shop['showroom'].id, kind='check', by='t', now=NOW)
+    _read(scan, _tag(shop['a']), _tag(shop['far']), press=1)
+    view = scan_view(scan)
+    read = {r['value']: r for r in view['reads']}[_tag(shop['a'])]
+    assert (read['item_code'], read['weight']) == (shop['a'].item_code, round(shop['a'].weight, 3))
+    assert read['piece_name'], 'its model, else its category'
+    expected = [shop[k] for k in ('a', 'b', 'c', 'untagged')]
+    assert view['expected_grams'] == round(sum(p.weight for p in expected), 3)
+    assert view['found_grams'] == round(shop['a'].weight, 3), 'a piece elsewhere is not found here'
+
+
 def test_the_finish_freezes_found_missing_untagged(shop):
     scan = start_scan(safe_box_id=shop['showroom'].id, kind='closing', by='t', now=NOW)
     for press in range(1, 5):

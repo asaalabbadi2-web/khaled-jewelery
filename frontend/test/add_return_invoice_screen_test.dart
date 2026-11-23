@@ -287,6 +287,62 @@ void main() {
       expect(find.text('جاهز للحفظ'), findsOneWidget);
     });
 
+    // The whole return of a sale with a piece asks its label too (the owner,
+    // 23 Nov 2026: «لا يوجد حقل لمسح المرتجع» on «عكس الفاتورة كاملة»).
+    testWidgets('a piece reversed whole says its label first, and its label missing is printed again', (tester) async {
+      final api = FakeSalesApi(invoices: {10: original}, returnLines: {
+        10: {
+          'invoice_id': 10, 'returned_before': false, 'refundable': 1000.0,
+          'lines': [
+            {'id': 100, 'name': 'بنجرة', 'karat': 21, 'sold_grams': 2.0, 'remaining_grams': 2.0,
+             'sold_pieces': 1, 'remaining_pieces': 1, 'sold_amount': 1000.0, 'remaining_amount': 1000.0,
+             'item_id': 43, 'item_code': 'KJ-000007', 'is_piece': true},
+          ],
+        },
+      });
+      await open(tester, api: api);
+      await reason(tester);
+      await pay(tester, 1);
+      expect(find.textContaining('امسح بطاقة KJ-000007'), findsWidgets, reason: 'its label unsaid: not ready');
+      await tester.tap(find.byKey(const Key('return-tag-100-missing')));
+      await tester.pumpAndSettle();
+      await tester.tap(reverseButton());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('عكس وحفظ'));
+      await tester.pumpAndSettle();
+      expect(api.reversed.single['tags'], {'100': {'missing': true}});
+      final (pieceId, body) = api.printsAsked.single;
+      expect((pieceId, body['kind'], body['run']), (43, 'reprint', true));
+    });
+
+    // The owner's rehearsal, 23 Nov 2026: the focus where the reader types, no tap between pieces.
+    testWidgets('the reader reads one piece after another: the focus moves itself', (tester) async {
+      final api = FakeSalesApi(invoices: {10: original}, returnLines: {
+        10: {
+          'invoice_id': 10, 'returned_before': false, 'refundable': 1000.0,
+          'lines': [
+            for (final (id, code) in [(100, 'KJ-000007'), (101, 'KJ-000008')])
+              {'id': id, 'name': 'بنجرة', 'karat': 21, 'sold_grams': 1.0, 'remaining_grams': 1.0,
+               'sold_pieces': 1, 'remaining_pieces': 1, 'sold_amount': 500.0, 'remaining_amount': 500.0,
+               'item_id': id - 57, 'item_code': code, 'is_piece': true},
+          ],
+        },
+      })
+        ..activeTags = {'4B4A00010000000000000007': 'KJ-000007', '4B4A00010000000000000008': 'KJ-000008'};
+      await open(tester, api: api);
+      bool focused(String key) => tester
+          .widget<EditableText>(find.descendant(of: find.byKey(Key(key)), matching: find.byType(EditableText)))
+          .focusNode
+          .hasFocus;
+      expect(focused('return-tag-100'), isTrue, reason: 'the first piece, at once');
+      await tester.enterText(find.byKey(const Key('return-tag-100')), '4B4A00010000000000000008');
+      await tester.pumpAndSettle();
+      expect(focused('return-tag-100'), isTrue, reason: 'not its label: read again here');
+      await tester.enterText(find.byKey(const Key('return-tag-100')), '4B4A00010000000000000007');
+      await tester.pumpAndSettle();
+      expect(focused('return-tag-101'), isTrue, reason: 'said: the next piece takes the focus');
+    });
+
     testWidgets('it asks the server to reverse it, sending no amounts of its '
         'own lines', (tester) async {
       final api = FakeSalesApi(invoices: {10: original});
@@ -502,6 +558,17 @@ void main() {
       expect(sent['amount_paid'], 700.0);
     });
 
+    testWidgets('a sale with no branch comes back (289 of 1,987 sales have none)', (tester) async {
+      final api = await open(tester, api: FakeSalesApi(invoices: {10: {...original, 'branch_id': null}}));
+      await tester.tap(find.text('إرجاع جزء فقط'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const ValueKey('amount-100-0')), '1000');
+      await tester.pumpAndSettle();
+      await toReview(tester);
+      final sent = await save(tester, api);
+      expect(sent['branch_id'], isNull, reason: 'its original\'s: none -- the server takes it');
+    });
+
     testWidgets('a sale never paid comes back paying nothing back, no method asked', (tester) async {
       final api = await open(tester, api: FakeSalesApi(invoices: {10: {...original, 'amount_paid': 0.0}}));
       await tester.tap(find.text('إرجاع جزء فقط'));
@@ -612,7 +679,8 @@ void main() {
       expect(said(tester), contains('KJ-000008'), reason: 'another piece\'s tag is never taken');
       await tester.enterText(find.byKey(const Key('return-tag-100')), '4B4A00010000000000000007');
       await tester.pumpAndSettle();
-      expect(said(tester), 'رقاقة القطعة — تعود ببطاقتها');
+      expect(said(tester), startsWith('رقاقة القطعة — تعود ببطاقتها'));
+      expect(said(tester), allOf(contains('12.40'), contains('بنجرة الشمس')), reason: 'what is in the hand');
       await toReview(tester);
       final line = ((await save(tester, api))['items'] as List).single as Map;
       expect(line['tag'], {'value': '4B4A00010000000000000007'});

@@ -23,6 +23,7 @@ class _Api extends ApiService {
   final finishes = <Map<String, dynamic>>[];
   int loseNext = 0;
   bool complete = false;
+  bool allFound = false;
   int quiet = 0;
   List<Map<String, dynamic>> open = [];
   final settled = <int>[];
@@ -43,6 +44,7 @@ class _Api extends ApiService {
           'id': i + 1,
           'value': v,
           'verdict': v == _ring ? 'other_scope' : (v == _b ? 'elsewhere' : 'found'),
+          'weight': v == _a ? 10.0 : null, 'piece_name': v == _a ? 'بنجرة الشمس' : null,
           'verdict_words': v == _ring ? 'من نطاق آخر' : (v == _b ? 'في غير موقعها' : 'موجودة'),
           'words': v == _b
               ? 'KJ-000102 — مكانها في الدفاتر «العرض الخارجي»'
@@ -53,9 +55,10 @@ class _Api extends ApiService {
     return {
       'id': 7, 'safe_name': 'الذهب المعروض', 'kind_words': 'جرد إغلاق', 'scope_words': 'قسم بناجر',
       'status': status, 'presses': presses, 'expected': 2, 'found': seen.contains(_a) ? 1 : 0,
+      'expected_grams': 22.5, 'found_grams': seen.contains(_a) ? 10.0 : 0.0,
       'alerts': seen.contains(_b) ? 1 : 0, 'complete': status == 'open' ? null : !finishes.last.containsKey('early'),
       'early_reason': finishes.isEmpty ? null : finishes.last['reason'],
-      'completeness': {'complete': complete, 'needs_presses': 3, 'quiet_presses': quiet},
+      'completeness': {'complete': complete, 'all_found': allFound, 'needs_presses': 3, 'quiet_presses': quiet},
       'reads': reads,
       if (status != 'open') ...{
         'expected_counts': {'found': 1, 'missing': 1},
@@ -212,6 +215,33 @@ void main() {
       ..complete = true;
     await _read(tester, '$_a\n');
     expect(find.byKey(const Key('scan-finish-hint')), findsNothing, reason: 'complete: the button speaks for itself');
+  });
+
+  // The owner's rehearsal, 23 Nov 2026: «عرض لبيانات مثل الوزن الممسوح».
+  testWidgets('the grams found against the grams expected, and each piece its weight', (tester) async {
+    await _open(tester, _Api());
+    await _startSection(tester);
+    await _read(tester, '$_a\n');
+    final grams = tester.widget<Text>(find.byKey(const Key('scan-grams'))).data!;
+    expect((grams.contains('10.00'), grams.contains('22.50')), (true, true), reason: grams);
+    await tester.tap(find.byKey(const Key('scan-found-list')));
+    await tester.pumpAndSettle();
+    final line = tester.widget<Text>(find.descendant(of: find.byKey(const Key('scan-read-$_a')),
+        matching: find.textContaining('بنجرة الشمس'))).data!;
+    expect(line.contains('10.00'), isTrue, reason: line);
+  });
+
+  // The owner's rehearsal, 23 Nov 2026: «تظهر جميع القطع من أول مسحة وزر إنهاء الجرد لا زال غير مفعّل».
+  testWidgets('every piece found at the first press: the finish is offered at once, and said why', (tester) async {
+    final api = _Api()
+      ..complete = true
+      ..allFound = true;
+    await _open(tester, api);
+    await _startSection(tester);
+    await _read(tester, '$_a\n');
+    expect(_said(tester, 'scan-state'), 'وُجدت كل القطع المتوقعة — يمكنك إنهاء الجرد');
+    expect(find.byKey(const Key('scan-finish-hint')), findsNothing);
+    expect(tester.widget<ButtonStyleButton>(find.byKey(const Key('scan-finish'))).onPressed, isNotNull);
   });
 
   testWidgets('a batch that met no answer is sent again under its key, once', (tester) async {

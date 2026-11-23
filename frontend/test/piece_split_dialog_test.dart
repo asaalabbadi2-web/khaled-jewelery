@@ -75,9 +75,9 @@ class _Api extends ApiService {
 
 PieceSplitDone? _result;
 
-Future<void> _open(WidgetTester tester, _Api api, {bool choose = false}) async {
+Future<void> _open(WidgetTester tester, _Api api, {bool choose = false, Size size = const Size(1200, 1400)}) async {
   _result = null;
-  tester.view.physicalSize = const Size(1200, 1400);
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(MaterialApp(
@@ -143,6 +143,7 @@ void main() {
     ]);
     expect(_summary(tester), contains('خسارة وزن'), reason: 'the difference allowed, said where it goes');
     expect(find.byKey(const Key('split-part-share-0')), findsOneWidget);
+    expect(find.byKey(const Key('split-write-wages')), findsNothing, reason: 'a part\'s wage is the piece\'s by weight, never typed');
     expect(_confirmable(tester), isFalse, reason: 'no reason yet');
     await tester.enterText(find.byKey(const Key('split-reason')), 'الزبون يريد العقد');
     await tester.pump();
@@ -165,6 +166,21 @@ void main() {
     await tester.pump();
     expect(_confirmable(tester), isFalse);
     expect(api.made, isEmpty);
+  });
+
+  // The owner's rehearsal, 23 Nov 2026: «على القارئ والجوال ديالوج تفكيك القطعة غير سليم».
+  testWidgets('on a phone and the reader: each part two lines, nothing cut', (tester) async {
+    await _open(tester, _Api(), size: const Size(390, 844));
+    await _part(tester, 0, 'عقد ذهب 21', '30');
+    await _part(tester, 1, 'اساور 21', '9.97');
+    await tester.tap(find.byKey(const Key('split-add-part')));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull, reason: 'no overflow');
+    final category = tester.getRect(find.byKey(const Key('split-part-category-0')));
+    final weight = tester.getRect(find.byKey(const Key('split-part-weight-0')));
+    expect(weight.top, greaterThan(category.bottom - 1), reason: 'its figures under its category');
+    expect(weight.width, greaterThan(70), reason: 'a weight wide enough to read');
+    expect(find.byKey(const Key('split-print-mode')), findsOneWidget);
   });
 
   testWidgets('a third part is added; two at least stay', (tester) async {
@@ -215,4 +231,3 @@ void main() {
     expect(_result?.chosen.map((p) => p['category_id']), [1]);
   });
 }
-

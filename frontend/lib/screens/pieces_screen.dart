@@ -17,6 +17,7 @@ import '../widgets/piece_label_actions.dart';
 import '../widgets/piece_split_dialog.dart';
 import 'items_screen_enhanced.dart' show showCategoriesManagement;
 import 'piece_models_screen.dart';
+import 'piece_splits_screen.dart';
 import 'size_systems_screen.dart';
 
 /// The piece states the server says (services/pieces.PIECE_STATES), in the
@@ -618,6 +619,13 @@ class _PiecesScreenState extends State<PiecesScreen> {
       appBar: AppBar(
         title: const Text('القطع'),
         actions: [
+          IconButton(
+            key: const Key('pieces-splits'),
+            tooltip: 'سجلّ التفكيك',
+            icon: const Icon(Icons.call_split),
+            onPressed: () => Navigator.of(context)
+                .push(MaterialPageRoute<void>(builder: (_) => PieceSplitsScreen(api: widget.api))),
+          ),
           IconButton(
             key: const Key('pieces-models'),
             tooltip: 'الموديلات',

@@ -138,3 +138,15 @@ def test_the_screen_is_told_a_coded_lines_pieces_and_rest(auth_headers, as_produ
     coded = body['lines'][str(line.id)]
     assert [p['item_code'] for p in coded['pieces']] == [piece.item_code], 'the sold one is not offered'
     assert coded['rest'] == 2.63
+
+
+def test_a_receipt_not_invoiced_goes_back_after_its_invoice(auth_headers, as_production, world, roles, showroom,
+                                                            bangles_by_the_piece):
+    """The owner, 23 Nov 2026 (the cycle rehearsal, step 11: «هل يمكن ان انشئ فاتورة
+    مرتجع شراء دون تسجيل فاتورة الشراء؟» -- «أضفها»): a receipt whose supplier's
+    invoice is not completed has no wage known; nothing of it goes back before."""
+    piece = _piece(auth_headers, world, showroom, bangles_by_the_piece, invoiced=False)
+    resp = _post(auth_headers, _back(world, _line(piece), (piece.weight, piece)))
+    _refused(resp, 'return_receipt_not_invoiced')
+    assert 'استكملها أولًا' in resp.get_json()['message']
+    assert piece_held(piece.id) == piece.weight, 'nothing written'

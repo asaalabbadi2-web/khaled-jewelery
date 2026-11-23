@@ -225,10 +225,33 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.byKey(const Key('transfer-piece-KJ-000001')), findsOneWidget);
         expect(find.textContaining('وزن القطع عيار 21'), findsOneWidget);
-        await type(tester, 'transfer-weight-21', '14.37');
+        // its weight on its karat's row by itself (the owner's rehearsal, 23 Nov 2026:
+        // «لا نحتاج إدخال الوزن يدويا»)
+        String row21() => tester.widget<EditableText>(find.descendant(
+            of: find.byKey(const Key('transfer-weight-21')), matching: find.byType(EditableText),
+            matchRoot: true)).controller.text;
+        expect(row21(), '14.37');
         await submitAndConfirm(tester);
       });
       expect((sent.single['body'] as Map)['pieces'], ['KJ-000001']);
+    });
+
+    testWidgets('a piece removed takes its weight back; read by the reader with no Enter, the focus stays', (tester) async {
+      await run(tester, 'gold', () async {
+        await type(tester, 'transfer-weight-21', '5');
+        await tester.enterText(find.byKey(const Key('transfer-piece-code')), 'KJ-000001');   // no Enter, no button
+        await tester.pumpAndSettle();
+        String row21() => tester.widget<EditableText>(find.descendant(
+            of: find.byKey(const Key('transfer-weight-21')), matching: find.byType(EditableText),
+            matchRoot: true)).controller.text;
+        expect(row21(), '19.37', reason: 'what was typed and the piece');
+        final field = tester.widget<EditableText>(find.descendant(
+            of: find.byKey(const Key('transfer-piece-code')), matching: find.byType(EditableText)));
+        expect(field.focusNode.hasFocus, isTrue, reason: 'the next piece read where the last was');
+        tester.widget<InputChip>(find.byKey(const Key('transfer-piece-KJ-000001'))).onDeleted!();
+        await tester.pumpAndSettle();
+        expect(row21(), '5.0', reason: 'its weight back off the row');
+      });
     });
 
     testWidgets('its number alone names it, and named twice -- by its number and its code -- it is said once', (tester) async {

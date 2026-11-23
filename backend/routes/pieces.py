@@ -46,6 +46,7 @@ POST /api/pieces/<id>/split/check -- a split read before it is made (ADR-099):
      (written, or its share by weight), the total, the difference allowed --
      {'split': ...} or {'refused': {code, message}}, a 200 either way. Nothing
      written.
+GET  /api/pieces/splits           -- «سجلّ التفكيك»: every split, the newest first.
 POST /api/pieces/<id>/split       -- the split made: parts, reason,
      request_key (pressed twice, one) -- its parts, each a piece's number or
      its category's grams, and the entry's number.
@@ -66,6 +67,18 @@ pieces_bp = Blueprint('pieces', __name__)
 
 def _by():
     return getattr(getattr(g, 'current_user', None), 'username', None) or 'system'
+
+
+def _is_manager() -> bool:
+    """The manager or the system's admin -- a staff user's role, or the owner's admin account."""
+    user = getattr(g, 'current_user', None)
+    if user is None:
+        return False
+    manager = getattr(user, 'is_manager', None)
+    if callable(manager):
+        return bool(manager())
+    admin = getattr(user, 'is_admin', False)
+    return bool(admin() if callable(admin) else admin)
 
 
 @pieces_bp.route('/pieces/pending', methods=['GET'])
@@ -567,6 +580,14 @@ def label_printer_test_label(printer_id: int):
 
 # ── a composite piece split (ADR-099) ───────────────────────────────────────
 
+@pieces_bp.route('/pieces/splits', methods=['GET'])
+@require_permission('items.view')
+def piece_splits():
+    """«سجلّ التفكيك»: every split, the newest first (services/piece_split.splits_list)."""
+    from services.piece_split import splits_list
+    return jsonify({'splits': splits_list()}), 200
+
+
 @pieces_bp.route('/pieces/<int:piece_id>/split/check', methods=['POST'])
 @require_permission('items.split')
 def piece_split_check(piece_id: int):
@@ -574,7 +595,7 @@ def piece_split_check(piece_id: int):
     from services.piece_split import read, view
     data = request.get_json(silent=True) or {}
     try:
-        done = read(db.session.get(Item, piece_id), data.get('parts'))
+        done = read(db.session.get(Item, piece_id), data.get('parts'), manager=_is_manager())
     except PieceRefused as refused:
         db.session.rollback()
         return jsonify({'refused': {'code': refused.code, 'message': refused.message}}), 200
@@ -598,7 +619,7 @@ def piece_split(piece_id: int):
         return jsonify({'split': split_view(saved), 'already_saved': True}), 200
     try:
         with db.session.begin_nested():
-            split = split_piece(piece_id, data.get('parts'), reason=data.get('reason'), by=_by(),
+            split = split_piece(piece_id, data.get('parts'), reason=data.get('reason'), by=_by(), manager=_is_manager(),
                                 now=datetime.now(), request_key=key)
     except PieceRefused as refused:
         db.session.rollback()

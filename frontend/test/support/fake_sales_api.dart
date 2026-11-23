@@ -104,7 +104,7 @@ class FakeSalesApi extends ApiService {
     if (code == null) {
       throw ApiException(statusCode: 404, code: 'tag_unknown', message: 'رقاقة غير معروفة $value — لا تُحتسب');
     }
-    return {'piece': {'item_code': code}, 'tag': {'state': 'active'}};
+    return {'piece': {'item_code': code, 'weight': 12.4, 'model': {'name': 'بنجرة الشمس'}}, 'tag': {'state': 'active'}};
   }
 
   /// The labels asked to print: (piece id, the request's body).
@@ -179,8 +179,9 @@ class FakeSalesApi extends ApiService {
     required int invoiceId,
     required String reason,
     required List<Map<String, dynamic>> payments,
+    Map<String, Map<String, dynamic>> tags = const {},
   }) async {
-    reversed.add({'id': invoiceId, 'reason': reason, 'payments': payments});
+    reversed.add({'id': invoiceId, 'reason': reason, 'payments': payments, 'tags': tags});
     if (hold != null) await hold!.future;
     return {'id': 800 + reversed.length, 'invoice_type': 'مرتجع بيع'};
   }

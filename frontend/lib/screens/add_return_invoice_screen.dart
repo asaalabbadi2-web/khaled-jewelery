@@ -215,6 +215,29 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
 
   /// The new labels of pieces back with theirs missing: printed now, or waiting.
   bool _autoPrintLabels = true;
+
+  /// Each piece's label field, its focus the screen's: once one is said the
+  /// next unsaid takes it -- the reader needs no tap between pieces (the
+  /// owner's rehearsal, 23 Nov 2026).
+  final Map<int?, FocusNode> _labelFocus = {};
+  FocusNode _labelNode(ReturnItemRow row) => _labelFocus.putIfAbsent(row.originalItemId, FocusNode.new);
+
+  bool _unsaid(ReturnItemRow row) =>
+      row.isPiece && row.label == null && (!_partial || row.isSelected);
+
+  /// The first piece whose label is unsaid takes the focus.
+  bool _firstUnsaid(ReturnItemRow row) => _returnItems.where(_unsaid).firstOrNull == row;
+
+  void _labelSaid(ReturnItemRow row, ReturnLabel? label) {
+    setState(() => row.label = label);
+    if (label == null) return;
+    final next = _returnItems.where(_unsaid).firstOrNull;
+    if (next != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _labelNode(next).requestFocus();
+      });
+    }
+  }
   String _uiPaperSize = 'A4';
 
   Future<void> _loadInvoiceUiSettingsFromPrefs() async {
@@ -496,6 +519,9 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
 
   @override
   void dispose() {
+    for (final node in _labelFocus.values) {
+      node.dispose();
+    }
     _returnReasonController.dispose();
     _customAmountController.dispose();
     super.dispose();
@@ -862,17 +888,10 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
       return;
     }
 
+    // Its original's branch, or none: the server takes a return without one
+    // (289 of 1,987 sales on the 22 Nov copy have none -- they were refused
+    // here, never by the server; the owner, 23 Nov 2026).
     final originalBranchId = selectedOriginalInvoice?['branch_id'];
-    if (originalBranchId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'الفاتورة الأصلية لا تحتوي على فرع. لا يمكن حفظ المرتجع بدون فرع.',
-          ),
-        ),
-      );
-      return;
-    }
 
     if (!_capturePayment(showErrors: true)) {
       return;
@@ -1268,6 +1287,10 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
       return 'جارٍ تحميل الفاتورة…';
     }
     if (_returnReasonController.text.trim().isEmpty) return 'اكتب سبب الإرجاع';
+    final unsaid = _isSaleReturn
+        ? _returnItems.where((i) => i.isPiece && i.label == null).map((i) => i.itemCode ?? i.itemName).toList()
+        : const <String>[];
+    if (unsaid.isNotEmpty) return 'امسح بطاقة ${unsaid.join('، ')}، أو اختر «البطاقة مفقودة أو تالفة»';
     if (_wholeRefund > 0.01 && _payments.isEmpty) return 'اختر وسيلة الإرجاع';
     if (_wholeRemaining > 0.01) {
       return 'أكمل الإرجاع: يتبقى ${_wholeRemaining.toStringAsFixed(2)} $currencySymbol';
@@ -1361,8 +1384,14 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
           for (final p in _payments)
             {'payment_method_id': p.paymentMethodId, 'amount': p.amount},
         ],
+        tags: {
+          for (final row in _returnItems)
+            if (_isSaleReturn && row.isPiece && row.label != null && row.originalItemId != null)
+              '${row.originalItemId}': row.label!.toPayload(),
+        },
       );
       if (!mounted) return;
+      _printMissingLabels(_returnItems, response);
       await _afterSaved(response);
     } catch (e) {
       if (mounted) _snack('لم يُحفظ المرتجع: $e');
@@ -1453,6 +1482,34 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                       ],
                     ),
                   ),
+                // each piece its label, as the partial return asks it (ADR-097)
+                for (final row in _returnItems)
+                  if (_isSaleReturn && row.isPiece) ...[
+                    const SizedBox(height: 8),
+                    ReturnLabelField(
+                      key: ValueKey('whole-return-label-${row.originalItemId}'),
+                      keyBase: 'return-tag-${row.originalItemId}',
+                      api: widget.api,
+                      itemCode: row.itemCode ?? '',
+                      focusNode: _labelNode(row),
+                      autofocus: _firstUnsaid(row),
+                      onSettled: (label) => _labelSaid(row, label),
+                    ),
+                  ],
+                if (_isSaleReturn && _returnItems.any((r) => r.isPiece && r.label?.missing == true)) ...[
+                  const SizedBox(height: 8),
+                  SegmentedButton<bool>(
+                    key: const ValueKey('whole-return-print-mode'),
+                    showSelectedIcon: false,
+                    style: const ButtonStyle(visualDensity: VisualDensity.compact),
+                    segments: const [
+                      ButtonSegment(value: true, label: Text('طباعة تلقائية')),
+                      ButtonSegment(value: false, label: Text('تسجيل فقط')),
+                    ],
+                    selected: {_autoPrintLabels},
+                    onSelectionChanged: (v) => setState(() => _autoPrintLabels = v.first),
+                  ),
+                ],
                 const Divider(),
                 Text(
                   'الإجمالي المُرجَع: ${_originalInvoiceTotal.toStringAsFixed(2)} $currencySymbol',
@@ -1855,7 +1912,9 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                           keyBase: 'return-tag-${item.originalItemId}',
                           api: widget.api,
                           itemCode: item.itemCode ?? '',
-                          onSettled: (label) => setState(() => item.label = label),
+                          focusNode: _labelNode(item),
+                          autofocus: _firstUnsaid(item),
+                          onSettled: (label) => _labelSaid(item, label),
                         ),
                         if (item.label?.missing == true) ...[
                           const SizedBox(height: 8),

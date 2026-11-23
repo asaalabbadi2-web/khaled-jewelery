@@ -18,8 +18,13 @@ The laws (each its test, tests/test_piece_split.py):
 5. the piece's number and tag are never used again: every reader says
    «ليست في المخزون — فُكِّكت <day>» (services/pieces._last_exits);
 6. each part on its own, two at least, each with its category;
-7. the parts' wages are the piece's to the halala, their stones its stones;
-8. only a piece in stock, its wage known, its stones counted as gold;
+7. the parts' wages are the piece's, by their weights, to the halala -- derived,
+   never written (the owner, 23 Nov 2026: «الأجرة تشتق من القطعة المفككة»: a
+   wage moved onto the part kept made the part sold look profitable, its
+   seller's points with it); their stones its stones;
+8. only a piece in stock, its wage known, its stones counted as gold; a
+   piece born of a split split again by the manager alone (each split may
+   leave 0.05 g on the shortage: chained, they add up);
 9. a part is never sold before the split: the sale's law is unchanged.
 
 Its entry is the stock's own record of the move (ADR-045 A1: the stock is
@@ -73,13 +78,17 @@ def _written(value) -> bool:
     return value is not None and not (isinstance(value, str) and not value.strip())
 
 
-def read(piece: Item, parts) -> dict:
+def read(piece: Item, parts, *, manager: bool = False) -> dict:
     """The split as it would be written -- the piece's place and wage, each
-    part read (its category, grams, stones, wage: written, or its share by
-    weight, the halala's rounding on the last), the difference -- or
-    PieceRefused naming the first law it breaks. Nothing written."""
+    part read (its category, grams, stones, its share of the wage by weight,
+    the halala's rounding on the last), the difference -- or PieceRefused
+    naming the first law it breaks. Nothing written. *manager*: the one
+    splitting may split a piece born of a split."""
     if piece is None or not is_piece(piece):
         raise PieceRefused('split_not_a_piece', 'ليست قطعة: لا تُفكَّك')
+    if getattr(piece, 'split_part_id', None) is not None and not manager:
+        raise PieceRefused('split_of_a_split', f'القطعة {piece.item_code} وُلدت من تفكيك: '
+                           'تفكيكها ثانيةً للمدير وحده')
     if PieceSplit.query.filter_by(piece_id=piece.id).first() is not None:
         raise PieceRefused('split_already', f'القطعة {piece.item_code} فُكِّكت من قبل')
     if piece_held(piece.id) <= GRAM:
@@ -119,8 +128,10 @@ def read(piece: Item, parts) -> dict:
         stones = _number(part.get('stones_weight') or 0, f'فصوص الجزء {n}')
         if weight <= GRAM or stones < 0 or stones >= weight:
             raise PieceRefused('split_part_invalid', f'الجزء {n}: وزنه أكبر من صفر، وفصوصه أقل منه')
-        read_parts.append({'category': category, 'weight': weight, 'stones_weight': stones,
-                           'wage': part.get('wage') if _written(part.get('wage')) else None,
+        if _written(part.get('wage')):
+            raise PieceRefused('split_wage_written', f'الجزء {n}: أجرته تُشتق من أجرة القطعة بنسبة وزنه، '
+                               'ولا تُكتب')
+        read_parts.append({'category': category, 'weight': weight, 'stones_weight': stones, 'wage': None,
                            'piece': (category.tracking or 'weight') == 'piece'})
 
     total = round(sum(p['weight'] for p in read_parts), 3)
@@ -136,24 +147,10 @@ def read(piece: Item, parts) -> dict:
                            f'فصوص الأجزاء لا تساوي فصوص القطعة ({stones:.2f} جم): وزّعها كلها')
 
     wage = round(float(wage), 2)
-    written = [p['wage'] is not None for p in read_parts]
-    if any(written) and not all(written):
-        raise PieceRefused('split_wage_partial', 'اكتب أجرة كل جزء، أو اترك الأجرة كلها بنسبة الأوزان')
-    if all(written):
-        for n, p in enumerate(read_parts, start=1):
-            p['wage'] = _number(p['wage'], f'أجرة الجزء {n}')
-            if p['wage'] < 0:
-                raise PieceRefused('split_part_invalid', f'الجزء {n}: الأجرة صفر أو أكثر')
-            p['wage'] = round(p['wage'], 2)
-        if abs(round(sum(p['wage'] for p in read_parts), 2) - wage) > CENT:
-            raise PieceRefused('split_wage_differs',
-                               f'أجرة الأجزاء {sum(p["wage"] for p in read_parts):,.2f} وأجرة القطعة {wage:,.2f}: '
-                               'مجموعها ثابت')
-    else:
-        left = wage
-        for n, p in enumerate(read_parts):
-            share = left if n == len(read_parts) - 1 else round(wage * p['weight'] / total, 2)
-            p['wage'], left = share, round(left - share, 2)
+    left = wage
+    for n, p in enumerate(read_parts):
+        share = left if n == len(read_parts) - 1 else round(wage * p['weight'] / total, 2)
+        p['wage'], left = share, round(left - share, 2)
     return {'piece': piece, 'safe': safe, 'karat': karat, 'grams': grams, 'stones_weight': stones, 'wage': wage,
             'parts': read_parts, 'total': total, 'difference': difference, 'tolerance': allowed}
 
@@ -186,7 +183,7 @@ def _count_account(role: str) -> int:
         raise PieceRefused('split_count_account_unmapped', str(missing)) from None
 
 
-def split_piece(piece_id: int, parts, *, reason, by: str, now, request_key=None) -> PieceSplit:
+def split_piece(piece_id: int, parts, *, reason, by: str, now, request_key=None, manager: bool = False) -> PieceSplit:
     """Split the piece into *parts* -- or PieceRefused, nothing written. The
     caller commits; a refusal is raised before anything is added."""
     from accounting.reference_number_service import generate_journal_entry_number
@@ -204,7 +201,7 @@ def split_piece(piece_id: int, parts, *, reason, by: str, now, request_key=None)
     if not reason:
         raise PieceRefused('split_reason_required', 'اكتب سبب التفكيك')
     piece = Item.query.with_for_update().get(int(piece_id)) if piece_id else None
-    done = read(piece, parts)
+    done = read(piece, parts, manager=manager)
     karat, grams, safe, difference = done['karat'], done['grams'], done['safe'], done['difference']
     if safe is None or safe.account_id is None:
         raise PieceRefused('split_piece_place', f'القطعة {piece.item_code} ليست على خزينة مخزون')
@@ -293,3 +290,19 @@ def split_view(split: PieceSplit) -> dict:
                        'wage': round(float(p.wage), 2),
                        'piece_id': born[p.id].id if p.id in born else None,
                        'item_code': born[p.id].item_code if p.id in born else None} for p in split.parts]}
+
+
+def splits_list(*, limit: int = 200) -> list[dict]:
+    """«سجلّ التفكيك» (the owner, 23 Nov 2026): every split, the newest first --
+    who, when, why, into what -- for a manager's review: a split on paper,
+    the set left whole in its showcase, shows only here and in a count by weight."""
+    from services.piece_scan import name_of
+    rows = PieceSplit.query.order_by(PieceSplit.split_at.desc(), PieceSplit.id.desc()).limit(int(limit)).all()
+    out = []
+    for split in rows:
+        view = split_view(split)
+        piece = db.session.get(Item, split.piece_id)
+        view.update(split_by_name=name_of(split.split_by), weight=round(float(piece.weight or 0.0), 3),
+                    category_name=getattr(db.session.get(Category, piece.category_id), 'name', None))
+        out.append(view)
+    return out

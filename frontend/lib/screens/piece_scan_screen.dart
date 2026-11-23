@@ -11,6 +11,7 @@ import '../widgets/piece_scan_result.dart';
 import '../widgets/reader_capture.dart';
 import '../widgets/reader_receiver.dart';
 import '../utils/bidi.dart';
+import '../utils/currency_utils.dart' show formatGrams;
 
 /// «جرد بالمسح» on the handheld reader (ADR-085 ت2 ج1; the owner, 21 Nov 2026).
 ///
@@ -390,6 +391,8 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
     final theme = Theme.of(context);
     final tones = AppSemanticColors.of(context);
     final complete = (scan['completeness'] as Map?)?['complete'] == true;
+    // every piece expected found: none left to wait for (the owner's rehearsal, 23 Nov 2026)
+    final allFound = (scan['completeness'] as Map?)?['all_found'] == true;
     final needs = (scan['completeness'] as Map?)?['needs_presses'] ?? 3;
     final quiet = ((scan['completeness'] as Map?)?['quiet_presses'] as num? ?? 0).toInt();
     final expected = (scan['expected'] as num? ?? 0).toInt();
@@ -405,6 +408,15 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
       Row(children: [
         Expanded(child: ScanFigure(figureKey: 'scan-found', name: 'موجودة',
             value: '${scan['found']} من ${scan['expected']}', tone: tones.ready)),
+        if (scan['expected_grams'] != null) ...[
+          const SizedBox(width: 12),
+          // the grams found against the grams expected -- the scale's figure beside the count's
+          // (the owner's rehearsal, 23 Nov 2026: «عرض لبيانات مثل الوزن الممسوح»)
+          Expanded(child: ScanFigure(figureKey: 'scan-grams', name: 'الوزن الموجود',
+              value: ltrIsolate('${formatGrams(scan['found_grams'] as num? ?? 0, decimals: 2)} / '
+                  '${formatGrams(scan['expected_grams'] as num, decimals: 2)} جم'),
+              tone: tones.ready)),
+        ],
         const SizedBox(width: 12),
         Expanded(child: ScanFigure(figureKey: 'scan-alerts', name: 'تنبيهات', value: '${scan['alerts']}',
             tone: (scan['alerts'] as num? ?? 0) > 0 ? tones.warning : null)),
@@ -431,7 +443,9 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
         const SizedBox(width: 8),
         Expanded(
           child: Text(
-            complete
+            allFound
+                ? 'وُجدت كل القطع المتوقعة — يمكنك إنهاء الجرد'
+                : complete
                 ? 'لا جديد في آخر $needs ضغطات — أنهِ إن مررت على كل أماكن العرض، أو تابع المسح'
                 : 'جارٍ المسح… مرّ بالقارئ على كل أماكن العرض',
             key: const Key('scan-state'),
@@ -496,6 +510,9 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
       title: Text('${r['verdict_words'] ?? r['verdict']}', style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
       subtitle: Text(isolateLatin([
         '${r['words'] ?? r['value']}',
+        // what it is and its weight, at a glance
+        if (r['weight'] != null)
+          '${r['piece_name'] ?? ''} ${formatGrams(r['weight'] as num, decimals: 2)} جم'.trim(),
         if (r['moved'] != null) '${r['moved']}',
       ].join(' — '))),
       trailing: settle

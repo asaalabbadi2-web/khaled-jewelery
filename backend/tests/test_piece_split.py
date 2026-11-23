@@ -192,16 +192,32 @@ def test_the_wage_is_shared_by_weight_the_last_takes_the_rounding(app, shop):
     assert piece_wage(bracelet) == 300.0, 'the new piece sells at its share'
 
 
-def test_a_written_wage_adds_up_to_the_pieces(app, shop):
-    split = _split(shop, _parts(shop, wages=[700, 200, 100, 200]))
-    assert [p.wage for p in split.parts] == [700.0, 200.0, 100.0, 200.0]
+def test_a_wage_is_never_written_it_is_the_pieces_by_weight(app, shop):
+    """The owner, 23 Nov 2026: «الأجرة تشتق من القطعة المفككة» -- a wage moved
+    onto the part kept made the part sold look profitable, its seller's points with it."""
+    assert _refused(lambda: _split(shop, _parts(shop, wages=[700, 200, 100, 200]))) == 'split_wage_written'
+    one = _parts(shop)
+    one[0]['wage'] = 600                                             # its own share, written: still refused
+    assert _refused(lambda: _split(shop, one)) == 'split_wage_written'
+    assert PieceSplit.query.count() == 0
 
 
-def test_a_wage_written_wrong_is_refused(app, shop):
-    assert _refused(lambda: _split(shop, _parts(shop, wages=[700, 200, 100, 250]))) == 'split_wage_differs'
-    partial = _parts(shop)
-    partial[0]['wage'] = 700
-    assert _refused(lambda: _split(shop, partial)) == 'split_wage_partial'
+def test_a_piece_born_of_a_split_is_split_again_by_the_manager_alone(app, shop):
+    split = _split(shop)
+    bracelet = Item.query.filter_by(split_part_id=split.parts[3].id).one()
+    halves = [{'category_id': shop['bracelets'].id, 'weight': 5.0}, {'category_id': shop['rings'].id, 'weight': 5.0}]
+    assert _refused(lambda: split_piece(bracelet.id, halves, reason='x', by='t', now=SPLIT_AT)) == 'split_of_a_split'
+    again = split_piece(bracelet.id, halves, reason='x', by='m', now=SPLIT_AT, manager=True)
+    assert len(again.parts) == 2, 'each split may leave 0.05 g: chained, the manager decides'
+
+
+def test_the_splits_log_says_who_when_why_and_into_what(app, shop):
+    from services.piece_split import splits_list
+    split = _split(shop)
+    [row] = [r for r in splits_list() if r['id'] == split.id]
+    assert (row['item_code'], row['reason'], row['split_by'], row['weight']) == \
+        (shop['set'].item_code, 'الزبون يريد العقد والحلق', 't', 40.0)
+    assert [p['weight'] for p in row['parts']] == [20.0, 6.0, 4.0, 10.0] and row['entry_number']
 
 
 def test_the_stones_are_the_pieces(app, roles):

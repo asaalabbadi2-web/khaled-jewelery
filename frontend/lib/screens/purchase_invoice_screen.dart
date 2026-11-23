@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api_service.dart';
+import '../utils/scan_feedback.dart';
 import '../models/category_model.dart';
 import '../models/gold_prices.dart';
 import '../utils/invoice_draft_autosave.dart';
@@ -844,6 +845,17 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
   bool _editsHeldWeightLines = false;
   List<PurchaseInlineItem> _inlineItems = [];
 
+  /// A return's coded pieces still in the stock (the owner, 23 Nov 2026: «يفضل
+  /// في المرتجع المسح»): none is on the return until it is scanned -- what goes
+  /// back is what was scanned. The server judges each again.
+  List<PurchaseInlineItem> _returnablePieces = [];
+  final _returnScan = TextEditingController();
+  final _returnScanFocus = FocusNode();
+  String? _returnScanWords;
+  bool _returnScanOk = false;
+  int _returnScanAsked = 0;
+  static final _wholeScan = RegExp(r'^([0-9A-Fa-f]{24}|[Kk][Jj]-?[0-9]{6,})$');
+
   double _totalWeight = 0;
   double _goldSubtotal = 0;
   double _wageSubtotal = 0;
@@ -1679,6 +1691,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
 
   @override
   void dispose() {
+    _returnScan.dispose();
+    _returnScanFocus.dispose();
     stopDraftAutosave();
     stopLiveGoldPrices();
     _previewTimer?.cancel();
@@ -3446,12 +3460,14 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
       final merged = {...?_selectedOriginalInvoice, ...details};
 
       final supplierId = _parseId(merged['supplier_id']);
-      final branchId = _parseId(merged['branch_id']);
-      if (supplierId == null || branchId == null) {
+      // Its branch, or the one chosen here when it has none: 41 of 224 supplier
+      // purchases on the 22 Nov copy have none, and their returns would not load
+      // (the owner, 23 Nov 2026) -- the server never asked for one.
+      final branchId = _parseId(merged['branch_id']) ?? _selectedBranchId;
+      if (supplierId == null) {
         setState(() {
           _selectedOriginalInvoice = merged;
-          _originalInvoiceDetailsError =
-              'تعذر تحميل بيانات الفاتورة الأصلية (supplier_id/branch_id غير متوفر).';
+          _originalInvoiceDetailsError = 'تعذر تحميل بيانات الفاتورة الأصلية: لا مورد لها.';
         });
         return;
       }
@@ -3462,9 +3478,11 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
 
       final coded = ((await _api.getInvoiceCodedLines(invoiceId))['lines'] as Map?) ?? const {};
       if (!mounted) return;
+      final returnable = <PurchaseInlineItem>[];
       final mapped = _mapOriginalInvoiceItemsToReturnInlineItems(
         items,
         coded: {for (final e in coded.entries) '${e.key}': Map<String, dynamic>.from(e.value as Map)},
+        piecesOut: returnable,
       );
 
       setState(() {
@@ -3479,6 +3497,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
         _supplierError = null;
         _branchError = null;
         _inlineItems = mapped;
+        _returnablePieces = returnable;
+        _returnScanWords = null;
         _applyCombinedTotals(inlineItems: mapped);
       });
 
@@ -3502,6 +3522,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
   List<PurchaseInlineItem> _mapOriginalInvoiceItemsToReturnInlineItems(
     List<Map<String, dynamic>> items, {
     Map<String, Map<String, dynamic>> coded = const {},
+    List<PurchaseInlineItem>? piecesOut,
   }) {
     final result = <PurchaseInlineItem>[];
 
@@ -3557,7 +3578,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
         );
         for (final p in (pieces['pieces'] as List? ?? const []).whereType<Map>()) {
           final grams = _toDouble(p['weight']);
-          result.add(PurchaseInlineItem(
+          // offered to the scan, not on the return until scanned
+          (piecesOut ?? result).add(PurchaseInlineItem(
             name: line.name, karat: line.karat, weightGrams: grams, wagePerGram: wagePerGram,
             category: categoryName, categoryId: categoryId, entryType: PurchaseInlineEntryType.item,
             originalInvoiceItemId: origItemId, maxWeightGrams: grams,
@@ -4225,6 +4247,84 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
     );
   }
 
+  /// A piece scanned for the return: its tag or its printed number, asked of
+  /// the server, then found among the original's pieces still in the stock.
+  Future<void> _scanReturnPiece(String typed) async {
+    final value = typed.trim();
+    if (value.isEmpty) return;
+    final asked = ++_returnScanAsked;
+    String? code;
+    String? refused;
+    try {
+      final tag = RegExp(r'^[0-9A-Fa-f]{24}$').hasMatch(value);
+      final body = tag ? await _api.pieceByTag(value) : await _api.lookupPiece(value);
+      code = '${(body['piece'] as Map?)?['item_code'] ?? ''}';
+    } catch (e) {
+      refused = AppFeedback.messageOf(e);
+    }
+    if (!mounted || asked != _returnScanAsked) return;
+    _returnScan.clear();
+    PurchaseInlineItem? piece;
+    setState(() {
+      if (refused != null) {
+        _returnScanWords = refused;
+      } else if (_inlineItems.any((i) => i.itemCode == code)) {
+        _returnScanWords = 'القطعة $code مضافة في المرتجع';
+      } else {
+        piece = _returnablePieces.where((p) => p.itemCode == code).firstOrNull;
+        _returnScanWords = piece == null
+            ? 'القطعة $code ليست من قطع هذه الفاتورة الباقية في المخزون'
+            : 'أُضيفت $code · ${formatGrams(piece!.weightGrams, decimals: 2)} جم';
+        if (piece != null) {
+          _inlineItems = [..._inlineItems, piece!];
+          _applyCombinedTotals(inlineItems: _inlineItems);
+        }
+      }
+      _returnScanOk = piece != null;
+    });
+    _returnScanOk ? ScanFeedback.added() : ScanFeedback.refused();
+    // the next piece read where the last was (the owner's rehearsal, 23 Nov 2026)
+    if (mounted) _returnScanFocus.requestFocus();
+  }
+
+  Widget _returnPieceScan() {
+    final tones = AppSemanticColors.of(context);
+    final tone = _returnScanOk ? tones.ready : tones.blocked;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      TextField(
+        key: const Key('return-piece-scan'),
+        controller: _returnScan,
+        focusNode: _returnScanFocus,
+        autofocus: true,
+        textDirection: TextDirection.ltr,
+        decoration: InputDecoration(
+          labelText: 'امسح القطعة المرتجعة',
+          hintText: 'بالقارئ، أو اكتب رقمها — ${_returnablePieces.length} قطعة من هذه الفاتورة في المخزون',
+          prefixIcon: const Icon(Icons.sensors),
+          border: const OutlineInputBorder(),
+        ),
+        // the reader types a whole value with no Enter reaching the field
+        onChanged: (v) {
+          if (_wholeScan.hasMatch(v.trim())) _scanReturnPiece(v);
+        },
+        onSubmitted: _scanReturnPiece,
+      ),
+      if (_returnScanWords != null) ...[
+        const SizedBox(height: 6),
+        Row(children: [
+          Icon(_returnScanOk ? Icons.check_circle_outline : Icons.block, size: 18, color: tone.fg),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(_returnScanWords!,
+                key: const Key('return-piece-scan-state'),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: tone.fg)),
+          ),
+        ]),
+      ],
+      const SizedBox(height: 12),
+    ]);
+  }
+
   Widget _buildInlineItemsSection() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final hasOriginalInvoice = _selectedOriginalInvoice != null;
@@ -4256,7 +4356,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
                         _isCompletion
                             ? 'أسطر الاستلام كما استُلمت: اكتب أجرة الجرام لكل سطر. فرق الوزن يُصحَّح من «تصحيح فاتورة»، لا هنا.'
                             : lockedByReturn
-                            ? 'تم تحميل أصناف الفاتورة الأصلية. عدّل الوزن أو احذف السطر لتحديد الأصناف المُرتجعة.'
+                            ? (_returnablePieces.isEmpty
+                                ? 'تم تحميل أصناف الفاتورة الأصلية. عدّل الوزن أو احذف السطر لتحديد الأصناف المُرتجعة.'
+                                : 'امسح القطع المرتجعة فتُضاف واحدة واحدة. ووزن ما لم يُرمَّز يُعدَّل أو يُحذف سطره.')
                             : (_isSupplierReturnMode
                                   ? 'يمكنك إدخال المرتجع يدوياً، أو اختيار فاتورة أصلية (اختياري) للربط التلقائي.'
                                   : 'اكتب الصنف وأجرته مرة، ثم أوزانه واحدًا بعد الآخر: Enter يضيف السطر.'),
@@ -4283,6 +4385,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
               ],
             ),
             const SizedBox(height: 12),
+            if (_isSupplierReturnMode && _returnablePieces.isNotEmpty) _returnPieceScan(),
             if (!lockedByReturn) ...[
               PurchaseItemEntryRow(
                 karats: const [18, 21, 22, 24],

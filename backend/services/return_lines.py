@@ -199,6 +199,14 @@ def refuse_return_lines(original, invoice_type: str, items: list) -> None:
     if invoice_type in CUSTOMER_RETURNS and (not original.is_posted or (original.status or '') == 'rejected'):
         raise ReturnRefused('original_not_posted',
                             'الفاتورة الأصلية غير مرحّلة أو مرفوضة: لا تُرجَع، تُعدَّل أو تُحذف')
+    # A receipt whose supplier's invoice is not completed (ADR-087; the owner,
+    # 23 Nov 2026: «أضفها»): its wage is not known -- a return would go back at
+    # none, and the invoice completed after would carry the returned gold's wage
+    # on gold no longer here; as a piece of it is not sold (law 8), none goes back.
+    if invoice_type == 'مرتجع شراء (مورد)' and getattr(original, 'receiving_stage', None) == 'received':
+        raise ReturnRefused('return_receipt_not_invoiced',
+                            'فاتورة المورد لهذا الاستلام لم تُستكمل: استكملها أولًا ثم أرجع، '
+                            'أو صحّح الاستلام إن كان الخطأ في الكمية')
     if not isinstance(items, list):
         raise ReturnRefused('items_not_a_list', 'أسطر المرتجع غير صالحة')
     originals = {l.id: l for l in (original.items or [])}

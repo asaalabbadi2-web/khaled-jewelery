@@ -142,7 +142,10 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
   void _sourceChanged() {
     _stonesTyped.clear();
     _fillStones();
-    // the pieces named were the last source's
+    // the pieces named were the last source's: their grams leave the rows with them
+    for (final p in List.of(_pieces)) {
+      _shiftKarat(p, -1);
+    }
     _pieces.clear();
     _pieceProblem = null;
   }
@@ -155,6 +158,7 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
   @override
   void dispose() {
     _pieceCode.dispose();
+    _pieceFocus.dispose();
     _amountCashController.dispose();
     _weight24kController.dispose();
     _weight22kController.dispose();
@@ -1213,14 +1217,32 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
   /// with it under its number. The server decides; the screen says.
   final List<Map<String, dynamic>> _pieces = [];
   final _pieceCode = TextEditingController();
+  final _pieceFocus = FocusNode();
   String? _pieceProblem;
+
+  /// A whole value as the reader types it, with no Enter: its tag, or its number.
+  static final _wholeScan = RegExp(r'^([0-9A-Fa-f]{24}|[Kk][Jj]-?[0-9]{6,})$');
+
+  /// A piece's grams on its karat's row, with it or without it (the owner's
+  /// rehearsal, 23 Nov 2026: «لا نحتاج إدخال الوزن يدويا»): the row moves what
+  /// was typed and the pieces named; a piece added adds its weight, removed takes it.
+  void _shiftKarat(Map<String, dynamic> piece, double sign) {
+    final karat = int.tryParse('${piece['karat']}'.trim()) ?? 21;
+    final controller = _weightOf(karat);
+    final grams = ((piece['weight'] as num?) ?? 0).toDouble() * sign;
+    final next = _parseDouble(controller.text) + grams;
+    controller.text = next <= _epsilon ? '' : double.parse(next.toStringAsFixed(3)).toString();
+  }
 
   Future<void> _addPiece() async {
     final typed = _pieceCode.text.trim();
     if (typed.isEmpty) return;
     try {
-      // its number as typed -- «5» or «KJ-000005» -- read by the server (the owner, 21 Nov 2026)
-      final found = await widget.api.lookupPiece(typed);
+      // its number as typed -- «5» or «KJ-000005» -- read by the server (the owner, 21 Nov 2026);
+      // or its tag, as the reader sends it
+      final found = RegExp(r'^[0-9A-Fa-f]{24}$').hasMatch(typed)
+          ? await widget.api.pieceByTag(typed)
+          : await widget.api.lookupPiece(typed);
       if (!mounted) return;
       final piece = found['piece'] as Map<String, dynamic>;
       final where = found['location'] as Map<String, dynamic>?;
@@ -1236,13 +1258,17 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
               '${where == null ? '' : ' بل في «${where['name']}»'}';
         } else {
           _pieces.add(piece);
+          _shiftKarat(piece, 1);
           _pieceProblem = null;
-          _pieceCode.clear();
         }
+        _pieceCode.clear();
       });
     } catch (e) {
       if (mounted) setState(() => _pieceProblem = AppFeedback.messageOf(e));
+      _pieceCode.clear();
     }
+    // the next piece read where the last was: the focus stays in the field
+    if (mounted) _pieceFocus.requestFocus();
   }
 
   Widget _piecesSection() {
@@ -1263,11 +1289,15 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
               child: TextField(
                 key: const Key('transfer-piece-code'),
                 controller: _pieceCode,
+                focusNode: _pieceFocus,
                 textDirection: TextDirection.ltr,
                 decoration: const InputDecoration(
-                  labelText: 'رقم القطعة (KJ-…)',
+                  labelText: 'امسح القطعة أو اكتب رقمها (KJ-…)',
                   isDense: true,
                 ),
+                onChanged: (v) {
+                  if (_fromSafeId != null && _wholeScan.hasMatch(v.trim())) _addPiece();
+                },
                 onSubmitted: (_) => _addPiece(),
               ),
             ),
@@ -1299,7 +1329,10 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
                   label: Text(
                     '${p['item_code']} · ${_fmtWeight(((p['weight'] as num?) ?? 0).toDouble())}',
                   ),
-                  onDeleted: () => setState(() => _pieces.remove(p)),
+                  onDeleted: () => setState(() {
+                    _pieces.remove(p);
+                    _shiftKarat(p, -1);
+                  }),
                 ),
             ],
           ),
@@ -1307,7 +1340,7 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
           Text(
             [
               for (final e in byKarat.entries)
-                'وزن القطع عيار ${e.key}: ${_fmtWeight(e.value)} — يدخل في وزن العيار أعلاه',
+                'وزن القطع عيار ${e.key}: ${_fmtWeight(e.value)} — أُضيف إلى وزن العيار أعلاه، وما يُكتب فوقه وزن بلا قطع',
             ].join('\n'),
             key: const Key('transfer-pieces-weight'),
             style: _text.bodySmall,

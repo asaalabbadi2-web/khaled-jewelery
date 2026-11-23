@@ -92,19 +92,16 @@ class _Part {
   int? categoryId;
   final weight = TextEditingController();
   final stones = TextEditingController();
-  final wage = TextEditingController();
 
   void dispose() {
     weight.dispose();
     stones.dispose();
-    wage.dispose();
   }
 }
 
 class _PieceSplitDialogState extends State<PieceSplitDialog> {
   final List<_Part> _parts = [_Part(), _Part()];
   final _reason = TextEditingController();
-  bool _writeWages = false;
   bool _autoPrint = true;
 
   Map<String, dynamic>? _check;
@@ -143,7 +140,6 @@ class _PieceSplitDialogState extends State<PieceSplitDialog> {
         'category_id': p.categoryId,
         'weight': weight,
         'stones_weight': readTypedNumber(p.stones.text) ?? 0,
-        if (_writeWages) 'wage': readTypedNumber(p.wage.text),
       });
     }
     return out;
@@ -267,91 +263,91 @@ class _PieceSplitDialogState extends State<PieceSplitDialog> {
     return '$head — زيادة ${_grams(difference)} تُسجَّل زيادة جرد';
   }
 
-  Widget _partRow(BuildContext context, int n) {
+  /// Below this width a part is two lines -- its category, then its figures:
+  /// in one line the reader's and a phone's dialog cut them (the owner's
+  /// rehearsal, 23 Nov 2026: «ديالوج تفكيك القطعة غير سليم»).
+  static const narrow = 560.0;
+
+  Widget _partRow(BuildContext context, int n, {required bool compact}) {
     final p = _parts[n];
     final share = (_check?['parts'] as List?)?.elementAtOrNull(n) as Map?;
+    final category = DropdownButtonFormField<int>(
+      key: Key('split-part-category-$n'),
+      initialValue: p.categoryId,
+      isExpanded: true,
+      decoration: InputDecoration(labelText: 'الجزء ${n + 1}: التصنيف', isDense: true),
+      items: [
+        for (final c in _offered)
+          DropdownMenuItem<int>(
+            value: c['id'] as int,
+            child: Text('${c['name']}', overflow: TextOverflow.ellipsis),
+          ),
+      ],
+      onChanged: (v) {
+        p.categoryId = v;
+        _changed();
+      },
+    );
+    Widget number(String key, TextEditingController controller, String label, {String? suffix}) => TextField(
+          key: Key(key),
+          controller: controller,
+          textDirection: TextDirection.ltr,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: typedNumberFormatters(),
+          decoration: InputDecoration(labelText: label, suffixText: suffix, isDense: true),
+          onChanged: (_) => _changed(),
+        );
+    final weight = number('split-part-weight-$n', p.weight, 'الوزن', suffix: 'جم');
+    final stones = number('split-part-stones-$n', p.stones, 'فصوص');
+    // its share of the piece's wage by its weight, the server's -- never typed
+    // (the owner, 23 Nov 2026: «الأجرة تشتق من القطعة المفككة»)
+    final wage = InputDecorator(
+            decoration: const InputDecoration(labelText: 'الأجرة', isDense: true),
+            child: Text(
+              share == null ? '—' : ltrIsolate(formatAmount(share['wage'] as num)),
+              key: Key('split-part-share-$n'),
+            ),
+          );
+    final remove = IconButton(
+      key: Key('split-part-remove-$n'),
+      tooltip: 'حذف الجزء',
+      icon: const Icon(Icons.close),
+      onPressed: _parts.length <= 2
+          ? null
+          : () {
+              setState(() => _parts.removeAt(n).dispose());
+              _changed();
+            },
+    );
+    if (compact) {
+      return Padding(
+        key: Key('split-part-$n'),
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(children: [Expanded(child: category), remove]),
+          const SizedBox(height: 6),
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(flex: 4, child: weight),
+            const SizedBox(width: 8),
+            Expanded(flex: 3, child: stones),
+            const SizedBox(width: 8),
+            Expanded(flex: 4, child: wage),
+          ]),
+        ]),
+      );
+    }
     return Padding(
       key: Key('split-part-$n'),
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Expanded(
-          flex: 3,
-          child: DropdownButtonFormField<int>(
-            key: Key('split-part-category-$n'),
-            initialValue: p.categoryId,
-            isExpanded: true,
-            decoration: InputDecoration(labelText: 'الجزء ${n + 1}: التصنيف', isDense: true),
-            items: [
-              for (final c in _offered)
-                DropdownMenuItem<int>(
-                  value: c['id'] as int,
-                  child: Text('${c['name']}', overflow: TextOverflow.ellipsis),
-                ),
-            ],
-            onChanged: (v) {
-              p.categoryId = v;
-              _changed();
-            },
-          ),
-        ),
+        Expanded(flex: 3, child: category),
         const SizedBox(width: 8),
-        SizedBox(
-          width: 96,
-          child: TextField(
-            key: Key('split-part-weight-$n'),
-            controller: p.weight,
-            textDirection: TextDirection.ltr,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: typedNumberFormatters(),
-            decoration: const InputDecoration(labelText: 'الوزن', suffixText: 'جم', isDense: true),
-            onChanged: (_) => _changed(),
-          ),
-        ),
+        SizedBox(width: 96, child: weight),
         const SizedBox(width: 8),
-        SizedBox(
-          width: 84,
-          child: TextField(
-            key: Key('split-part-stones-$n'),
-            controller: p.stones,
-            textDirection: TextDirection.ltr,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: typedNumberFormatters(),
-            decoration: const InputDecoration(labelText: 'الفصوص', isDense: true),
-            onChanged: (_) => _changed(),
-          ),
-        ),
+        SizedBox(width: 84, child: stones),
         const SizedBox(width: 8),
-        SizedBox(
-          width: 104,
-          child: _writeWages
-              ? TextField(
-                  key: Key('split-part-wage-$n'),
-                  controller: p.wage,
-                  textDirection: TextDirection.ltr,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: typedNumberFormatters(),
-                  decoration: const InputDecoration(labelText: 'الأجرة', isDense: true),
-                  onChanged: (_) => _changed(),
-                )
-              : InputDecorator(
-                  decoration: const InputDecoration(labelText: 'الأجرة', isDense: true),
-                  child: Text(
-                    share == null ? '—' : ltrIsolate(formatAmount(share['wage'] as num)),
-                    key: Key('split-part-share-$n'),
-                  ),
-                ),
-        ),
-        IconButton(
-          key: Key('split-part-remove-$n'),
-          tooltip: 'حذف الجزء',
-          icon: const Icon(Icons.close),
-          onPressed: _parts.length <= 2
-              ? null
-              : () {
-                  setState(() => _parts.removeAt(n).dispose());
-                  _changed();
-                },
-        ),
+        SizedBox(width: 104, child: wage),
+        remove,
       ]),
     );
   }
@@ -367,7 +363,9 @@ class _PieceSplitDialogState extends State<PieceSplitDialog> {
           style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
         ),
         const SizedBox(height: 12),
-        for (var n = 0; n < _parts.length; n++) _partRow(context, n),
+        // by the screen's width: a dialog sizes to its content, no LayoutBuilder in it
+        for (var n = 0; n < _parts.length; n++)
+          _partRow(context, n, compact: MediaQuery.sizeOf(context).width < narrow + 80),
         Wrap(spacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
           TextButton.icon(
             key: const Key('split-add-part'),
@@ -378,28 +376,12 @@ class _PieceSplitDialogState extends State<PieceSplitDialog> {
               _changed();
             },
           ),
-          FilterChip(
-            key: const Key('split-write-wages'),
-            label: const Text('أكتب أجرة كل جزء'),
-            selected: _writeWages,
-            onSelected: (v) {
-              setState(() {
-                _writeWages = v;
-                if (v) {
-                  final shares = _check?['parts'] as List? ?? const [];
-                  for (var n = 0; n < _parts.length && n < shares.length; n++) {
-                    _parts[n].wage.text = '${(shares[n] as Map)['wage']}';
-                  }
-                }
-              });
-              _changed();
-            },
-          ),
         ]),
         if (_bornPieces) ...[
           const SizedBox(height: 4),
-          Row(children: [
-            const Expanded(child: Text('بطاقات القطع الجديدة')),
+          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('بطاقات القطع الجديدة'),
+            const SizedBox(height: 4),
             SegmentedButton<bool>(
               key: const Key('split-print-mode'),
               showSelectedIcon: false,
@@ -454,6 +436,8 @@ class _PieceSplitDialogState extends State<PieceSplitDialog> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: AlertDialog(
+        // a phone's and the reader's width given to the parts, not to the margins
+        insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 24),
         title: Text(done == null
             ? isolateLatin('تفكيك القطعة ${widget.code}')
             : isolateLatin('فُكِّكت ${widget.code} — القيد ${done['entry_number'] ?? ''}')),

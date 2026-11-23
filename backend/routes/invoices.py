@@ -3180,8 +3180,11 @@ def reverse_invoice(invoice_id):
     the original's own lines, weights, tax and total -- not from numbers the
     screen typed -- and made by the one creation path (add_invoice), so its
     entries are a manual whole return's. Body: {'reason': str, 'payments':
-    [{'payment_method_id': int, 'amount': float?}]}; a single method without an
-    amount refunds what was paid, several must add up to it.
+    [{'payment_method_id': int, 'amount': float?}], 'tags': {original line id:
+    {'value': ...} | {'missing': true}}} -- a sale's piece says its label, as
+    any sale return's (ADR-097; services/return_tags.py refuses one unsaid); a
+    single method without an amount refunds what was paid, several must add up
+    to it.
 
     What is refunded is what was paid (RETURN-OWED-1, the owner 8 Oct 2026):
     the rest of what was owed goes with the goods -- the return credits the
@@ -3216,6 +3219,7 @@ def reverse_invoice(invoice_id):
     from services.return_lines import line_scale, line_values
     _values, _scale = line_values(original), line_scale(original)
     items, total_cost, total_net_tax = [], 0.0, 0.0
+    tags = data.get('tags') if isinstance(data.get('tags'), dict) else {}
     for it in original.items:
         net = round(float(it.net or 0.0) * _scale, 2)
         tax = round(float(it.tax or 0.0) * _scale, 2)
@@ -3228,6 +3232,7 @@ def reverse_invoice(invoice_id):
             'wage': float(it.wage or 0.0), 'quantity': it.quantity,
             'cost': net, 'net': net, 'tax': tax, 'tax_amount': tax,
             'price': line_total,
+            **({'tag': tags[str(it.id)]} if isinstance(tags.get(str(it.id)), dict) else {}),
         })
     total = round(float(original.total or 0.0), 2)
     paid = round(min(float(original.amount_paid or 0.0), total), 2)

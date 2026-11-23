@@ -122,3 +122,26 @@ def test_a_line_by_weight_says_no_label(auth_headers, as_production, world, role
     back = _post(auth_headers, _return(resp.get_json(), weight=4.0, price=2000.0))
     assert back.status_code == 201, back.get_json()
     assert PieceReturnTag.query.filter_by(invoice_id=back.get_json()['id']).count() == 0
+
+
+def test_a_sale_reversed_whole_says_its_pieces_labels(auth_headers, sold):
+    """«عكس الفاتورة كاملة» (the owner, 23 Nov 2026: «لا يوجد حقل لمسح المرتجع»):
+    the whole reversal is a sale return like any -- its piece unsaid, refused;
+    said by its sale line, kept."""
+    from app import app as flask_app
+    from flask import g
+    from models import PaymentMethod
+    piece, sale = sold
+    method = PaymentMethod.query.filter_by(is_active=True).order_by(PaymentMethod.id.desc()).first()
+    line_id = sale['items'][0]['id']
+
+    def reverse(**body):
+        g.pop('current_user', None)
+        return flask_app.test_client().post(f"/api/invoices/{sale['id']}/reverse", headers=auth_headers, json={
+            'reason': 'عيب', 'payments': [{'payment_method_id': method.id}], **body})
+    resp = reverse()
+    assert resp.status_code == 400 and resp.get_json()['error'] == 'return_tag_required', resp.get_json()
+    assert piece_held(piece.id) == 0.0
+    resp = reverse(tags={str(line_id): {'missing': True}})
+    assert resp.status_code == 201, resp.get_json()
+    assert (_said(piece).kind, piece_held(piece.id)) == ('missing', piece.weight)

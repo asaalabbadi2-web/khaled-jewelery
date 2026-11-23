@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../api_service.dart';
 import '../theme/app_semantic_colors.dart';
 import '../utils/bidi.dart';
+import '../utils/currency_utils.dart' show formatGrams;
 
 /// A returned piece's label, as the return will say it to the server.
 class ReturnLabel {
@@ -33,7 +34,14 @@ class ReturnLabelField extends StatefulWidget {
     required this.itemCode,
     required this.onSettled,
     required this.keyBase,
+    this.focusNode,
+    this.autofocus = false,
   });
+
+  /// The screen's: it moves the focus to the next piece once this one is said
+  /// (the owner's rehearsal, 23 Nov 2026: the reader needs no tap between pieces).
+  final FocusNode? focusNode;
+  final bool autofocus;
 
   final ApiService api;
   final String itemCode;
@@ -81,22 +89,40 @@ class _ReturnLabelFieldState extends State<ReturnLabelField> {
     try {
       final body = tag ? await widget.api.pieceByTag(value) : await widget.api.lookupPiece(value);
       if (!mounted || asked != _asked) return;
-      final code = '${(body['piece'] as Map?)?['item_code'] ?? ''}';
+      final piece = (body['piece'] as Map?) ?? const {};
+      final code = '${piece['item_code'] ?? ''}';
+      // what is in the hand, at a glance: its weight and its model (the owner's rehearsal, 23 Nov 2026)
+      final weight = piece['weight'] as num?;
+      final model = (piece['model'] as Map?)?['name'];
+      final seen = [
+        if (weight != null) '${formatGrams(weight, decimals: 2)} جم',
+        if (model != null) '$model',
+      ].join(' · ');
+      final also = seen.isEmpty ? '' : ' · $seen';
       if (code != widget.itemCode) {
         _settle(null, words: isolateLatin('البطاقة لقطعة أخرى ($code)، لا للقطعة ${widget.itemCode}'), ok: false);
+        _again();
       } else if (tag) {
-        _settle(ReturnLabel.read(value), words: 'رقاقة القطعة — تعود ببطاقتها', ok: true);
+        _settle(ReturnLabel.read(value), words: isolateLatin('رقاقة القطعة — تعود ببطاقتها$also'), ok: true);
       } else {
         _settle(ReturnLabel.read(value),
-            words: 'الرقم المطبوع للقطعة — تُقرأ رقاقتها في أول جرد بالمسح', ok: true);
+            words: isolateLatin('الرقم المطبوع للقطعة — تُقرأ رقاقتها في أول جرد بالمسح$also'), ok: true);
       }
     } on ApiException catch (e) {
       if (!mounted || asked != _asked) return;
       _settle(null, words: isolateLatin(e.message), ok: false);
+      _again();
     } catch (_) {
       if (!mounted || asked != _asked) return;
       _settle(null, words: 'تعذّر التحقق من البطاقة — أعد المسح', ok: false);
+      _again();
     }
+  }
+
+  /// Not its label: the field emptied and kept, the next press read here.
+  void _again() {
+    _field.clear();
+    widget.focusNode?.requestFocus();
   }
 
   @override
@@ -111,6 +137,8 @@ class _ReturnLabelFieldState extends State<ReturnLabelField> {
           child: TextField(
             key: Key(widget.keyBase),
             controller: _field,
+            focusNode: widget.focusNode,
+            autofocus: widget.autofocus,
             enabled: !_missing,
             textDirection: TextDirection.ltr,
             decoration: InputDecoration(

@@ -21,9 +21,12 @@ import 'support/fake_purchase_api.dart';
 /// The purchase being returned: 72.22 g at 12.75 a gram -- 920.81 in wages.
 /// An invoice item's `wage` is the wage a gram, as the server keeps it.
 class _OriginalApi extends FakePurchaseApi {
+  /// 41 of 224 supplier purchases on the 22 Nov copy carry no branch.
+  int? branchId = 1;
+
   @override
   Future<Map<String, dynamic>> getInvoiceById(int invoiceId) async => {
-        'id': invoiceId, 'supplier_id': 1, 'branch_id': 1, 'invoice_type': 'شراء', 'vat_applied': false,
+        'id': invoiceId, 'supplier_id': 1, 'branch_id': branchId, 'invoice_type': 'شراء', 'vat_applied': false,
         'total_tax': 0,
         'items': [
           {'id': 4922, 'name': 'بناجر', 'karat': 21, 'weight': 72.22, 'wage': 12.75, 'quantity': 1},
@@ -105,9 +108,36 @@ void main() {
     expect(find.textContaining('920.81', findRichText: true), findsWidgets, reason: '72.22 g × 12.75');
   });
 
+  // The owner, 23 Nov 2026 (the cycle rehearsal): «تحميل فاتورة المورد في
+  // المرتجع فشل» -- an original with no branch never loaded; the server never asked for one.
+  testWidgets('an original with no branch loads, and its lines are offered', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    tester.view.physicalSize = const Size(1440, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider(create: (_) => SettingsProvider()),
+      ],
+      child: MaterialApp(
+        theme: LightTheme.theme,
+        home: Directionality(
+          textDirection: TextDirection.rtl,
+          child: PurchaseInvoiceScreen(apiService: _OriginalApi()..branchId = null, supplierReturnMode: true,
+              originalInvoiceId: 3470),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('تعذر تحميل'), findsNothing);
+    expect(find.textContaining('920.81', findRichText: true), findsWidgets, reason: 'its line loaded');
+  });
+
   // «القطعة ترجع كاملة» -- a coded line goes back to its supplier by its
-  // pieces in the stock, each whole, and its rest (the owner, 18 Nov 2026).
-  testWidgets('a coded line goes back by its pieces, each whole, and its rest', (tester) async {
+  // pieces in the stock, each whole, and its rest (the owner, 18 Nov 2026) --
+  // each piece scanned onto the return (the owner, 23 Nov 2026: «يفضل في المرتجع المسح»).
+  testWidgets('a coded line goes back by its pieces scanned, each whole, and its rest', (tester) async {
     SharedPreferences.setMockInitialValues({});
     tester.view.physicalSize = const Size(1440, 2400);
     tester.view.devicePixelRatio = 1;
@@ -121,7 +151,8 @@ void main() {
             {'id': 41, 'item_code': 'KJ-000005', 'weight': 26.0},
           ],
         },
-      };
+      }
+      ..activeTags = {'4B4A00010000000000000005': 'KJ-000005'};
     await tester.pumpWidget(MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider()),
@@ -136,11 +167,29 @@ void main() {
       ),
     ));
     await tester.pumpAndSettle();
+    expect(find.textContaining('تُرجَع كاملة'), findsNothing, reason: 'no piece on the return until scanned');
+    String said() => tester.widget<Text>(find.byKey(const Key('return-piece-scan-state'))).data!;
+    expect(tester.widget<EditableText>(find.descendant(of: find.byKey(const Key('return-piece-scan')),
+        matching: find.byType(EditableText))).focusNode.hasFocus, isTrue, reason: 'the reader types here at once');
+    await tester.enterText(find.byKey(const Key('return-piece-scan')), 'KJ-000004');   // its printed number
+    await tester.pumpAndSettle();
+    expect(said(), contains('أُضيفت KJ-000004'));
+    await tester.enterText(find.byKey(const Key('return-piece-scan')), 'KJ-000009');
+    await tester.pumpAndSettle();
+    expect(said(), 'القطعة KJ-000009 ليست من قطع هذه الفاتورة الباقية في المخزون');
+    await tester.enterText(find.byKey(const Key('return-piece-scan')), 'KJ-000004');
+    await tester.pumpAndSettle();
+    expect(said(), 'القطعة KJ-000004 مضافة في المرتجع', reason: 'once');
+    await tester.enterText(find.byKey(const Key('return-piece-scan')), '4B4A00010000000000000005');  // its tag, no Enter
+    await tester.pumpAndSettle();
+    expect(said(), contains('أُضيفت KJ-000005'));
+    expect(tester.widget<EditableText>(find.descendant(of: find.byKey(const Key('return-piece-scan')),
+        matching: find.byType(EditableText))).focusNode.hasFocus, isTrue, reason: 'the next piece read where the last was');
     expect(find.text('القطعة KJ-000004 تُرجَع كاملة'), findsOneWidget);
     expect(find.text('القطعة KJ-000005 تُرجَع كاملة'), findsOneWidget);
     expect(find.byTooltip('تفاصيل'), findsOneWidget, reason: 'only the rest is edited; a piece is removed or kept');
-    expect(tester.widget(find.byKey(const ValueKey('weight-0'))), isA<Text>(), reason: 'a piece\'s weight is read, not typed');
-    expect(tester.widget(find.byKey(const ValueKey('weight-2'))), isNot(isA<Text>()), reason: 'the rest is typed');
+    expect(tester.widget(find.byKey(const ValueKey('weight-1'))), isA<Text>(), reason: 'a piece\'s weight is read, not typed');
+    expect(tester.widget(find.byKey(const ValueKey('weight-0'))), isNot(isA<Text>()), reason: 'the rest is typed');
     await tester.tap(find.text('حفظ المرتجع', findRichText: true).last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('حفظ الفاتورة').last);   // the review's
@@ -148,6 +197,6 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
     }
     final lines = [for (final i in (api.added.single['items'] as List)) (i['item_id'], i['weight'])];
-    expect(lines, [(40, 44.0), (41, 26.0), (null, 2.22)]);
+    expect(lines, [(null, 2.22), (40, 44.0), (41, 26.0)]);
   });
 }

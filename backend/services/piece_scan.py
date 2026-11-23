@@ -226,16 +226,29 @@ def take_reads(scan_id, *, batch_key, events, now) -> PieceScan:
 
 
 def completeness(scan: PieceScan) -> dict:
-    """{complete, quiet_presses, quiet_seconds}: how long since the last new
-    value -- in presses, and in the time the button was held: a pause between
-    two presses is not counted."""
+    """{complete, quiet_presses, quiet_seconds, all_found}: how long since the
+    last new value -- in presses, and in the time the button was held: a pause
+    between two presses is not counted -- or every piece expected found: then
+    none is left to wait for (the owner's rehearsal, 23 Nov 2026: «تظهر جميع
+    القطع من أول مسحة وزر إنهاء الجرد لا زال غير مفعّل»)."""
     settings = Settings.query.first()
     want_presses = int(getattr(settings, 'scan_quiet_presses', None) or 3)
     want_seconds = float(getattr(settings, 'scan_quiet_seconds', None) or 3.0)
     reads = PieceScanRead.query.filter_by(scan_id=scan.id).all()
     if not reads:
-        return {'complete': False, 'quiet_presses': 0, 'quiet_seconds': 0.0,
+        return {'complete': False, 'quiet_presses': 0, 'quiet_seconds': 0.0, 'all_found': False,
                 'needs_presses': want_presses, 'needs_seconds': want_seconds}
+    # judged as the screen sees them: an open scan's verdicts are not kept until its finish
+    expected = _expected_ids(scan)
+    if scan.status == 'open':
+        found = set()
+        for r in reads:
+            said = judge(scan, r.value, expected=expected)
+            if said['verdict'] == FOUND:
+                found.add(said['item_id'])
+    else:
+        found = {r.item_id for r in reads if r.verdict == FOUND}
+    all_found = bool(expected) and expected <= found
     newest = max(reads, key=lambda r: (r.first_press, r.first_ms))
     quiet_presses = max((scan.presses or 0) - newest.first_press, 0)
     # held, not waited: each press's own span from the newest value on -- the
@@ -246,8 +259,8 @@ def completeness(scan: PieceScan) -> dict:
     held_ms = sum(max(last - (newest.first_ms if press == newest.first_press else first), 0)
                   for press, first, last in spans)
     quiet_seconds = held_ms / 1000.0
-    return {'complete': quiet_presses >= want_presses or quiet_seconds >= want_seconds,
-            'quiet_presses': quiet_presses, 'quiet_seconds': round(quiet_seconds, 1),
+    return {'complete': all_found or quiet_presses >= want_presses or quiet_seconds >= want_seconds,
+            'quiet_presses': quiet_presses, 'quiet_seconds': round(quiet_seconds, 1), 'all_found': all_found,
             'needs_presses': want_presses, 'needs_seconds': want_seconds}
 
 
@@ -367,6 +380,18 @@ def scan_view(scan: PieceScan, *, with_lists=True) -> dict:
     for r in read_views:
         counts[r['verdict']] = counts.get(r['verdict'], 0) + 1
     found = {r['item_id'] for r in read_views if r['verdict'] == FOUND}
+    # each piece read with its weight and what it is, and the grams found against the grams
+    # expected (the owner's rehearsal, 23 Nov 2026: «عرض لبيانات مثل الوزن الممسوح»)
+    ids = {r['item_id'] for r in read_views if r['item_id']} | set(expected)
+    pieces = {i.id: i for i in Item.query.filter(Item.id.in_(ids))} if ids else {}
+    names = _piece_names(pieces.values())
+    for r in read_views:
+        piece = pieces.get(r['item_id'])
+        r.update(item_code=getattr(piece, 'item_code', None),
+                 weight=round(float(piece.weight or 0), 3) if piece is not None else None,
+                 piece_name=names.get(r['item_id']))
+    grams_expected = round(sum(float(pieces[i].weight or 0) for i in expected if i in pieces), 3)
+    grams_found = round(sum(float(pieces[i].weight or 0) for i in found & expected if i in pieces), 3)
     view = {'id': scan.id, 'safe_box_id': scan.safe_box_id, 'safe_name': getattr(safe, 'name', None),
             'kind': scan.kind, 'kind_words': KINDS.get(scan.kind), 'status': scan.status,
             'started_by': scan.started_by, 'started_at': scan.started_at.isoformat(),
@@ -375,6 +400,7 @@ def scan_view(scan: PieceScan, *, with_lists=True) -> dict:
             'finished_at': scan.finished_at.isoformat() if scan.finished_at else None,
             'complete': scan.complete, 'early_reason': scan.early_reason, 'presses': scan.presses or 0,
             'expected': len(expected_rows), 'found': len(found & expected),
+            'expected_grams': grams_expected, 'found_grams': grams_found,
             'section_id': scan.section_id, 'category_id': scan.category_id, 'scope_words': _scope_words(scan),
             'alerts': sum(1 for r in read_views if r['verdict'] not in (FOUND, OTHER_SCOPE)), 'counts': counts}
     if open_:
@@ -393,6 +419,16 @@ def scan_view(scan: PieceScan, *, with_lists=True) -> dict:
                  'verdict_words': WORDS.get(row.verdict), 'moved': row.moved}
                 for row in expected_rows]
     return view
+
+
+def _piece_names(pieces) -> dict:
+    """{piece id: its model's name, else its category's} -- what it is, in a word."""
+    from models import PieceModel
+    pieces = list(pieces)
+    models = {m.id: m.name for m in PieceModel.query.filter(
+        PieceModel.id.in_({p.model_id for p in pieces if getattr(p, 'model_id', None)} or {-1}))}
+    cats = {c.id: c.name for c in Category.query.filter(Category.id.in_({p.category_id for p in pieces} or {-1}))}
+    return {p.id: models.get(getattr(p, 'model_id', None)) or cats.get(p.category_id) for p in pieces}
 
 
 def name_of(username) -> str | None:
