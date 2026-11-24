@@ -1915,11 +1915,13 @@ class ApiService {
     required int paymentMethodId,
     required double amount,
     String? notes,
+    int? installments,
   }) async {
     final payload = <String, dynamic>{
       'payment_method_id': paymentMethodId,
       'amount': amount,
       if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
+      if (installments != null) 'installments': installments,
     };
 
     final response = await _authedPost(
@@ -4063,6 +4065,7 @@ class ApiService {
     required int newPaymentMethodId,
     required String reason,
     double? correctionAmount,
+    int? installments,
   }) async {
     final token = await _requireAuthToken();
     final response = await http.post(
@@ -4075,6 +4078,7 @@ class ApiService {
         'new_payment_method_id': newPaymentMethodId,
         'reason': reason,
         if (correctionAmount != null) 'correction_amount': correctionAmount,
+        if (installments != null) 'installments': installments,
       }),
     );
     final data = json.decode(utf8.decode(response.bodyBytes));
@@ -4163,8 +4167,24 @@ class ApiService {
     bool skipPublicHolidays = false,
     bool isActive = true,
     List<String>? applicableInvoiceTypes,
+    double? depositFixedFee,
+    bool? commissionPerOrder,
+    List<Map<String, dynamic>>? plans,
+    bool? depositConfirmationRequired,
+    double? depositDifferenceAllowed,
+    String? commissionRounding,
+    double? commissionRefundableRate,
   }) async {
     final payload = <String, dynamic>{
+      // ADR-100: the fee a deposit, order by order, the plans, and the
+      // deposit's confirmation.
+      if (depositFixedFee != null) 'deposit_fixed_fee': depositFixedFee,
+      if (commissionPerOrder != null) 'commission_per_order': commissionPerOrder,
+      if (plans != null) 'plans': plans,
+      if (depositConfirmationRequired != null) 'deposit_confirmation_required': depositConfirmationRequired,
+      if (depositDifferenceAllowed != null) 'deposit_difference_allowed': depositDifferenceAllowed,
+      if (commissionRounding != null) 'commission_rounding': commissionRounding,
+      if (commissionRefundableRate != null) 'commission_refundable_rate': commissionRefundableRate,
       'bank_weekend_days': bankWeekendDays,
       'skip_public_holidays': skipPublicHolidays,
       'payment_type': paymentType,
@@ -4232,8 +4252,24 @@ class ApiService {
     required bool isActive,
     int? defaultSafeBoxId,
     List<String>? applicableInvoiceTypes,
+    double? depositFixedFee,
+    bool? commissionPerOrder,
+    List<Map<String, dynamic>>? plans,
+    bool? depositConfirmationRequired,
+    double? depositDifferenceAllowed,
+    String? commissionRounding,
+    double? commissionRefundableRate,
   }) async {
     final payload = <String, dynamic>{
+      // ADR-100: the fee a deposit, order by order, the plans, and the
+      // deposit's confirmation.
+      if (depositFixedFee != null) 'deposit_fixed_fee': depositFixedFee,
+      if (commissionPerOrder != null) 'commission_per_order': commissionPerOrder,
+      if (plans != null) 'plans': plans,
+      if (depositConfirmationRequired != null) 'deposit_confirmation_required': depositConfirmationRequired,
+      if (depositDifferenceAllowed != null) 'deposit_difference_allowed': depositDifferenceAllowed,
+      if (commissionRounding != null) 'commission_rounding': commissionRounding,
+      if (commissionRefundableRate != null) 'commission_refundable_rate': commissionRefundableRate,
       'payment_type': paymentType,
       'name': name,
       'commission_rate': commissionRate,
@@ -6233,6 +6269,67 @@ class ApiService {
     }
 
     throw ApiException.text(bodyStr);
+  }
+
+  /// A method's settlement vouchers no confirmed deposit carries yet (ADR-100).
+  Future<Map<String, dynamic>> getUnconfirmedSettlements(int paymentMethodId) async {
+    final response = await _authedGet(
+      Uri.parse('$_baseUrl/clearing/deposits/unconfirmed')
+          .replace(queryParameters: {'payment_method_id': '$paymentMethodId'}),
+    );
+    if (response.statusCode == 200) {
+      return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    }
+    throw _apiError(response);
+  }
+
+  /// What confirming a deposit would post: the expected net, the difference,
+  /// its commission and VAT -- the server's computation (ADR-100).
+  Future<Map<String, dynamic>> previewClearingDeposit({
+    required int paymentMethodId,
+    required List<int> voucherIds,
+    required double amountReceived,
+  }) async {
+    final response = await _authedPost(
+      Uri.parse('$_baseUrl/clearing/deposits/preview'),
+      headers: {'Content-Type': 'application/json; charset=UTF-8'},
+      body: json.encode({
+        'payment_method_id': paymentMethodId,
+        'voucher_ids': voucherIds,
+        'amount_received': amountReceived,
+      }),
+    );
+    if (response.statusCode == 200) {
+      return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    }
+    throw _apiError(response);
+  }
+
+  /// Confirm a deposit by what reached the bank (ADR-100).
+  Future<Map<String, dynamic>> confirmClearingDeposit({
+    required int paymentMethodId,
+    required List<int> voucherIds,
+    required double amountReceived,
+    required String depositDate,
+    String? bankReference,
+    String? note,
+  }) async {
+    final response = await _authedPost(
+      Uri.parse('$_baseUrl/clearing/deposits'),
+      headers: {'Content-Type': 'application/json; charset=UTF-8'},
+      body: json.encode({
+        'payment_method_id': paymentMethodId,
+        'voucher_ids': voucherIds,
+        'amount_received': amountReceived,
+        'deposit_date': depositDate,
+        if (bankReference != null && bankReference.trim().isNotEmpty) 'bank_reference': bankReference.trim(),
+        if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+      }),
+    );
+    if (response.statusCode == 201) {
+      return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    }
+    throw _apiError(response);
   }
 
   Future<Map<String, dynamic>> runAutoClearingSettlementsNow() async {

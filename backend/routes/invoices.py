@@ -1629,12 +1629,33 @@ def _warn_if_safe_account_mismatches_payment_method(pm, safe_account_id, context
     except Exception:
         pass
 
-def _compute_commission_fields(amount: float, pm) -> dict:
+def _compute_commission_fields(amount: float, pm, installments=None, rate=None, invoice_type=None) -> dict:
     """Same formula used when an InvoicePayment is first created: what its method
     will deduct at the settlement, kept on the payment (COMMISSION-3); the invoice
-    posts none (COMMISSION-1)."""
+    posts none (COMMISSION-1). A method with plans takes the plan the payment
+    names, or refuses (PlanRefused, ADR-100); *rate* is a payment's kept one."""
     from accounting.payment_commission import payment_commission
-    return payment_commission(pm, amount)
+    return payment_commission(pm, amount, installments=installments, rate=rate,
+                              required=_plan_required(invoice_type))
+
+
+def _plan_required(invoice_type) -> bool:
+    """A sale names its plan; a return refunded by the method does not (ADR-100)."""
+    return (invoice_type or 'بيع').strip() == 'بيع'
+
+
+def _kept_rate(ip, pm):
+    """A payment by a method with plans keeps its plan's rate when it is
+    re-read -- a plan changed since re-prices nothing paid (ADR-100). A method
+    without plans is re-read at its rate, as before."""
+    from accounting.payment_commission import plans_of
+    if plans_of(pm) and ip.commission_rate is not None:
+        return float(ip.commission_rate)
+    return None
+
+
+def _plan_refused(exc):
+    return jsonify({'error': exc.code, 'message': exc.message, 'offered_installments': exc.offered}), 400
 
 from services.payment_direction import payment_direction as _payment_direction  # noqa: E402
 
@@ -1707,12 +1728,19 @@ def _correct_invoice_payment_method_multi_split(invoice, ip, data):
                 'message': f'وسيلة الدفع "{pm.name}" مكرّرة في أكثر من سطر تقسيم — اجمعها في سطر واحد',
             }), 400
         seen_pm_ids.add(pm_id)
+        from accounting.payment_commission import PlanRefused, plan_rate
+        try:
+            split_installments, _ = plan_rate(pm, entry.get('installments'),
+                                              required=_plan_required(invoice.invoice_type))
+        except PlanRefused as exc:
+            return _plan_refused(exc)
         sb_id = getattr(pm, 'default_safe_box_id', None)
         safe_account_id = None
         if sb_id is not None:
             sb_obj = SafeBox.query.get(sb_id)
             safe_account_id = getattr(sb_obj, 'account_id', None) if sb_obj else None
-        parsed_splits.append({'pm': pm, 'pm_id': pm_id, 'sb_id': sb_id, 'account_id': safe_account_id, 'amount': amt})
+        parsed_splits.append({'pm': pm, 'pm_id': pm_id, 'sb_id': sb_id, 'account_id': safe_account_id, 'amount': amt,
+                              'installments': split_installments})
         total_split += amt
 
     total_split = round(total_split, 2)
@@ -1759,7 +1787,8 @@ def _correct_invoice_payment_method_multi_split(invoice, ip, data):
             db.session.delete(ip)
         else:
             ip.amount = remainder
-            for k, v in _compute_commission_fields(remainder, old_pm).items():
+            for k, v in _compute_commission_fields(remainder, old_pm, installments=ip.installments,
+                                                   rate=_kept_rate(ip, old_pm)).items():
                 setattr(ip, k, v)
             if old_sbt:
                 old_sbt.amount_cash = round(float(old_sbt.amount_cash or 0.0) - total_split, 2)
@@ -1772,7 +1801,8 @@ def _correct_invoice_payment_method_multi_split(invoice, ip, data):
                 payment_method_id=s['pm_id'],
                 amount=s['amount'],
                 notes=f'تقسيم من دفعة #{payment_id} — {reason}',
-                **_compute_commission_fields(s['amount'], s['pm']),
+                **_compute_commission_fields(s['amount'], s['pm'], installments=s['installments'],
+                                             invoice_type=invoice.invoice_type),
             )
             db.session.add(new_ip)
             db.session.flush()
@@ -2015,6 +2045,13 @@ def correct_invoice_payment_method(invoice_id: int, payment_id: int):
     if old_pm_id == new_pm_id:
         return jsonify({'error': 'same_method', 'message': 'وسيلة الدفع هي نفسها الحالية'}), 400
 
+    from accounting.payment_commission import PlanRefused, plan_rate
+    try:
+        new_installments, _ = plan_rate(new_pm, data.get('installments'),
+                                        required=_plan_required(invoice.invoice_type))
+    except PlanRefused as exc:
+        return _plan_refused(exc)
+
     full_amount = float(ip.amount or 0.0)
     correction_amount = full_amount
     if correction_amount_raw is not None:
@@ -2060,7 +2097,8 @@ def correct_invoice_payment_method(invoice_id: int, payment_id: int):
         if not is_partial:
             # Full reclassification: same row, new payment method.
             ip.payment_method_id = new_pm_id
-            for k, v in _compute_commission_fields(full_amount, new_pm).items():
+            for k, v in _compute_commission_fields(full_amount, new_pm, installments=new_installments,
+                                                   invoice_type=invoice.invoice_type).items():
                 setattr(ip, k, v)
 
             if new_sb_id is not None:
@@ -2073,7 +2111,8 @@ def correct_invoice_payment_method(invoice_id: int, payment_id: int):
             # under the NEW payment method.
             remainder = round(full_amount - correction_amount, 2)
             ip.amount = remainder
-            for k, v in _compute_commission_fields(remainder, old_pm).items():
+            for k, v in _compute_commission_fields(remainder, old_pm, installments=ip.installments,
+                                                   rate=_kept_rate(ip, old_pm)).items():
                 setattr(ip, k, v)
 
             old_sbt = SafeBoxTransaction.query.filter_by(invoice_payment_id=payment_id).first()
@@ -2085,7 +2124,8 @@ def correct_invoice_payment_method(invoice_id: int, payment_id: int):
                 payment_method_id=new_pm_id,
                 amount=correction_amount,
                 notes=f'تقسيم من دفعة #{payment_id} — {reason}',
-                **_compute_commission_fields(correction_amount, new_pm),
+                **_compute_commission_fields(correction_amount, new_pm, installments=new_installments,
+                                             invoice_type=invoice.invoice_type),
             )
             db.session.add(new_ip)
             db.session.flush()
@@ -2851,7 +2891,12 @@ def add_invoice_payment(invoice_id: int):
 
     # What its method will deduct at the settlement, kept on the payment
     # (COMMISSION-3); the invoice posts none (COMMISSION-1).
-    _fee = _compute_commission_fields(amount, pm_obj)
+    from accounting.payment_commission import PlanRefused
+    try:
+        _fee = _compute_commission_fields(amount, pm_obj, installments=data.get('installments'),
+                                          invoice_type=invoice.invoice_type)
+    except PlanRefused as exc:
+        return _plan_refused(exc)
     commission_rate, commission_amount = _fee['commission_rate'], _fee['commission_amount']
     commission_vat, net_amount = _fee['commission_vat'], _fee['net_amount']
 
@@ -2860,6 +2905,7 @@ def add_invoice_payment(invoice_id: int):
             invoice_id=invoice.id,
             payment_method_id=pm_id,
             amount=amount,
+            installments=_fee['installments'],
             commission_rate=commission_rate,
             commission_amount=commission_amount,
             commission_vat=commission_vat,
@@ -4458,6 +4504,15 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                     'invoice_type': invoice_type,
                 }), 400
 
+            # A method with plans: the payment names one (ADR-100) -- refused
+            # here, before anything is written.
+            from accounting.payment_commission import PlanRefused, plan_rate
+            if pm_amount > 0.0001:   # an empty line is not a payment
+                try:
+                    plan_rate(pm_obj, payment.get('installments'), required=_plan_required(invoice_type))
+                except PlanRefused as exc:
+                    return _plan_refused(exc)
+
             # The commission is taken at the settlement, never at the invoice
             # (COMMISSION-1): nothing of it is posted or netted here.
 
@@ -4478,6 +4533,12 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
         
         if not payment_method_obj.is_active:
             return jsonify({'error': f'Payment method "{payment_method_obj.name}" is not active'}), 400
+
+        from accounting.payment_commission import PlanRefused, plan_rate
+        try:
+            plan_rate(payment_method_obj, data.get('installments'), required=_plan_required(invoice_type))
+        except PlanRefused as exc:
+            return _plan_refused(exc)
         
         # The commission is taken at the settlement, never at the invoice (COMMISSION-1).
     
@@ -5685,7 +5746,8 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 # عمولة الدفعة وضريبتها من وسيلتها لا من الشاشة: النسبة والمبلغ الثابت
                 # للعملية (COMMISSION-3، المالك 29 أكتوبر 2026) -- كما تخصمها التسوية.
                 from accounting.payment_commission import payment_commission
-                _fee = payment_commission(pm_obj, pm_amount)
+                _fee = payment_commission(pm_obj, pm_amount, installments=payment.get('installments'),
+                                          required=_plan_required(invoice_type))
                 pm_commission_rate = _fee['commission_rate']
                 pm_commission_amount = _fee['commission_amount']
                 pm_commission_vat = _fee['commission_vat']
@@ -5706,6 +5768,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                     invoice_id=new_invoice.id,
                     payment_method_id=pm_id,
                     amount=pm_amount,
+                    installments=_fee['installments'],
                     commission_rate=pm_commission_rate,
                     commission_amount=pm_commission_amount,
                     commission_vat=pm_commission_vat,
@@ -5762,6 +5825,13 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
         elif payment_method_id:
             pm_obj = PaymentMethod.query.get(payment_method_id)
             pm_commission_rate = pm_obj.commission_rate if pm_obj else 0.0
+            # A method with plans: the plan the request names, refused above
+            # when missing (ADR-100) -- its rate kept on the payment.
+            from accounting.payment_commission import plan_rate as _plan_rate
+            legacy_installments, legacy_rate = (_plan_rate(pm_obj, data.get('installments'),
+                                                           required=_plan_required(invoice_type))
+                                                if pm_obj is not None else (None, 0.0))
+            pm_commission_rate = legacy_rate
 
             is_receivable = _is_receivable_payment_method(pm_obj)
 
@@ -5877,6 +5947,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                     invoice_id=new_invoice.id,
                     payment_method_id=payment_method_id,
                     amount=single_payment_amount,
+                    installments=legacy_installments,
                     commission_rate=pm_commission_rate,
                     commission_amount=commission_amount,
                     net_amount=net_amount,

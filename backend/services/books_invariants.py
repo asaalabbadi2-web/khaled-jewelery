@@ -90,6 +90,7 @@ WAGE_POOL_NEGATIVE = 'WAGE_POOL_NEGATIVE'
 WAGE_POOL_OVERSOLD = 'WAGE_POOL_OVERSOLD'
 PIECE_SPLIT_UNBALANCED = 'PIECE_SPLIT_UNBALANCED'
 RETURNED_PIECE_UNLABELED = 'RETURNED_PIECE_UNLABELED'
+UNCONFIRMED_DEPOSIT = 'UNCONFIRMED_DEPOSIT'
 
 KINDS = (
     ORPHAN_POSTED_ENTRY,
@@ -122,6 +123,7 @@ KINDS = (
     WAGE_POOL_OVERSOLD,
     PIECE_SPLIT_UNBALANCED,
     RETURNED_PIECE_UNLABELED,
+    UNCONFIRMED_DEPOSIT,
 )
 
 # An invoice in one of these states is retracted: its entries must not count
@@ -982,6 +984,46 @@ def check_returned_pieces_unlabeled() -> list:
             for r in unlabeled_returns()]
 
 
+def _deposit_confirmation_policy():
+    """POLICY (ADR-100): the days a settlement may wait for its deposit's
+    confirmation, and the day the confirmation is asked from -- the fourth
+    quarter of 2026, the first not filed when it began."""
+    import os
+    from datetime import date as _date
+    try:
+        grace = max(int(os.getenv('DEPOSIT_CONFIRMATION_GRACE_DAYS', '3')), 0)
+    except ValueError:
+        grace = 3
+    try:
+        since = _date.fromisoformat(os.getenv('DEPOSIT_CONFIRMATION_FROM', '2026-10-01'))
+    except ValueError:
+        since = _date(2026, 10, 1)
+    return grace, since
+
+
+def check_unconfirmed_deposits(now: datetime = None) -> list:
+    """A settlement of a method whose deposits are confirmed (ADR-100), its
+    deposit day more than the grace past, that no confirmed deposit carries:
+    the books hold what the settlement computed, not what the bank received.
+    Keyed 'voucher:<id>'; the metric its net."""
+    from datetime import timedelta
+    from models import PaymentMethod
+    from services.clearing_deposit import unconfirmed_settlements
+    grace, since = _deposit_confirmation_policy()
+    today = (now or datetime.now()).date()
+    facts = []
+    for pm in PaymentMethod.query.filter_by(deposit_confirmation_required=True).order_by(PaymentMethod.id).all():
+        for s in unconfirmed_settlements(pm):
+            day = s.voucher.date.date() if s.voucher.date else None
+            if day is None or day < since or day + timedelta(days=grace) >= today:
+                continue
+            facts.append(Fact(UNCONFIRMED_DEPOSIT, f'voucher:{s.voucher.id}', s.net, {
+                'payment_method': pm.name, 'voucher_number': s.voucher.voucher_number,
+                'deposit_day': day.isoformat(), 'net': s.net, 'grace_days': grace,
+            }))
+    return facts
+
+
 def _tool_major(tool: str):
     """The major version of a PostgreSQL tool on the PATH -- None when it is not there."""
     import re
@@ -1048,6 +1090,7 @@ CHECKS = {
     WAGE_POOL_OVERSOLD: check_wage_pools_oversold,
     PIECE_SPLIT_UNBALANCED: check_piece_splits,
     RETURNED_PIECE_UNLABELED: check_returned_pieces_unlabeled,
+    UNCONFIRMED_DEPOSIT: check_unconfirmed_deposits,
 }
 
 

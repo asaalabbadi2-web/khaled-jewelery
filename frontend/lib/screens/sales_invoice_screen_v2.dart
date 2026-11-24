@@ -20,6 +20,7 @@ import '../widgets/invoice_bar_actions.dart';
 import '../widgets/invoice_price_strip.dart';
 import '../widgets/inline_number_cell.dart';
 import '../widgets/pay_box.dart';
+import '../widgets/plan_picker.dart';
 import '../widgets/piece_split_dialog.dart';
 import '../widgets/invoice_settings_sheet.dart';
 import '../widgets/sales_category_entry_row.dart';
@@ -1223,7 +1224,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
   }
 
   // 🆕 إضافة دفعة جديدة
-  void _addPayment({double? customAmount}) {
+  void _addPayment({double? customAmount, int? installments}) {
     if (_selectedPaymentMethodId == null) {
       _showError('اختر وسيلة الدفع');
       return;
@@ -1267,7 +1268,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
     }
 
     // What the method deducts: its rate and its fixed amount (COMMISSION-3).
-    final fee = PaymentFee.of(method, amount, vatRate: _effectiveVatRate);
+    final fee = PaymentFee.of(method, amount, vatRate: _effectiveVatRate, installments: installments);
 
     setState(() {
       _payments.add(
@@ -1275,6 +1276,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
           paymentMethodId: method['id'],
           paymentMethodName: method['name'],
           amount: amount,
+          installments: installments,
           commissionRate: fee.rate,
           commissionFixed: fee.fixed,
           commissionAmount: fee.commission,
@@ -1294,7 +1296,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
   }
 
   /// The chosen method takes the amount typed, or what remains when none is.
-  void _addTypedPayment() {
+  /// A method with plans (Tamara, ADR-100) asks for the customer's plan first;
+  /// closed without one, nothing is added -- the server refuses it.
+  Future<void> _addTypedPayment() async {
     if (_safeBoxes.isNotEmpty && _selectedSafeBoxId == null) {
       _showError('اختر الخزينة أولاً');
       return;
@@ -1307,7 +1311,16 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
       _showError('لم يُقرأ المبلغ «$typed»؛ اكتبه أرقامًا فقط');
       return;
     }
-    _addPayment(customAmount: customAmount);
+    final method = _paymentMethods.firstWhere(
+      (m) => m['id'] == _selectedPaymentMethodId,
+      orElse: () => const <String, dynamic>{},
+    );
+    int? installments;
+    if (PaymentFee.plansOf(method).isNotEmpty) {
+      installments = await choosePaymentPlan(context, method);
+      if (installments == null || !mounted) return;
+    }
+    _addPayment(customAmount: customAmount, installments: installments);
   }
 
   /// One press: the method, its default safe, and the amount typed or what
@@ -1316,7 +1329,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
     setState(() => _selectedPaymentMethodId = methodId);
     await _loadSafeBoxesForPaymentMethod(methodId);
     if (!mounted) return;
-    _addTypedPayment();
+    await _addTypedPayment();
   }
 
   // 🆕 حذف دفعة
@@ -3740,7 +3753,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    payment.paymentMethodName,
+                                    payment.installments == null
+                                        ? payment.paymentMethodName
+                                        : '${payment.paymentMethodName} — ${payment.installments} دفعات',
                                     style: theme.textTheme.bodyMedium?.copyWith(
                                       fontWeight: FontWeight.w600,
                                     ),
@@ -6876,11 +6891,13 @@ class PaymentEntry {
   int settlementDays;
   String? notes;
   int? safeBoxId; // 🆕 معرف الخزينة
+  int? installments; // the plan it names, its method's (ADR-100)
 
   PaymentEntry({
     required this.paymentMethodId,
     required this.paymentMethodName,
     required this.amount,
+    this.installments,
     required this.commissionRate,
     this.commissionFixed = 0.0,
     required this.commissionAmount,
@@ -6901,6 +6918,7 @@ class PaymentEntry {
       'net_amount': netAmount,
       'notes': notes,
       if (safeBoxId != null) 'safe_box_id': safeBoxId, // 🆕
+      if (installments != null) 'installments': installments,
     };
   }
 }

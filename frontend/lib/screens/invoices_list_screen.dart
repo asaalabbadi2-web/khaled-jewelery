@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../utils/payment_fee.dart';
+import '../widgets/plan_picker.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:intl/intl.dart' hide TextDirection;
@@ -4748,6 +4750,27 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                 onPressed: !canSubmit
                     ? null
                     : () async {
+                        // A sale moved to a method with plans names its plan
+                        // (ADR-100) -- asked before the dialog closes.
+                        final isSale = (invoice['invoice_type'] ?? '').toString() == 'بيع';
+                        Future<int?> planFor(int? methodId) async {
+                          if (!isSale || methodId == null) return null;
+                          final m = methods.firstWhere(
+                            (x) => _tryParseInt(x['id']) == methodId,
+                            orElse: () => const <String, dynamic>{},
+                          );
+                          if (PaymentFee.plansOf(m).isEmpty) return null;
+                          return await choosePaymentPlan(ctx, m) ?? -1;
+                        }
+                        final plans = <int?>[];
+                        for (final methodId in isSplit
+                            ? splitRows.map((r) => r.paymentMethodId)
+                            : [selectedMethodId]) {
+                          final plan = await planFor(methodId);
+                          if (plan == -1) return;   // closed without a plan
+                          plans.add(plan);
+                        }
+                        if (!ctx.mounted) return;
                         Navigator.pop(ctx);
                         final reason = reasonController.text.trim().isNotEmpty
                             ? reasonController.text.trim()
@@ -4759,12 +4782,14 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                               invoiceId: invoiceId,
                               paymentId: paymentId,
                               reason: reason,
-                              splits: splitRows
-                                  .map((r) => {
-                                        'payment_method_id': r.paymentMethodId,
-                                        'amount': double.parse(r.amountController.text.trim()),
-                                      })
-                                  .toList(),
+                              splits: [
+                                for (var i = 0; i < splitRows.length; i++)
+                                  {
+                                    'payment_method_id': splitRows[i].paymentMethodId,
+                                    'amount': double.parse(splitRows[i].amountController.text.trim()),
+                                    if (plans[i] != null) 'installments': plans[i],
+                                  },
+                              ],
                             );
                           } else {
                             result = await _apiService.correctInvoicePaymentMethod(
@@ -4772,6 +4797,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                               paymentId: paymentId,
                               newPaymentMethodId: selectedMethodId!,
                               reason: reason,
+                              installments: plans.first,
                             );
                           }
                           final wasPartial = result['is_partial'] == true;
@@ -5096,12 +5122,24 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                   );
                   return;
                 }
+                // A sale paid by a method with plans names its plan (ADR-100).
+                final method = methods.firstWhere(
+                  (m) => _tryParseInt(m['id']) == selectedMethodId,
+                  orElse: () => const <String, dynamic>{},
+                );
+                int? installments;
+                if ((invoice['invoice_type'] ?? '').toString() == 'بيع' &&
+                    PaymentFee.plansOf(method).isNotEmpty) {
+                  installments = await choosePaymentPlan(ctx, method);
+                  if (installments == null) return;
+                }
                 try {
                   await _apiService.addInvoicePayment(
                     invoiceId: invoiceId,
                     paymentMethodId: selectedMethodId!,
                     amount: amount,
                     notes: notesController.text,
+                    installments: installments,
                   );
                   if (!mounted) return;
                   _showSnackBar(

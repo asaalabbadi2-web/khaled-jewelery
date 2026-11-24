@@ -1505,6 +1505,20 @@ def cancel_voucher(voucher_id):
         return jsonify({'error': 'payment_settled', 'message': settled_payment_message('إلغاء سند', _held),
                         'settlements': _held}), 409
 
+    # A settlement a confirmed deposit carries is the bank's now (ADR-100):
+    # its confirmation is undone first.
+    if voucher.reference_type == 'clearing_settlement':
+        from services.clearing_deposit import deposit_holding
+        _deposit = deposit_holding(voucher.id)
+        if _deposit is not None:
+            _dv = Voucher.query.get(_deposit.voucher_id) if _deposit.voucher_id else None
+            return jsonify({
+                'error': 'settlement_deposit_confirmed',
+                'message': ('هذه التسوية في إيداع مؤكَّد بتاريخ '
+                            f'{_deposit.deposit_date.isoformat()}: ألغِ التأكيد أولًا'
+                            + (f' (سند الفرق {_dv.voucher_number})' if _dv else '')),
+            }), 409
+
     data = request.get_json() or {}
     reason = data.get('reason', 'No reason provided')
     cancelled_by = data.get('cancelled_by', 'system')
@@ -1557,6 +1571,15 @@ def cancel_voucher(voucher_id):
         # حادثة إنتاجية: AV-2026-00223 (2026-06-29) -- 5 دفعات، 21,770 ريال معلَّقة.
         if voucher.reference_type == 'clearing_settlement':
             AllocationService().unallocate(voucher)
+        # The difference of a confirmed deposit cancelled: the confirmation goes
+        # with it, its settlements unconfirmed again (ADR-100).
+        if voucher.reference_type == 'clearing_deposit':
+            from models import ClearingDeposit
+            from services.clearing_deposit import release
+            _deposit = ClearingDeposit.query.filter_by(voucher_id=voucher.id).first()
+            if _deposit is not None:
+                _deposit.voucher_id = None
+                release(_deposit)
 
         # Same class of bug as AV-2026-00223, for reference_type='gold_advance':
         # a cancelled advance's SupplierGoldAdvance row(s) must have their

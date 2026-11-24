@@ -36,8 +36,8 @@ TAMARA = Schedule(period='weekly', close_weekday=4, deposit_rule='weekday', depo
 TABBY = Schedule(period='weekly', close_weekday=6, deposit_rule='weekday', deposit_days=0, deposit_weekday=0)
 
 
-def _gross(gross, count):
-    return gross
+def _gross(payments):
+    return round(sum(a for _, a in payments), 2)
 
 
 # ── the deposit day ──────────────────────────────────────────────────────────
@@ -106,7 +106,7 @@ def test_a_flexible_plan_holds_until_the_net_together_reaches_the_minimum():
 
 def test_the_minimum_is_on_the_net_not_the_gross():
     """2,600 gross less 6% commission is 2,444 net: below 2,500, it waits."""
-    net = lambda gross, count: round(gross * 0.94, 2)   # noqa: E731
+    net = lambda payments: round(sum(a for _, a in payments) * 0.94, 2)   # noqa: E731
     assert due_deposits(TAMARA, [(1, MON5, 2600.0)], as_of=WED14, net_of=net) == []
     assert due_deposits(TAMARA, [(1, MON5, 2700.0)], as_of=WED14, net_of=net)
 

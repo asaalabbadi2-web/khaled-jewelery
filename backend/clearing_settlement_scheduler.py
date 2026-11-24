@@ -95,20 +95,43 @@ def public_holidays() -> frozenset:
 
 def settlement_fee(pm, gross_amount: float, transaction_count: int) -> float:
     """The commission a settlement of *gross_amount* over *transaction_count*
-    payments carries -- the only place a commission is taken (COMMISSION-1),
-    by the one computation an invoice's estimate is made by (COMMISSION-3)."""
+    payments carries at the method's rate -- the one computation an invoice's
+    estimate is made by (COMMISSION-3). A deposit's own is settlement_charge."""
     from accounting.payment_commission import commission_of
     return commission_of(pm, gross_amount, transaction_count)
 
 
-def net_reaching_the_bank(pm):
-    """(gross, count) -> what reaches the bank: gross less the commission and
-    its VAT, as the settlement voucher computes them."""
-    from routes.clearing import commission_vat
+def _kept_rates(pm, ip_ids) -> dict:
+    """{invoice_payment_id: its kept rate} for a method computed order by
+    order (ADR-100): each payment is charged as it was paid -- its plan's
+    rate, kept on it. A method on its total takes its rate of today: {}."""
+    from accounting.payment_commission import per_order
+    if not per_order(pm) or not ip_ids:
+        return {}
+    rows = (InvoicePayment.query
+            .with_entities(InvoicePayment.id, InvoicePayment.commission_rate)
+            .filter(InvoicePayment.id.in_(list(ip_ids))).all())
+    return {i: (float(r) if r is not None else None) for i, r in rows}
 
-    def net(gross, count):
-        fee = settlement_fee(pm, gross, count)
-        return round(gross - fee - commission_vat(fee), 2)
+
+def settlement_charge(pm, payments) -> tuple:
+    """(commission, its VAT) a deposit of *payments* -- (invoice_payment_id,
+    open amount) -- carries: the only place a commission is taken
+    (COMMISSION-1), by the one computation (ADR-100)."""
+    from accounting.payment_commission import settlement_commission
+    payments = list(payments)
+    rates = _kept_rates(pm, [i for i, _ in payments])
+    return settlement_commission(pm, [(a, rates.get(i)) for i, a in payments])
+
+
+def net_reaching_the_bank(pm):
+    """payments -> what reaches the bank: their total less the commission and
+    its VAT, as the settlement voucher computes them."""
+    def net(payments):
+        payments = list(payments)
+        gross = round(sum(a for _, a in payments), 2)
+        fee, vat = settlement_charge(pm, payments)
+        return round(gross - fee - vat, 2)
     return net
 
 
@@ -227,7 +250,6 @@ class ClearingSettlementScheduler:
         }
         with self.app.app_context():
             from routes import _create_clearing_settlement_voucher
-            from routes.clearing import commission_vat
 
             today = today or date.today()
             holidays = public_holidays()
@@ -325,11 +347,11 @@ class ClearingSettlementScheduler:
                         if gross > balance + 0.01:
                             _skip(f'clearing_balance_below_due:{balance:.2f}<{gross:.2f}')
                             break
-                        fee = settlement_fee(pm, gross, len(due.payments))
+                        fee, fee_vat = settlement_charge(pm, due.payments)
                         if fee >= gross:
                             _skip(f'fee_exceeds_gross:{fee:.2f}>={gross:.2f}')
                             continue
-                        net = round(gross - fee - commission_vat(fee), 2)
+                        net = round(gross - fee - fee_vat, 2)
                         description = (
                             f"تسوية تلقائية: {pm.name} ({clearing_sb.name} → {bank_sb.name}) — "
                             f"إيداع {due.deposit_date.isoformat()} لمبيعات {due.first_sale_day.isoformat()}"
@@ -342,6 +364,7 @@ class ClearingSettlementScheduler:
                                 bank_safe_box_id=bank_sb.id,
                                 gross_amount=gross,
                                 fee_amount=fee,
+                                fee_vat_amount=fee_vat,
                                 settlement_dt=datetime.combine(due.deposit_date, time(12, 0)),
                                 reference_number=f"AUTO-PM-{pm.id}-B-{due.close_date.isoformat()}",
                                 created_by='scheduler',

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/deposit_confirm_dialog.dart';
 import '../api_service.dart';
 import '../models/safe_box_model.dart';
 import 'package:provider/provider.dart';
@@ -1407,6 +1408,19 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
                   const SizedBox(height: theme.AppSpace.md),
 
                   // ── أزرار الإجراءات ─────────────────────────────────
+                  // A deposit confirmed by what reached the bank (ADR-100).
+                  if (pm != null && pm['deposit_confirmation_required'] == true) ...[
+                    OutlinedButton.icon(
+                      key: Key('deposit-confirm-open-${sb.id}'),
+                      onPressed: () async {
+                        final done = await showDepositConfirmDialog(context, api: _api, method: pm);
+                        if (done == true) _loadData();
+                      },
+                      icon: const Icon(Icons.fact_check_outlined, size: 18),
+                      label: const Text('تأكيد إيداع بما وصل البنك'),
+                    ),
+                    const SizedBox(height: theme.AppSpace.sm),
+                  ],
                   Row(
                     children: [
                       if (txs.isNotEmpty)

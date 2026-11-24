@@ -172,24 +172,30 @@ def commission_vat(fee_amount) -> float:
     """VAT on a settlement's commission: the commission is entered net of VAT,
     and its VAT is the settings' rate (0 when tax is off). The one computation:
     the settlement voucher, and the net a flexible plan's minimum is measured
-    against (services/settlement_schedule.py, ADR-037)."""
-    fee_amount = float(fee_amount or 0.0)
-    if fee_amount <= 0:
-        return 0.0
-    try:
-        row = Settings.query.first()
-    except Exception:
-        row = None
-    tax_enabled = bool(getattr(row, 'tax_enabled', True)) if row else True
-    if not tax_enabled:
-        return 0.0
-    try:
-        rate = float(getattr(row, 'tax_rate', 0.15) if row else 0.15)
-    except (TypeError, ValueError):
-        rate = 0.15
-    if rate > 1.0:
-        rate = rate / 100.0
-    return round(fee_amount * abs(rate), 2)
+    against (services/settlement_schedule.py, ADR-037). Half up, in
+    accounting/payment_commission (ADR-100)."""
+    from accounting.payment_commission import commission_vat as _commission_vat
+    return _commission_vat(fee_amount)
+
+
+def commission_vat_account_on(day, chosen_account_id=None):
+    """Where a commission's VAT is posted on *day*: not recovered (ADR-043
+    rule 1) -- the non-recoverable account, a commission enters no stock;
+    recovered -- the chosen account, else the commission VAT mapping, else the
+    input VAT receivable. One reading: the settlement and the deposit's
+    difference (ADR-100). Raises when none is linked."""
+    from services.vat_policy import non_recoverable_account_id, policy_on
+    account_id = chosen_account_id
+    if not policy_on(day).input_vat_recoverable:
+        account_id = non_recoverable_account_id()
+    account_id = account_id or get_account_id_for_mapping('بيع', 'commission_vat')
+    account = Account.query.get(account_id) if account_id else None
+    if not account:
+        fallback_vat_id = get_account_id_for_mapping('بيع', 'vat_receivable')
+        account = Account.query.get(fallback_vat_id) if fallback_vat_id else None
+    if not account:
+        raise ValueError('commission_vat_account_not_found')
+    return account
 
 
 def _create_clearing_settlement_voucher(
@@ -199,6 +205,7 @@ def _create_clearing_settlement_voucher(
     gross_amount,
     fee_amount=0.0,
     fee_is_net=True,
+    fee_vat_amount=None,
     commission_vat_account_id=None,
     settlement_dt=None,
     reference_number=None,
@@ -246,7 +253,16 @@ def _create_clearing_settlement_voucher(
     if fee_amount < 0:
         raise ValueError('fee_amount_must_be_non_negative')
 
-    fee_vat = commission_vat(fee_amount) if fee_is_net else 0.0
+    # A deposit computed order by order carries its orders' VAT, each rounded
+    # on its own (ADR-100): the caller gives it; otherwise the commission's.
+    if not fee_is_net:
+        fee_vat = 0.0
+    elif fee_vat_amount is not None:
+        fee_vat = round(float(fee_vat_amount or 0.0), 2)
+        if fee_vat < 0:
+            raise ValueError('fee_amount_must_be_non_negative')
+    else:
+        fee_vat = commission_vat(fee_amount)
 
     net_amount = round(gross_amount - fee_amount - fee_vat, 2)
     if net_amount < 0:
@@ -328,31 +344,12 @@ def _create_clearing_settlement_voucher(
             raise ValueError('not_found:fee_account')
 
     commission_vat_account = None
-    from services.vat_policy import non_recoverable_account_id, policy_on
-    _settled_on = settlement_dt or datetime.now()
-    _vat_day = _settled_on.date() if isinstance(_settled_on, datetime) else _settled_on
-    if fee_vat > 0 and not policy_on(_vat_day).input_vat_recoverable:
-        # Not recovered (ADR-043 rule 1): a commission enters no stock.
-        commission_vat_account_id = non_recoverable_account_id()
     if fee_vat > 0:
-        # Prefer a dedicated account for VAT on commissions; if not configured,
-        # fall back to the generic VAT receivable (input VAT) account.
-        commission_vat_account_id = (
-            commission_vat_account_id
-            or get_account_id_for_mapping('بيع', 'commission_vat')
+        _settled_on = settlement_dt or datetime.now()
+        commission_vat_account = commission_vat_account_on(
+            _settled_on.date() if isinstance(_settled_on, datetime) else _settled_on,
+            commission_vat_account_id,
         )
-        if commission_vat_account_id:
-            commission_vat_account = Account.query.get(commission_vat_account_id)
-
-        if not commission_vat_account:
-            fallback_vat_id = (
-                get_account_id_for_mapping('بيع', 'vat_receivable')
-            )
-            if fallback_vat_id:
-                commission_vat_account = Account.query.get(fallback_vat_id)
-
-        if not commission_vat_account:
-            raise ValueError('commission_vat_account_not_found')
 
     def _live_cash_balance(account_obj, fallback=0.0):
         account_id = getattr(account_obj, 'id', None)
@@ -1026,3 +1023,96 @@ def run_auto_clearing_settlements_now():
 
 # POST /weight-closing/execute-profile went with the profiles (ADR-048 phase 3c): a
 # marked expense closes its riyals in the weight position from its own voucher.
+
+
+# ======================================================================
+# A deposit confirmed by what reached the bank (ADR-100)
+# ======================================================================
+
+def _deposit_refusal(exc):
+    body = {'error': exc.code, 'message': exc.message}
+    body.update(exc.detail or {})
+    return jsonify(body), (404 if exc.code == 'not_found' else 400)
+
+
+def _deposit_method():
+    data = request.get_json(silent=True) or {}
+    raw = data.get('payment_method_id', request.args.get('payment_method_id'))
+    try:
+        return data, PaymentMethod.query.get(int(raw))
+    except (TypeError, ValueError):
+        return data, None
+
+
+@clearing_bp.route('/clearing/deposits/unconfirmed', methods=['GET'])
+@require_permission('vouchers.create')
+def list_unconfirmed_settlements():
+    """A method's settlement vouchers no confirmed deposit carries yet."""
+    from services.clearing_deposit import unconfirmed_settlements
+    _, pm = _deposit_method()
+    if pm is None:
+        return jsonify({'error': 'not_found', 'message': 'وسيلة الدفع غير موجودة'}), 404
+    rows = unconfirmed_settlements(pm)
+    return jsonify({
+        'payment_method_id': pm.id,
+        'deposit_difference_allowed': float(pm.deposit_difference_allowed or 0.0),
+        'settlements': [{'voucher_id': s.voucher.id, 'voucher_number': s.voucher.voucher_number,
+                         'date': s.voucher.date.date().isoformat() if s.voucher.date else None,
+                         'gross': float(s.voucher.amount_cash or 0.0), 'net': s.net,
+                         'description': s.voucher.description} for s in rows],
+    })
+
+
+@clearing_bp.route('/clearing/deposits/preview', methods=['POST'])
+@require_permission('vouchers.create')
+def preview_clearing_deposit():
+    from services.clearing_deposit import DepositRefused, preview
+    data, pm = _deposit_method()
+    try:
+        return jsonify(preview(pm, data.get('voucher_ids') or [], data.get('amount_received')).to_dict())
+    except DepositRefused as exc:
+        return _deposit_refusal(exc)
+
+
+@clearing_bp.route('/clearing/deposits', methods=['POST'])
+@require_permission('vouchers.create')
+def confirm_clearing_deposit():
+    """Body: payment_method_id, voucher_ids, amount_received, deposit_date
+    (YYYY-MM-DD), bank_reference?, note?"""
+    from services.clearing_deposit import DepositRefused, confirm
+    data, pm = _deposit_method()
+    try:
+        deposit_day = date.fromisoformat(str(data.get('deposit_date') or ''))
+    except ValueError:
+        return jsonify({'error': 'invalid_deposit_date', 'message': 'تاريخ الإيداع غير صالح'}), 400
+    user = getattr(g, 'current_user', None)
+    # A refusal undoes its own writes only (a savepoint), nothing before it.
+    try:
+        with db.session.begin_nested():
+            deposit = confirm(pm, data.get('voucher_ids') or [], data.get('amount_received'), deposit_day,
+                              bank_reference=data.get('bank_reference'), note=data.get('note'),
+                              created_by=getattr(user, 'username', None) or 'system',
+                              now=datetime.now())
+    except DepositRefused as exc:
+        return _deposit_refusal(exc)
+    except ValueError as exc:
+        return jsonify({'error': str(exc), 'message': str(exc)}), 400
+    db.session.commit()
+    return jsonify({'deposit': deposit.to_dict()}), 201
+
+
+@clearing_bp.route('/clearing/deposits/<int:deposit_id>', methods=['DELETE'])
+@require_permission('vouchers.cancel')
+def undo_clearing_deposit(deposit_id: int):
+    """A confirmation that posted no difference is undone here; one that did
+    is undone by cancelling its voucher, as any posted document."""
+    from models import ClearingDeposit
+    from services.clearing_deposit import release
+    deposit = ClearingDeposit.query.get_or_404(deposit_id)
+    if deposit.voucher_id:
+        v = Voucher.query.get(deposit.voucher_id)
+        return jsonify({'error': 'deposit_has_voucher',
+                        'message': f'ألغِ سند الفرق {v.voucher_number if v else deposit.voucher_id} لإلغاء التأكيد'}), 409
+    release(deposit)
+    db.session.commit()
+    return jsonify({'success': True})

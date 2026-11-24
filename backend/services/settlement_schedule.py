@@ -164,14 +164,15 @@ def due_deposits(
     s: Schedule,
     open_payments: Sequence[Tuple[int, date, float]],
     as_of: date,
-    net_of: Callable[[float, int], float],
+    net_of: Callable[[List[Tuple[int, float]]], float],
     holidays: FrozenSet[date] = frozenset(),
 ) -> List[Due]:
     """The deposits that have reached the bank by *as_of*, oldest first.
 
     *open_payments*: (invoice_payment_id, sale day, open amount). *net_of*
-    (gross, count) is what reaches the bank -- gross less commission and its
-    VAT, the settlement's own computation. A batch whose deposit day is after
+    [(invoice_payment_id, open amount)] is what reaches the bank -- their
+    total less commission and its VAT, the settlement's own computation (each
+    payment by its own rate and the fee a deposit, ADR-100). A batch whose deposit day is after
     *as_of* is not due, nor any after it. Under a minimum, batches whose net
     together falls short are held and join the next deposit.
     """
@@ -189,7 +190,7 @@ def due_deposits(
             break
         group = held + sorted(batches[close], key=lambda p: (p[1], p[0]))
         gross = round(sum(a for _, _, a in group), 2)
-        if s.min_net > 0.005 and net_of(gross, len(group)) < s.min_net - 0.005:
+        if s.min_net > 0.005 and net_of([(i, a) for i, _, a in group]) < s.min_net - 0.005:
             held = group
             continue
         dues.append(Due(close_date=close, deposit_date=deposit,

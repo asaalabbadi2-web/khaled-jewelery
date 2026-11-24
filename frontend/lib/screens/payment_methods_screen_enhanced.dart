@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import '../api_service.dart';
+import '../utils/payment_fee.dart';
+import '../widgets/payment_plans_editor.dart';
 import '../widgets/settlement_schedule_editor.dart';
 import '../models/safe_box_model.dart';
 import '../theme/app_theme.dart';
@@ -796,6 +798,23 @@ class _PaymentMethodsScreenEnhancedState
                       '${method['commission_fixed_amount'] ?? 0}',
                       _warningColor,
                     ),
+                    // ADR-100: the plans' rates and the fee a deposit.
+                    if (PaymentFee.plansOf(method).isNotEmpty)
+                      _buildInfoChip(
+                        Icons.view_week_outlined,
+                        'الخطط',
+                        PaymentFee.plansOf(method).entries
+                            .map((e) => '${e.key}: ${e.value}%')
+                            .join('  '),
+                        _warningColor,
+                      ),
+                    if ((double.tryParse('${method['deposit_fixed_fee'] ?? 0}') ?? 0) > 0)
+                      _buildInfoChip(
+                        Icons.account_balance_outlined,
+                        'لكل إيداع',
+                        '${method['deposit_fixed_fee']}',
+                        _warningColor,
+                      ),
                   ],
                 ),
                 // The schedule as the server reads it (ADR-037).
@@ -985,6 +1004,8 @@ class _PaymentMethodsScreenEnhancedState
     final settlementDaysController = TextEditingController(
       text: (editingMethod?['settlement_days'] ?? 0).toString(),
     );
+    // Plans, the fee a deposit, order by order (ADR-100).
+    var feeTerms = PaymentFeeTerms.fromMethod(editingMethod);
     final rawAutoSettlement = editingMethod?['auto_settlement_enabled'];
     bool autoSettlementEnabled =
         rawAutoSettlement == true ||
@@ -1252,6 +1273,15 @@ class _PaymentMethodsScreenEnhancedState
                         fillColor: formFieldFill,
                       ),
                       keyboardType: TextInputType.number,
+                    ),
+
+                    SizedBox(height: 16),
+
+                    // الخطط ورسم الإيداع (ADR-100)
+                    PaymentPlansEditor(
+                      initial: feeTerms,
+                      fieldFill: formFieldFill,
+                      onChanged: (terms) => feeTerms = terms,
                     ),
 
                     SizedBox(height: 16),
@@ -1864,6 +1894,10 @@ class _PaymentMethodsScreenEnhancedState
                     final settlementDays =
                         int.tryParse(settlementDaysController.text) ?? 0; // 🆕
                     final invoiceTypeList = selectedInvoiceTypes.toList();
+                    if (feeTerms.error != null) {
+                      _showMessage('⚠️ ${feeTerms.error}', isError: true);
+                      return;
+                    }
 
                     if (autoSettlementEnabled) {
                       if (settlementBankSafeBoxId == null) {
@@ -1912,6 +1946,13 @@ class _PaymentMethodsScreenEnhancedState
                         skipPublicHolidays: schedule.skipPublicHolidays,
                         isActive: isActive,
                         applicableInvoiceTypes: invoiceTypeList,
+                        depositFixedFee: feeTerms.depositFixedFee,
+                        commissionPerOrder: feeTerms.perOrder,
+                        plans: feeTerms.plansJson,
+                        depositConfirmationRequired: feeTerms.confirmDeposits,
+                        depositDifferenceAllowed: feeTerms.differenceAllowed,
+                        commissionRounding: feeTerms.rounding,
+                        commissionRefundableRate: feeTerms.refundableRate,
                       );
                     } else {
                       // تعديل
@@ -1943,6 +1984,13 @@ class _PaymentMethodsScreenEnhancedState
                         isActive: isActive,
                         defaultSafeBoxId: selectedDefaultSafeBoxId,
                         applicableInvoiceTypes: invoiceTypeList,
+                        depositFixedFee: feeTerms.depositFixedFee,
+                        commissionPerOrder: feeTerms.perOrder,
+                        plans: feeTerms.plansJson,
+                        depositConfirmationRequired: feeTerms.confirmDeposits,
+                        depositDifferenceAllowed: feeTerms.differenceAllowed,
+                        commissionRounding: feeTerms.rounding,
+                        commissionRefundableRate: feeTerms.refundableRate,
                       );
                     }
 

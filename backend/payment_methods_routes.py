@@ -11,6 +11,7 @@ from models import (
     db,
     Account,
     PaymentMethod,
+    PaymentMethodPlan,
     PaymentType,
     PublicHoliday,
     Invoice,
@@ -292,6 +293,78 @@ DEFAULT_PAYMENT_TYPE_DEFINITIONS: List[Dict[str, Any]] = [
         'sort_order': 9,
     },
 ]
+
+
+def _apply_fee_terms(payment_method, data):
+    """A method's plans, its fee a deposit, whether it is computed order by
+    order, its rounding and the part of its rate refunded on a return, and
+    whether its deposits are confirmed and the difference allowed without a
+    reason (ADR-100) -- POLICY, the owner's, for any method of the kind. None when applied, a response when
+    refused. The plans sent replace the method's; a payment keeps the rate it
+    was paid at, so changing them re-prices nothing paid."""
+    if 'deposit_fixed_fee' in data:
+        try:
+            fee = float(data.get('deposit_fixed_fee') or 0.0)
+        except (TypeError, ValueError):
+            return jsonify({'error': 'invalid_deposit_fixed_fee', 'message': 'رسم الإيداع غير صالح'}), 400
+        if fee < 0:
+            return jsonify({'error': 'invalid_deposit_fixed_fee', 'message': 'رسم الإيداع لا يكون سالبًا'}), 400
+        payment_method.deposit_fixed_fee = fee
+    if 'commission_per_order' in data:
+        payment_method.commission_per_order = bool(data.get('commission_per_order'))
+    if 'commission_rounding' in data:
+        mode = str(data.get('commission_rounding') or 'half_up').strip()
+        if mode not in ('half_up', 'half_even'):
+            return jsonify({'error': 'invalid_commission_rounding',
+                            'message': 'التقريب: نصف للأعلى (half_up) أو نصف للزوجي (half_even)'}), 400
+        payment_method.commission_rounding = mode
+    if 'commission_refundable_rate' in data:
+        try:
+            part = float(data.get('commission_refundable_rate') or 0.0)
+        except (TypeError, ValueError):
+            return jsonify({'error': 'invalid_commission_refundable_rate', 'message': 'الجزء المسترد غير صالح'}), 400
+        if part < 0:
+            return jsonify({'error': 'invalid_commission_refundable_rate',
+                            'message': 'الجزء المسترد لا يكون سالبًا'}), 400
+        payment_method.commission_refundable_rate = part
+    if 'deposit_confirmation_required' in data:
+        payment_method.deposit_confirmation_required = bool(data.get('deposit_confirmation_required'))
+    if 'deposit_difference_allowed' in data:
+        try:
+            allowed = float(data.get('deposit_difference_allowed') or 0.0)
+        except (TypeError, ValueError):
+            return jsonify({'error': 'invalid_deposit_difference_allowed', 'message': 'الفرق المسموح غير صالح'}), 400
+        if allowed < 0:
+            return jsonify({'error': 'invalid_deposit_difference_allowed',
+                            'message': 'الفرق المسموح لا يكون سالبًا'}), 400
+        payment_method.deposit_difference_allowed = allowed
+    if 'plans' in data:
+        raw = data.get('plans') or []
+        if not isinstance(raw, list):
+            return jsonify({'error': 'invalid_plans', 'message': 'الخطط قائمة'}), 400
+        plans = {}
+        for entry in raw:
+            try:
+                n = int((entry or {}).get('installments'))
+                rate = float((entry or {}).get('commission_rate'))
+            except (TypeError, ValueError, AttributeError):
+                return jsonify({'error': 'invalid_plans', 'message': 'لكل خطة عدد دفعات ونسبة'}), 400
+            if n <= 0 or rate < 0:
+                return jsonify({'error': 'invalid_plans',
+                                'message': 'عدد الدفعات أكبر من صفر والنسبة لا تكون سالبة'}), 400
+            if n in plans:
+                return jsonify({'error': 'invalid_plans', 'message': f'الخطة {n} دفعات مكرّرة'}), 400
+            plans[n] = rate
+        existing = {int(p.installments): p for p in (payment_method.plans or [])}
+        for n, p in list(existing.items()):
+            if n not in plans:
+                payment_method.plans.remove(p)
+        for n, rate in plans.items():
+            if n in existing:
+                existing[n].commission_rate = rate
+            else:
+                payment_method.plans.append(PaymentMethodPlan(installments=n, commission_rate=rate))
+    return None
 
 
 def ensure_default_payment_types() -> None:
@@ -616,6 +689,10 @@ def create_payment_method():
         refused = _schedule_refusal(payment_method) or _clearing_refusal(payment_method)
         if refused:
             return refused
+        refused = _apply_fee_terms(payment_method, data)
+        if refused:
+            db.session.rollback()
+            return refused
         db.session.add(payment_method)
         db.session.commit()
         
@@ -843,6 +920,10 @@ def update_payment_method(id):
                 payment_method.min_settlement_amount = max(0.0, msa)
             except (ValueError, TypeError):
                 pass
+        refused = _apply_fee_terms(payment_method, data)
+        if refused:
+            db.session.rollback()
+            return refused
         if 'settlement_mode' in data:
             mode = str(data.get('settlement_mode') or 'bulk').strip().lower()
             if mode != 'bulk':

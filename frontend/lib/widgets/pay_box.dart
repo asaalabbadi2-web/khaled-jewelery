@@ -101,8 +101,8 @@ class PayBox extends StatelessWidget {
   }) {
     // What it deducts, its rate and its fixed amount (COMMISSION-3), isolated
     // left-to-right: «(0.8%)», «(6.99% + 1.5)», not «(%0.8)».
-    final fee = PaymentFee.of(method, 0, vatRate: 0);
-    final deducts = PaymentFee.label(fee.rate, fee.fixed);
+    // A method with plans says their range (ADR-100): «(5.99–6.99% + 1.5)».
+    final deducts = PaymentFee.methodLabel(method);
     final ltr = String.fromCharCode(0x2066);
     final pop = String.fromCharCode(0x2069);
     final label = Text(

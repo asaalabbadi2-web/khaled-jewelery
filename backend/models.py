@@ -317,6 +317,29 @@ class PaymentMethod(db.Model):
     #   (بعد العمولة وضريبتها)، وما دونه ينتظر ويلحق الإيداع التالي
     min_settlement_amount = db.Column(db.Float, default=0.0, nullable=False)
 
+    # ADR-100 (the owner, 24 Nov 2026). POLICY, the owner's, for any method of
+    # the kind: what the company takes once a deposit, before VAT (a «payout
+    # fee»), and whether it computes each order on its own -- its commission
+    # and VAT rounded order by order -- or one commission on the settlement's
+    # total (a card network's).
+    deposit_fixed_fee = db.Column(db.Float, default=0.0, nullable=False, server_default='0')
+    commission_per_order = db.Column(db.Boolean, default=False, nullable=False, server_default=db.false())
+    # A deposit is confirmed by what reached the bank (ADR-100): whether this
+    # method's settlements must be, and the difference allowed without a note
+    # -- beyond it, a missing order or a return rather than a commission.
+    deposit_confirmation_required = db.Column(db.Boolean, default=False, nullable=False,
+                                              server_default=db.false())
+    # How the company rounds an order's commission: 'half_up' or 'half_even';
+    # and the part of its rate refunded on a return, rounded apart from the
+    # rest with each part's VAT (0: the rate is one part). POLICY (ADR-100).
+    commission_rounding = db.Column(db.String(16), default='half_up', nullable=False, server_default='half_up')
+    commission_refundable_rate = db.Column(db.Float, default=0.0, nullable=False, server_default='0')
+    deposit_difference_allowed = db.Column(db.Float, default=10.0, nullable=False, server_default='10')
+    # The plans a payment by it names one of (installments and their rate);
+    # none -- its rate for every payment.
+    plans = db.relationship('PaymentMethodPlan', order_by='PaymentMethodPlan.installments',
+                            cascade='all, delete-orphan', backref='payment_method')
+
     # نمط التسوية: bulk وحده — تسوية مجمّعة (سند لكل إيداع يغطي دفعاته).
     # أُلغيت التسوية الفردية (المالك، 6 أكتوبر 2026: تابي وتمارا تودعان مجمّعة)؛
     # والسندات الفردية القديمة (per_tx:ip_<id>) ما زالت تُقرأ مسوّاةً.
@@ -390,6 +413,14 @@ class PaymentMethod(db.Model):
             'fee_expense_account_id': getattr(self, 'fee_expense_account_id', None),
             'min_settlement_amount': float(getattr(self, 'min_settlement_amount', 0.0) or 0.0),
             'settlement_mode': str(getattr(self, 'settlement_mode', 'bulk') or 'bulk'),
+            'deposit_fixed_fee': float(getattr(self, 'deposit_fixed_fee', 0.0) or 0.0),
+            'commission_per_order': bool(getattr(self, 'commission_per_order', False)),
+            'deposit_confirmation_required': bool(getattr(self, 'deposit_confirmation_required', False)),
+            'commission_rounding': getattr(self, 'commission_rounding', None) or 'half_up',
+            'commission_refundable_rate': float(getattr(self, 'commission_refundable_rate', 0.0) or 0.0),
+            'deposit_difference_allowed': float(getattr(self, 'deposit_difference_allowed', 10.0) or 0.0),
+            'plans': [{'installments': int(p.installments), 'commission_rate': float(p.commission_rate or 0.0)}
+                      for p in (self.plans or [])],
             'is_active': self.is_active,
             'display_order': self.display_order,
             'applicable_invoice_types': list(self.applicable_invoice_types)
@@ -412,6 +443,84 @@ class PaymentMethod(db.Model):
 
     def __repr__(self):
         return f'<PaymentMethod {self.name}>'
+
+
+class PaymentMethodPlan(db.Model):
+    """A plan a payment by its method names: its number of installments and
+    the rate the company takes on it (ADR-100). POLICY -- the owner enters
+    them; a payment keeps the rate as it was, so a plan changed later re-prices
+    nothing paid."""
+    __tablename__ = 'payment_method_plan'
+
+    id = db.Column(db.Integer, primary_key=True)
+    payment_method_id = db.Column(db.Integer, db.ForeignKey('payment_method.id', ondelete='CASCADE'),
+                                  nullable=False, index=True)
+    installments = db.Column(db.Integer, nullable=False)
+    commission_rate = db.Column(db.Float, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint('payment_method_id', 'installments', name='uq_payment_method_plan'),
+        db.CheckConstraint('installments > 0', name='ck_payment_method_plan_installments'),
+        db.CheckConstraint('commission_rate >= 0', name='ck_payment_method_plan_rate'),
+    )
+
+
+class ClearingDeposit(db.Model):
+    """A deposit confirmed by what reached the bank (ADR-100): the settlement
+    vouchers it carries, what the bank received, and the difference from their
+    nets -- posted by its own voucher between the bank and the commission and
+    its VAT. A settlement is confirmed once. Cancelling its voucher undoes it;
+    one with no difference posted nothing and is deleted."""
+    __tablename__ = 'clearing_deposit'
+
+    id = db.Column(db.Integer, primary_key=True)
+    payment_method_id = db.Column(db.Integer, db.ForeignKey('payment_method.id', ondelete='RESTRICT'),
+                                  nullable=False, index=True)
+    deposit_date = db.Column(db.Date, nullable=False)
+    amount_received = db.Column(db.Float, nullable=False)
+    expected_net = db.Column(db.Float, nullable=False)
+    # expected - received: more than nothing, the bank received less (a
+    # commission more); less, it received more.
+    difference = db.Column(db.Float, nullable=False)
+    fee_difference = db.Column(db.Float, nullable=False, default=0.0)
+    vat_difference = db.Column(db.Float, nullable=False, default=0.0)
+    voucher_id = db.Column(db.Integer, db.ForeignKey('voucher.id', ondelete='RESTRICT'), nullable=True)
+    bank_reference = db.Column(db.String(120), nullable=True)
+    note = db.Column(db.Text, nullable=True)
+    created_by = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=db.func.now())
+
+    settlements = db.relationship('ClearingDepositSettlement', cascade='all, delete-orphan',
+                                  backref='deposit')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'payment_method_id': self.payment_method_id,
+            'deposit_date': self.deposit_date.isoformat() if self.deposit_date else None,
+            'amount_received': self.amount_received,
+            'expected_net': self.expected_net,
+            'difference': self.difference,
+            'fee_difference': self.fee_difference,
+            'vat_difference': self.vat_difference,
+            'voucher_id': self.voucher_id,
+            'bank_reference': self.bank_reference,
+            'note': self.note,
+            'settlement_voucher_ids': [s.voucher_id for s in self.settlements],
+            'created_by': self.created_by,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class ClearingDepositSettlement(db.Model):
+    """A settlement voucher a confirmed deposit carries -- once (ADR-100)."""
+    __tablename__ = 'clearing_deposit_settlement'
+
+    id = db.Column(db.Integer, primary_key=True)
+    deposit_id = db.Column(db.Integer, db.ForeignKey('clearing_deposit.id', ondelete='CASCADE'),
+                           nullable=False, index=True)
+    voucher_id = db.Column(db.Integer, db.ForeignKey('voucher.id', ondelete='RESTRICT'),
+                           nullable=False, unique=True)
 
 
 class PublicHoliday(db.Model):
@@ -3757,6 +3866,10 @@ class InvoicePayment(db.Model):
     # الأصلي إن جرى تصحيح لاحق.
     commission_rate = db.Column(db.Float, default=0.0)
 
+    # The plan it was paid on -- its number of installments -- when its method
+    # has plans (ADR-100); its commission_rate is that plan's, as it was.
+    installments = db.Column(db.Integer, nullable=True)
+
     # العمولة المحسوبة (بدون ضريبة)
     commission_amount = db.Column(db.Float, default=0.0)
 
@@ -3796,6 +3909,7 @@ class InvoicePayment(db.Model):
             'invoice_id': self.invoice_id,
             'payment_method_id': self.payment_method_id,
             'amount': self.amount,
+            'installments': self.installments,
             'commission_rate': self.commission_rate,
             'commission_amount': self.commission_amount,
             'commission_vat': self.commission_vat,
