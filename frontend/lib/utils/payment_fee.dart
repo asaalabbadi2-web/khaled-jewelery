@@ -81,6 +81,15 @@ class PaymentFee {
     return Map.fromEntries(plans.entries.toList()..sort((a, b) => a.key.compareTo(b.key)));
   }
 
+  /// A plan said as Arabic counts it (the owner, 24 Nov 2026: «12 دفعة وليس
+  /// 12 دفعات»): دفعة واحدة، دفعتان، 3–10 دفعات، 11 فأكثر دفعة.
+  static String installmentsLabel(int n) {
+    if (n == 1) return 'دفعة واحدة';
+    if (n == 2) return 'دفعتان';
+    if (n >= 3 && n <= 10) return '$n دفعات';
+    return '$n دفعة';
+  }
+
   /// «0.8%», «6.99% + 1.5», «1.5» -- what the method deducts, said once.
   static String label(double rate, double fixed) {
     String n(double v) => v == v.roundToDouble() ? '${v.toInt()}' : '$v';

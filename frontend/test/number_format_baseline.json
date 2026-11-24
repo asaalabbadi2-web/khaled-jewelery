@@ -8,7 +8,6 @@
   "lib/screens/add_return_invoice_screen.dart": 28,
   "lib/screens/add_supplier_screen.dart": 2,
   "lib/screens/add_voucher_screen.dart": 2,
-  "lib/screens/barcode_print_screen.dart": 2,
   "lib/screens/calculate_bonuses_screen.dart": 2,
   "lib/screens/clearing_settlement_screen.dart": 3,
   "lib/screens/general_ledger_screen_v2.dart": 1,

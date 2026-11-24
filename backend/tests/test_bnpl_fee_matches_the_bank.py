@@ -188,3 +188,15 @@ def test_no_companys_name_decides_a_commission():
                  if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in docstrings
                  and any(w in n.value.lower() for w in ('tamara', 'tabby', 'تمارا', 'تابي'))]
         assert not named, f'{rel} decides by a name: {named}'
+
+
+def test_a_plan_is_said_as_arabic_counts_it():
+    """The owner, 24 Nov 2026: «12 دفعة وليس 12 دفعات»; the plan read on the terminal."""
+    assert [pc.installments_label(n) for n in (1, 2, 3, 10, 11, 12)] == [
+        'دفعة واحدة', 'دفعتان', '3 دفعات', '10 دفعات', '11 دفعة', '12 دفعة']
+    pm, plans = _with_plans()
+    pm.plans = plans
+    with pytest.raises(pc.PlanRefused) as refused:
+        pc.payment_commission(pm, 1000)
+    assert '12 دفعة' in refused.value.message and '12 دفعات' not in refused.value.message
+    assert 'جهاز الدفع' in refused.value.message

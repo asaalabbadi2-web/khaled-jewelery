@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../utils.dart';
+import '../utils/payment_fee.dart';
 
 /// What a payment method's company takes beyond its rate (ADR-100, the owner
 /// 24 Nov 2026: «اجعلها شاملة لمثل هكذا وسائل ويتم ضبطها في الإعدادات») --
@@ -67,7 +68,7 @@ class PaymentFeeTerms {
     for (final (n, r) in plans) {
       if (n <= 0) return 'عدد الدفعات أكبر من صفر';
       if (r < 0) return 'النسبة لا تكون سالبة';
-      if (!seen.add(n)) return 'الخطة $n دفعات مكرّرة';
+      if (!seen.add(n)) return 'خطة ${PaymentFee.installmentsLabel(n)} مكرّرة';
     }
     if (differenceAllowed < 0) return 'الفرق المسموح لا يكون سالبًا';
     if (refundableRate < 0) return 'الجزء المسترد لا يكون سالبًا';
@@ -190,8 +191,8 @@ class _PaymentPlansEditorState extends State<PaymentPlansEditor> {
           key: const Key('payment-method-half-even'),
           contentPadding: EdgeInsets.zero,
           title: const Text('تقريب النصف إلى الزوجي'),
-          subtitle: const Text('كما تقرّب الشركة في كشف تسويتها: معطّل — النصف إلى الأعلى '
-              '(150.285 ← 150.29)؛ مفعّل — إلى الزوجي (150.285 ← 150.28).'),
+          subtitle: const Text('كما تقرّب الشركة في كشف تسويتها: معطّلًا تصير 150.285 '
+              'إلى 150.29، ومفعّلًا إلى 150.28.'),
           value: _halfEven,
           onChanged: (v) {
             setState(() => _halfEven = v);

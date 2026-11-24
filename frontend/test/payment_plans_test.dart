@@ -2,6 +2,7 @@
 // owner sets the plans, the fee a deposit and order-by-order on the method.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:frontend/utils/payment_fee.dart';
 import 'package:frontend/widgets/payment_plans_editor.dart';
 import 'package:frontend/widgets/plan_picker.dart';
 
@@ -43,6 +44,38 @@ void main() {
     expect(await pick(tester, tamara, tap: 'payment-plan-6'), 6);
   });
 
+  test('a plan said as Arabic counts it -- «12 دفعة وليس 12 دفعات»', () {
+    expect(PaymentFee.installmentsLabel(1), 'دفعة واحدة');
+    expect(PaymentFee.installmentsLabel(2), 'دفعتان');
+    expect(PaymentFee.installmentsLabel(3), '3 دفعات');
+    expect(PaymentFee.installmentsLabel(10), '10 دفعات');
+    expect(PaymentFee.installmentsLabel(11), '11 دفعة');
+    expect(PaymentFee.installmentsLabel(12), '12 دفعة');
+  });
+
+  testWidgets('the picker says each plan so, and where to read it', (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Builder(
+        builder: (context) => TextButton(
+          onPressed: () => choosePaymentPlan(context, {
+            'name': 'تقسيط',
+            'plans': [
+              {'installments': 2, 'commission_rate': 6.99},
+              {'installments': 12, 'commission_rate': 5.99},
+            ],
+          }),
+          child: const Text('ادفع'),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('ادفع'));
+    await tester.pumpAndSettle();
+    expect(find.text('دفعتان'), findsOneWidget);
+    expect(find.text('12 دفعة'), findsOneWidget);
+    expect(find.text('12 دفعات'), findsNothing);
+    expect(find.textContaining('جهاز الدفع'), findsOneWidget);
+  });
+
   testWidgets('closed without a plan, nothing is chosen', (tester) async {
     expect(await pick(tester, tamara), isNull);
   });
@@ -73,7 +106,7 @@ void main() {
     expect((terms.depositFixedFee, terms.perOrder), (6.0, true));
     expect(terms.error, isNull);
     expect(PaymentFeeTerms(plans: [(4, 6.99), (4, 5.99)], depositFixedFee: 0, perOrder: true).error,
-        'الخطة 4 دفعات مكرّرة');
+        'خطة 4 دفعات مكرّرة');
   });
 
   testWidgets('the editor adds a plan and says the fee a deposit', (tester) async {

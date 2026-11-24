@@ -123,9 +123,9 @@ void main() {
     expect(down.onPressed, isNull);
   });
 
-  testWidgets('each method says its place', (tester) async {
+  testWidgets('each method says its place -- the table\'s first column', (tester) async {
     await open(tester);
-    expect(find.text('الترتيب 1'), findsOneWidget);
-    expect(find.text('الترتيب 3'), findsOneWidget);
+    expect(tester.widget<Text>(find.byKey(const Key('order-place-14'))).data, '1');
+    expect(tester.widget<Text>(find.byKey(const Key('order-place-10'))).data, '3');
   });
 }

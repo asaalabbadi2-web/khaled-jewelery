@@ -353,7 +353,8 @@ def _apply_fee_terms(payment_method, data):
                 return jsonify({'error': 'invalid_plans',
                                 'message': 'عدد الدفعات أكبر من صفر والنسبة لا تكون سالبة'}), 400
             if n in plans:
-                return jsonify({'error': 'invalid_plans', 'message': f'الخطة {n} دفعات مكرّرة'}), 400
+                from accounting.payment_commission import installments_label
+                return jsonify({'error': 'invalid_plans', 'message': f'خطة {installments_label(n)} مكرّرة'}), 400
             plans[n] = rate
         existing = {int(p.installments): p for p in (payment_method.plans or [])}
         for n, p in list(existing.items()):

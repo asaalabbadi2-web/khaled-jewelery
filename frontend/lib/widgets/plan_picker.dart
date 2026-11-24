@@ -4,8 +4,8 @@ import '../utils/bidi.dart';
 import '../utils/payment_fee.dart';
 
 /// The plan a payment by a method with plans names (ADR-100) -- the plans
-/// and their rates the method's settings. The cashier asks the customer -- it
-/// shows in the company's app once bought. Null when the method has
+/// and their rates the method's settings. The cashier reads it on the payment
+/// terminal, where the customer's choice shows (the owner, 24 Nov 2026). Null when the method has
 /// no plans, or the cashier closed it without choosing.
 Future<int?> choosePaymentPlan(
   BuildContext context,
@@ -47,7 +47,7 @@ class PaymentPlanDialog extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'عدد الدفعات كما اختاره العميل في تطبيق $methodName',
+            'خطة العميل كما تظهر في جهاز الدفع',
             style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
           ),
           const SizedBox(height: 12),
@@ -62,7 +62,7 @@ class PaymentPlanDialog extends StatelessWidget {
                   label: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text('${entry.key} دفعات', style: const TextStyle(fontWeight: FontWeight.w700)),
+                      Text(PaymentFee.installmentsLabel(entry.key), style: const TextStyle(fontWeight: FontWeight.w700)),
                       Text(ltrIsolate(rate(entry.value)), style: theme.textTheme.labelSmall),
                     ],
                   ),

@@ -27,17 +27,30 @@ from decimal import ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal
 from typing import Iterable, Optional, Sequence, Tuple
 
 
+def installments_label(n: int) -> str:
+    """A plan said as Arabic counts it (the owner, 24 Nov 2026: «12 دفعة وليس
+    12 دفعات»): دفعة واحدة، دفعتان، 3–10 دفعات، 11 فأكثر دفعة."""
+    n = int(n)
+    if n == 1:
+        return 'دفعة واحدة'
+    if n == 2:
+        return 'دفعتان'
+    if 3 <= n <= 10:
+        return f'{n} دفعات'
+    return f'{n} دفعة'
+
+
 class PlanRefused(ValueError):
     """A payment by a method with plans names none of them."""
 
     def __init__(self, code: str, method_name: str, offered: Sequence[int]):
         self.code = code
         self.offered = list(offered)
-        listed = '، '.join(str(n) for n in offered)
+        listed = '، '.join(installments_label(n) for n in offered)
         if code == 'installments_required':
-            message = f'اختر خطة «{method_name}»: عدد الدفعات ({listed})'
+            message = f'اختر خطة «{method_name}» كما تظهر في جهاز الدفع: {listed}'
         else:
-            message = f'خطة «{method_name}» غير موجودة: عدد الدفعات {listed}'
+            message = f'خطة «{method_name}» غير موجودة؛ خططها: {listed}'
         super().__init__(message)
         self.message = message
 

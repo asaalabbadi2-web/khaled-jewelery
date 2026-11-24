@@ -3755,7 +3755,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
                                   Text(
                                     payment.installments == null
                                         ? payment.paymentMethodName
-                                        : '${payment.paymentMethodName} — ${payment.installments} دفعات',
+                                        : '${payment.paymentMethodName} — ${PaymentFee.installmentsLabel(payment.installments!)}',
                                     style: theme.textTheme.bodyMedium?.copyWith(
                                       fontWeight: FontWeight.w600,
                                     ),

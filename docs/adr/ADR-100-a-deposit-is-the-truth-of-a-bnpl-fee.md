@@ -74,6 +74,7 @@ This was checked on 24 Nov 2026 against Riyad Bank's 2026 statements (1 Jan – 
 
 2. **The plan on the payment (law).**
    - A sale by a method with plans carries `installments` from the method's list, otherwise it is refused.
+   - The cashier reads the plan on the payment terminal, where the customer's choice shows (the owner). A plan is said as Arabic counts it: «12 دفعة», not «12 دفعات» (`installments_label`, `PaymentFee.installmentsLabel`).
    - The rate is kept on the payment (frozen). Changing a plan's rate later re-prices nothing paid.
    - A **return** refunded through the method names no plan and takes the method's base rate. The fee on a return is not known: Known Gaps BNPL-RETURN-001.
    - Re-reading a payment (correcting its method, or splitting the remainder) keeps its rate.

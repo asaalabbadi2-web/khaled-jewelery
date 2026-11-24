@@ -1,16 +1,21 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
-import '../api_service.dart';
-import '../utils/payment_fee.dart';
-import '../widgets/payment_plans_editor.dart';
-import '../widgets/settlement_schedule_editor.dart';
-import '../models/safe_box_model.dart';
-import '../theme/app_theme.dart';
-import '../widgets/safe_box_picker_dialog.dart';
-import '../widgets/app_feedback.dart';
 
-/// شاشة إدارة وسائل الدفع المحسّنة بتصميم احترافي
+import '../api_service.dart';
+import '../models/safe_box_model.dart';
+import '../theme/app_semantic_colors.dart';
+import '../utils/bidi.dart';
+import '../utils/payment_fee.dart';
+import '../widgets/app_feedback.dart';
+import '../widgets/app_state_views.dart';
+import '../widgets/app_table.dart';
+import '../widgets/payment_method_form.dart';
+
+/// The payment methods (the owner, 24 Nov 2026: «شاشة وسائل الدفع
+/// وديالوجاتها تحتاج تطوير من حيث الشكل، الألوان والتباين ودعم الشاشات
+/// الصغيرة والكبيرة»): on a wide screen a table, a row a method -- what it
+/// takes, its plans, its settlement, its invoices, side by side; on a phone a
+/// compact card each. Every color the theme's, in both modes; its order the
+/// invoice screens' (PAY-ORDER-1); adding and editing in [showPaymentMethodForm].
 class PaymentMethodsScreenEnhanced extends StatefulWidget {
   /// The server; a test hands its own.
   final ApiService? apiService;
@@ -18,12 +23,13 @@ class PaymentMethodsScreenEnhanced extends StatefulWidget {
   const PaymentMethodsScreenEnhanced({super.key, this.apiService});
 
   @override
-  State<PaymentMethodsScreenEnhanced> createState() =>
-      _PaymentMethodsScreenEnhancedState();
+  State<PaymentMethodsScreenEnhanced> createState() => _PaymentMethodsScreenEnhancedState();
 }
 
-class _PaymentMethodsScreenEnhancedState
-    extends State<PaymentMethodsScreenEnhanced> {
+/// A wide screen: a table from here, cards below it.
+const double paymentMethodsTableMinWidth = 900;
+
+class _PaymentMethodsScreenEnhancedState extends State<PaymentMethodsScreenEnhanced> {
   late final ApiService apiService = widget.apiService ?? ApiService();
   List<Map<String, dynamic>> _paymentMethods = [];
   List<Map<String, dynamic>> _paymentTypes = [];
@@ -32,49 +38,7 @@ class _PaymentMethodsScreenEnhancedState
   List<SafeBoxModel> _availableSafeBoxes = [];
   List<Map<String, dynamic>> _accounts = [];
   bool _isLoading = true;
-
-  // ألوان النظام
-  final Color _successColor = AppColors.success;
-  final Color _warningColor = AppColors.warning;
-  final Color _errorColor = AppColors.error;
-  Color get _accentColor => Theme.of(context).colorScheme.primary;
-  final Color _infoColor = AppColors.info;
-
-  // أيقونات طرق الدفع
-  final Map<String, IconData> _paymentIcons = {
-    'cash': Icons.money,
-    'credit_card': Icons.credit_card,
-    'debit_card': Icons.payment,
-    'bank_transfer': Icons.account_balance,
-    'check': Icons.receipt_long,
-    'online': Icons.smartphone,
-  };
-
-  // ألوان طرق الدفع
-  Map<String, Color> get _paymentColors => {
-    'cash': AppColors.success,
-    'credit_card': AppColors.info,
-    'debit_card': AppColors.info,
-    'mada': AppColors.info,
-    'visa': AppColors.info,
-    'mastercard': AppColors.info,
-    'stc_pay': Color(0xFF00897B),
-    'apple_pay': Color(0xFF455A64),
-    'tabby': Color(0xFF6A1B9A),
-    'tamara': Color(0xFFAD1457),
-    'bank_transfer': Theme.of(context).colorScheme.primary,
-    'check': Color(0xFF795548),
-    'online': Color(0xFF00838F),
-    'receivable': Theme.of(context).colorScheme.primary,
-  };
-
-  bool get _isDark => Theme.of(context).brightness == Brightness.dark;
-  Color get _screenBackground =>
-      _isDark ? const Color(0xFF10161D) : const Color(0xFFF7F8FA);
-  Color get _panelColor => _isDark ? const Color(0xFF1D2630) : Colors.white;
-  Color get _primaryText => _isDark ? Colors.white : const Color(0xFF1F2937);
-  Color get _secondaryText =>
-      _isDark ? Colors.white70 : const Color(0xFF6B7280);
+  Object? _loadError;
 
   @override
   void initState() {
@@ -82,54 +46,11 @@ class _PaymentMethodsScreenEnhancedState
     _fetchData();
   }
 
-  String _suggestedSafeTypeForPaymentType(String? paymentType) {
-    final pt = (paymentType ?? '').trim().toLowerCase();
-    if (pt == 'cash') return 'cash';
-    if (pt == 'check') return 'check';
-    if (pt == 'bank_transfer' ||
-        pt.contains('transfer') ||
-        pt.contains('bank')) {
-      return 'bank';
-    }
-    // bank_transfer / credit_card / debit_card / online / BNPL... => bank
-    // Card networks / BNPL / wallets usually settle later -> clearing
-    return 'clearing';
-  }
-
-  String _safeTypeLabelAr(String safeType) {
-    switch (safeType.trim().toLowerCase()) {
-      case 'cash':
-        return 'نقدي';
-      case 'bank':
-        return 'بنكي';
-      case 'clearing':
-        return 'مستحقات تحصيل';
-      case 'check':
-        return 'شيكات';
-      case 'gold':
-        return 'ذهبي';
-      default:
-        return safeType;
-    }
-  }
-
-  bool _isSafeTypeCompatible(String? paymentType, String safeType) {
-    final pt = (paymentType ?? '').trim().toLowerCase();
-    final st = safeType.trim().toLowerCase();
-    if (st == 'gold') return false;
-    if (pt == 'cash') return st == 'cash';
-    if (pt == 'check') return st == 'check' || st == 'bank';
-    if (pt == 'bank_transfer' ||
-        pt.contains('transfer') ||
-        pt.contains('bank')) {
-      return st == 'bank';
-    }
-    // Card networks/BNPL: prefer clearing, but allow bank if you want direct posting.
-    return st == 'clearing' || st == 'bank';
-  }
-
   Future<void> _fetchData() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _loadError = null;
+    });
     try {
       final methodsRaw = await apiService.getPaymentMethods();
       final types = await apiService.getPaymentTypes();
@@ -274,6 +195,7 @@ class _PaymentMethodsScreenEnhancedState
         accounts = [];
       }
 
+      if (!mounted) return;
       setState(() {
         _paymentMethods = paymentMethods;
         _paymentTypes = dedupedTypesByCode.values.toList();
@@ -283,286 +205,62 @@ class _PaymentMethodsScreenEnhancedState
         _accounts = accounts;
         _isLoading = false;
       });
-    } catch (e) {
-      setState(() => _isLoading = false);
-      _showMessage('خطأ في جلب البيانات: $e', isError: true);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _loadError = error;
+      });
     }
   }
 
-  void _showMessage(String message, {bool isError = false}) {
-    if (isError) {
-      AppFeedback.error(context, message);
-    } else {
-      AppFeedback.success(context, message);
+
+  Future<void> _openForm({Map<String, dynamic>? editing}) async {
+    final saved = await showPaymentMethodForm(
+      context,
+      api: apiService,
+      editingMethod: editing,
+      paymentTypes: _paymentTypes,
+      invoiceTypeOptions: _invoiceTypeOptions,
+      invoiceTypeDefaultSelection: _invoiceTypeDefaultSelection,
+      safeBoxes: _availableSafeBoxes,
+      accounts: _accounts,
+    );
+    if (saved == true && mounted) {
+      AppFeedback.success(context, editing == null ? 'أُضيفت وسيلة الدفع' : 'حُفظت وسيلة الدفع');
+      _fetchData();
     }
   }
 
-  Future<void> _deletePaymentMethod(int id, String name) async {
+  Future<void> _deletePaymentMethod(Map<String, dynamic> method) async {
+    final cs = Theme.of(context).colorScheme;
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            Icon(Icons.warning_amber_rounded, color: _errorColor, size: 28),
-            SizedBox(width: 12),
-            Text('تأكيد الحذف', style: TextStyle(fontWeight: FontWeight.bold)),
-          ],
-        ),
-        content: Text('هل تريد حذف وسيلة الدفع "$name"؟'),
+        icon: Icon(Icons.delete_outline, color: cs.error),
+        title: const Text('حذف وسيلة الدفع'),
+        content: Text('تُحذف «${method['name'] ?? ''}». إن كانت عليها دفعات يرفض الخادم حذفها؛ عطّلها بدل ذلك.'),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: Text('إلغاء'),
-          ),
-          ElevatedButton(
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('إلغاء')),
+          FilledButton(
+            key: const Key('pm-delete-confirm'),
+            style: FilledButton.styleFrom(backgroundColor: cs.error, foregroundColor: cs.onError),
             onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: _errorColor),
-            child: Text('حذف'),
+            child: const Text('حذف'),
           ),
         ],
       ),
     );
-
-    if (confirm == true) {
-      try {
-        final result = await apiService.deletePaymentMethod(id);
-        _fetchData();
-        final msg = (result['message']?.toString().trim().isNotEmpty ?? false)
-            ? result['message'].toString()
-            : '✅ تم تنفيذ العملية بنجاح';
-        _showMessage('✅ $msg');
-      } catch (e) {
-        _showMessage('خطأ في الحذف: $e', isError: true);
-      }
+    if (confirm != true || !mounted) return;
+    try {
+      final result = await apiService.deletePaymentMethod(method['id'] as int);
+      if (!mounted) return;
+      final said = '${result['message'] ?? ''}'.trim();
+      AppFeedback.success(context, said.isNotEmpty ? said : 'حُذفت وسيلة الدفع');
+      _fetchData();
+    } catch (error) {
+      if (mounted) AppFeedback.error(context, error, title: 'لم تُحذف وسيلة الدفع');
     }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _screenBackground,
-      appBar: AppBar(
-        elevation: 0,
-        centerTitle: false,
-        // The bar as every screen's: the theme's colors (the owner, 17 Nov
-        // 2026 -- it was painted gold, its title white).
-        title: Row(
-          children: [
-            Icon(Icons.payment, size: 28),
-            SizedBox(width: 12),
-            Text('إدارة وسائل الدفع'),
-          ],
-        ),
-        actions: [
-          IconButton(
-            onPressed: _fetchData,
-            icon: Icon(Icons.refresh),
-            tooltip: 'تحديث',
-          ),
-        ],
-      ),
-      body: _isLoading
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      Theme.of(context).colorScheme.primary,
-                    ),
-                    strokeWidth: 3,
-                  ),
-                  SizedBox(height: 20),
-                  Text(
-                    'جاري تحميل وسائل الدفع...',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: _secondaryText,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            )
-          : _paymentMethods.isEmpty
-          ? _buildEmptyState()
-          : RefreshIndicator(
-              onRefresh: _fetchData,
-              color: Theme.of(context).colorScheme.primary,
-              child: Column(
-                children: [
-                  _buildSummaryStrip(),
-                  Expanded(child: _buildPaymentMethodsList()),
-                ],
-              ),
-            ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showPaymentMethodDialog(),
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        foregroundColor: Colors.black,
-        elevation: 3,
-        icon: Icon(Icons.add),
-        label: Text(
-          'إضافة وسيلة دفع',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEmptyState() {
-    return Center(
-      child: Padding(
-        padding: EdgeInsets.all(40),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: EdgeInsets.all(30),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.payment_outlined,
-                size: 80,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-            ),
-            SizedBox(height: 24),
-            Text(
-              'لا توجد وسائل دفع',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: _primaryText,
-              ),
-            ),
-            SizedBox(height: 12),
-            Text(
-              'قم بإضافة أول وسيلة دفع للبدء',
-              style: TextStyle(fontSize: 16, color: _secondaryText),
-              textAlign: TextAlign.center,
-            ),
-            SizedBox(height: 32),
-            ElevatedButton.icon(
-              onPressed: () => _showPaymentMethodDialog(),
-              icon: Icon(Icons.add, size: 24),
-              label: Text(
-                'إضافة وسيلة دفع',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.primary,
-                foregroundColor: Colors.black,
-                padding: EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSummaryStrip() {
-    final total = _paymentMethods.length;
-    final active = _paymentMethods
-        .where((pm) => (pm['is_active'] as bool?) ?? false)
-        .length;
-    final autoSettlement = _paymentMethods
-        .where((pm) => (pm['auto_settlement_enabled'] as bool?) ?? false)
-        .length;
-
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: _panelColor,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.25),
-        ),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: _buildSummaryCard(
-              title: 'الإجمالي',
-              value: '$total',
-              icon: Icons.layers,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: _buildSummaryCard(
-              title: 'النشطة',
-              value: '$active',
-              icon: Icons.check_circle,
-              color: AppColors.success,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: _buildSummaryCard(
-              title: 'تلقائية',
-              value: '$autoSettlement',
-              icon: Icons.sync,
-              color: AppColors.info,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSummaryCard({
-    required String title,
-    required String value,
-    required IconData icon,
-    required Color color,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: _isDark ? 0.2 : 0.1),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 18, color: color),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: _secondaryText,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: 18,
-                    color: _primaryText,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
   }
 
   /// Moves a method one place and saves the whole order; on failure the
@@ -580,277 +278,410 @@ class _PaymentMethodsScreenEnhancedState
     });
     try {
       await apiService.updatePaymentMethodsOrder(_paymentMethods);
-    } catch (e) {
+    } catch (error) {
       if (!mounted) return;
       setState(() => _paymentMethods = before);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('لم يُحفظ الترتيب: $e')));
+      AppFeedback.error(context, error, title: 'لم يُحفظ الترتيب');
     }
   }
 
-  Widget _buildPaymentMethodsList() {
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 110),
-      physics: const AlwaysScrollableScrollPhysics(),
-      itemCount: _paymentMethods.length,
-      itemBuilder: (context, index) {
-        final method = _paymentMethods[index];
-        final paymentType = method['payment_type'] as String? ?? 'cash';
-        final isActive = method['is_active'] as bool? ?? true;
-        final icon = _paymentIcons[paymentType] ?? Icons.payment;
-        final color = _paymentColors[paymentType] ?? _accentColor;
+  // ── what a method says ────────────────────────────────────────────────
 
-        return Container(
-          margin: const EdgeInsets.only(bottom: 16),
-          decoration: BoxDecoration(
-            color: _panelColor,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: isActive
-                  ? color.withValues(alpha: 0.5)
-                  : Colors.grey.withValues(alpha: 0.3),
-              width: 1.4,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: _isDark ? 0.25 : 0.06),
-                blurRadius: 18,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 52,
-                      height: 52,
-                      decoration: BoxDecoration(
-                        color: color.withValues(alpha: _isDark ? 0.28 : 0.14),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Icon(
-                        icon,
-                        color: isActive ? color : Colors.grey,
-                        size: 28,
-                      ),
+  static double _num(Object? v) => v is num ? v.toDouble() : double.tryParse('${v ?? ''}') ?? 0.0;
+
+  static String _n(double v) => v == v.roundToDouble() ? '${v.toInt()}' : '$v';
+
+  /// «0.8%», «6.99% + 1.5 لكل عملية», «—» -- what it takes an order.
+  String _commissionLine(Map<String, dynamic> m) {
+    final rate = _num(m['commission_rate']);
+    final fixed = _num(m['commission_fixed_amount']);
+    final plans = PaymentFee.plansOf(m);
+    final rates = plans.isEmpty ? <double>[rate] : (plans.values.toSet().toList()..sort());
+    final pct = ltrIsolate(rates.length == 1 ? '${_n(rates.first)}%' : '${_n(rates.first)}–${_n(rates.last)}%');
+    if (rates.every((r) => r == 0) && fixed == 0) return '—';
+    return fixed > 0 ? '$pct + ${ltrIsolate(_n(fixed))} لكل عملية' : pct;
+  }
+
+  /// The plans by their rate: «2، 3، 4 دفعات: 6.99%» -- the noun as the last
+  /// number takes it (PaymentFee.installmentsLabel).
+  List<String> _planLines(Map<String, dynamic> m) {
+    final byRate = <double, List<int>>{};
+    PaymentFee.plansOf(m).forEach((n, r) => byRate.putIfAbsent(r, () => []).add(n));
+    String counted(List<int> ns) {
+      final last = PaymentFee.installmentsLabel(ns.last);
+      if (ns.length == 1) return last;
+      final lead = RegExp(r'^\d+ ');
+      return lead.hasMatch(last) ? last.replaceFirst(lead, '${ns.join('، ')} ') : '${ns.join('، ')} دفعات';
+    }
+    return [for (final e in byRate.entries) '${counted(e.value)}: ${ltrIsolate('${_n(e.key)}%')}'];
+  }
+
+  String? _depositFeeLine(Map<String, dynamic> m) {
+    final fee = _num(m['deposit_fixed_fee']);
+    return fee > 0 ? '${ltrIsolate(_n(fee))} لكل إيداع' : null;
+  }
+
+  String _settlementLine(Map<String, dynamic> m) {
+    if (m['auto_settlement_enabled'] != true) return 'يدوية';
+    final s = '${m['schedule_summary'] ?? ''}'.trim();
+    return s.isEmpty ? 'تلقائية' : s;
+  }
+
+  String _invoicesLine(Map<String, dynamic> m) {
+    final raw = m['applicable_invoice_types'];
+    final types = raw is List ? [for (final v in raw) if ('${v ?? ''}'.isNotEmpty) '$v'] : <String>[];
+    if (types.isEmpty) return 'كل الأنواع';
+    String label(String v) {
+      for (final o in _invoiceTypeOptions) {
+        if ('${o['value']}' == v) return '${o['name_ar'] ?? o['label'] ?? v}';
+      }
+      return v;
+    }
+    return types.map(label).join('، ');
+  }
+
+  /// The safe it takes its payments into -- said only when its name is not
+  /// the method's own («مدى» into «مدى» says nothing).
+  String? _safeName(Map<String, dynamic> m) {
+    final box = m['default_safe_box'];
+    final name = box is Map ? '${box['name'] ?? ''}'.trim() : '';
+    if (name.isEmpty || name == '${m['name'] ?? ''}'.trim()) return null;
+    return 'الخزينة: $name';
+  }
+
+  // ── the screen ────────────────────────────────────────────────────────
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('وسائل الدفع'),
+        actions: [
+          IconButton(onPressed: _fetchData, icon: const Icon(Icons.refresh), tooltip: 'تحديث'),
+          LayoutBuilder(builder: (context, _) {
+            final wide = MediaQuery.sizeOf(context).width >= 600;
+            return Padding(
+              padding: const EdgeInsetsDirectional.only(end: 8),
+              child: wide
+                  // Tonal: the light bar is the primary's own gold.
+                  ? FilledButton.tonalIcon(
+                      key: const Key('pm-add'),
+                      onPressed: () => _openForm(),
+                      icon: const Icon(Icons.add),
+                      label: const Text('إضافة وسيلة دفع'),
+                    )
+                  : IconButton.filledTonal(
+                      key: const Key('pm-add'),
+                      tooltip: 'إضافة وسيلة دفع',
+                      onPressed: () => _openForm(),
+                      icon: const Icon(Icons.add),
                     ),
-                    const SizedBox(width: 12),
+            );
+          }),
+        ],
+      ),
+      body: _isLoading
+          ? const AppLoadingView(summaryBlocks: 3, rows: 5)
+          : _loadError != null
+          ? AppErrorView(title: 'تعذّر تحميل وسائل الدفع', error: _loadError!, onRetry: _fetchData)
+          : _paymentMethods.isEmpty
+          ? AppEmptyView(
+              title: 'لا توجد وسائل دفع',
+              hint: 'أضف أول وسيلة دفع لتظهر في الفواتير.',
+              icon: Icons.payments_outlined,
+              actionLabel: 'إضافة وسيلة دفع',
+              actionIcon: Icons.add,
+              onAction: () => _openForm(),
+            )
+          : LayoutBuilder(
+              builder: (context, box) {
+                final wide = box.maxWidth >= paymentMethodsTableMinWidth;
+                return Column(
+                  children: [
+                    _summary(wide),
+                    Expanded(child: wide ? _table() : _cards()),
+                  ],
+                );
+              },
+            ),
+    );
+  }
+
+  Widget _summary(bool wide) {
+    final tones = AppSemanticColors.of(context);
+    final active = _paymentMethods.where((m) => m['is_active'] == true).length;
+    final auto = _paymentMethods.where((m) => m['auto_settlement_enabled'] == true).length;
+    final confirmed = _paymentMethods.where((m) => m['deposit_confirmation_required'] == true).length;
+    final items = [
+      ('الوسائل', '${_paymentMethods.length}', Icons.layers_outlined, tones.sectionSlate),
+      ('النشطة', '$active', Icons.check_circle_outline, tones.ready),
+      ('تسوية تلقائية', '$auto', Icons.event_repeat_outlined, tones.info),
+      ('يُؤكَّد إيداعها', '$confirmed', Icons.fact_check_outlined, tones.gold),
+    ];
+    return Padding(
+      key: const Key('pm-summary'),
+      padding: EdgeInsets.fromLTRB(16, 12, 16, wide ? 12 : 8),
+      child: Wrap(
+        spacing: 10,
+        runSpacing: 10,
+        children: [
+          for (final (label, value, icon, tone) in items)
+            Container(
+              width: wide ? 200 : null,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(color: tone.container, borderRadius: BorderRadius.circular(12)),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 18, color: tone.onContainer),
+                  const SizedBox(width: 8),
+                  Text(label, style: Theme.of(context).textTheme.labelLarge?.copyWith(color: tone.onContainer)),
+                  const SizedBox(width: 8),
+                  Text(value,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            color: tone.onContainer,
+                            fontWeight: FontWeight.w800,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          )),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _typeBadge(Map<String, dynamic> m, {double size = 40}) {
+    final tone = paymentTypeTone(context, '${m['payment_type'] ?? ''}');
+    final active = m['is_active'] == true;
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: active ? tone.container : cs.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(size / 3.5),
+      ),
+      child: Icon(paymentTypeIcon('${m['payment_type'] ?? ''}'),
+          size: size * 0.55, color: active ? tone.onContainer : cs.onSurfaceVariant),
+    );
+  }
+
+  Widget _status(bool active) {
+    final tones = AppSemanticColors.of(context);
+    final tone = active ? tones.ready : tones.blocked;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+      decoration: BoxDecoration(color: tone.container, borderRadius: BorderRadius.circular(999)),
+      child: Text(active ? 'نشطة' : 'معطّلة',
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(color: tone.onContainer, fontWeight: FontWeight.w700)),
+    );
+  }
+
+  Widget _tag(String text, {IconData? icon, Key? key}) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      key: key,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(color: cs.surfaceContainerHighest, borderRadius: BorderRadius.circular(8)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[Icon(icon, size: 14, color: cs.onSurfaceVariant), const SizedBox(width: 4)],
+          Flexible(
+            child: Text(text,
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(color: cs.onSurface)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _orderButtons(int index, Map<String, dynamic> m) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      IconButton(
+        key: Key('order-up-${m['id']}'),
+        tooltip: 'أعلى',
+        visualDensity: VisualDensity.compact,
+        icon: const Icon(Icons.arrow_upward),
+        onPressed: index == 0 ? null : () => _moveMethod(index, -1),
+      ),
+      IconButton(
+        key: Key('order-down-${m['id']}'),
+        tooltip: 'أسفل',
+        visualDensity: VisualDensity.compact,
+        icon: const Icon(Icons.arrow_downward),
+        onPressed: index == _paymentMethods.length - 1 ? null : () => _moveMethod(index, 1),
+      ),
+    ],
+  );
+
+  Widget _menu(Map<String, dynamic> m) {
+    final cs = Theme.of(context).colorScheme;
+    return PopupMenuButton<String>(
+      key: Key('pm-menu-${m['id']}'),
+      tooltip: 'المزيد',
+      icon: Icon(Icons.more_vert, color: cs.onSurfaceVariant),
+      itemBuilder: (context) => [
+        const PopupMenuItem(
+          value: 'edit',
+          child: ListTile(leading: Icon(Icons.edit_outlined), title: Text('تعديل'), contentPadding: EdgeInsets.zero),
+        ),
+        PopupMenuItem(
+          value: 'delete',
+          child: ListTile(
+            leading: Icon(Icons.delete_outline, color: cs.error),
+            title: Text('حذف', style: TextStyle(color: cs.error)),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+      ],
+      onSelected: (v) => v == 'edit' ? _openForm(editing: m) : _deletePaymentMethod(m),
+    );
+  }
+
+  // ── a wide screen: the table ──────────────────────────────────────────
+
+  static const _columns = {
+    'order': AppTableColumn(140),
+    'name': AppTableColumn(220, grow: 2),
+    'fee': AppTableColumn(190, grow: 1),
+    'plans': AppTableColumn(200, grow: 2),
+    'settlement': AppTableColumn(220, grow: 2),
+    'invoices': AppTableColumn(160, grow: 1),
+    'status': AppTableColumn(96),
+    'actions': AppTableColumn(104),
+  };
+
+  Widget _table() {
+    return AppTableFrame(
+      columns: _columns,
+      onRefresh: _fetchData,
+      rowCount: _paymentMethods.length,
+      header: (widths) {
+        final theme = Theme.of(context);
+        final style = theme.textTheme.labelLarge?.copyWith(
+          fontWeight: FontWeight.w800,
+          color: theme.colorScheme.onSurfaceVariant,
+        );
+        Widget cell(String key, String label) => SizedBox(
+          width: widths[key],
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Text(label, style: style, overflow: TextOverflow.ellipsis),
+          ),
+        );
+        return Container(
+          height: 48,
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surfaceContainerHigh,
+            border: Border(bottom: BorderSide(color: theme.colorScheme.outlineVariant)),
+          ),
+          child: Row(children: [
+            cell('order', 'الترتيب'),
+            cell('name', 'الوسيلة'),
+            cell('fee', 'العمولة'),
+            cell('plans', 'الخطط'),
+            cell('settlement', 'التسوية'),
+            cell('invoices', 'الفواتير'),
+            cell('status', 'الحالة'),
+            cell('actions', ''),
+          ]),
+        );
+      },
+      row: (context, i, widths) {
+        final theme = Theme.of(context);
+        final cs = theme.colorScheme;
+        final m = _paymentMethods[i];
+        final muted = cs.onSurfaceVariant;
+        Widget pad(String key, Widget child) => SizedBox(
+          width: widths[key],
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Align(alignment: AlignmentDirectional.centerStart, child: child),
+          ),
+        );
+        final plans = _planLines(m);
+        final depositFee = _depositFeeLine(m);
+        return Material(
+          color: i.isOdd ? cs.surfaceContainerLowest : cs.surface,
+          child: InkWell(
+            key: Key('pm-row-${m['id']}'),
+            onTap: () => _openForm(editing: m),
+            child: Container(
+              constraints: const BoxConstraints(minHeight: 64),
+              decoration: BoxDecoration(
+                border: Border(bottom: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.6))),
+              ),
+              child: Row(
+                children: [
+                  pad('order', Row(mainAxisSize: MainAxisSize.min, children: [
+                    Text('${i + 1}', key: Key('order-place-${m['id']}'),
+                        style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800)),
+                    _orderButtons(i, m),
+                  ])),
+                  pad('name', Row(children: [
+                    _typeBadge(m),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            method['name']?.toString() ?? '—',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 18,
-                              color: isActive ? _primaryText : _secondaryText,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.account_balance_outlined,
-                                size: 14,
-                                color: _secondaryText,
-                              ),
-                              const SizedBox(width: 4),
-                              Expanded(
-                                child: Text(
-                                  'رقم الحساب: ${method['account_number'] ?? 'غير محدد'}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 12.5,
-                                    color: _secondaryText,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
+                          Text('${m['name'] ?? '—'}', maxLines: 1, overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w700)),
+                          if (_safeName(m) != null)
+                            Text(_safeName(m)!, maxLines: 1, overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodySmall?.copyWith(color: muted)),
                         ],
                       ),
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 5,
-                      ),
-                      decoration: BoxDecoration(
-                        color: isActive
-                            ? AppColors.success.withValues(alpha: 0.18)
-                            : Colors.grey.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(
-                          color: isActive
-                              ? AppColors.success.withValues(alpha: 0.35)
-                              : Colors.grey.withValues(alpha: 0.3),
-                        ),
-                      ),
-                      child: Text(
-                        isActive ? 'نشط' : 'معطل',
-                        style: TextStyle(
-                          color: isActive ? AppColors.success : _secondaryText,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    // The order the invoice screens show their pay buttons in
-                    // (PAY-ORDER-1): it was stored, but nothing set it.
-                    Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'الترتيب ${index + 1}',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: _secondaryText,
-                          ),
-                        ),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              key: Key('order-up-${method['id']}'),
-                              tooltip: 'أعلى',
-                              visualDensity: VisualDensity.compact,
-                              icon: const Icon(Icons.arrow_upward),
-                              onPressed: index == 0
-                                  ? null
-                                  : () => _moveMethod(index, -1),
-                            ),
-                            IconButton(
-                              key: Key('order-down-${method['id']}'),
-                              tooltip: 'أسفل',
-                              visualDensity: VisualDensity.compact,
-                              icon: const Icon(Icons.arrow_downward),
-                              onPressed: index == _paymentMethods.length - 1
-                                  ? null
-                                  : () => _moveMethod(index, 1),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    PopupMenuButton(
-                      icon: Icon(Icons.more_vert, color: _secondaryText),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      itemBuilder: (context) => [
-                        PopupMenuItem(
-                          value: 'edit',
-                          child: Row(
-                            children: [
-                              Icon(Icons.edit, size: 20, color: _accentColor),
-                              SizedBox(width: 12),
-                              Text('تعديل'),
-                            ],
-                          ),
-                        ),
-                        PopupMenuItem(
-                          value: 'delete',
-                          child: Row(
-                            children: [
-                              Icon(Icons.delete, size: 20, color: _errorColor),
-                              SizedBox(width: 12),
-                              Text('حذف', style: TextStyle(color: _errorColor)),
-                            ],
-                          ),
-                        ),
-                      ],
-                      onSelected: (value) {
-                        if (value == 'edit') {
-                          _showPaymentMethodDialog(editingMethod: method);
-                        } else if (value == 'delete') {
-                          _deletePaymentMethod(method['id'], method['name']);
-                        }
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                Divider(color: Colors.grey.withValues(alpha: 0.25), height: 1),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    _buildInfoChip(
-                      Icons.percent,
-                      'العمولة (%)',
-                      '${method['commission_rate'] ?? 0}%',
-                      _warningColor,
-                    ),
-                    _buildInfoChip(
-                      Icons.payments_outlined,
-                      'عمولة ثابتة',
-                      '${method['commission_fixed_amount'] ?? 0}',
-                      _warningColor,
-                    ),
-                    // ADR-100: the plans' rates and the fee a deposit.
-                    if (PaymentFee.plansOf(method).isNotEmpty)
-                      _buildInfoChip(
-                        Icons.view_week_outlined,
-                        'الخطط',
-                        PaymentFee.plansOf(method).entries
-                            .map((e) => '${e.key}: ${e.value}%')
-                            .join('  '),
-                        _warningColor,
-                      ),
-                    if ((double.tryParse('${method['deposit_fixed_fee'] ?? 0}') ?? 0) > 0)
-                      _buildInfoChip(
-                        Icons.account_balance_outlined,
-                        'لكل إيداع',
-                        '${method['deposit_fixed_fee']}',
-                        _warningColor,
-                      ),
-                  ],
-                ),
-                // The schedule as the server reads it (ADR-037).
-                if (method['auto_settlement_enabled'] == true &&
-                    (method['schedule_summary'] ?? '').toString().isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Row(
+                  ])),
+                  pad('fee', Column(
+                    mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.event_available, size: 18, color: _infoColor),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          method['schedule_summary'].toString(),
-                          style: TextStyle(fontSize: 12, color: _secondaryText),
-                        ),
-                      ),
+                      Text(_commissionLine(m), style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+                      if (depositFee != null)
+                        Text(depositFee, style: theme.textTheme.bodySmall?.copyWith(color: muted)),
                     ],
+                  )),
+                  pad('plans', plans.isEmpty
+                      ? Text('—', style: TextStyle(color: muted))
+                      : Wrap(spacing: 6, runSpacing: 6, children: [for (final p in plans) _tag(p)])),
+                  pad('settlement', Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(_settlementLine(m), maxLines: 2, overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall),
+                      if (m['deposit_confirmation_required'] == true) ...[
+                        const SizedBox(height: 4),
+                        _tag('يُؤكَّد إيداعها', icon: Icons.fact_check_outlined),
+                      ],
+                    ],
+                  )),
+                  pad('invoices', Text(_invoicesLine(m), maxLines: 2, overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(color: muted))),
+                  pad('status', _status(m['is_active'] == true)),
+                  SizedBox(
+                    width: widths['actions'],
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        IconButton(
+                          key: Key('pm-edit-${m['id']}'),
+                          tooltip: 'تعديل',
+                          icon: Icon(Icons.edit_outlined, color: cs.primary),
+                          onPressed: () => _openForm(editing: m),
+                        ),
+                        _menu(m),
+                      ],
+                    ),
                   ),
                 ],
-                const SizedBox(height: 16),
-                Text(
-                  'الفواتير المسموح بها',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: _secondaryText,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: _buildInvoiceTypeChips(method),
-                ),
-              ],
+              ),
             ),
           ),
         );
@@ -858,1249 +689,92 @@ class _PaymentMethodsScreenEnhancedState
     );
   }
 
-  Widget _buildInfoChip(
-    IconData icon,
-    String label,
-    String value,
-    Color color,
-  ) {
-    return Container(
-      constraints: const BoxConstraints(minWidth: 116),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: _isDark ? 0.22 : 0.1),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 18, color: color),
-          SizedBox(width: 8),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: TextStyle(fontSize: 11, color: _secondaryText),
-              ),
-              Text(
-                value,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: color,
+  // ── a phone: the cards ────────────────────────────────────────────────
+
+  Widget _cards() {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return RefreshIndicator(
+      onRefresh: _fetchData,
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
+        physics: const AlwaysScrollableScrollPhysics(),
+        itemCount: _paymentMethods.length,
+        separatorBuilder: (_, _) => const SizedBox(height: 10),
+        itemBuilder: (context, i) {
+          final m = _paymentMethods[i];
+          final plans = _planLines(m);
+          final depositFee = _depositFeeLine(m);
+          Widget line(IconData icon, String label, Widget value) => Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(icon, size: 16, color: cs.onSurfaceVariant),
+                const SizedBox(width: 6),
+                SizedBox(
+                  width: 64,
+                  child: Text(label, style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
                 ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _invoiceTypeLabel(String value) {
-    if (value.isEmpty) {
-      return value;
-    }
-
-    final option = _invoiceTypeOptions.firstWhere(
-      (opt) => opt['value']?.toString() == value,
-      orElse: () => <String, dynamic>{},
-    );
-
-    final dynamic labelCandidate =
-        option['name_ar'] ?? option['label_ar'] ?? option['value'];
-    if (labelCandidate is String && labelCandidate.isNotEmpty) {
-      return labelCandidate;
-    }
-
-    if (labelCandidate != null) {
-      final labelString = labelCandidate.toString();
-      if (labelString.isNotEmpty) {
-        return labelString;
-      }
-    }
-
-    return value;
-  }
-
-  List<Widget> _buildInvoiceTypeChips(Map<String, dynamic> method) {
-    final rawTypes = method['applicable_invoice_types'];
-    final extractedTypes = rawTypes is List
-        ? rawTypes
-              .map((entry) => entry?.toString())
-              .whereType<String>()
-              .where((value) => value.isNotEmpty)
-              .toList()
-        : <String>[];
-
-    final selectedTypes = extractedTypes.isNotEmpty
-        ? extractedTypes
-        : (_invoiceTypeDefaultSelection.isNotEmpty
-              ? List<String>.from(_invoiceTypeDefaultSelection)
-              : _invoiceTypeOptions
-                    .map((option) => option['value']?.toString() ?? '')
-                    .where((value) => value.isNotEmpty)
-                    .toList());
-
-    if (selectedTypes.isEmpty) {
-      return [
-        Chip(
-          label: Text('غير محدد'),
-          backgroundColor: Colors.grey.shade200,
-          visualDensity: VisualDensity.compact,
-        ),
-      ];
-    }
-
-    return selectedTypes.map((type) {
-      return Chip(
-        label: Text(_invoiceTypeLabel(type)),
-        backgroundColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
-        labelStyle: TextStyle(color: _primaryText, fontSize: 12),
-        visualDensity: VisualDensity.compact,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: BorderSide(
-            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.28),
-          ),
-        ),
-      );
-    }).toList();
-  }
-
-  String _resolveBackendError(Object error) {
-    final message = error.toString();
-    final start = message.indexOf('{');
-    final end = message.lastIndexOf('}');
-
-    if (start != -1 && end != -1 && end > start) {
-      final snippet = message.substring(start, end + 1);
-      try {
-        final parsed = json.decode(snippet);
-        if (parsed is Map && parsed['error'] is String) {
-          return parsed['error'] as String;
-        }
-      } catch (_) {
-        // تجاهل أخطاء التحويل ونرجع الرسالة الأصلية
-      }
-    }
-
-    return message;
-  }
-
-  void _showPaymentMethodDialog({Map<String, dynamic>? editingMethod}) async {
-    final formKey = GlobalKey<FormState>();
-    final nameController = TextEditingController(
-      text: editingMethod?['name'] ?? '',
-    );
-    final commissionController = TextEditingController(
-      text: (editingMethod?['commission_rate']?.toDouble() ?? 0.0).toString(),
-    );
-    final commissionFixedController = TextEditingController(
-      text: (editingMethod?['commission_fixed_amount']?.toDouble() ?? 0.0)
-          .toString(),
-    );
-    final settlementDaysController = TextEditingController(
-      text: (editingMethod?['settlement_days'] ?? 0).toString(),
-    );
-    // Plans, the fee a deposit, order by order (ADR-100).
-    var feeTerms = PaymentFeeTerms.fromMethod(editingMethod);
-    final rawAutoSettlement = editingMethod?['auto_settlement_enabled'];
-    bool autoSettlementEnabled =
-        rawAutoSettlement == true ||
-        (rawAutoSettlement?.toString().trim().toLowerCase() == 'true');
-
-    // The settlement and deposit schedule (ADR-037): one value, edited by
-    // SettlementScheduleEditor, previewed by the server.
-    SettlementScheduleValue schedule = SettlementScheduleValue.fromMethod(
-      editingMethod,
-    );
-
-    int? settlementBankSafeBoxId;
-    try {
-      final raw = editingMethod?['settlement_bank_safe_box_id'];
-      settlementBankSafeBoxId = raw is int
-          ? raw
-          : int.tryParse(raw?.toString() ?? '');
-    } catch (_) {
-      settlementBankSafeBoxId = null;
-    }
-
-    int? feeExpenseAccountId;
-    try {
-      final raw = editingMethod?['fee_expense_account_id'];
-      feeExpenseAccountId = raw is int
-          ? raw
-          : int.tryParse(raw?.toString() ?? '');
-    } catch (_) {
-      feeExpenseAccountId = null;
-    }
-
-    // One settlement mode: a provider's deposit settles its payments together
-    // (the owner, 6 Oct 2026). The per-transaction option is gone.
-    const selectedSettlementMode = 'bulk';
-
-    String? selectedType = editingMethod?['payment_type'];
-    bool isActive = editingMethod?['is_active'] ?? true;
-    String? invoiceTypesError;
-
-    // Guard: when editing a method with a legacy/unknown type (or before types are loaded),
-    // DropdownButton will assert if initialValue is not present in items.
-    String? paymentTypeWarning;
-    final availableTypeCodes = _paymentTypes
-        .map((t) => t['code']?.toString())
-        .whereType<String>()
-        .where((v) => v.trim().isNotEmpty)
-        .toSet();
-    if (selectedType != null && !availableTypeCodes.contains(selectedType)) {
-      paymentTypeWarning =
-          'تنبيه: نوع وسيلة الدفع الحالية غير موجود ضمن القائمة. الرجاء اختيار نوع صحيح.';
-      selectedType = null;
-    }
-
-    int? selectedDefaultSafeBoxId;
-    try {
-      final raw = editingMethod?['default_safe_box_id'];
-      selectedDefaultSafeBoxId = raw is int
-          ? raw
-          : int.tryParse(raw?.toString() ?? '');
-    } catch (_) {
-      selectedDefaultSafeBoxId = null;
-    }
-
-    final allInvoiceTypeValues = _invoiceTypeOptions
-        .map((option) => option['value']?.toString() ?? '')
-        .where((value) => value.isNotEmpty)
-        .toList();
-
-    final defaultInvoiceSelection = editingMethod == null
-        ? (_invoiceTypeDefaultSelection.isNotEmpty
-              ? List<String>.from(_invoiceTypeDefaultSelection)
-              : List<String>.from(allInvoiceTypeValues))
-        : ((editingMethod['applicable_invoice_types'] is List)
-                  ? (editingMethod['applicable_invoice_types'] as List)
-                        .map((entry) => entry?.toString())
-                        .whereType<String>()
-                        .where((value) => value.isNotEmpty)
-                        .toList()
-                  : <String>[])
-              .where((value) => value.isNotEmpty)
-              .toList();
-
-    final fallbackSelection = _invoiceTypeDefaultSelection.isNotEmpty
-        ? _invoiceTypeDefaultSelection
-        : allInvoiceTypeValues;
-
-    final initialSelection = defaultInvoiceSelection.isNotEmpty
-        ? defaultInvoiceSelection
-        : fallbackSelection;
-
-    final Set<String> selectedInvoiceTypes = initialSelection.toSet();
-    final dialogSurface = _isDark ? const Color(0xFF1B232D) : Colors.white;
-    final formFieldFill = _isDark
-        ? const Color(0xFF27313B)
-        : const Color(0xFFF9FAFB);
-
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          backgroundColor: dialogSurface,
-          surfaceTintColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(
-            horizontal: 20,
-            vertical: 20,
-          ),
-          titlePadding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
-          contentPadding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-          actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(22),
-          ),
-          title: Row(
-            children: [
-              Container(
-                padding: EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(Icons.payment, color: Theme.of(context).colorScheme.onPrimary),
-              ),
-              SizedBox(width: 12),
-              Text(
-                editingMethod == null ? 'إضافة وسيلة دفع' : 'تعديل وسيلة دفع',
-                style: TextStyle(
-                  fontSize: 19,
-                  fontWeight: FontWeight.w800,
-                  color: _primaryText,
-                ),
-              ),
-            ],
-          ),
-          content: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 760),
-            child: SingleChildScrollView(
-              child: Form(
-                key: formKey,
+                Expanded(child: value),
+              ],
+            ),
+          );
+          return Material(
+            key: Key('pm-card-${m['id']}'),
+            color: cs.surfaceContainerLow,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(color: cs.outlineVariant),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: () => _openForm(editing: m),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 4, 12),
                 child: Column(
-                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // نوع وسيلة الدفع
-                    DropdownButtonFormField<String>(
-                      initialValue: selectedType,
-                      decoration: InputDecoration(
-                        labelText: 'نوع وسيلة الدفع *',
-                        prefixIcon: Icon(Icons.category, color: _accentColor),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        filled: true,
-                        fillColor: formFieldFill,
-                      ),
-                      items: _paymentTypes.map((type) {
-                        final code = type['code'] as String;
-                        final icon = _paymentIcons[code] ?? Icons.payment;
-                        return DropdownMenuItem(
-                          value: code,
-                          child: Row(
+                    Row(
+                      children: [
+                        _typeBadge(m, size: 36),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Icon(icon, size: 20),
-                              SizedBox(width: 8),
-                              Text('${type['name_ar']} ${type['icon']}'),
+                              Text('${m['name'] ?? '—'}', maxLines: 1, overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+                              Text('الترتيب ${i + 1}',
+                                  style: theme.textTheme.labelSmall?.copyWith(color: cs.onSurfaceVariant)),
                             ],
                           ),
-                        );
-                      }).toList(),
-                      onChanged: (value) {
-                        setDialogState(() {
-                          selectedType = value;
-                          paymentTypeWarning = null;
-
-                          // If the chosen safe box no longer matches the new type, clear it.
-                          if (selectedDefaultSafeBoxId != null) {
-                            SafeBoxModel? sb;
-                            try {
-                              sb = _availableSafeBoxes.firstWhere(
-                                (e) => e.id == selectedDefaultSafeBoxId,
-                              );
-                            } catch (_) {
-                              sb = null;
-                            }
-
-                            if (sb != null &&
-                                !_isSafeTypeCompatible(
-                                  selectedType,
-                                  sb.safeType,
-                                )) {
-                              selectedDefaultSafeBoxId = null;
-                            }
-                          }
-                        });
-                      },
-                      validator: (value) => value == null ? 'مطلوب' : null,
+                        ),
+                        _status(m['is_active'] == true),
+                        _orderButtons(i, m),
+                        _menu(m),
+                      ],
                     ),
-
-                    if (paymentTypeWarning != null) ...[
-                      const SizedBox(height: 8),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: Text(
-                          paymentTypeWarning!,
-                          style: TextStyle(color: _warningColor, fontSize: 12),
-                          textAlign: TextAlign.right,
-                        ),
-                      ),
-                    ],
-
-                    SizedBox(height: 16),
-
-                    // اسم وسيلة الدفع
-                    TextFormField(
-                      controller: nameController,
-                      decoration: InputDecoration(
-                        labelText: 'اسم وسيلة الدفع *',
-                        hintText: 'مثال: مدى - بنك الراجحي',
-                        prefixIcon: Icon(
-                          Icons.text_fields,
-                          color: _accentColor,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        filled: true,
-                        fillColor: formFieldFill,
-                      ),
-                      validator: (value) =>
-                          value?.isEmpty == true ? 'مطلوب' : null,
-                    ),
-
-                    SizedBox(height: 16),
-
-                    // نسبة العمولة
-                    TextFormField(
-                      controller: commissionController,
-                      decoration: InputDecoration(
-                        labelText: 'نسبة العمولة (%)',
-                        hintText: '2.5',
-                        prefixIcon: Icon(Icons.percent, color: _warningColor),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        filled: true,
-                        fillColor: formFieldFill,
-                      ),
-                      keyboardType: TextInputType.number,
-                    ),
-
-                    SizedBox(height: 16),
-
-                    // عمولة ثابتة لكل عملية
-                    TextFormField(
-                      controller: commissionFixedController,
-                      decoration: InputDecoration(
-                        labelText: 'عمولة ثابتة لكل عملية',
-                        hintText: '0.0',
-                        prefixIcon: Icon(
-                          Icons.payments_outlined,
-                          color: _warningColor,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        filled: true,
-                        fillColor: formFieldFill,
-                      ),
-                      keyboardType: TextInputType.number,
-                    ),
-
-                    SizedBox(height: 16),
-
-                    // الخطط ورسم الإيداع (ADR-100)
-                    PaymentPlansEditor(
-                      initial: feeTerms,
-                      fieldFill: formFieldFill,
-                      onChanged: (terms) => feeTerms = terms,
-                    ),
-
-                    SizedBox(height: 16),
-
-                    // التسوية التلقائية
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade50,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.grey.shade200),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text('تسوية تلقائية (مستحقات → بنك)'),
-                            subtitle: const Text(
-                              'تقوم الخدمة بإنشاء سند تسوية تلقائياً حسب الجدول.',
-                              textAlign: TextAlign.right,
-                            ),
-                            value: autoSettlementEnabled,
-                            activeColor: _successColor,
-                            onChanged: (value) {
-                              setDialogState(() {
-                                autoSettlementEnabled = value;
-                              });
-                            },
-                          ),
-                          if (autoSettlementEnabled) ...[
-                            const SizedBox(height: 12),
-                            SettlementScheduleEditor(
-                              initial: schedule,
-                              api: apiService,
-                              fieldFill: formFieldFill,
-                              onChanged: (v) => schedule = v,
-                            ),
-                            const SizedBox(height: 12),
-
-                            Builder(
-                              builder: (context) {
-                                SafeBoxModel? selectedBankSb;
-                                if (settlementBankSafeBoxId != null) {
-                                  try {
-                                    selectedBankSb = _availableSafeBoxes
-                                        .firstWhere(
-                                          (sb) =>
-                                              sb.id == settlementBankSafeBoxId,
-                                        );
-                                  } catch (_) {
-                                    selectedBankSb = null;
-                                  }
-                                }
-
-                                final bankBoxes = _availableSafeBoxes
-                                    .where(
-                                      (sb) =>
-                                          sb.safeType.trim().toLowerCase() ==
-                                          'bank',
-                                    )
-                                    .toList();
-
-                                return Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    Align(
-                                      alignment: Alignment.centerRight,
-                                      child: Text(
-                                        'الخزينة البنكية المستهدفة *',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.grey.shade700,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    InkWell(
-                                      onTap: bankBoxes.isEmpty
-                                          ? null
-                                          : () async {
-                                              final picked =
-                                                  await showDialog<
-                                                    SafeBoxModel
-                                                  >(
-                                                    context: context,
-                                                    builder: (_) =>
-                                                        SafeBoxPickerDialog(
-                                                          safeBoxes: bankBoxes,
-                                                          selectedSafeBoxId:
-                                                              settlementBankSafeBoxId,
-                                                          filterSafeType:
-                                                              'bank',
-                                                          excludeGold: true,
-                                                        ),
-                                                  );
-                                              if (picked != null) {
-                                                setDialogState(() {
-                                                  settlementBankSafeBoxId =
-                                                      picked.id;
-                                                });
-                                              }
-                                            },
-                                      borderRadius: BorderRadius.circular(12),
-                                      child: InputDecorator(
-                                        decoration: InputDecoration(
-                                          labelText: 'خزينة البنك',
-                                          prefixIcon: Icon(
-                                            Icons.account_balance,
-                                            color: _accentColor,
-                                          ),
-                                          border: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(
-                                              12,
-                                            ),
-                                          ),
-                                          filled: true,
-                                          fillColor: formFieldFill,
-                                          suffixIcon: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              if (settlementBankSafeBoxId !=
-                                                  null)
-                                                IconButton(
-                                                  tooltip: 'مسح الربط',
-                                                  onPressed: () =>
-                                                      setDialogState(() {
-                                                        settlementBankSafeBoxId =
-                                                            null;
-                                                      }),
-                                                  icon: Icon(
-                                                    Icons.close,
-                                                    color: Colors.grey.shade700,
-                                                  ),
-                                                ),
-                                              Icon(
-                                                Icons.arrow_drop_down,
-                                                color: bankBoxes.isEmpty
-                                                    ? Colors.grey.shade400
-                                                    : Colors.grey.shade700,
-                                              ),
-                                              const SizedBox(width: 6),
-                                            ],
-                                          ),
-                                        ),
-                                        child: Text(
-                                          selectedBankSb == null
-                                              ? (bankBoxes.isEmpty
-                                                    ? 'لا توجد خزائن بنكية'
-                                                    : 'اختر خزينة بنكية')
-                                              : '${selectedBankSb.name} (${selectedBankSb.typeNameAr})',
-                                          style: TextStyle(
-                                            color: selectedBankSb == null
-                                                ? Colors.grey.shade700
-                                                : Colors.black87,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      'ملاحظة: يجب أن تكون الخزينة الافتراضية من نوع مستحقات تحصيل (clearing).',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey.shade600,
-                                      ),
-                                      textAlign: TextAlign.right,
-                                    ),
-                                  ],
-                                );
-                              },
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-
-                    // الخزينة الافتراضية (اختياري)
-                    Builder(
-                      builder: (context) {
-                        final suggestedType = _suggestedSafeTypeForPaymentType(
-                          selectedType,
-                        );
-
-                        SafeBoxModel? selectedSb;
-                        if (selectedDefaultSafeBoxId != null) {
-                          try {
-                            selectedSb = _availableSafeBoxes.firstWhere(
-                              (sb) => sb.id == selectedDefaultSafeBoxId,
-                            );
-                          } catch (_) {
-                            selectedSb = null;
-                          }
-                        }
-
-                        final hasBoxes = _availableSafeBoxes.isNotEmpty;
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: Text(
-                                'الخزينة الافتراضية (اختياري)',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.grey.shade700,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            InkWell(
-                              onTap: !hasBoxes
-                                  ? null
-                                  : () async {
-                                      final picked =
-                                          await showDialog<SafeBoxModel>(
-                                            context: context,
-                                            builder: (_) => SafeBoxPickerDialog(
-                                              safeBoxes: _availableSafeBoxes,
-                                              selectedSafeBoxId:
-                                                  selectedDefaultSafeBoxId,
-                                              filterSafeType: suggestedType,
-                                              excludeGold: true,
-                                            ),
-                                          );
-                                      if (picked != null) {
-                                        if (!_isSafeTypeCompatible(
-                                          selectedType,
-                                          picked.safeType,
-                                        )) {
-                                          _showMessage(
-                                            '⚠️ نوع الخزينة غير مناسب لنوع وسيلة الدفع',
-                                            isError: true,
-                                          );
-                                          return;
-                                        }
-                                        setDialogState(() {
-                                          selectedDefaultSafeBoxId = picked.id;
-                                        });
-                                      }
-                                    },
-                              borderRadius: BorderRadius.circular(12),
-                              child: InputDecorator(
-                                decoration: InputDecoration(
-                                  labelText: 'الخزينة',
-                                  prefixIcon: Icon(
-                                    Icons.account_balance_wallet,
-                                    color: _accentColor,
-                                  ),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  filled: true,
-                                  fillColor: formFieldFill,
-                                  suffixIcon: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      if (selectedDefaultSafeBoxId != null)
-                                        IconButton(
-                                          tooltip: 'مسح الربط',
-                                          onPressed: () => setDialogState(() {
-                                            selectedDefaultSafeBoxId = null;
-                                          }),
-                                          icon: Icon(
-                                            Icons.close,
-                                            color: Colors.grey.shade700,
-                                          ),
-                                        ),
-                                      Icon(
-                                        Icons.arrow_drop_down,
-                                        color: hasBoxes
-                                            ? Colors.grey.shade700
-                                            : Colors.grey.shade400,
-                                      ),
-                                      const SizedBox(width: 6),
-                                    ],
-                                  ),
-                                ),
-                                child: Text(
-                                  selectedSb == null
-                                      ? (hasBoxes
-                                            ? 'اختر خزينة (اقتراح: ${_safeTypeLabelAr(suggestedType)})'
-                                            : 'لا توجد خزائن متاحة')
-                                      : '${selectedSb.name} (${selectedSb.typeNameAr})',
-                                  style: TextStyle(
-                                    color: selectedSb == null
-                                        ? Colors.grey.shade700
-                                        : Colors.black87,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              'إذا لم يتم تحديد خزينة هنا، سيختار النظام الخزينة عند تسجيل الدفعة حسب الفاتورة/الإعدادات.',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey.shade600,
-                              ),
-                              textAlign: TextAlign.right,
-                            ),
-                          ],
-                        );
-                      },
-                    ),
-
-                    SizedBox(height: 16),
-
-                    // أنواع الفواتير المسموح بها
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: Text(
-                        'أنواع الفواتير المسموح بها *',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey.shade700,
-                        ),
-                      ),
-                    ),
-                    SizedBox(height: 12),
-                    if (_invoiceTypeOptions.isNotEmpty)
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: TextButton.icon(
-                              onPressed: () {
-                                setDialogState(() {
-                                  if (selectedInvoiceTypes.length ==
-                                      allInvoiceTypeValues.length) {
-                                    selectedInvoiceTypes.clear();
-                                  } else {
-                                    selectedInvoiceTypes
-                                      ..clear()
-                                      ..addAll(allInvoiceTypeValues);
-                                  }
-                                  invoiceTypesError =
-                                      selectedInvoiceTypes.isEmpty
-                                      ? 'يجب اختيار نوع فاتورة واحد على الأقل'
-                                      : null;
-                                });
-                              },
-                              icon: Icon(
-                                selectedInvoiceTypes.length ==
-                                        allInvoiceTypeValues.length
-                                    ? Icons.remove_done
-                                    : Icons.done_all,
-                              ),
-                              label: Text(
-                                selectedInvoiceTypes.length ==
-                                        allInvoiceTypeValues.length
-                                    ? 'إلغاء تحديد الكل'
-                                    : 'تحديد كل الأنواع',
-                              ),
-                            ),
-                          ),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: _invoiceTypeOptions
-                                .map((option) {
-                                  final value =
-                                      option['value']?.toString() ?? '';
-                                  if (value.isEmpty) {
-                                    return const SizedBox.shrink();
-                                  }
-
-                                  final label =
-                                      option['name_ar']?.toString() ?? value;
-                                  final isSelected = selectedInvoiceTypes
-                                      .contains(value);
-                                  return FilterChip(
-                                    selected: isSelected,
-                                    label: Text(label),
-                                    avatar: option['category'] == 'pos'
-                                        ? const Icon(Icons.storefront, size: 18)
-                                        : const Icon(
-                                            Icons.account_balance,
-                                            size: 18,
-                                          ),
-                                    onSelected: (_) {
-                                      setDialogState(() {
-                                        if (isSelected) {
-                                          selectedInvoiceTypes.remove(value);
-                                        } else {
-                                          selectedInvoiceTypes.add(value);
-                                        }
-                                        invoiceTypesError =
-                                            selectedInvoiceTypes.isEmpty
-                                            ? 'يجب اختيار نوع فاتورة واحد على الأقل'
-                                            : null;
-                                      });
-                                    },
-                                    shape: StadiumBorder(
-                                      side: BorderSide(
-                                        color: isSelected
-                                            ? _accentColor
-                                            : Colors.grey.shade300,
-                                      ),
-                                    ),
-                                    selectedColor: _accentColor.withValues(
-                                      alpha: 0.15,
-                                    ),
-                                  );
-                                })
-                                .where((chip) => chip is! SizedBox)
-                                .cast<Widget>()
-                                .toList(),
-                          ),
-                        ],
-                      )
-                    else
-                      Container(
-                        padding: EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.blueGrey.shade50,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          'لم يتم تحميل أنواع الفواتير، سيتم استخدام جميع الأنواع افتراضياً',
-                          style: TextStyle(color: Colors.blueGrey.shade700),
-                        ),
-                      ),
-
-                    if (invoiceTypesError != null) ...[
-                      SizedBox(height: 8),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: Text(
-                          invoiceTypesError!,
-                          style: TextStyle(color: _errorColor, fontSize: 12),
-                        ),
-                      ),
-                    ],
-
-                    SizedBox(height: 16),
-
-                    SizedBox(height: 16),
-
-                    // حساب مصروف العمولة (للتسوية)
-                    Builder(
-                      builder: (context) {
-                        Map<String, dynamic>? selectedFeeAccount;
-                        if (feeExpenseAccountId != null) {
-                          try {
-                            selectedFeeAccount = _accounts.firstWhere(
-                              (a) => a['id'] == feeExpenseAccountId,
-                            );
-                          } catch (_) {
-                            selectedFeeAccount = null;
-                          }
-                        }
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: Text(
-                                'حساب مصروف العمولة (للتسوية)',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.grey.shade700,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            InkWell(
-                              onTap: _accounts.isEmpty
-                                  ? null
-                                  : () async {
-                                      final picked =
-                                          await showDialog<
-                                            Map<String, dynamic>
-                                          >(
-                                            context: context,
-                                            builder: (_) =>
-                                                _AccountPickerDialog(
-                                                  accounts: _accounts,
-                                                  selectedId:
-                                                      feeExpenseAccountId,
-                                                ),
-                                          );
-                                      if (picked != null) {
-                                        setDialogState(() {
-                                          feeExpenseAccountId =
-                                              picked['id'] as int?;
-                                        });
-                                      }
-                                    },
-                              borderRadius: BorderRadius.circular(12),
-                              child: InputDecorator(
-                                decoration: InputDecoration(
-                                  labelText: 'حساب المصروف',
-                                  prefixIcon: Icon(
-                                    Icons.account_tree_outlined,
-                                    color: _warningColor,
-                                  ),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  filled: true,
-                                  fillColor: formFieldFill,
-                                  suffixIcon: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      if (feeExpenseAccountId != null)
-                                        IconButton(
-                                          tooltip: 'مسح الربط',
-                                          onPressed: () => setDialogState(() {
-                                            feeExpenseAccountId = null;
-                                          }),
-                                          icon: Icon(
-                                            Icons.close,
-                                            color: Colors.grey.shade700,
-                                          ),
-                                        ),
-                                      Icon(
-                                        Icons.arrow_drop_down,
-                                        color: _accounts.isEmpty
-                                            ? Colors.grey.shade400
-                                            : Colors.grey.shade700,
-                                      ),
-                                      const SizedBox(width: 6),
-                                    ],
-                                  ),
-                                ),
-                                child: Text(
-                                  selectedFeeAccount == null
-                                      ? (_accounts.isEmpty
-                                            ? 'لا توجد حسابات'
-                                            : 'اختر حساب مصروف العمولة (اختياري)')
-                                      : '${selectedFeeAccount['name']} (${selectedFeeAccount['account_number'] ?? ''})',
-                                  style: TextStyle(
-                                    color: selectedFeeAccount == null
-                                        ? Colors.grey.shade600
-                                        : Colors.black87,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              'يُستخدم عند إنشاء قيد تسوية المستحقات تلقائياً لتسجيل مصروف عمولة وسيلة الدفع.',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey.shade600,
-                              ),
-                              textAlign: TextAlign.right,
-                            ),
-                          ],
-                        );
-                      },
-                    ),
-
-                    SizedBox(height: 16),
-
-                    // حالة التفعيل
-                    Container(
-                      decoration: BoxDecoration(
-                        color: isActive
-                            ? _successColor.withValues(alpha: 0.1)
-                            : Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: isActive
-                              ? _successColor
-                              : Colors.grey.shade300,
-                        ),
-                      ),
-                      child: SwitchListTile(
-                        title: Text(
-                          'الحالة: ${isActive ? 'نشط' : 'معطل'}',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        subtitle: Text(
-                          isActive
-                              ? 'يمكن استخدامها في الفواتير'
-                              : 'لا يمكن استخدامها',
-                          style: TextStyle(fontSize: 12),
-                        ),
-                        value: isActive,
-                        activeThumbColor: _successColor,
-                        onChanged: (value) {
-                          setDialogState(() => isActive = value);
-                        },
-                      ),
-                    ),
+                    line(Icons.percent, 'العمولة', Text(
+                      [_commissionLine(m), if (depositFee != null) depositFee].join(' · '),
+                      style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+                    )),
+                    if (plans.isNotEmpty)
+                      line(Icons.view_week_outlined, 'الخطط',
+                          Wrap(spacing: 6, runSpacing: 6, children: [for (final p in plans) _tag(p)])),
+                    line(Icons.event_repeat_outlined, 'التسوية', Text(
+                      [_settlementLine(m), if (m['deposit_confirmation_required'] == true) 'يُؤكَّد إيداعها'].join(' · '),
+                      style: theme.textTheme.bodySmall,
+                    )),
+                    line(Icons.receipt_long_outlined, 'الفواتير',
+                        Text(_invoicesLine(m), style: theme.textTheme.bodySmall)),
                   ],
                 ),
               ),
             ),
-          ),
-          actions: [
-            TextButton(
-              style: TextButton.styleFrom(foregroundColor: _secondaryText),
-              onPressed: () => Navigator.pop(context),
-              child: Text('إلغاء'),
-            ),
-            ElevatedButton.icon(
-              onPressed: () async {
-                if (formKey.currentState!.validate()) {
-                  try {
-                    final name = nameController.text.trim();
-                    final commissionRate =
-                        double.tryParse(commissionController.text) ?? 0.0;
-                    final commissionFixedAmount =
-                        double.tryParse(commissionFixedController.text) ?? 0.0;
-                    final settlementDays =
-                        int.tryParse(settlementDaysController.text) ?? 0; // 🆕
-                    final invoiceTypeList = selectedInvoiceTypes.toList();
-                    if (feeTerms.error != null) {
-                      _showMessage('⚠️ ${feeTerms.error}', isError: true);
-                      return;
-                    }
-
-                    if (autoSettlementEnabled) {
-                      if (settlementBankSafeBoxId == null) {
-                        _showMessage(
-                          '⚠️ اختر خزينة بنكية للتسوية التلقائية',
-                          isError: true,
-                        );
-                        return;
-                      }
-                    }
-
-                    if (invoiceTypeList.isEmpty) {
-                      setDialogState(() {
-                        invoiceTypesError =
-                            'يجب اختيار نوع فاتورة واحد على الأقل';
-                      });
-                      return;
-                    }
-
-                    if (editingMethod == null) {
-                      // إضافة جديدة
-                      await apiService.createPaymentMethod(
-                        paymentType: selectedType!,
-                        name: name,
-                        defaultSafeBoxId: selectedDefaultSafeBoxId,
-                        commissionRate: commissionRate,
-                        commissionFixedAmount: commissionFixedAmount,
-                        settlementDays: settlementDays, // 🆕
-                        autoSettlementEnabled: autoSettlementEnabled,
-                        settlementScheduleType: schedule.batchPeriod,
-                        settlementWeekday: schedule.batchPeriod == 'weekday'
-                            ? schedule.closeWeekday
-                            : null,
-                        settlementBankSafeBoxId: settlementBankSafeBoxId,
-                        feeExpenseAccountId: feeExpenseAccountId,
-                        minSettlementAmount: schedule.minSettlementAmount,
-                        settlementMode: selectedSettlementMode,
-                        depositDelayDays: schedule.depositRule == 'days'
-                            ? schedule.depositDays
-                            : 0,
-                        depositScheduleType: schedule.depositRule,
-                        depositWeekday: schedule.depositRule == 'weekday'
-                            ? schedule.depositWeekday
-                            : null,
-                        bankWeekendDays: schedule.bankWeekend.toList()..sort(),
-                        skipPublicHolidays: schedule.skipPublicHolidays,
-                        isActive: isActive,
-                        applicableInvoiceTypes: invoiceTypeList,
-                        depositFixedFee: feeTerms.depositFixedFee,
-                        commissionPerOrder: feeTerms.perOrder,
-                        plans: feeTerms.plansJson,
-                        depositConfirmationRequired: feeTerms.confirmDeposits,
-                        depositDifferenceAllowed: feeTerms.differenceAllowed,
-                        commissionRounding: feeTerms.rounding,
-                        commissionRefundableRate: feeTerms.refundableRate,
-                      );
-                    } else {
-                      // تعديل
-                      await apiService.updatePaymentMethod(
-                        editingMethod['id'],
-                        paymentType: selectedType!,
-                        name: name,
-                        commissionRate: commissionRate,
-                        commissionFixedAmount: commissionFixedAmount,
-                        settlementDays: settlementDays,
-                        autoSettlementEnabled: autoSettlementEnabled,
-                        settlementScheduleType: schedule.batchPeriod,
-                        settlementWeekday: schedule.batchPeriod == 'weekday'
-                            ? schedule.closeWeekday
-                            : null,
-                        settlementBankSafeBoxId: settlementBankSafeBoxId,
-                        feeExpenseAccountId: feeExpenseAccountId,
-                        minSettlementAmount: schedule.minSettlementAmount,
-                        settlementMode: selectedSettlementMode,
-                        depositDelayDays: schedule.depositRule == 'days'
-                            ? schedule.depositDays
-                            : 0,
-                        depositScheduleType: schedule.depositRule,
-                        depositWeekday: schedule.depositRule == 'weekday'
-                            ? schedule.depositWeekday
-                            : null,
-                        bankWeekendDays: schedule.bankWeekend.toList()..sort(),
-                        skipPublicHolidays: schedule.skipPublicHolidays,
-                        isActive: isActive,
-                        defaultSafeBoxId: selectedDefaultSafeBoxId,
-                        applicableInvoiceTypes: invoiceTypeList,
-                        depositFixedFee: feeTerms.depositFixedFee,
-                        commissionPerOrder: feeTerms.perOrder,
-                        plans: feeTerms.plansJson,
-                        depositConfirmationRequired: feeTerms.confirmDeposits,
-                        depositDifferenceAllowed: feeTerms.differenceAllowed,
-                        commissionRounding: feeTerms.rounding,
-                        commissionRefundableRate: feeTerms.refundableRate,
-                      );
-                    }
-
-                    Navigator.pop(context);
-                    _fetchData();
-                    _showMessage(
-                      editingMethod == null
-                          ? '✅ تم الإضافة بنجاح'
-                          : '✅ تم التعديل بنجاح',
-                    );
-                  } catch (e) {
-                    final friendlyError = _resolveBackendError(e);
-                    setDialogState(() {
-                      invoiceTypesError = friendlyError.contains('نوع فاتورة')
-                          ? friendlyError
-                          : invoiceTypesError;
-                    });
-                    _showMessage('خطأ: $friendlyError', isError: true);
-                  }
-                }
-              },
-              icon: Icon(editingMethod == null ? Icons.add : Icons.save),
-              label: Text(editingMethod == null ? 'إضافة' : 'حفظ'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.primary,
-                foregroundColor: Colors.black,
-                minimumSize: const Size(112, 44),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ],
-        ),
+          );
+        },
       ),
-    );
-  }
-}
-
-/// حوار اختيار حساب من القائمة مع دعم البحث
-class _AccountPickerDialog extends StatefulWidget {
-  final List<Map<String, dynamic>> accounts;
-  final int? selectedId;
-
-  const _AccountPickerDialog({required this.accounts, this.selectedId});
-
-  @override
-  State<_AccountPickerDialog> createState() => _AccountPickerDialogState();
-}
-
-class _AccountPickerDialogState extends State<_AccountPickerDialog> {
-  String _query = '';
-
-  @override
-  Widget build(BuildContext context) {
-    final filtered = widget.accounts.where((a) {
-      final name = (a['name'] ?? '').toString().toLowerCase();
-      final number = (a['account_number'] ?? '').toString();
-      final q = _query.trim().toLowerCase();
-      return q.isEmpty || name.contains(q) || number.contains(q);
-    }).toList();
-
-    return AlertDialog(
-      title: const Text('اختر حساب المصروف'),
-      content: SizedBox(
-        width: 360,
-        height: 420,
-        child: Column(
-          children: [
-            TextField(
-              autofocus: true,
-              decoration: const InputDecoration(
-                hintText: 'بحث باسم أو رقم الحساب...',
-                prefixIcon: Icon(Icons.search),
-                border: OutlineInputBorder(),
-              ),
-              onChanged: (v) => setState(() => _query = v),
-            ),
-            const SizedBox(height: 8),
-            Expanded(
-              child: ListView.builder(
-                itemCount: filtered.length,
-                itemBuilder: (context, index) {
-                  final acc = filtered[index];
-                  final isSelected = acc['id'] == widget.selectedId;
-                  return ListTile(
-                    selected: isSelected,
-                    selectedTileColor: const Color(
-                      0xFF1976D2,
-                    ).withValues(alpha: 0.08),
-                    leading: Icon(
-                      Icons.account_tree_outlined,
-                      color: isSelected ? const Color(0xFF1976D2) : null,
-                    ),
-                    title: Text(acc['name']?.toString() ?? ''),
-                    subtitle: Text(acc['account_number']?.toString() ?? ''),
-                    onTap: () => Navigator.pop(context, acc),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('إلغاء'),
-        ),
-      ],
     );
   }
 }
