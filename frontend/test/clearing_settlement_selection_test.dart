@@ -26,6 +26,7 @@ void main() {
 
   Future<FakeClearingApi> open(
     WidgetTester tester, {
+    Map<String, dynamic>? method,
     List<int>? selected,
     double? due,
     ThemeData? theme,
@@ -36,6 +37,7 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final api = FakeClearingApi();
+    if (method != null) api.method = method;
     await tester.pumpWidget(
       MultiProvider(
         providers: [
@@ -240,5 +242,44 @@ void main() {
     );
     await press(tester, LogicalKeyboardKey.escape);
     expect(find.text('الخروج دون حفظ؟'), findsOneWidget);
+  });
+
+  // ADR-100 (the owner, 24 Nov 2026): «في تمارا تم وضع الخطط لكن في شاشة
+  // تسوية المقاصة لا زالت تظهر النسبة القديمة». A method with plans, computed
+  // order by order, or with a fee a deposit is charged by the server -- each
+  // payment by its plan -- and the screen shows and sends that, no rate field.
+  final tamara = {
+    'id': 13, 'name': 'تمارا', 'default_safe_box_id': 32, 'settlement_bank_safe_box_id': 37,
+    'commission_rate': 6.078, 'commission_fixed_amount': 1.5, 'commission_per_order': true,
+    'fee_expense_account_id': 845,
+    'plans': [
+      {'installments': 4, 'commission_rate': 6.99},
+      {'installments': 6, 'commission_rate': 5.99},
+    ],
+  };
+
+  testWidgets('a method with plans: the server\'s charge, not one rate', (tester) async {
+    final api = await open(tester, method: tamara);
+    expect(api.charges, isNotEmpty, reason: 'the server was asked');
+    expect(find.byKey(const ValueKey('clearing.server_charge')), findsOneWidget);
+    expect(find.byKey(const ValueKey('clearing.fee_rate')), findsNothing, reason: 'no single rate to show');
+    expect(find.textContaining('6.078'), findsNothing);
+    expect(find.textContaining('بنسبة خطتها'), findsOneWidget);
+    await settle(tester);
+    expect(api.settlements.single.fee, 219.19);
+    expect(api.settlements.single.vat, 32.88);
+  });
+
+  testWidgets('a chosen payment is charged alone', (tester) async {
+    final api = await open(tester, method: tamara, selected: [3526], due: 330);
+    expect(api.charges.last, [3526]);
+  });
+
+  testWidgets('Mada, one rate on the total, as before: its rate shown, no VAT sent', (tester) async {
+    final api = await open(tester);
+    expect(api.charges, isEmpty);
+    expect(find.byKey(const ValueKey('clearing.fee_rate')), findsOneWidget);
+    await settle(tester);
+    expect(api.settlements.single.vat, isNull);
   });
 }

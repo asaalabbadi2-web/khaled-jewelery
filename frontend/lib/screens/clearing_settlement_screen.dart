@@ -383,6 +383,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
 
   void _recomputeFeeIfNeeded() {
     if (!_autoCalcFee || _updatingFee) return;
+    if (_chargedByServer) return; // the server's (_loadServerCharge)
 
     final gross = _parseAmount(_grossController.text);
     final rate = _parseAmount(_rateController.text);
@@ -410,7 +411,59 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
 
   double _round2(double v) => double.tryParse(v.toStringAsFixed(2)) ?? v;
 
+  /// The commission as the server charges it (ADR-100): a method computed
+  /// order by order, with plans or a fee a deposit, is not one rate times the
+  /// total -- the owner, 24 Nov 2026: the plans were set and this screen still
+  /// showed the old rate. Its fee and VAT are the server's; the screen sends
+  /// them and computes none.
+  Map<String, dynamic>? _serverCharge;
+  bool _loadingCharge = false;
+
+  bool get _chargedByServer {
+    final m = _matchedPaymentMethod;
+    if (m == null) return false;
+    final plans = m['plans'];
+    return m['commission_per_order'] == true ||
+        (plans is List && plans.isNotEmpty) ||
+        ((m['deposit_fixed_fee'] as num?)?.toDouble() ?? 0) > 0;
+  }
+
+  bool get _useServerCharge => _chargedByServer && _autoCalcFee;
+
+  Future<void> _loadServerCharge() async {
+    final clearingId = _clearingSafe?.id;
+    if (clearingId == null || !_chargedByServer) return;
+    setState(() => _loadingCharge = true);
+    try {
+      final c = await _api.clearingSettlementCharge(
+        clearingSafeBoxId: clearingId,
+        invoicePaymentIds: _chosenPaymentIds,
+      );
+      if (!mounted) return;
+      setState(() {
+        _serverCharge = c;
+        _loadingCharge = false;
+      });
+      if (_autoCalcFee) {
+        _updatingFee = true;
+        _feeController.text = ((c['fee'] as num?)?.toDouble() ?? 0).toStringAsFixed(2); // the field's value
+        _lastFeeText = _feeController.text;
+        _updatingFee = false;
+      }
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _serverCharge = null;
+        _loadingCharge = false;
+      });
+      AppFeedback.error(context, error, title: 'لم تُحسب العمولة');
+    }
+  }
+
   double _computeFeeVat(double fee) {
+    if (_useServerCharge && _serverCharge != null) {
+      return (_serverCharge!['vat'] as num?)?.toDouble() ?? 0.0;
+    }
     if (!_taxEnabled) return 0.0;
     if (fee <= 0) return 0.0;
     return _round2(fee * _taxRate);
@@ -736,6 +789,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
           if (dueAmt != null) _dueAmount = dueAmt;
           _loadingPendingTxs = false;
         });
+        if (_chargedByServer) _loadServerCharge();
         // Auto-fill gross if still empty and due amount is known
         if (dueAmt != null && dueAmt > 0) {
           final currentGross = _parseAmount(_grossController.text);
@@ -764,6 +818,78 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
         });
       }
     }
+  }
+
+  /// The commission as the server charged it: by each payment's plan, the
+  /// fee a deposit once -- said, not typed.
+  Widget _serverChargePanel() {
+    final c = _serverCharge;
+    final tones = AppSemanticColors.of(context);
+    final text = Theme.of(context).textTheme;
+    if (_loadingCharge && c == null) {
+      return const Padding(padding: EdgeInsets.all(12), child: LinearProgressIndicator());
+    }
+    if (c == null) {
+      return Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: TextButton.icon(
+          key: const ValueKey('clearing.charge_retry'),
+          onPressed: _loadServerCharge,
+          icon: const Icon(Icons.refresh),
+          label: const Text('احسب العمولة'),
+        ),
+      );
+    }
+    double n(String k) => (c[k] as num?)?.toDouble() ?? 0.0;
+    final gross = _parseAmount(_grossController.text);
+    final differs = (gross - n('gross')).abs() > 0.005;
+    String how() {
+      final parts = <String>[
+        if (c['has_plans'] == true) 'كل دفعة بنسبة خطتها',
+        if (c['per_order'] == true) 'عمولة كل طلب وضريبتها وحدهما',
+        if (n('deposit_fee') > 0) 'ورسم الإيداع ${_formatMoney(n('deposit_fee'))} مرة',
+      ];
+      return parts.isEmpty ? 'كما تحسبها التسوية التلقائية' : parts.join('، ');
+    }
+    Widget row(String label, double v, {bool strong = false}) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(children: [
+        Expanded(child: Text(label, style: TextStyle(color: tones.info.onContainer))),
+        Text(_formatMoney(v),
+            style: (strong ? text.titleSmall : text.bodyMedium)?.copyWith(
+              color: tones.info.onContainer,
+              fontWeight: strong ? FontWeight.w800 : FontWeight.w600,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            )),
+      ]),
+    );
+    return Container(
+      key: const ValueKey('clearing.server_charge'),
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: tones.info.container, borderRadius: BorderRadius.circular(12)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('العمولة كما تحسبها التسوية التلقائية: ${how()}',
+              style: text.bodySmall?.copyWith(color: tones.info.onContainer)),
+          const SizedBox(height: 6),
+          row('الدفعات (${c['payments']})', n('gross')),
+          row('العمولة', n('fee')),
+          row('ضريبتها', n('vat')),
+          row('يصل البنك', n('net'), strong: true),
+          if (differs)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                'الإجمالي المكتوب غير إجمالي الدفعات: العمولة محسوبة على الدفعات كلها.',
+                key: const ValueKey('clearing.charge_differs'),
+                style: text.bodySmall?.copyWith(color: tones.warning.fg, fontWeight: FontWeight.w700),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 
   /// Formats a double compactly: no trailing zeros after decimal.
@@ -945,6 +1071,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
         notes: typed(_notesController),
         description: typed(_descriptionController),
         invoicePaymentIds: ipIds.isNotEmpty ? ipIds : null,
+        feeVatAmount: _useServerCharge && _serverCharge != null ? feeVat : null,
       );
     } catch (e) {
       if (!mounted) return;
@@ -970,6 +1097,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
         notes: typed(_notesController),
         description: typed(_descriptionController),
         invoicePaymentIds: ipIds.isNotEmpty ? ipIds : null,
+        feeVatAmount: _useServerCharge && _serverCharge != null ? feeVat : null,
       );
 
       final voucher = res['voucher'];
@@ -1305,11 +1433,17 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                           value: _autoCalcFee,
                           onChanged: (v) {
                             setState(() => _autoCalcFee = v);
-                            _recomputeFeeIfNeeded();
+                            if (v && _chargedByServer) {
+                              _loadServerCharge();
+                            } else {
+                              _recomputeFeeIfNeeded();
+                            }
                           },
                           contentPadding: EdgeInsets.zero,
-                          title: const Text(
-                            'احتساب العمولة تلقائياً (نسبة + مبلغ ثابت)',
+                          title: Text(
+                            _chargedByServer
+                                ? 'احتساب العمولة تلقائياً (بخطة كل دفعة)'
+                                : 'احتساب العمولة تلقائياً (نسبة + مبلغ ثابت)',
                           ),
                           subtitle: Text(
                             _autoCalcFee
@@ -1318,7 +1452,9 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                             style: TextStyle(color: _cs.onSurfaceVariant),
                           ),
                         ),
-                        if (_autoCalcFee)
+                        if (_useServerCharge)
+                          _serverChargePanel()
+                        else if (_autoCalcFee)
                           Column(
                             children: [
                               const SizedBox(height: 10),

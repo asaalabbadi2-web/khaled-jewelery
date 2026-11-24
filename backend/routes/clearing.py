@@ -568,6 +568,9 @@ def _settle_from_request(*, preview: bool):
             gross_amount=(data.get('gross_amount') or data.get('amount') or 0.0),
             fee_amount=(data.get('fee_amount') or data.get('fee') or 0.0),
             fee_is_net=fee_is_net,
+            # The orders' VAT, each rounded on its own, as /clearing/settlements/
+            # charge computed it (ADR-100); absent, the commission's.
+            fee_vat_amount=data.get('fee_vat_amount'),
             commission_vat_account_id=commission_vat_account_id,
             settlement_dt=settlement_dt,
             reference_number=reference_number,
@@ -692,6 +695,47 @@ def _preview_of(result):
         'balanced': abs(debit - credit) < 0.005,
         'skipped': bool(result.get('skipped')),
     }), 200
+
+
+@clearing_bp.route('/clearing/settlements/charge', methods=['POST'])
+@require_permission('vouchers.create')
+def clearing_settlement_charge():
+    """The commission and its VAT a settlement of a clearing box's payments
+    carries -- the one computation the automatic settlement takes (ADR-100):
+    each payment at its kept rate (its plan's), the fixed amount an order, the
+    fee a deposit once, the method's rounding. The screen shows it and sends
+    it; it computes none (the owner, 24 Nov 2026: the plans were set and the
+    screen still showed the old rate).
+
+    Body: clearing_safe_box_id, invoice_payment_ids (optional: every open
+    payment of the box when absent)."""
+    from clearing_settlement_scheduler import method_open_payments, settlement_charge
+    from accounting.payment_commission import per_order, plans_of, deposit_fee
+    data = request.get_json(silent=True) or {}
+    try:
+        box_id = int(data.get('clearing_safe_box_id'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'clearing_safe_box_id_required', 'message': 'اختر خزينة المستحقات'}), 400
+    pm = PaymentMethod.query.filter_by(default_safe_box_id=box_id).order_by(PaymentMethod.id).first()
+    if pm is None:
+        return jsonify({'error': 'no_payment_method', 'message': 'لا وسيلة دفع تستلم في هذه الخزينة'}), 404
+    wanted = data.get('invoice_payment_ids')
+    wanted = {int(i) for i in wanted} if isinstance(wanted, list) and wanted else None
+    payments = [(ip_id, amount) for ip_id, _day, amount in method_open_payments(pm)
+                if wanted is None or ip_id in wanted]
+    gross = round(sum(a for _, a in payments), 2)
+    fee, vat = settlement_charge(pm, payments) if payments else (0.0, 0.0)
+    return jsonify({
+        'payment_method_id': pm.id,
+        'payments': len(payments),
+        'gross': gross,
+        'fee': fee,
+        'vat': vat,
+        'net': round(gross - fee - vat, 2),
+        'per_order': per_order(pm),
+        'has_plans': bool(plans_of(pm)),
+        'deposit_fee': deposit_fee(pm),
+    })
 
 
 @clearing_bp.route('/clearing/settlements/pending-transactions', methods=['GET'])

@@ -195,3 +195,41 @@ def test_the_night_says_a_settlement_whose_deposit_is_not_confirmed(auth_headers
           {'payment_method_id': tamara['pm'].id, 'voucher_ids': [v.id], 'amount_received': 917.89,
            'deposit_date': '2026-11-10'})
     assert said(datetime(2026, 11, 20)) == [], 'confirmed, said no more'
+
+
+def test_the_manual_settlement_is_charged_by_the_one_computation(auth_headers, tamara):
+    """The owner, 24 Nov 2026: the plans were set and the settlement screen
+    still showed the old rate. The server charges each payment at its kept rate
+    and the fee a deposit once; the screen sends it, and the voucher posts it."""
+    from models import PaymentMethodPlan
+    t = tamara
+    t['pm'].plans = [PaymentMethodPlan(installments=4, commission_rate=6.99),
+                     PaymentMethodPlan(installments=6, commission_rate=5.99)]
+    t['pm'].deposit_fixed_fee = 6.0
+    db.session.flush()
+    ids = []
+    for amount, plan in ((1000.0, 6), (2150.0, 4)):
+        body = {'customer_id': Customer.query.first().id, 'invoice_type': 'بيع', 'gold_type': 'new',
+                'employee_id': t['world']['holder'].id, 'date': datetime.now().isoformat(),
+                'total': amount, 'total_weight': 2.0, 'total_tax': 0.0, 'amount_paid': amount,
+                'payments': [{'payment_method_id': t['pm'].id, 'amount': amount, 'installments': plan}],
+                'items': [{'name': 'سلسال', 'karat': 21, 'weight': 2.0, 'price': amount, 'net': amount,
+                           'quantity': 1, 'wage': 0, 'selling_price': amount}]}
+        resp = _post(auth_headers, '/api/invoices', body)
+        assert resp.status_code == 201, resp.get_data(as_text=True)[:300]
+        ids.append(InvoicePayment.query.filter_by(invoice_id=resp.get_json()['id']).one().id)
+    charge = _post(auth_headers, '/api/clearing/settlements/charge',
+                   {'clearing_safe_box_id': t['box'].id, 'invoice_payment_ids': ids})
+    assert charge.status_code == 200, charge.get_data(as_text=True)[:300]
+    c = charge.get_json()
+    # 1,000 at 5.99 % + 1.50 = 61.40; 2,150 at 6.99 % + 1.50 = 151.79; the deposit's 6.00
+    assert (c['fee'], c['payments'], c['has_plans']) == (219.19, 2, True)
+    assert c['vat'] == pytest.approx(9.21 + 22.77 + 0.90)
+    settled = _create_clearing_settlement_voucher(
+        clearing_safe_box_id=t['box'].id, bank_safe_box_id=t['bank'].id, gross_amount=c['gross'],
+        fee_amount=c['fee'], fee_vat_amount=c['vat'], settlement_dt=datetime.now(), created_by='pytest',
+        invoice_payment_ids=ids)
+    from models import VoucherAccountLine
+    lines = VoucherAccountLine.query.filter_by(voucher_id=settled['voucher']['id'], line_type='debit').all()
+    debits = sorted(round(float(ln.amount), 2) for ln in lines)
+    assert c['fee'] in debits and c['vat'] in debits and c['net'] in debits, debits

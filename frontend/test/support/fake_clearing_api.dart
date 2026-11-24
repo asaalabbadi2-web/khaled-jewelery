@@ -7,8 +7,34 @@ import 'package:frontend/models/safe_box_model.dart';
 class FakeClearingApi extends ApiService {
   FakeClearingApi() : super(baseUrl: 'http://fake.test');
 
-  /// Every createClearingSettlement call: the ids sent, and the gross.
-  final settlements = <({List<int>? ids, double gross})>[];
+  /// Every createClearingSettlement call: the ids sent, the gross, the fee
+  /// and the VAT sent with it (ADR-100: the server's charge).
+  final settlements = <({List<int>? ids, double gross, double fee, double? vat})>[];
+
+  /// The method the box's payments are paid by: Mada, one rate on the total;
+  /// a test hands one with plans (ADR-100).
+  Map<String, dynamic> method = {
+    'id': 10,
+    'name': 'مدى',
+    'default_safe_box_id': 32,
+    'settlement_bank_safe_box_id': 37,
+  };
+
+  /// Every clearingSettlementCharge call's ids, and what the server answers.
+  final charges = <List<int>?>[];
+  Map<String, dynamic> charge = {
+    'payments': 3, 'gross': 3470.0, 'fee': 219.19, 'vat': 32.88, 'net': 3217.93,
+    'per_order': true, 'has_plans': true, 'deposit_fee': 6.0,
+  };
+
+  @override
+  Future<Map<String, dynamic>> clearingSettlementCharge({
+    required int clearingSafeBoxId,
+    List<int>? invoicePaymentIds,
+  }) async {
+    charges.add(invoicePaymentIds);
+    return charge;
+  }
 
   /// Every previewClearingSettlement call's gross; [refusePreview], when set,
   /// is the body the server refuses the preview with.
@@ -92,17 +118,12 @@ class FakeClearingApi extends ApiService {
 
   @override
   Future<List<dynamic>> getActivePaymentMethods({String? invoiceType}) async =>
-      [
-        {
-          'id': 10,
-          'name': 'مدى',
-          'default_safe_box_id': 32,
-          'settlement_bank_safe_box_id': 37,
-        },
-      ];
+      [method];
 
   @override
-  Future<List<dynamic>> getAccounts({bool skipBalances = false}) async => [];
+  Future<List<dynamic>> getAccounts({bool skipBalances = false}) async => [
+    {'id': 845, 'account_number': '5320', 'name': 'رسوم الدفع الإلكتروني'},
+  ];
 
   @override
   Future<Map<String, dynamic>> getSettings() async => {
@@ -151,8 +172,9 @@ class FakeClearingApi extends ApiService {
     String? description,
     String? createdBy,
     List<int>? invoicePaymentIds,
+    double? feeVatAmount,
   }) async {
-    settlements.add((ids: invoicePaymentIds, gross: grossAmount));
+    settlements.add((ids: invoicePaymentIds, gross: grossAmount, fee: feeAmount, vat: feeVatAmount));
     return {
       'voucher': {'voucher_number': 'AV-TEST'},
     };
@@ -170,6 +192,7 @@ class FakeClearingApi extends ApiService {
     String? notes,
     String? description,
     List<int>? invoicePaymentIds,
+    double? feeVatAmount,
   }) async {
     previews.add(grossAmount);
     final refusal = refusePreview;

@@ -6154,9 +6154,11 @@ class ApiService {
     String? description,
     String? createdBy,
     List<int>? invoicePaymentIds,
+    double? feeVatAmount,
   }) => _postClearingSettlement(
     '/clearing/settlements',
     _clearingSettlementPayload(
+      feeVatAmount: feeVatAmount,
       clearingSafeBoxId: clearingSafeBoxId,
       bankSafeBoxId: bankSafeBoxId,
       grossAmount: grossAmount,
@@ -6185,9 +6187,11 @@ class ApiService {
     String? notes,
     String? description,
     List<int>? invoicePaymentIds,
+    double? feeVatAmount,
   }) => _postClearingSettlement(
     '/clearing/settlements/preview',
     _clearingSettlementPayload(
+      feeVatAmount: feeVatAmount,
       clearingSafeBoxId: clearingSafeBoxId,
       bankSafeBoxId: bankSafeBoxId,
       grossAmount: grossAmount,
@@ -6213,8 +6217,11 @@ class ApiService {
     String? description,
     String? createdBy,
     List<int>? invoicePaymentIds,
+    double? feeVatAmount,
   }) => <String, dynamic>{
     'clearing_safe_box_id': clearingSafeBoxId,
+    // The orders' VAT as the server's charge computed it (ADR-100).
+    if (feeVatAmount != null) 'fee_vat_amount': feeVatAmount,
     'bank_safe_box_id': bankSafeBoxId,
     'gross_amount': grossAmount,
     'fee_amount': feeAmount,
@@ -6227,6 +6234,18 @@ class ApiService {
     if (createdBy != null) 'created_by': createdBy,
     if (invoicePaymentIds != null) 'invoice_payment_ids': invoicePaymentIds,
   };
+
+  /// The commission and VAT a settlement of a clearing box's payments carries,
+  /// computed by the server as the automatic settlement computes it -- each
+  /// payment by its plan, the fee a deposit once (ADR-100).
+  /// Endpoint: POST /clearing/settlements/charge
+  Future<Map<String, dynamic>> clearingSettlementCharge({
+    required int clearingSafeBoxId,
+    List<int>? invoicePaymentIds,
+  }) => _postClearingSettlement('/clearing/settlements/charge', {
+    'clearing_safe_box_id': clearingSafeBoxId,
+    if (invoicePaymentIds != null && invoicePaymentIds.isNotEmpty) 'invoice_payment_ids': invoicePaymentIds,
+  });
 
   Future<Map<String, dynamic>> _postClearingSettlement(
     String path,
