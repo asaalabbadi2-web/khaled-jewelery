@@ -217,6 +217,19 @@ void main() {
     expect(find.byType(Dialog), findsNothing);
   });
 
+  // The owner, 25 Nov 2026: «ألا يجب ألا يجتمع عمولة بنسبة ثابتة مع عمولة
+  // متغيرة حسب الخطط؟» -- «يُخفى ويُحفظ صفرًا»: Tamara's old 6.99 beside its plans.
+  testWidgets('beside plans there is no single rate: it is not shown, and is saved as nothing', (tester) async {
+    final api = await open(tester, _sizes['wide']!);
+    await openForm(tester);
+    expect(find.byKey(const Key('pm-form-rate')), findsNothing);
+    expect(find.byKey(const Key('pm-form-rate-by-plans')), findsOneWidget);
+    expect(find.byKey(const Key('pm-form-fixed')), findsOneWidget, reason: 'the fixed amount an order stays');
+    await tester.tap(find.byKey(const Key('pm-form-save')));
+    await tester.pumpAndSettle();
+    expect(api.updates.single['rate'], 0.0);
+  });
+
   testWidgets('a deletion is asked first, then sent', (tester) async {
     final api = await open(tester, _sizes['wide']!);
     await tester.tap(find.byKey(const Key('pm-menu-12')));

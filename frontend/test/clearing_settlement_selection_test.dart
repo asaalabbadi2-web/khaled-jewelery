@@ -270,15 +270,52 @@ void main() {
     expect(api.settlements.single.vat, 32.88);
   });
 
+  // The owner, 25 Nov 2026: «في شاشة تسوية المقاصة هناك توضيح للخصم لكل وسيلة
+  // هل يتبع آخر إصلاح؟» -- it said «نسبة 6.08%», the old single rate rounded.
+  testWidgets('the method\'s card says its plans and terms, not one rate', (tester) async {
+    await open(tester, method: {
+      ...tamara,
+      'deposit_fixed_fee': 6.0,
+      'deposit_confirmation_required': true,
+      'tax_invoice_from': '2026-10-01',
+      'plans': [
+        {'installments': 2, 'commission_rate': 6.99},
+        {'installments': 3, 'commission_rate': 6.99},
+        {'installments': 4, 'commission_rate': 6.99},
+        {'installments': 6, 'commission_rate': 5.99},
+        {'installments': 12, 'commission_rate': 5.99},
+      ],
+    });
+    final card = find.byKey(const ValueKey('clearing.method_card'));
+    expect(card, findsOneWidget);
+    String said(String t) => t.replaceAll(RegExp('[\u2066-\u2069\u200e\u200f]'), '');
+    final texts = tester.widgetList<Text>(find.descendant(of: card, matching: find.byType(Text)))
+        .map((t) => said(t.data ?? '')).toList();
+    expect(texts.where((t) => t.startsWith('نسبة')), isEmpty, reason: 'no single rate beside the plans');
+    expect(texts, contains('2، 3، 4 دفعات: 6.99%'));
+    expect(texts, contains('6، 12 دفعة: 5.99%'));
+    expect(texts.any((t) => t.contains('1.5') && t.contains('لكل طلب')), isTrue);
+    expect(texts.any((t) => t.contains('6') && t.contains('لكل إيداع')), isTrue);
+    expect(texts, contains('يُؤكَّد الإيداع بما وصل البنك'));
+    expect(texts, contains('الضريبة تنتظر فاتورة الشهر'));
+  });
+
   testWidgets('a chosen payment is charged alone', (tester) async {
     final api = await open(tester, method: tamara, selected: [3526], due: 330);
     expect(api.charges.last, [3526]);
   });
 
   testWidgets('Mada, one rate on the total, as before: its rate shown, no VAT sent', (tester) async {
-    final api = await open(tester);
+    final api = await open(tester, method: {
+      'id': 10, 'name': 'مدى', 'default_safe_box_id': 32, 'settlement_bank_safe_box_id': 37,
+      'commission_rate': 0.8, 'fee_expense_account_id': 845,
+    });
     expect(api.charges, isEmpty);
     expect(find.byKey(const ValueKey('clearing.fee_rate')), findsOneWidget);
+    final card = find.byKey(const ValueKey('clearing.method_card'));
+    expect(find.descendant(of: card, matching: find.textContaining('نسبة')), findsOneWidget,
+        reason: 'a method without plans: its one rate');
+    expect(find.descendant(of: card, matching: find.textContaining('0.8%')), findsOneWidget);
     await settle(tester);
     expect(api.settlements.single.vat, isNull);
   });

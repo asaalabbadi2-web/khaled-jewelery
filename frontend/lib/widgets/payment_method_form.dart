@@ -275,7 +275,7 @@ class _PaymentMethodFormState extends State<PaymentMethodForm> {
           paymentType: _type!,
           name: _name.text.trim(),
           defaultSafeBoxId: _defaultBoxId,
-          commissionRate: double.tryParse(_rate.text) ?? 0.0,
+          commissionRate: _hasPlans ? 0.0 : double.tryParse(_rate.text) ?? 0.0,
           commissionFixedAmount: double.tryParse(_fixed.text) ?? 0.0,
           autoSettlementEnabled: _auto,
           settlementScheduleType: s.batchPeriod,
@@ -304,7 +304,7 @@ class _PaymentMethodFormState extends State<PaymentMethodForm> {
           _m!['id'] as int,
           paymentType: _type!,
           name: _name.text.trim(),
-          commissionRate: double.tryParse(_rate.text) ?? 0.0,
+          commissionRate: _hasPlans ? 0.0 : double.tryParse(_rate.text) ?? 0.0,
           commissionFixedAmount: double.tryParse(_fixed.text) ?? 0.0,
           settlementDays: _int(_m!['settlement_days']) ?? 0,
           autoSettlementEnabled: _auto,
@@ -510,28 +510,50 @@ class _PaymentMethodFormState extends State<PaymentMethodForm> {
     ),
   ];
 
-  List<Widget> _fees() => [
-    _pair(
-      TextFormField(
-        key: const Key('pm-form-rate'),
-        controller: _rate,
-        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        decoration: _field('نسبة العمولة', icon: Icons.percent, hint: '2.5', suffix: '%'),
+  /// With plans every sale takes its plan's rate: the single rate is no
+  /// payment's, so it is not shown, and is saved as nothing (the owner, 25
+  /// Nov 2026: «يُخفى ويُحفظ صفرًا»; the server refuses it beside plans).
+  bool get _hasPlans => _feeTerms.plans.isNotEmpty;
+
+  List<Widget> _fees() {
+    final fixed = TextFormField(
+      key: const Key('pm-form-fixed'),
+      controller: _fixed,
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      decoration: _field(_hasPlans ? 'عمولة ثابتة لكل طلب' : 'عمولة ثابتة لكل عملية',
+          icon: Icons.payments_outlined, hint: '0', suffix: 'ريال'),
+    );
+    return [
+      if (_hasPlans) ...[
+        fixed,
+        const SizedBox(height: 6),
+        Text(
+          'لهذه الوسيلة خطط: كل بيع بنسبة خطته، ويُضاف المبلغ الثابت لكل طلب. لا نسبة ثابتة معها.',
+          key: const Key('pm-form-rate-by-plans'),
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+        ),
+      ] else
+        _pair(
+          TextFormField(
+            key: const Key('pm-form-rate'),
+            controller: _rate,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: _field('نسبة العمولة', icon: Icons.percent, hint: '2.5', suffix: '%'),
+          ),
+          fixed,
+        ),
+      const SizedBox(height: 14),
+      PaymentPlansEditor(
+        initial: _feeTerms,
+        fieldFill: _fill,
+        onChanged: (t) {
+          final had = _hasPlans;
+          _feeTerms = t;
+          if (had != _hasPlans) setState(() {});
+        },
       ),
-      TextFormField(
-        key: const Key('pm-form-fixed'),
-        controller: _fixed,
-        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        decoration: _field('عمولة ثابتة لكل عملية', icon: Icons.payments_outlined, hint: '0', suffix: 'ريال'),
-      ),
-    ),
-    const SizedBox(height: 14),
-    PaymentPlansEditor(
-      initial: _feeTerms,
-      fieldFill: _fill,
-      onChanged: (t) => _feeTerms = t,
-    ),
-  ];
+    ];
+  }
 
   List<Widget> _settlement() {
     final bankBoxes = [for (final b in widget.safeBoxes) if (b.safeType.trim().toLowerCase() == 'bank') b];

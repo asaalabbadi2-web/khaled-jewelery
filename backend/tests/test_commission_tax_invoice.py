@@ -202,6 +202,7 @@ def test_a_deposits_vat_difference_waits_too(auth_headers, tamara):
     ({'invoice_number': ''}, 'invoice_number_required'),
 ])
 def test_an_invoice_is_refused_and_writes_nothing(auth_headers, tamara, change, code):
+    change = dict(change)          # the parameter is pytest's, shared by every run of this case
     _settled(auth_headers, tamara, 1000.0, 71.40, datetime(2026, 10, 5, 10), datetime(2026, 10, 10, 12))
     body = _invoice(tamara, change.pop('month', '2026-10'), 10.71, fee=71.40, invoice_date='2026-11-01')
     if 'tax_number' in change:

@@ -379,6 +379,14 @@ def _apply_fee_terms(payment_method, data):
                 existing[n].commission_rate = rate
             else:
                 payment_method.plans.append(PaymentMethodPlan(installments=n, commission_rate=rate))
+    # With plans every sale takes its plan's rate, and a return its fixed
+    # amount: a single rate beside them is no payment's, and reads as added to
+    # them (the owner, 25 Nov 2026: «ألا يجب ألا يجتمع عمولة بنسبة ثابتة مع
+    # عمولة متغيرة حسب الخطط؟» -- «يُخفى ويُحفظ صفرًا»). LAW.
+    if payment_method.plans and float(payment_method.commission_rate or 0.0) > 0:
+        return jsonify({'error': 'rate_with_plans',
+                        'message': 'وسيلة لها خطط لا تُضبط لها نسبة ثابتة: كل بيع بنسبة خطته. '
+                                   'اجعل النسبة صفرًا أو احذف الخطط.'}), 400
     return None
 
 

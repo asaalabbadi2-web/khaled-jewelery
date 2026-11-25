@@ -17,6 +17,7 @@ import '../widgets/app_shortcuts.dart';
 import '../widgets/app_leave_guard.dart';
 import 'voucher_details_screen.dart';
 import '../utils/bidi.dart';
+import '../utils/payment_fee.dart';
 import '../utils/currency_utils.dart';
 import '../widgets/confirm_financial_action.dart';
 import '../widgets/app_state_views.dart';
@@ -1814,6 +1815,10 @@ class _PaymentMethodInfoCard extends StatelessWidget {
   static String _plain(double v) =>
       formatAmount(v, decimals: v == v.truncateToDouble() ? 0 : 2);
 
+  /// A rate as set -- 6.078 stays 6.078, never 6.08.
+  static String _plainRate(double v) =>
+      v == v.truncateToDouble() ? '${v.toInt()}' : '$v';
+
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
@@ -1823,8 +1828,16 @@ class _PaymentMethodInfoCard extends StatelessWidget {
     final rate = (paymentMethod['commission_rate'] as num?)?.toDouble() ?? 0.0;
     final fixed =
         (paymentMethod['commission_fixed_amount'] as num?)?.toDouble() ?? 0.0;
+    // What the settlement deducts, as the server computes it (ADR-100/101):
+    // the plans' rates where the method has plans -- its single rate is
+    // then no payment's -- the fixed amount an order, the fee a deposit.
+    final plans = PaymentFee.planGroups(paymentMethod);
+    final perOrder = paymentMethod['commission_per_order'] == true;
+    final depositFee = (paymentMethod['deposit_fixed_fee'] as num?)?.toDouble() ?? 0.0;
+    final currency = context.read<SettingsProvider>().currencySymbolText;
 
     return Container(
+      key: const ValueKey('clearing.method_card'),
       padding: const EdgeInsets.symmetric(
         horizontal: theme.AppSpace.md,
         vertical: theme.AppSpace.md,
@@ -1885,17 +1898,32 @@ class _PaymentMethodInfoCard extends StatelessWidget {
             spacing: theme.AppSpace.sm,
             runSpacing: theme.AppSpace.xs,
             children: [
-              if (rate > 0)
+              if (plans.isNotEmpty)
+                for (final group in plans)
+                  _InfoChip(label: group, icon: Icons.percent)
+              else if (rate > 0)
                 _InfoChip(
-                  label: 'نسبة ${ltrIsolate('${_plain(rate)}%')}',
+                  label: 'نسبة ${ltrIsolate('${_plainRate(rate)}%')}',
                   icon: Icons.percent,
                 ),
               if (fixed > 0)
                 _InfoChip(
-                  label:
-                      'ثابت ${ltrIsolate(_plain(fixed))} ${context.read<SettingsProvider>().currencySymbolText}/عملية',
+                  label: perOrder
+                      ? 'ثابت ${ltrIsolate(_plain(fixed))} $currency لكل طلب'
+                      : 'ثابت ${ltrIsolate(_plain(fixed))} $currency/عملية',
                   icon: Icons.attach_money,
                 ),
+              if (depositFee > 0)
+                _InfoChip(
+                  label: 'رسم ${ltrIsolate(_plain(depositFee))} $currency لكل إيداع',
+                  icon: Icons.account_balance_outlined,
+                ),
+              if (perOrder && plans.isEmpty)
+                const _InfoChip(label: 'تُحسب لكل طلب وحده', icon: Icons.receipt_outlined),
+              if (paymentMethod['deposit_confirmation_required'] == true)
+                const _InfoChip(label: 'يُؤكَّد الإيداع بما وصل البنك', icon: Icons.fact_check_outlined),
+              if (paymentMethod['tax_invoice_from'] != null)
+                const _InfoChip(label: 'الضريبة تنتظر فاتورة الشهر', icon: Icons.receipt_long_outlined),
               if (scheduleInfo != null)
                 _InfoChip(label: scheduleInfo!, icon: Icons.event_repeat),
               if (feeAccountName != null)

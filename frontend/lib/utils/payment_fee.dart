@@ -90,6 +90,26 @@ class PaymentFee {
     return '$n دفعة';
   }
 
+  /// The plans by their rate, each said as Arabic counts its last number:
+  /// «2، 3، 4 دفعات: 6.99%»، «6، 12 دفعة: 5.99%» -- highest rate first.
+  static List<String> planGroups(Map<String, dynamic> method) {
+    final byRate = <double, List<int>>{};
+    for (final MapEntry(key: n, value: r) in plansOf(method).entries) {
+      (byRate[r] ??= []).add(n);
+    }
+    String pct(double v) => v == v.roundToDouble() ? '${v.toInt()}' : '$v';
+    final rates = byRate.keys.toList()..sort((a, b) => b.compareTo(a));
+    return [
+      for (final r in rates)
+        () {
+          final ns = byRate[r]!..sort();
+          final head = ns.sublist(0, ns.length - 1).map((n) => '$n، ').join();
+          final last = ns.length == 1 ? installmentsLabel(ns.last) : '${ns.last} ${installmentsLabel(ns.last).split(' ').last}';
+          return '$head$last: ${pct(r)}%';
+        }(),
+    ];
+  }
+
   /// «0.8%», «6.99% + 1.5», «1.5» -- what the method deducts, said once.
   static String label(double rate, double fixed) {
     String n(double v) => v == v.roundToDouble() ? '${v.toInt()}' : '$v';

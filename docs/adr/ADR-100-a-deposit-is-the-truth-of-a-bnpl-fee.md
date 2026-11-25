@@ -77,6 +77,7 @@ This was checked on 24 Nov 2026 against Riyad Bank's 2026 statements (1 Jan – 
    - The cashier reads the plan on the payment terminal, where the customer's choice shows (the owner). A plan is said as Arabic counts it: «12 دفعة», not «12 دفعات» (`installments_label`, `PaymentFee.installmentsLabel`).
    - The rate is kept on the payment (frozen). Changing a plan's rate later re-prices nothing paid.
    - A **return** refunded through the method names no plan and takes the method's base rate. The fee on a return is not known: Known Gaps BNPL-RETURN-001.
+   - **A method with plans has no single rate** (the owner, 25 Nov 2026: «يُخفى ويُحفظ صفرًا»). The form hides it and saves 0, and the server refuses a single rate beside plans (`rate_with_plans`). So a return refunded through such a method is estimated at its fixed amount alone, and the deposit corrects the rest.
    - Re-reading a payment (correcting its method, or splitting the remainder) keeps its rate.
 
 3. **One computation**, in `accounting/payment_commission.py`.

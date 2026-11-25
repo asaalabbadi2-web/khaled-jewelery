@@ -23,7 +23,7 @@ def rollback_after_each(app, db_fence):
 
 
 def _tamara(world, **kw):
-    pm = PaymentMethod(payment_type='tamara', name=f'تمارا {uuid.uuid4().hex[:6]}', commission_rate=6.078,
+    pm = PaymentMethod(payment_type='tamara', name=f'تمارا {uuid.uuid4().hex[:6]}', commission_rate=0.0,
                        commission_fixed_amount=1.5, commission_per_order=True, is_active=True,
                        default_safe_box_id=world['pm'].default_safe_box_id, **kw)
     pm.plans = [PaymentMethodPlan(installments=n, commission_rate=r)
@@ -157,3 +157,25 @@ def test_a_methods_rounding_and_refundable_part_are_set_from_its_settings(app, a
         g.pop('current_user', None)
         refused = app.test_client().put(f'/api/payment-methods/{pm.id}', headers=auth_headers, json=bad)
         assert refused.status_code == 400, bad
+
+
+def test_a_single_rate_is_refused_beside_plans(app, auth_headers, world):
+    """With plans every sale takes its plan's rate; a single rate beside them is
+    no payment's and reads as added to them (the owner, 25 Nov 2026: «يُخفى
+    ويُحفظ صفرًا»). The refusal is asked last: it rolls the request back, and
+    with it what this test made before it in the same transaction."""
+    from flask import g
+    from accounting.payment_commission import payment_commission
+    # A return refunded by a method with plans names none: its fixed amount alone.
+    fee = payment_commission(_tamara(world), 1000.0, required=False)
+    assert (fee['commission_rate'], fee['commission_amount']) == (0.0, 1.5)
+
+    g.pop('current_user', None)
+    off = app.test_client().put(f'/api/payment-methods/{_tamara(world).id}', headers=auth_headers,
+                                json={'commission_rate': 6.078, 'plans': []})
+    assert off.status_code == 200, 'no plans: its one rate'
+
+    g.pop('current_user', None)
+    bad = app.test_client().put(f'/api/payment-methods/{_tamara(world).id}', headers=auth_headers,
+                                json={'commission_rate': 6.078})
+    assert bad.status_code == 400 and bad.get_json()['error'] == 'rate_with_plans'
