@@ -335,6 +335,14 @@ class PaymentMethod(db.Model):
     commission_rounding = db.Column(db.String(16), default='half_up', nullable=False, server_default='half_up')
     commission_refundable_rate = db.Column(db.Float, default=0.0, nullable=False, server_default='0')
     deposit_difference_allowed = db.Column(db.Float, default=10.0, nullable=False, server_default='10')
+    # ADR-101 (the owner, 25 Nov 2026). POLICY: the first month the company
+    # issues one tax invoice for the commissions of a month's orders -- from
+    # it, the commission's VAT waits on the method's pending account until
+    # the month's invoice is entered; None, it is claimed at the settlement.
+    tax_invoice_from = db.Column(db.Date, nullable=True)
+    # Made once, the first time a VAT waits (beside the input VAT it waits to become).
+    commission_vat_pending_account_id = db.Column(
+        db.Integer, db.ForeignKey('account.id', ondelete='RESTRICT'), nullable=True)
     # The plans a payment by it names one of (installments and their rate);
     # none -- its rate for every payment.
     plans = db.relationship('PaymentMethodPlan', order_by='PaymentMethodPlan.installments',
@@ -419,6 +427,8 @@ class PaymentMethod(db.Model):
             'commission_rounding': getattr(self, 'commission_rounding', None) or 'half_up',
             'commission_refundable_rate': float(getattr(self, 'commission_refundable_rate', 0.0) or 0.0),
             'deposit_difference_allowed': float(getattr(self, 'deposit_difference_allowed', 10.0) or 0.0),
+            'tax_invoice_from': (self.tax_invoice_from.isoformat()
+                                 if getattr(self, 'tax_invoice_from', None) else None),
             'plans': [{'installments': int(p.installments), 'commission_rate': float(p.commission_rate or 0.0)}
                       for p in (self.plans or [])],
             'is_active': self.is_active,
@@ -521,6 +531,56 @@ class ClearingDepositSettlement(db.Model):
                            nullable=False, index=True)
     voucher_id = db.Column(db.Integer, db.ForeignKey('voucher.id', ondelete='RESTRICT'),
                            nullable=False, unique=True)
+
+
+class CommissionTaxInvoice(db.Model):
+    """A company's monthly tax invoice for the commissions of a month's orders
+    (ADR-101): its VAT, entered, is claimed on its date -- moved from the
+    method's pending account to input VAT by its own voucher, the rounding
+    between them to the commission. One a month a method; cancelling its
+    voucher undoes it, and the month waits again."""
+    __tablename__ = 'commission_tax_invoice'
+    __table_args__ = (db.UniqueConstraint('payment_method_id', 'period_month',
+                                          name='uq_commission_tax_invoice_month'),
+                      db.CheckConstraint('vat_amount >= 0 AND fee_amount >= 0',
+                                         name='ck_commission_tax_invoice_amounts'))
+
+    id = db.Column(db.Integer, primary_key=True)
+    payment_method_id = db.Column(db.Integer, db.ForeignKey('payment_method.id', ondelete='RESTRICT'),
+                                  nullable=False, index=True)
+    period_month = db.Column(db.Date, nullable=False)          # the month's first day
+    invoice_number = db.Column(db.String(60), nullable=False)
+    invoice_date = db.Column(db.Date, nullable=False)
+    supplier_tax_number = db.Column(db.String(15), nullable=False)
+    fee_amount = db.Column(db.Float, nullable=False)           # before VAT, as the invoice says
+    vat_amount = db.Column(db.Float, nullable=False)
+    # Frozen at entry: what the month's orders compute to, and what moved to the commission.
+    computed_fee = db.Column(db.Float, nullable=False, default=0.0)
+    computed_vat = db.Column(db.Float, nullable=False, default=0.0)
+    rounding_moved = db.Column(db.Float, nullable=False, default=0.0)
+    voucher_id = db.Column(db.Integer, db.ForeignKey('voucher.id', ondelete='RESTRICT'), nullable=True)
+    note = db.Column(db.Text, nullable=True)
+    created_by = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=db.func.now())
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'payment_method_id': self.payment_method_id,
+            'month': self.period_month.strftime('%Y-%m'),
+            'invoice_number': self.invoice_number,
+            'invoice_date': self.invoice_date.isoformat(),
+            'supplier_tax_number': self.supplier_tax_number,
+            'fee_amount': self.fee_amount,
+            'vat_amount': self.vat_amount,
+            'computed_fee': self.computed_fee,
+            'computed_vat': self.computed_vat,
+            'rounding_moved': self.rounding_moved,
+            'voucher_id': self.voucher_id,
+            'note': self.note,
+            'created_by': self.created_by,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
 
 
 class PublicHoliday(db.Model):

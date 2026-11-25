@@ -96,7 +96,7 @@ This was checked on 24 Nov 2026 against Riyad Bank's 2026 statements (1 Jan – 
 
 5. **The report.** `UNCONFIRMED_DEPOSIT` in the nightly check covers a settlement of a method that requires confirmation, dated from `DEPOSIT_CONFIRMATION_FROM` on, whose deposit day passed more than the grace days ago. The check does not fix anything.
 
-6. **The commission's tax invoice (by order month)**, a later phase.
+6. **The commission's tax invoice (by order month)**, a later phase -- built as ADR-101 (25 Nov 2026): the VAT waits on the method's pending account until its month's invoice claims it.
    - Tamara issues a monthly tax invoice for the orders made in that month. September's commission was 4,592.06, the same to the halala as its orders' commissions by this formula. Its VAT is 15% of the month's total (688.81).
    - The accountant will enter each month's invoice. The system compares it with the commissions of that month's orders, and the commissions' input VAT in the return is taken from it.
    - The VAT up to the end of Q3 2026 is settled («تعتبر مسوّاه»). Correction starts at Q4 and does not reopen any earlier quarter.

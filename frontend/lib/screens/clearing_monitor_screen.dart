@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../widgets/deposit_confirm_dialog.dart';
+import 'commission_tax_invoices_screen.dart';
 import '../api_service.dart';
 import '../models/safe_box_model.dart';
 import 'package:provider/provider.dart';
@@ -1418,6 +1419,21 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
                       },
                       icon: const Icon(Icons.fact_check_outlined, size: 18),
                       label: const Text('تأكيد إيداع بما وصل البنك'),
+                    ),
+                    const SizedBox(height: theme.AppSpace.sm),
+                  ],
+                  // Its commissions' monthly tax invoices (ADR-101).
+                  if (pm != null && pm['tax_invoice_from'] != null) ...[
+                    OutlinedButton.icon(
+                      key: Key('tax-invoices-open-${sb.id}'),
+                      onPressed: () async {
+                        await Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => CommissionTaxInvoicesScreen(api: _api, method: pm),
+                        ));
+                        _loadData();
+                      },
+                      icon: const Icon(Icons.receipt_long_outlined, size: 18),
+                      label: const Text('الفواتير الضريبية للعمولات'),
                     ),
                     const SizedBox(height: theme.AppSpace.sm),
                   ],

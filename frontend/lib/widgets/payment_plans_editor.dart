@@ -24,6 +24,8 @@ class PaymentFeeTerms {
     this.differenceAllowed = 10.0,
     this.halfEven = false,
     this.refundableRate = 0.0,
+    this.taxInvoices = false,
+    this.taxInvoiceFrom = '',
   });
 
   factory PaymentFeeTerms.fromMethod(Map<String, dynamic>? method) {
@@ -45,6 +47,10 @@ class PaymentFeeTerms {
       differenceAllowed: double.tryParse('${method?['deposit_difference_allowed'] ?? 10}') ?? 10.0,
       halfEven: method?['commission_rounding'] == 'half_even',
       refundableRate: double.tryParse('${method?['commission_refundable_rate'] ?? 0}') ?? 0.0,
+      taxInvoices: method?['tax_invoice_from'] != null,
+      taxInvoiceFrom: '${method?['tax_invoice_from'] ?? ''}'.length >= 7
+          ? '${method?['tax_invoice_from']}'.substring(0, 7)
+          : '',
     );
   }
 
@@ -55,8 +61,17 @@ class PaymentFeeTerms {
   final double differenceAllowed;
   final bool halfEven;
   final double refundableRate;
+  // ADR-101: the company issues a monthly tax invoice for its commissions,
+  // from a month ('YYYY-MM').
+  final bool taxInvoices;
+  final String taxInvoiceFrom;
+
+  static final _month = RegExp(r'^(\d{4})-(0[1-9]|1[0-2])$');
 
   String get rounding => halfEven ? 'half_even' : 'half_up';
+
+  /// What the server is sent: the month's first day, or '' -- none.
+  String get taxInvoiceFromJson => taxInvoices ? '$taxInvoiceFrom-01' : '';
 
   List<Map<String, dynamic>> get plansJson => [
     for (final (n, r) in plans) {'installments': n, 'commission_rate': r},
@@ -72,6 +87,9 @@ class PaymentFeeTerms {
     }
     if (differenceAllowed < 0) return 'الفرق المسموح لا يكون سالبًا';
     if (refundableRate < 0) return 'الجزء المسترد لا يكون سالبًا';
+    if (taxInvoices && !_month.hasMatch(taxInvoiceFrom)) {
+      return 'شهر أول فاتورة ضريبية: سنة-شهر، مثل 2026-10';
+    }
     return null;
   }
 }
@@ -116,6 +134,8 @@ class _PaymentPlansEditorState extends State<PaymentPlansEditor> {
   late final TextEditingController _allowed = TextEditingController(
     text: '${widget.initial.differenceAllowed}',
   );
+  late bool _taxInvoices = widget.initial.taxInvoices;
+  late final TextEditingController _taxFrom = TextEditingController(text: widget.initial.taxInvoiceFrom);
 
   @override
   void dispose() {
@@ -126,6 +146,7 @@ class _PaymentPlansEditorState extends State<PaymentPlansEditor> {
     _depositFee.dispose();
     _allowed.dispose();
     _refundable.dispose();
+    _taxFrom.dispose();
     super.dispose();
   }
 
@@ -147,6 +168,8 @@ class _PaymentPlansEditorState extends State<PaymentPlansEditor> {
       refundableRate: _refundable.text.trim().isEmpty
           ? 0.0
           : double.tryParse(normalizeNumber(_refundable.text).trim()) ?? -1,
+      taxInvoices: _taxInvoices,
+      taxInvoiceFrom: normalizeNumber(_taxFrom.text).trim(),
     ));
   }
 
@@ -297,6 +320,30 @@ class _PaymentPlansEditorState extends State<PaymentPlansEditor> {
             label: const Text('إضافة خطة'),
           ),
         ),
+        SwitchListTile(
+          key: const Key('payment-method-tax-invoices'),
+          contentPadding: EdgeInsets.zero,
+          title: const Text('تُصدر الشركة فاتورة ضريبية شهرية بعمولاتها'),
+          subtitle: const Text('تنتظر ضريبة العمولة فاتورة شهر طلباتها، ولا تدخل الإقرار حتى تُدخل '
+              'الفاتورة من «الفواتير الضريبية للعمولات».'),
+          value: _taxInvoices,
+          onChanged: (v) {
+            setState(() => _taxInvoices = v);
+            _emit();
+          },
+        ),
+        if (_taxInvoices)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: TextFormField(
+              key: const Key('payment-method-tax-invoice-from'),
+              controller: _taxFrom,
+              inputFormatters: [NormalizeNumberFormatter(), FilteringTextInputFormatter.allow(RegExp(r'^[0-9-]*$'))],
+              keyboardType: TextInputType.datetime,
+              decoration: _field('من شهر (أول فاتورة تُدخل)', hint: '2026-10'),
+              onChanged: (_) => _emit(),
+            ),
+          ),
       ],
     );
   }

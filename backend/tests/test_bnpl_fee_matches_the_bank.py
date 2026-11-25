@@ -179,7 +179,8 @@ def test_no_companys_name_decides_a_commission():
     import pathlib
     backend = pathlib.Path(__file__).resolve().parents[1]
     for rel in ('accounting/payment_commission.py', 'clearing_settlement_scheduler.py',
-                'services/clearing_deposit.py', 'alembic/versions/20261124_bnpl_plans.py'):
+                'services/clearing_deposit.py', 'alembic/versions/20261124_bnpl_plans.py',
+                'services/commission_tax_invoice.py', 'alembic/versions/20261125_commission_tax_invoice.py'):
         tree = ast.parse((backend / rel).read_text())
         docstrings = {id(n.body[0].value) for n in ast.walk(tree)
                       if isinstance(n, (ast.Module, ast.FunctionDef, ast.ClassDef)) and n.body

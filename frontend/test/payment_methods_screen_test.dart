@@ -85,9 +85,10 @@ class _Api extends ApiService {
       int? depositWeekday, List<int>? bankWeekendDays, bool? skipPublicHolidays, required bool isActive,
       int? defaultSafeBoxId, List<String>? applicableInvoiceTypes, double? depositFixedFee,
       bool? commissionPerOrder, List<Map<String, dynamic>>? plans, bool? depositConfirmationRequired,
-      double? depositDifferenceAllowed, String? commissionRounding, double? commissionRefundableRate}) async {
+      double? depositDifferenceAllowed, String? commissionRounding, double? commissionRefundableRate,
+      String? taxInvoiceFrom}) async {
     updates.add({'id': id, 'name': name, 'rate': commissionRate, 'plans': plans, 'bank': settlementBankSafeBoxId,
-        'confirm': depositConfirmationRequired});
+        'confirm': depositConfirmationRequired, 'tax_invoice_from': taxInvoiceFrom});
     return {};
   }
 

@@ -4174,10 +4174,14 @@ class ApiService {
     double? depositDifferenceAllowed,
     String? commissionRounding,
     double? commissionRefundableRate,
+    // ADR-101: the first month the company issues monthly tax invoices
+    // ('YYYY-MM-01'); '' -- it issues none; null -- left as it is.
+    String? taxInvoiceFrom,
   }) async {
     final payload = <String, dynamic>{
       // ADR-100: the fee a deposit, order by order, the plans, and the
       // deposit's confirmation.
+      if (taxInvoiceFrom != null) 'tax_invoice_from': taxInvoiceFrom,
       if (depositFixedFee != null) 'deposit_fixed_fee': depositFixedFee,
       if (commissionPerOrder != null) 'commission_per_order': commissionPerOrder,
       if (plans != null) 'plans': plans,
@@ -4259,10 +4263,14 @@ class ApiService {
     double? depositDifferenceAllowed,
     String? commissionRounding,
     double? commissionRefundableRate,
+    // ADR-101: the first month the company issues monthly tax invoices
+    // ('YYYY-MM-01'); '' -- it issues none; null -- left as it is.
+    String? taxInvoiceFrom,
   }) async {
     final payload = <String, dynamic>{
       // ADR-100: the fee a deposit, order by order, the plans, and the
       // deposit's confirmation.
+      if (taxInvoiceFrom != null) 'tax_invoice_from': taxInvoiceFrom,
       if (depositFixedFee != null) 'deposit_fixed_fee': depositFixedFee,
       if (commissionPerOrder != null) 'commission_per_order': commissionPerOrder,
       if (plans != null) 'plans': plans,
@@ -6328,6 +6336,55 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
     }
+    throw _apiError(response);
+  }
+
+  /// A method's months from the first it issues monthly tax invoices for its
+  /// commissions (ADR-101): each its orders, what they compute to, and its
+  /// invoice or that it waits; and the VAT waiting for its invoices.
+  Future<Map<String, dynamic>> getCommissionTaxInvoices(int paymentMethodId) async {
+    final response = await _authedGet(
+      Uri.parse('$_baseUrl/clearing/tax-invoices')
+          .replace(queryParameters: {'payment_method_id': '$paymentMethodId'}),
+    );
+    if (response.statusCode == 200) {
+      return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    }
+    throw _apiError(response);
+  }
+
+  /// A commission tax invoice checked against what its month's orders compute
+  /// to, and what entering it would move -- the server's (ADR-101).
+  Future<Map<String, dynamic>> previewCommissionTaxInvoice(Map<String, dynamic> invoice) async {
+    final response = await _authedPost(
+      Uri.parse('$_baseUrl/clearing/tax-invoices/preview'),
+      headers: {'Content-Type': 'application/json; charset=UTF-8'},
+      body: json.encode(invoice),
+    );
+    if (response.statusCode == 200) {
+      return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    }
+    throw _apiError(response);
+  }
+
+  /// Enter a commission tax invoice: its VAT claimed on its date (ADR-101).
+  Future<Map<String, dynamic>> enterCommissionTaxInvoice(Map<String, dynamic> invoice) async {
+    final response = await _authedPost(
+      Uri.parse('$_baseUrl/clearing/tax-invoices'),
+      headers: {'Content-Type': 'application/json; charset=UTF-8'},
+      body: json.encode(invoice),
+    );
+    if (response.statusCode == 201) {
+      return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    }
+    throw _apiError(response);
+  }
+
+  /// Undo a commission tax invoice that posted nothing (one that did is
+  /// undone by cancelling its voucher).
+  Future<void> undoCommissionTaxInvoice(int invoiceId) async {
+    final response = await _authedDelete(Uri.parse('$_baseUrl/clearing/tax-invoices/$invoiceId'));
+    if (response.statusCode == 200) return;
     throw _apiError(response);
   }
 

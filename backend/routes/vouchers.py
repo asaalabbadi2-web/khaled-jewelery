@@ -1581,6 +1581,11 @@ def cancel_voucher(voucher_id):
                 _deposit.voucher_id = None
                 release(_deposit)
 
+        # A commission's tax invoice cancelled: its month waits again (ADR-101).
+        if voucher.reference_type == 'commission_invoice':
+            from services.commission_tax_invoice import release_voucher
+            release_voucher(voucher)
+
         # Same class of bug as AV-2026-00223, for reference_type='gold_advance':
         # a cancelled advance's SupplierGoldAdvance row(s) must have their
         # GoldAllocation rows freed too, or the weight they consumed stays

@@ -297,6 +297,7 @@ class _PaymentMethodFormState extends State<PaymentMethodForm> {
           depositDifferenceAllowed: t.differenceAllowed,
           commissionRounding: t.rounding,
           commissionRefundableRate: t.refundableRate,
+          taxInvoiceFrom: t.taxInvoiceFromJson,
         );
       } else {
         await widget.api.updatePaymentMethod(
@@ -327,6 +328,7 @@ class _PaymentMethodFormState extends State<PaymentMethodForm> {
           depositDifferenceAllowed: t.differenceAllowed,
           commissionRounding: t.rounding,
           commissionRefundableRate: t.refundableRate,
+          taxInvoiceFrom: t.taxInvoiceFromJson,
         );
       }
       if (mounted) Navigator.of(context).pop(true);

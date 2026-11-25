@@ -178,12 +178,14 @@ def commission_vat(fee_amount) -> float:
     return _commission_vat(fee_amount)
 
 
-def commission_vat_account_on(day, chosen_account_id=None):
+def commission_vat_account_on(day, chosen_account_id=None, payment_method=None):
     """Where a commission's VAT is posted on *day*: not recovered (ADR-043
     rule 1) -- the non-recoverable account, a commission enters no stock;
     recovered -- the chosen account, else the commission VAT mapping, else the
-    input VAT receivable. One reading: the settlement and the deposit's
-    difference (ADR-100). Raises when none is linked."""
+    input VAT receivable; and for *payment_method* issuing monthly tax
+    invoices, its pending account until the month's invoice claims it
+    (ADR-101) -- whatever was chosen. One reading: the settlement, the
+    deposit's difference (ADR-100) and the invoice. Raises when none is linked."""
     from services.vat_policy import non_recoverable_account_id, policy_on
     account_id = chosen_account_id
     if not policy_on(day).input_vat_recoverable:
@@ -195,6 +197,10 @@ def commission_vat_account_on(day, chosen_account_id=None):
         account = Account.query.get(fallback_vat_id) if fallback_vat_id else None
     if not account:
         raise ValueError('commission_vat_account_not_found')
+    if payment_method is not None:
+        from services.commission_tax_invoice import pending_account, waits_for_invoice
+        if waits_for_invoice(payment_method, day):
+            return pending_account(payment_method, account)
     return account
 
 
@@ -349,6 +355,8 @@ def _create_clearing_settlement_voucher(
         commission_vat_account = commission_vat_account_on(
             _settled_on.date() if isinstance(_settled_on, datetime) else _settled_on,
             commission_vat_account_id,
+            payment_method=PaymentMethod.query.filter_by(default_safe_box_id=clearing_safe_box_id)
+            .order_by(PaymentMethod.id).first(),
         )
 
     def _live_cash_balance(account_obj, fallback=0.0):
@@ -1143,6 +1151,72 @@ def confirm_clearing_deposit():
         return jsonify({'error': str(exc), 'message': str(exc)}), 400
     db.session.commit()
     return jsonify({'deposit': deposit.to_dict()}), 201
+
+
+def _tax_invoice_refusal(exc):
+    body = {'error': exc.code, 'message': exc.message}
+    body.update(exc.detail or {})
+    return jsonify(body), (404 if exc.code == 'not_found' else 400)
+
+
+@clearing_bp.route('/clearing/tax-invoices', methods=['GET'])
+@require_permission('vouchers.create')
+def list_commission_tax_invoices():
+    """A method's months from the first it issues monthly tax invoices (ADR-101):
+    each its orders, what they compute to, and its invoice or that it waits."""
+    from services.commission_tax_invoice import months
+    _, pm = _deposit_method()
+    if pm is None:
+        return jsonify({'error': 'not_found', 'message': 'وسيلة الدفع غير موجودة'}), 404
+    return jsonify(months(pm, datetime.now().date()))
+
+
+@clearing_bp.route('/clearing/tax-invoices/preview', methods=['POST'])
+@require_permission('vouchers.create')
+def preview_commission_tax_invoice():
+    from services.commission_tax_invoice import TaxInvoiceRefused, preview
+    data, pm = _deposit_method()
+    try:
+        return jsonify(preview(pm, data, datetime.now()))
+    except TaxInvoiceRefused as exc:
+        return _tax_invoice_refusal(exc)
+
+
+@clearing_bp.route('/clearing/tax-invoices', methods=['POST'])
+@require_permission('vouchers.create')
+def enter_commission_tax_invoice():
+    """Body: payment_method_id, month (YYYY-MM), invoice_number, invoice_date,
+    supplier_tax_number, fee_amount, vat_amount, note?"""
+    from services.commission_tax_invoice import TaxInvoiceRefused, enter
+    data, pm = _deposit_method()
+    user = getattr(g, 'current_user', None)
+    # A refusal undoes its own writes only (a savepoint), nothing before it.
+    try:
+        with db.session.begin_nested():
+            invoice = enter(pm, data, created_by=getattr(user, 'username', None) or 'system', now=datetime.now())
+    except TaxInvoiceRefused as exc:
+        return _tax_invoice_refusal(exc)
+    except ValueError as exc:
+        return jsonify({'error': str(exc), 'message': str(exc)}), 400
+    db.session.commit()
+    return jsonify({'invoice': invoice.to_dict()}), 201
+
+
+@clearing_bp.route('/clearing/tax-invoices/<int:invoice_id>', methods=['DELETE'])
+@require_permission('vouchers.cancel')
+def undo_commission_tax_invoice(invoice_id: int):
+    """An invoice that posted nothing is undone here; one that did, by cancelling its voucher."""
+    from models import CommissionTaxInvoice
+    from services.commission_tax_invoice import TaxInvoiceRefused, undo
+    invoice = CommissionTaxInvoice.query.get_or_404(invoice_id)
+    try:
+        undo(invoice)
+    except TaxInvoiceRefused as exc:
+        v = Voucher.query.get(invoice.voucher_id)
+        return jsonify({'error': exc.code,
+                        'message': f'ألغِ سند الفاتورة {v.voucher_number if v else invoice.voucher_id} لإلغائها'}), 409
+    db.session.commit()
+    return jsonify({'success': True})
 
 
 @clearing_bp.route('/clearing/deposits/<int:deposit_id>', methods=['DELETE'])

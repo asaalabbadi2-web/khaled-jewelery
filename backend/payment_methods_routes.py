@@ -2,6 +2,7 @@
 Payment Methods Routes
 وسائل الدفع API endpoints
 """
+from datetime import date
 from typing import Any, Dict, List
 
 from flask import Blueprint, request, jsonify
@@ -329,6 +330,19 @@ def _apply_fee_terms(payment_method, data):
         payment_method.commission_refundable_rate = part
     if 'deposit_confirmation_required' in data:
         payment_method.deposit_confirmation_required = bool(data.get('deposit_confirmation_required'))
+    if 'tax_invoice_from' in data:
+        # The first month the company issues a monthly tax invoice for its
+        # commissions (ADR-101); empty: it issues none.
+        raw = data.get('tax_invoice_from')
+        if raw in (None, ''):
+            payment_method.tax_invoice_from = None
+        else:
+            try:
+                day = date.fromisoformat(str(raw)[:10])
+            except ValueError:
+                return jsonify({'error': 'invalid_tax_invoice_from',
+                                'message': 'شهر بدء الفواتير الضريبية غير صالح'}), 400
+            payment_method.tax_invoice_from = date(day.year, day.month, 1)
     if 'deposit_difference_allowed' in data:
         try:
             allowed = float(data.get('deposit_difference_allowed') or 0.0)

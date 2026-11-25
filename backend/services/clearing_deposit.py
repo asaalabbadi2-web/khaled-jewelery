@@ -214,7 +214,7 @@ def confirm(pm: PaymentMethod, voucher_ids: Sequence[int], amount_received, depo
         fee_account = Account.query.get(pm.fee_expense_account_id) if pm.fee_expense_account_id else None
         if fee_account is None:
             raise DepositRefused('fee_account_id_required', f'«{pm.name}» بلا حساب مصروف عمولة')
-        vat_account = commission_vat_account_on(deposit_day) if abs(p.vat_difference) >= 0.005 else None
+        vat_account = commission_vat_account_on(deposit_day, payment_method=pm) if abs(p.vat_difference) >= 0.005 else None
         shortfall = p.difference > 0      # the bank received less: a commission more
         when = datetime.combine(deposit_day, time(12, 0))
         numbers = '، '.join(s.voucher.voucher_number for s in p.settlements)
