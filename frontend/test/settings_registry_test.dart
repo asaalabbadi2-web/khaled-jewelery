@@ -7,6 +7,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:frontend/settings/settings_editors.dart';
 import 'package:frontend/settings/settings_opener.dart';
 import 'package:frontend/settings/settings_registry.dart';
 import 'package:frontend/settings/settings_search.dart';
@@ -33,6 +34,20 @@ void main() {
     keys.remove('gold_price_auto_update_mode');
     expect(keys, isNotEmpty);
     expect(keys.where((k) => !byKey.containsKey(k)).toList(), isEmpty, reason: 'a saved key no one can find');
+  });
+
+  // A key moved into the center is the center's alone: the old screen neither
+  // holds nor sends it -- its stale value would write over the center's save.
+  test('a moved key is edited in the center and no longer sent by the old screen', () {
+    final s = _src('lib/screens/settings_screen_enhanced.dart');
+    final save = s.substring(s.indexOf('Future<void> _saveSettings()'), s.indexOf('updateSettings(payload)'));
+    for (final section in movedSections) {
+      for (final e in entriesOf(section).where((e) => e.kind == SettingKind.setting)) {
+        expect(editors.containsKey(e.key), isTrue, reason: '${e.key}: moved without its editor');
+        expect(save.contains("'${e.key}'"), isFalse, reason: '${e.key}: the old screen still sends it');
+        expect(e.legacyTab, isNull, reason: '${e.key}: still pointed at the old tab');
+      }
+    }
   });
 
   test("every key saved on this device is in the registry, as this device's", () {
@@ -69,7 +84,7 @@ void main() {
       expect(entriesOf(s), isNotEmpty, reason: s.name);
     }
     for (final e in settingsRegistry) {
-      expect(e.legacyTab != null || e.screen != null, isTrue, reason: e.id);
+      expect(e.legacyTab != null || e.screen != null || movedSections.contains(e.section), isTrue, reason: e.id);
       if (e.kind == SettingKind.setting) expect(e.key, isNotNull, reason: e.id);
       if (e.screen != null) expect(settingsScreens.containsKey(e.screen), isTrue, reason: e.screen);
     }

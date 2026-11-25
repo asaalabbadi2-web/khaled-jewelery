@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../api_service.dart';
 import '../providers/auth_provider.dart';
+import '../settings/section_editor.dart';
+import '../widgets/app_leave_guard.dart';
+import '../settings/settings_editors.dart';
 
 import '../settings/settings_opener.dart';
 import '../settings/settings_registry.dart';
@@ -15,9 +19,12 @@ import '../theme/app_semantic_colors.dart';
 /// section's own page replaces them (phase 7). Every name and place is the
 /// registry's (lib/settings/settings_registry.dart).
 class SettingsCenterScreen extends StatefulWidget {
-  const SettingsCenterScreen({super.key, this.opener = openSettingEntry, this.financialAllowed});
+  const SettingsCenterScreen({super.key, this.opener = openSettingEntry, this.financialAllowed, this.api});
 
   final SettingsOpener opener;
+
+  /// The API the moved sections edit through (tests pass a fake).
+  final ApiService? api;
 
   /// Whether the user may change a financial (level-3) setting (ADR-103);
   /// null reads it from the signed-in user.
@@ -30,6 +37,9 @@ class SettingsCenterScreen extends StatefulWidget {
 class _SettingsCenterScreenState extends State<SettingsCenterScreen> {
   final _query = TextEditingController();
   SettingsSection? _section;
+  String? _highlight;
+  final _editor = GlobalKey<SectionEditorState>();
+  late final ApiService _api = widget.api ?? ApiService();
 
   @override
   void dispose() {
@@ -48,19 +58,39 @@ class _SettingsCenterScreenState extends State<SettingsCenterScreen> {
     }
   }
 
-  void _openSection(SettingsSection s, {required bool wide}) {
+  /// A section's page: edited here when it has moved into the center, else
+  /// what is set in it and where (phase 6).
+  Widget _sectionBody(SettingsSection s, {String? highlight, Key? key}) => movedSections.contains(s)
+      ? SectionEditor(key: key, section: s, api: _api, financialAllowed: _financial, highlight: highlight,
+          opener: widget.opener)
+      : SectionEntries(section: s, opener: widget.opener, financialAllowed: _financial);
+
+  Future<void> _openSection(SettingsSection s, {required bool wide, String? highlight}) async {
     if (wide) {
+      // Unsaved changes in the section shown are asked about first.
+      if ((_editor.currentState?.isDirty ?? false) && !await AppLeaveGuard.confirmLeave(context)) return;
+      if (!mounted) return;
       setState(() {
         _section = s;
+        _highlight = highlight;
         _query.clear();
       });
     } else {
-      Navigator.of(context).push(MaterialPageRoute(
+      await Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => Scaffold(
           appBar: AppBar(title: Text(sections[s]!.label)),
-          body: SectionEntries(section: s, opener: widget.opener, financialAllowed: _financial),
+          body: _sectionBody(s, highlight: highlight),
         ),
       ));
+    }
+  }
+
+  /// A setting of a moved section opens on its row, here; anything else where it is set.
+  void _openEntry(SettingEntry e) {
+    if (e.kind == SettingKind.setting && movedSections.contains(e.section)) {
+      _openSection(e.section, wide: MediaQuery.sizeOf(context).width >= 1000, highlight: e.id);
+    } else {
+      widget.opener(context, e);
     }
   }
 
@@ -85,7 +115,8 @@ class _SettingsCenterScreenState extends State<SettingsCenterScreen> {
                             ? _results()
                             : _section == null
                             ? _index(wide: true)
-                            : SectionEntries(section: _section!, opener: widget.opener, financialAllowed: _financial),
+                            : _sectionBody(_section!, highlight: _highlight,
+                                key: movedSections.contains(_section) ? _editor : ValueKey(_section)),
                       ),
                     ],
                   ),
@@ -125,7 +156,7 @@ class _SettingsCenterScreenState extends State<SettingsCenterScreen> {
           onChanged: (_) => setState(() {}),
           onSubmitted: (_) {
             final hits = searchSettings(_query.text);
-            if (hits.isNotEmpty) widget.opener(context, hits.first.entry);
+            if (hits.isNotEmpty) _openEntry(hits.first.entry);
           },
         ),
       );
@@ -145,10 +176,14 @@ class _SettingsCenterScreenState extends State<SettingsCenterScreen> {
             selectedTileColor: cs.secondaryContainer,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             title: const Text('الفهرس'),
-            onTap: () => setState(() {
-              _section = null;
-              _query.clear();
-            }),
+            onTap: () async {
+              if ((_editor.currentState?.isDirty ?? false) && !await AppLeaveGuard.confirmLeave(context)) return;
+              if (!mounted) return;
+              setState(() {
+                _section = null;
+                _query.clear();
+              });
+            },
           ),
           for (final group in SettingsGroup.values) ...[
             Padding(
@@ -253,7 +288,7 @@ class _SettingsCenterScreenState extends State<SettingsCenterScreen> {
       ]),
       subtitle: Text(where),
       trailing: const Icon(Icons.chevron_left),
-      onTap: () => widget.opener(context, e),
+      onTap: () => _openEntry(e),
     );
   }
 }

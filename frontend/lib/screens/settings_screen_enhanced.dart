@@ -1,4 +1,5 @@
 import '../utils/paper_format.dart';
+import 'settings_center_screen.dart';
 import '../widgets/invoice_settings_sheet.dart' show InvoiceUiContext, InvoiceUiSettings;
 import 'dart:convert';
 
@@ -23,7 +24,6 @@ import 'backup_restore_screen.dart';
 import 'system_reset_screen.dart';
 import 'supplier_settlement_policy_screen.dart';
 import 'weight_closing_settings_screen.dart';
-import '../utils.dart';
 import '../widgets/app_bar_tab_bar.dart';
 import '../widgets/app_feedback.dart';
 
@@ -71,25 +71,8 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
 
   int get _systemTabIndex => SettingsScreenEnhanced.systemTabIndex;
 
-  final TextEditingController _currencyController = TextEditingController();
-  final TextEditingController _companyNameController = TextEditingController();
-  final TextEditingController _companyAddressController =
-      TextEditingController();
-  final TextEditingController _companyPhoneController = TextEditingController();
-  final TextEditingController _companyTaxNumberController =
-      TextEditingController();
-  final TextEditingController _companyCrNumberController =
-      TextEditingController();
-  final TextEditingController _invoicePrefixController =
-      TextEditingController();
 
   final List<int> _karatOptions = const [18, 21, 22, 24];
-  final List<int> _decimalOptions = const [2, 3, 4];
-  final List<String> _dateFormats = const [
-    'DD/MM/YYYY',
-    'MM/DD/YYYY',
-    'YYYY-MM-DD',
-  ];
 
   bool _isInitialized = false;
   bool _isLoading = true;
@@ -97,24 +80,16 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
 
   // The settings' main karat from the start -- never a fixed one.
   late int _mainKarat = context.read<SettingsProvider>().mainKarat;
-  int _decimalPlaces = 2;
-  String _dateFormat = 'DD/MM/YYYY';
 
   bool _taxEnabled = true;
   double _taxRatePercent = 15.0;
   Set<int> _vatExemptKarats = {24};
 
-  bool _showCompanyLogo = true;
-  bool _allowDiscount = true;
-  double _defaultDiscountPercent = 0.0;
-  bool _allowManualInvoiceItems = false;
 
-  bool _requireAuthForInvoiceCreate = false;
 
   bool _idleTimeoutEnabled = true;
   int _idleTimeoutMinutes = 30;
 
-  bool _allowPartialInvoicePayments = false;
 
   /// VAT on sales, apart from purchases (SALES-VAT-1).
   bool _salesVatEnabled = true;
@@ -217,13 +192,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
     _accountantLimitGoldController.dispose();
     _systemScrollController.dispose();
     _tabController.dispose();
-    _currencyController.dispose();
-    _companyNameController.dispose();
-    _companyAddressController.dispose();
-    _companyPhoneController.dispose();
-    _companyTaxNumberController.dispose();
-    _companyCrNumberController.dispose();
-    _invoicePrefixController.dispose();
     super.dispose();
   }
 
@@ -247,9 +215,8 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
         )
       : Color.alphaBlend(_withOpacity(_colors.primary, 0.06), _surfaceColor);
 
-  String get _currencySymbol => _currencyController.text.trim().isEmpty
-      ? 'ر.س'
-      : _currencyController.text.trim();
+  // The currency is set in the center («المنشأة»); the tax examples read it as saved.
+  String get _currencySymbol => context.read<SettingsProvider>().currencySymbol;
 
   Future<void> _loadInitialData() async {
     setState(() {
@@ -289,19 +256,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
       final printInColor = prefs.getBool(_printInColorKey) ?? true;
       final invoicePaperSize = (await InvoiceUiSettings.load(InvoiceUiContext.saleNew)).paperSize;
 
-      _currencyController.text =
-          settings['currency_symbol']?.toString() ?? 'ر.س';
-      _companyNameController.text = settings['company_name']?.toString() ?? '';
-      _companyAddressController.text =
-          settings['company_address']?.toString() ?? '';
-      _companyPhoneController.text =
-          settings['company_phone']?.toString() ?? '';
-      _companyTaxNumberController.text =
-          settings['company_tax_number']?.toString() ?? '';
-      _companyCrNumberController.text =
-          settings['company_cr_number']?.toString() ?? '';
-      _invoicePrefixController.text =
-          settings['invoice_prefix']?.toString() ?? 'INV';
 
       setState(() {
         _isInitialized = true;
@@ -309,12 +263,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
           settings['main_karat'],
           fallback: context.read<SettingsProvider>().mainKarat,
         );
-        _decimalPlaces = _safeInt(
-          settings['decimal_places'],
-          fallback: 2,
-        ).clamp(2, 4);
-        _dateFormat =
-            settings['date_format']?.toString().toUpperCase() ?? 'DD/MM/YYYY';
 
         _taxEnabled = _safeBool(settings['tax_enabled'], fallback: true);
         _taxRatePercent = _normalizePercent(
@@ -351,20 +299,7 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
         }
         _vatExemptKarats = parsed.isEmpty ? {24} : parsed;
 
-        _showCompanyLogo = _safeBool(
-          settings['show_company_logo'],
-          fallback: true,
-        );
-        _allowDiscount = _safeBool(settings['allow_discount'], fallback: true);
-        _allowManualInvoiceItems = _safeBool(
-          settings['allow_manual_invoice_items'],
-          fallback: false,
-        );
 
-        _requireAuthForInvoiceCreate = _safeBool(
-          settings['require_auth_for_invoice_create'],
-          fallback: false,
-        );
 
         _idleTimeoutEnabled = _safeBool(
           settings['idle_timeout_enabled'],
@@ -385,10 +320,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
         if (parsedIdleMinutes > 10080) parsedIdleMinutes = 10080;
         _idleTimeoutMinutes = parsedIdleMinutes;
 
-        _allowPartialInvoicePayments = _safeBool(
-          settings['allow_partial_invoice_payments'],
-          fallback: false,
-        );
         _salesVatEnabled = _safeBool(
           settings['sales_vat_enabled'],
           fallback: true,
@@ -400,10 +331,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
                 kWageModeInventory
             ? kWageModeInventory
             : kWageModeExpense;
-        _defaultDiscountPercent = _normalizePercent(
-          settings['default_discount_rate'],
-          fallbackPercent: 0,
-        );
 
         _voucherAutoPost = _safeBool(
           settings['voucher_auto_post'],
@@ -578,22 +505,9 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
 
     final payload = <String, dynamic>{
       'main_karat': _mainKarat,
-      'currency_symbol': _currencySymbol,
-      'decimal_places': _decimalPlaces,
-      'date_format': _dateFormat,
       'tax_enabled': _taxEnabled,
       'tax_rate': _taxRatePercent / 100,
       'vat_exempt_karats': (_vatExemptKarats.toList()..sort()),
-      'allow_discount': _allowDiscount,
-      'allow_manual_invoice_items': _allowManualInvoiceItems,
-      'default_discount_rate': _defaultDiscountPercent / 100,
-      'invoice_prefix': _invoicePrefixController.text.trim(),
-      'show_company_logo': _showCompanyLogo,
-      'company_name': _companyNameController.text.trim(),
-      'company_address': _companyAddressController.text.trim(),
-      'company_phone': _companyPhoneController.text.trim(),
-      'company_tax_number': _companyTaxNumberController.text.trim(),
-      'company_cr_number': _companyCrNumberController.text.trim(),
       'voucher_auto_post': _voucherAutoPost,
       'gold_settlement_tolerance_grams':
           double.tryParse(_goldToleranceGramsController.text.trim()) ?? 0.05,
@@ -607,10 +521,8 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
           double.tryParse(_accountantLimitCashController.text.trim()) ?? 0.0,
       'accountant_approval_limit_gold_grams':
           double.tryParse(_accountantLimitGoldController.text.trim()) ?? 0.0,
-      'require_auth_for_invoice_create': _requireAuthForInvoiceCreate,
       'idle_timeout_enabled': _idleTimeoutEnabled,
       'idle_timeout_minutes': _idleTimeoutMinutes,
-      'allow_partial_invoice_payments': _allowPartialInvoicePayments,
       'manufacturing_wage_mode': _wageMode,
       'coding_on': _codingOn,
       'sales_vat_enabled': _salesVatEnabled,
@@ -791,190 +703,31 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
             ),
           ],
         ),
-        const SizedBox(height: 20),
-        _buildSectionCard(
-          icon: Icons.style,
-          iconColor: _accentColor,
-          title: 'التنسيق والعملة',
-          children: [
-            Text('رمز العملة', style: _fieldLabelStyle()),
-            const SizedBox(height: 8),
-            // Quick-select currency symbol chips (uses kCurrencyOptions from currency_utils)
-            Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              children: [
-                for (final opt in cu.kCurrencyOptions)
-                  Builder(
-                    builder: (context) {
-                      final isSelected =
-                          _currencyController.text.trim() == opt.$2;
-                      final fg = isSelected
-                          ? _colors.onPrimary
-                          : _strongTextColor;
-                      final bg = isSelected ? _accentColor : _cardColor;
-                      return ActionChip(
-                        backgroundColor: bg,
-                        label: opt.$2 == cu.kSarNewSymbol
-                            ? cu.SarSymbolImage(size: 20, color: fg)
-                            : Text(
-                                opt.$1,
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: fg,
-                                ),
-                              ),
-                        onPressed: () =>
-                            setState(() => _currencyController.text = opt.$2),
-                      );
-                    },
-                  ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            if (_currencyController.text.trim() == cu.kSarNewSymbol)
-              Container(
-                height: 48,
-                decoration: BoxDecoration(
-                  color: _cardColor,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: _accentColor.withOpacity(0.5)),
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Row(
-                  children: [
-                    Icon(Icons.attach_money, color: _accentColor, size: 20),
-                    const SizedBox(width: 8),
-                    cu.SarSymbolImage(size: 20, color: _strongTextColor),
-                    const SizedBox(width: 6),
-                    Text(
-                      'رمز الريال الجديد',
-                      style: TextStyle(color: _mutedTextColor),
-                    ),
-                  ],
-                ),
-              )
-            else
-              TextFormField(
-                controller: _currencyController,
-                textDirection: TextDirection.rtl,
-                decoration: _inputDecoration(
-                  icon: Icons.attach_money,
-                  accentColor: _accentColor,
-                ),
-                onChanged: (_) => setState(() {}),
-              ),
-            const SizedBox(height: 20),
-            Text('عدد المنازل العشرية', style: _fieldLabelStyle()),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: _decimalOptions
-                  .map(
-                    (value) => ChoiceChip(
-                      label: Text('$value'),
-                      selected: _decimalPlaces == value,
-                      onSelected: (_) => setState(() => _decimalPlaces = value),
-                      selectedColor: _blendOnSurface(_accentColor, 0.4),
-                      labelStyle: TextStyle(
-                        color: _decimalPlaces == value
-                            ? _colors.onPrimary
-                            : _mutedTextColor,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  )
-                  .toList(),
-            ),
-            const SizedBox(height: 20),
-            Text('تنسيق التاريخ', style: _fieldLabelStyle()),
-            const SizedBox(height: 12),
-            Directionality(
-              textDirection: TextDirection.rtl,
-              child: DropdownMenu<String>(
-                initialSelection: _dateFormat,
-                onSelected: (value) {
-                  if (value == null) return;
-                  setState(() => _dateFormat = value);
-                },
-                leadingIcon: Icon(Icons.calendar_month, color: _accentColor),
-                trailingIcon: const Icon(Icons.keyboard_arrow_down),
-                textStyle: Theme.of(context).textTheme.bodyLarge,
-                enableSearch: false,
-                inputDecorationTheme: _dropdownDecoration(
-                  accentColor: _accentColor,
-                ),
-                dropdownMenuEntries: _dateFormats
-                    .map(
-                      (format) => DropdownMenuEntry<String>(
-                        value: format,
-                        label: format,
-                      ),
-                    )
-                    .toList(),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 20),
-        _buildSectionCard(
-          icon: Icons.percent,
-          iconColor: _successColor,
-          title: 'الخصومات',
-          children: [
-            SwitchListTile.adaptive(
-              value: _allowDiscount,
-              onChanged: (value) => setState(() => _allowDiscount = value),
-              thumbColor: _thumbColorFor(_successColor),
-              trackColor: _trackColorFor(_successColor),
-              title: Text(
-                'السماح بالخصم على الفواتير',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-            ),
-            AnimatedOpacity(
-              opacity: _allowDiscount ? 1 : 0.4,
-              duration: const Duration(milliseconds: 200),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('نسبة الخصم الافتراضية', style: _fieldLabelStyle()),
-                  SliderTheme(
-                    data: SliderTheme.of(context).copyWith(
-                      activeTrackColor: _successColor,
-                      inactiveTrackColor: _withOpacity(_successColor, 0.3),
-                      thumbColor: _successColor,
-                      overlayColor: _withOpacity(_successColor, 0.15),
-                    ),
-                    child: Slider(
-                      value: _defaultDiscountPercent,
-                      min: 0,
-                      max: 50,
-                      divisions: 100,
-                      label: '${_defaultDiscountPercent.toStringAsFixed(1)}%',
-                      onChanged: _allowDiscount
-                          ? (value) =>
-                                setState(() => _defaultDiscountPercent = value)
-                          : null,
-                    ),
-                  ),
-                  Align(
-                    alignment: AlignmentDirectional.centerEnd,
-                    child: Text(
-                      '${_defaultDiscountPercent.toStringAsFixed(1)}%',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: _successColor,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+        const SizedBox(height: 16),
+        _buildMovedNote('العملة والمنازل العشرية وتنسيق التاريخ في «المنشأة»، والخصم في «البيع والفواتير»'),
       ],
+    );
+  }
+
+  /// Where settings moved out of this tab now live (settings spec v2, phase 7):
+  /// the center edits them; this tab no longer holds or sends them.
+  Widget _buildMovedNote(String text) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      key: const Key('settings-moved-note'),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: cs.surfaceContainerHigh, borderRadius: BorderRadius.circular(12)),
+      child: Row(children: [
+        Icon(Icons.open_in_new, color: cs.primary),
+        const SizedBox(width: 10),
+        Expanded(child: Text('انتقلت إلى مركز الإعدادات: $text.')),
+        TextButton(
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const SettingsCenterScreen()),
+          ),
+          child: const Text('افتح المركز'),
+        ),
+      ]),
     );
   }
 
@@ -983,134 +736,13 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
-        _buildSectionCard(
-          icon: Icons.business,
-          iconColor: _accentColor,
-          title: 'بيانات الشركة',
-          children: [
-            TextFormField(
-              controller: _companyNameController,
-              decoration: _inputDecoration(
-                icon: Icons.business_center,
-                label: 'اسم الشركة',
-                accentColor: _accentColor,
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _companyPhoneController,
-              keyboardType: TextInputType.phone,
-              decoration: _inputDecoration(
-                icon: Icons.phone,
-                label: 'رقم الهاتف',
-                accentColor: _accentColor,
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _companyAddressController,
-              maxLines: 2,
-              decoration: _inputDecoration(
-                icon: Icons.location_on,
-                label: 'العنوان',
-                accentColor: _accentColor,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 20),
+        _buildMovedNote('بيانات الشركة والترقيم في «المنشأة»، والصنف اليدوي والدفع الجزئي وإلزام الدخول في «البيع والفواتير»'),
+        const SizedBox(height: 16),
         _buildSectionCard(
           icon: Icons.receipt_long_outlined,
           iconColor: _colors.tertiary,
-          title: 'إعدادات الضريبة والفواتير',
+          title: 'الضريبة والأجور والترميز',
           children: [
-            TextFormField(
-              controller: _companyCrNumberController,
-              keyboardType: TextInputType.number,
-              inputFormatters: [NormalizeNumberFormatter()],
-              decoration: _inputDecoration(
-                icon: Icons.account_balance_outlined,
-                label: 'السجل التجاري (CR)',
-                accentColor: _colors.tertiary,
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _companyTaxNumberController,
-              keyboardType: TextInputType.number,
-              inputFormatters: [NormalizeNumberFormatter()],
-              decoration: _inputDecoration(
-                icon: Icons.badge_outlined,
-                label: 'الرقم الضريبي',
-                accentColor: _colors.tertiary,
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _invoicePrefixController,
-              decoration: _inputDecoration(
-                icon: Icons.confirmation_number,
-                label: 'بادئة رقم الفاتورة',
-                accentColor: _colors.tertiary,
-              ),
-            ),
-            const SizedBox(height: 12),
-            SwitchListTile.adaptive(
-              value: _showCompanyLogo,
-              onChanged: (value) => setState(() => _showCompanyLogo = value),
-              thumbColor: _thumbColorFor(_colors.tertiary),
-              trackColor: _trackColorFor(_colors.tertiary),
-              title: Text(
-                'عرض شعار الشركة على الفواتير',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-            ),
-            const SizedBox(height: 8),
-            SwitchListTile.adaptive(
-              value: _allowManualInvoiceItems,
-              onChanged: (value) =>
-                  setState(() => _allowManualInvoiceItems = value),
-              thumbColor: _thumbColorFor(_colors.tertiary),
-              trackColor: _trackColorFor(_colors.tertiary),
-              title: Text(
-                'السماح بإضافة صنف يدوي من شاشة الفاتورة',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              subtitle: const Text(
-                'عند التفعيل يظهر زر لإدخال صنف ببيانات مخصصة (اسم، وزن، عيار) أثناء إنشاء فاتورة بيع.',
-              ),
-            ),
-            const SizedBox(height: 8),
-            SwitchListTile.adaptive(
-              value: _requireAuthForInvoiceCreate,
-              onChanged: (value) =>
-                  setState(() => _requireAuthForInvoiceCreate = value),
-              thumbColor: _thumbColorFor(_colors.tertiary),
-              trackColor: _trackColorFor(_colors.tertiary),
-              title: Text(
-                'إلزام تسجيل الدخول لإنشاء الفواتير',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              subtitle: const Text(
-                'عند التفعيل: يمنع إنشاء الفاتورة بدون توكن. هذا يضمن تسجيل posted_by وبالتالي ظهور مكافأة الموظف بشكل صحيح.',
-              ),
-            ),
-            const SizedBox(height: 8),
-            SwitchListTile.adaptive(
-              value: _allowPartialInvoicePayments,
-              onChanged: (value) =>
-                  setState(() => _allowPartialInvoicePayments = value),
-              thumbColor: _thumbColorFor(_colors.tertiary),
-              trackColor: _trackColorFor(_colors.tertiary),
-              title: Text(
-                'السماح بالدفع الجزئي (بيع آجل)',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              subtitle: const Text(
-                'عند التفعيل: يمكن حفظ فاتورة بيع بمدفوع أقل من الإجمالي أو بدون دفعات بعد تأكيد.\nعند التعطيل: يلزم أن يساوي مجموع الدفعات إجمالي الفاتورة.',
-              ),
-            ),
-            const SizedBox(height: 8),
             _buildWageModeSetting(),
             const Divider(height: 32),
             SwitchListTile.adaptive(

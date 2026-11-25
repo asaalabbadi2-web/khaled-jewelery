@@ -3586,6 +3586,35 @@ class ApiService {
     throw _apiError(response);
   }
 
+  /// {key: the id of its last change} -- what a save names as seen (ADR-102).
+  Future<Map<String, int>> getSettingsVersions() async {
+    final response = await _authedGet(Uri.parse('$_baseUrl/settings/versions'));
+    if (response.statusCode != 200) throw _apiError(response);
+    final raw = (json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>)['versions'] as Map? ?? {};
+    return {for (final e in raw.entries) '${e.key}': (e.value as num).toInt()};
+  }
+
+  /// Save what changed at the versions seen (ADR-102): a key moved since is a
+  /// 409 settings_conflict (details: conflicts), a financial key without its
+  /// permission a 403, without its reason a 400 -- each an [ApiException].
+  Future<Map<String, dynamic>> patchSettings({
+    required Map<String, dynamic> changes,
+    required Map<String, int> versions,
+    String? reason,
+  }) async {
+    final response = await _authedPatch(
+      Uri.parse('$_baseUrl/settings'),
+      headers: {'Content-Type': 'application/json; charset=UTF-8'},
+      body: json.encode({
+        'changes': changes,
+        'versions': versions,
+        if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim(),
+      }),
+    );
+    if (response.statusCode != 200) throw _apiError(response);
+    return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+  }
+
   Future<Map<String, dynamic>> updateSettings(Map<String, dynamic> settingsData) async {
     final response = await _authedPut(
       Uri.parse('$_baseUrl/settings'),

@@ -5,11 +5,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:frontend/api_service.dart';
 import 'package:frontend/screens/settings_center_screen.dart';
 import 'package:frontend/settings/settings_registry.dart';
 import 'package:frontend/theme/app_theme.dart';
 
 import 'support/dark_text.dart';
+
+class _Api extends ApiService {
+  @override
+  Future<Map<String, dynamic>> getSettings() async => {'allow_partial_invoice_payments': false, 'company_name': 'م'};
+
+  @override
+  Future<Map<String, int>> getSettingsVersions() async => {};
+}
 
 const _sizes = {'wide': Size(1600, 1000), 'tablet': Size(820, 1180), 'phone': Size(390, 860)};
 
@@ -30,7 +39,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(
       theme: dark ? DarkTheme.theme : LightTheme.theme,
       builder: (context, child) => Directionality(textDirection: TextDirection.rtl, child: child!),
-      home: SettingsCenterScreen(opener: (_, e) async => opened.add(e.id), financialAllowed: financial),
+      home: SettingsCenterScreen(opener: (_, e) async => opened.add(e.id), financialAllowed: financial, api: _Api()),
     ));
     await tester.pumpAndSettle();
     return opened;
@@ -80,7 +89,9 @@ void main() {
     expect(find.byKey(const Key('settings-hit-allow_partial_invoice_payments')), findsOneWidget);
     await tester.tap(find.byKey(const Key('settings-hit-allow_partial_invoice_payments')));
     await tester.pumpAndSettle();
-    expect(opened, ['allow_partial_invoice_payments']);
+    expect(opened, isEmpty, reason: 'a moved setting opens here, not in the old tab');
+    expect(find.byKey(const Key('settings-editor-salesInvoices')), findsOneWidget);
+    expect(find.byKey(const Key('settings-row-allow_partial_invoice_payments')), findsOneWidget);
     await tester.enterText(find.byKey(const Key('settings-search')), 'الديوان');
     await tester.testTextInput.receiveAction(TextInputAction.search);
     await tester.pumpAndSettle();
