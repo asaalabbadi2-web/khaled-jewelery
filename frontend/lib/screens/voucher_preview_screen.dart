@@ -48,8 +48,7 @@ class _VoucherPreviewScreenState extends State<VoucherPreviewScreen> {
   Future<({String paperSize, String orientation})> _loadPrintPrefs() async {
     final prefs = await SharedPreferences.getInstance();
     final storedPaper = prefs.getString('printer_paper_size_v1') ?? 'A4';
-    final normalizedPaper = storedPaper.contains('A5') ? 'A5' : 'A4';
-    return (paperSize: normalizedPaper, orientation: 'portrait');
+    return (paperSize: storedPaper, orientation: 'portrait');
   }
 
   Future<Uint8List> _buildVoucherPdfBytes(PdfPageFormat format) async {

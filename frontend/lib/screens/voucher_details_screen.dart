@@ -216,8 +216,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
   Future<({String paperSize, String orientation})> _loadPrintPrefs() async {
     final prefs = await SharedPreferences.getInstance();
     final storedPaper = prefs.getString('printer_paper_size_v1') ?? 'A4';
-    final normalizedPaper = storedPaper.contains('A5') ? 'A5' : 'A4';
-    return (paperSize: normalizedPaper, orientation: 'portrait');
+    return (paperSize: storedPaper, orientation: 'portrait');
   }
 
   String _voucherPdfFilename() {
@@ -238,8 +237,14 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
     } catch (_) {}
     if (widget.asSheet && mounted) Navigator.of(context).pop();
     try {
+      // The print opens on the voucher paper set on this device (B3).
+      final prefs = await _loadPrintPrefs();
       await Printing.layoutPdf(
         name: _voucherPdfFilename(),
+        format: VoucherPdfBuilder.pageFormatFromSettings(
+          paperSize: prefs.paperSize,
+          orientation: prefs.orientation,
+        ),
         onLayout: (format) => _buildVoucherPdfBytesWithSp(format, sp),
       );
     } catch (_) {}

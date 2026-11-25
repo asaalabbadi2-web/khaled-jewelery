@@ -13,6 +13,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../api_service.dart';
 import '../pdf/invoice_pdf_builder.dart';
 import '../providers/settings_provider.dart';
+import 'paper_format.dart';
 
 Future<bool> readPrintBlackAndWhite() async {
   final prefs = await SharedPreferences.getInstance();
@@ -46,6 +47,7 @@ Future<void> printInvoiceDirect({
   try {
     await Printing.layoutPdf(
       name: filename(),
+      format: pageFormatFor(paperSize),
       onLayout: (format) async {
         final opts = InvoicePdfOptions(isArabic: isArabic, blackAndWhite: bw);
         return InvoicePdfBuilder.buildBytes(
@@ -95,15 +97,7 @@ Future<void> shareInvoicePdf({
     await sp.ensureLoadedForPrint();
   } catch (_) {}
 
-  final format = (paperSize == 'A5')
-      ? PdfPageFormat.a5
-      : (paperSize == 'thermal' || paperSize == '80mm')
-      ? const PdfPageFormat(
-          80 * PdfPageFormat.mm,
-          double.infinity,
-          marginAll: 4 * PdfPageFormat.mm,
-        )
-      : PdfPageFormat.a4;
+  final format = pageFormatFor(paperSize);
 
   final numStr = (invoice['invoice_type_id'] ?? '').toString().trim();
   final idStr = (invoice['id'] ?? '').toString().trim();
@@ -151,15 +145,7 @@ Future<void> shareInvoiceWhatsApp({
     await sp.ensureLoadedForPrint();
   } catch (_) {}
 
-  final format = (paperSize == 'A5')
-      ? PdfPageFormat.a5
-      : (paperSize == 'thermal' || paperSize == '80mm')
-      ? const PdfPageFormat(
-          80 * PdfPageFormat.mm,
-          double.infinity,
-          marginAll: 4 * PdfPageFormat.mm,
-        )
-      : PdfPageFormat.a4;
+  final format = pageFormatFor(paperSize);
 
   // ── بناء PDF bytes ──────────────────────────────────────────────────────
   final bytes = await InvoicePdfBuilder.buildBytes(

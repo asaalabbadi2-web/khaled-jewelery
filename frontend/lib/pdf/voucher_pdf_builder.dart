@@ -1,3 +1,4 @@
+import '../utils/paper_format.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -38,27 +39,12 @@ class VoucherPdfOptions {
 }
 
 class VoucherPdfBuilder {
+  /// The page of a stored paper size: the one conversion (utils/paper_format.dart).
   static PdfPageFormat pageFormatFromSettings({
     required String paperSize,
     required String orientation,
-  }) {
-    PdfPageFormat base;
-    switch (paperSize) {
-      case 'A5':
-        base = PdfPageFormat.a5;
-        break;
-      case 'Letter':
-        base = PdfPageFormat.letter;
-        break;
-      case 'Thermal':
-        return const PdfPageFormat(80 * PdfPageFormat.mm, double.infinity);
-      default:
-        base = PdfPageFormat.a4;
-    }
-
-    if (orientation == 'landscape') return base.landscape;
-    return base;
-  }
+  }) =>
+      pageFormatFor(paperSize, orientation: orientation);
 
   static Future<Uint8List> buildBytes({
     required Map<String, dynamic> voucher,

@@ -2320,9 +2320,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           await Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => SettingsScreenEnhanced(
-                initialTabIndex: SettingsScreenEnhanced.systemTabIndex,
-                focusEntry: SettingsEntry.printerSettings,
+              builder: (_) => const SettingsScreenEnhanced(
+                initialTabIndex: SettingsScreenEnhanced.printingTabIndex,
               ),
             ),
           );

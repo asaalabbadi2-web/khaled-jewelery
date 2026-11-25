@@ -4,7 +4,6 @@ import '../widgets/plan_picker.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:intl/intl.dart' hide TextDirection;
-import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
 
@@ -16,6 +15,7 @@ import '../services/data_sync_bus.dart';
 import '../utils/purchase_running_account.dart';
 import '../utils/invoice_direct_print.dart';
 import '../widgets/widgets.dart';
+import '../utils/paper_format.dart';
 import 'add_return_invoice_screen.dart';
 import 'invoice_correction_screen.dart';
 import 'purchase_invoice_screen.dart';
@@ -3554,29 +3554,36 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
       final wantsWhatsApp = autoWhatsApp;
       final wantsShare = autoSharePdf || autoDownloadPdf;
       final wantsPrint = autoPrint || (!wantsShare && !wantsWhatsApp);
+      // The invoice paper set on this device, as the invoice screens print (B4).
+      final paperSize = (await InvoiceUiSettings.load(InvoiceUiContext.saleNew)).paperSize;
+      if (!mounted) return;
 
       if (wantsWhatsApp) {
         await shareInvoiceWhatsApp(
           context: context,
           invoice: mergedInvoice,
+          paperSize: paperSize,
           isArabic: widget.isArabic,
         );
       }
 
       if (wantsShare) {
+        if (!mounted) return;
         final bytes = await buildInvoicePdfBytes(
           context: context,
           invoice: mergedInvoice,
-          format: PdfPageFormat.a4,
+          format: pageFormatFor(paperSize),
           isArabic: widget.isArabic,
         );
         await Printing.sharePdf(bytes: bytes, filename: filename());
       }
 
       if (wantsPrint) {
+        if (!mounted) return;
         await printInvoiceDirect(
           context: context,
           invoice: mergedInvoice,
+          paperSize: paperSize,
           isArabic: widget.isArabic,
         );
       }

@@ -1,3 +1,5 @@
+import '../utils/paper_format.dart';
+import '../widgets/invoice_settings_sheet.dart' show InvoiceUiContext, InvoiceUiSettings;
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -29,13 +31,13 @@ enum SettingsEntry {
   goldPrice,
   weightClosing,
   systemReset,
-  printerSettings,
   about,
 }
 
 enum _AccountPickFilter { all, weightOnly, nonWeightOnly }
 
 class SettingsScreenEnhanced extends StatefulWidget {
+  static const int printingTabIndex = 4;
   static const int systemTabIndex = 5;
 
   final int initialTabIndex;
@@ -62,7 +64,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
     SettingsEntry.goldPrice: GlobalKey(),
     SettingsEntry.weightClosing: GlobalKey(),
     SettingsEntry.systemReset: GlobalKey(),
-    SettingsEntry.printerSettings: GlobalKey(),
     SettingsEntry.about: GlobalKey(),
   };
 
@@ -166,7 +167,8 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
 
   bool _printInColor = true;
   String _invoicePaperSize = 'A4';
-  final List<String> _invoicePaperOptions = const ['A4', 'A5', 'Letter', 'Thermal'];
+  // The invoice paper is the invoice screens' own (its sheet, on this device): B2.
+  final List<String> _invoicePaperOptions = InvoiceUiSettings.supportedPaperSizes;
 
   static const String _printerAutoConnectKey = 'printer_auto_connect_v1';
   static const String _printerShowPreviewKey = 'printer_show_preview_v1';
@@ -174,7 +176,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
   static const String _printerPaperSizeKey = 'printer_paper_size_v1';
   static const String _printerPreferredNameKey = 'printer_preferred_name_v1';
   static const String _printInColorKey = 'print_in_color';
-  static const String _invoicePaperSizeKey = 'invoice_paper_size';
 
   String? _preferredPrinterName;
   bool _isLoadingPrinters = false;
@@ -286,7 +287,7 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
       final printerPaperSize = prefs.getString(_printerPaperSizeKey) ?? '80 مم';
       final preferredPrinterName = prefs.getString(_printerPreferredNameKey);
       final printInColor = prefs.getBool(_printInColorKey) ?? true;
-      final invoicePaperSize = prefs.getString(_invoicePaperSizeKey) ?? 'A4';
+      final invoicePaperSize = (await InvoiceUiSettings.load(InvoiceUiContext.saleNew)).paperSize;
 
       _currencyController.text =
           settings['currency_symbol']?.toString() ?? 'ر.س';
@@ -643,7 +644,7 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
           await prefs.setString(_printerPreferredNameKey, preferred);
         }
         await prefs.setBool(_printInColorKey, _printInColor);
-        await prefs.setString(_invoicePaperSizeKey, _invoicePaperSize);
+        await InvoiceUiSettings.setPaperSize(_invoicePaperSize);
       } catch (_) {
         // ignore local persistence failures
       }
@@ -1680,7 +1681,7 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
               trackColor: _trackColorFor(_primaryColor),
             ),
             const SizedBox(height: 12),
-            Text('حجم ورق الفواتير والسندات', style: _fieldLabelStyle()),
+            Text('حجم ورق الفواتير', style: _fieldLabelStyle()),
             const SizedBox(height: 10),
             Directionality(
               textDirection: TextDirection.rtl,
@@ -1701,7 +1702,7 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
                     .map(
                       (option) => DropdownMenuEntry<String>(
                         value: option,
-                        label: option,
+                        label: paperLabel(option),
                       ),
                     )
                     .toList(),
@@ -1746,7 +1747,7 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
               trackColor: _trackColorFor(_primaryColor),
             ),
             const SizedBox(height: 12),
-            Text('مقاس الورق الافتراضي', style: _fieldLabelStyle()),
+            Text('مقاس ورق السندات', style: _fieldLabelStyle()),
             const SizedBox(height: 10),
             Directionality(
               textDirection: TextDirection.rtl,
@@ -1767,7 +1768,7 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
                     .map(
                       (option) => DropdownMenuEntry<String>(
                         value: option,
-                        label: option,
+                        label: paperLabel(option),
                       ),
                     )
                     .toList(),

@@ -1,3 +1,4 @@
+import '../utils/paper_format.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -597,25 +598,7 @@ class _JournalEntryPrintScreenState extends State<JournalEntryPrintScreen> {
     }
   }
 
-  PdfPageFormat _getPdfPageFormat() {
-    PdfPageFormat base;
-    switch (_paperSize) {
-      case 'A5':
-        base = PdfPageFormat.a5;
-        break;
-      case 'Letter':
-        base = PdfPageFormat.letter;
-        break;
-      case 'Thermal':
-        // Thermal is typically portrait only.
-        return const PdfPageFormat(80 * PdfPageFormat.mm, double.infinity);
-      default:
-        base = PdfPageFormat.a4;
-    }
-
-    if (_orientation == 'landscape') return base.landscape;
-    return base;
-  }
+  PdfPageFormat _getPdfPageFormat() => pageFormatFor(_paperSize, orientation: _orientation);
 
   Future<Uint8List> _generatePdf(PdfPageFormat format) async {
     // ── Fonts: local assets → fallback to Google Fonts ─────────────────
