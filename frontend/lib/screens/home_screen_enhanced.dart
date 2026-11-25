@@ -46,6 +46,7 @@ import 'period_expenses_screen.dart';
 import 'period_lock_screen.dart';
 import 'general_ledger_screen_v2.dart';
 import 'reports/trial_balance_report_screen.dart';
+import 'settings_center_screen.dart';
 import 'settings_screen_enhanced.dart';
 import 'branches_management_screen.dart';
 import 'gold_price_manual_screen_enhanced.dart';
@@ -1304,8 +1305,17 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       ),
     );
 
-    // The settings: its tabs, and the pages opened from them.
+    // The settings: the center -- each setting is found by its own search (the
+    // registry, settings spec v2 §5; here they would crowd the screens out of
+    // the six shown) -- its tabs, and the pages opened from them.
     if (auth.isManager) {
+      out.add(screen(
+        isAr ? 'مركز الإعدادات' : 'Settings Center',
+        settingsSection,
+        Icons.settings_outlined,
+        () => const SettingsCenterScreen(),
+        keywords: const ['الإعدادات', 'ضبط', 'الضريبة', 'الطباعة', 'العيار'],
+      ));
       const tabs = [
         ('عام', 'General', Icons.tune),
         ('الشركة والفواتير', 'Company & Invoices', Icons.business),
@@ -2741,7 +2751,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                     if (value == 'settings') {
                       await Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (_) => SettingsScreenEnhanced()),
+                        MaterialPageRoute(builder: (_) => const SettingsCenterScreen()),
                       );
                       return;
                     }
@@ -2976,7 +2986,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       case 'items':
         tab = ItemsOrPiecesScreen(api: api);
       case 'settings':
-        tab = SettingsScreenEnhanced();
+        tab = const SettingsCenterScreen();
       default:
         tab = _buildHomeTabContent(isAr);
     }
