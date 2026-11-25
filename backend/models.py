@@ -3479,6 +3479,25 @@ class SettingsChange(db.Model):
                 'new_value': _v(self.new_value), 'reason': self.reason}
 
 
+class PermissionChange(db.Model):
+    """One change of a user's role or of one of their permissions (ADR-103):
+    who changed it, for whom, when, and from what to what -- written with the
+    change, never edited or deleted (append_only_trigger.py)."""
+    __tablename__ = 'permission_change'
+
+    id = db.Column(db.Integer, primary_key=True)
+    changed_at = db.Column(db.DateTime, nullable=False)
+    actor = db.Column(db.String(120), nullable=False)
+    actor_user_id = db.Column(db.Integer, nullable=True)
+    target_user_id = db.Column(db.Integer, nullable=False, index=True)
+    target_username = db.Column(db.String(120), nullable=True)
+    kind = db.Column(db.String(16), nullable=False)          # role / permission
+    key = db.Column(db.String(80), nullable=False)
+    old_value = db.Column(db.Text, nullable=True)            # JSON
+    new_value = db.Column(db.Text, nullable=True)
+    source_ip = db.Column(db.String(64), nullable=True)
+
+
 class VatPolicyPeriod(db.Model):
     """VAT as a dated policy (ADR-043): from effective_from until the next period,
     whether input VAT is recovered and whether sales are charged VAT. An invoice
@@ -7789,6 +7808,10 @@ from settings_change_trigger import INSTALL_SQL as _SETTINGS_CHANGE_TRIGGER_SQL 
 _settings_audit.register(Settings, SettingsChange)
 db.event.listen(SettingsChange.__table__, 'after_create',
                 _DDL(_SETTINGS_CHANGE_TRIGGER_SQL.replace('%', '%%')).execute_if(dialect='postgresql'))
+# ADR-103: the record of every role or permission change, append-only too.
+from append_only_trigger import install_sql as _append_only_sql  # noqa: E402
+db.event.listen(PermissionChange.__table__, 'after_create',
+                _DDL(_append_only_sql('permission_change').replace('%', '%%')).execute_if(dialect='postgresql'))
 
 # ADR-043: a deactivated account takes no new line -- the database's last line.
 from account_status_trigger import INSTALL_SQL as _ACCOUNT_ACTIVE_TRIGGER_SQL  # noqa: E402

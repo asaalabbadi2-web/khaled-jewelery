@@ -29,6 +29,60 @@ def _can_manage_permissions(current_user) -> bool:
     return False
 
 
+# ── ADR-103: the financial settings permission, and the record of every grant ──
+FINANCIAL_SETTINGS = 'system.financial_settings'
+
+
+def _overrides(perms) -> dict:
+    """A user's overrides as {code: granted} -- they are kept as a dict or a list."""
+    if isinstance(perms, dict):
+        return {k: bool(v) for k, v in perms.items()}
+    if isinstance(perms, list):
+        return {k: True for k in perms}
+    return {}
+
+
+def _is_system_admin(user) -> bool:
+    return bool(getattr(user, 'is_admin', False) or getattr(user, 'role', None) == 'system_admin')
+
+
+def _guard_and_record(current_user, user, old_role, old_perms):
+    """After a user's role or overrides were set: refuse a change of the
+    financial settings permission by anyone but the system admin, or by anyone
+    to themselves; else record every change (append-only). Returns a refusal
+    response, or None. The caller commits, or rolls back on a refusal."""
+    import json as _json
+    from datetime import datetime as _dt
+    from permissions import effective_permissions
+    from models import PermissionChange
+    before, after = _overrides(old_perms), _overrides(user.permissions)
+    had = FINANCIAL_SETTINGS in effective_permissions(old_role, old_perms)
+    has = FINANCIAL_SETTINGS in effective_permissions(user.role, user.permissions)
+    touched = had != has or before.get(FINANCIAL_SETTINGS) != after.get(FINANCIAL_SETTINGS)
+    if touched:
+        if not _is_system_admin(current_user):
+            return jsonify({'error': 'financial_grant_admin_only',
+                            'message': 'صلاحية «الإعدادات المالية والمحاسبية» يمنحها ويسحبها مسؤول النظام وحده'}), 403
+        if isinstance(current_user, AppUser) and current_user.id == user.id:
+            return jsonify({'error': 'financial_grant_to_self',
+                            'message': 'لا يمنح أحد لنفسه صلاحية «الإعدادات المالية والمحاسبية» ولا يسحبها منها'}), 403
+    now = _dt.now()   # clock-guard: record-only -- the record's own time (ADR-103)
+    actor = getattr(current_user, 'username', None) or 'system'
+    rows = []
+    if old_role != user.role:
+        rows.append(('role', 'role', old_role, user.role))
+    for code in sorted(set(before) | set(after)):
+        if before.get(code) != after.get(code):
+            rows.append(('permission', code, before.get(code), after.get(code)))
+    for kind, key, old, new in rows:
+        db.session.add(PermissionChange(
+            changed_at=now, actor=actor, actor_user_id=getattr(current_user, 'id', None),
+            target_user_id=user.id, target_username=user.username, kind=kind, key=key,
+            old_value=_json.dumps(old, ensure_ascii=False), new_value=_json.dumps(new, ensure_ascii=False),
+            source_ip=(request.remote_addr or None)))
+    return None
+
+
 @permissions_bp.route('/permissions/roles', methods=['GET'])
 @require_permission('users.view')
 @require_auth
@@ -185,7 +239,8 @@ def update_user_permissions(user_id):
         return jsonify({'error': 'لا يمكن تعديل صلاحيات مسؤول النظام'}), 403
     
     data = request.get_json()
-    
+    old_role, old_perms = user.role, user.permissions
+
     # تحديث الدور إذا تم إرساله
     if 'role' in data:
         new_role = data['role']
@@ -219,7 +274,11 @@ def update_user_permissions(user_id):
             user.permissions = valid_permissions
         else:
             user.permissions = None
-    
+
+    refused = _guard_and_record(current_user, user, old_role, old_perms)
+    if refused:
+        db.session.rollback()
+        return refused
     db.session.commit()
     
     return jsonify({
@@ -251,12 +310,17 @@ def update_user_role(user_id):
     if (new_role == 'system_admin' or user.role == 'system_admin') and not current_user.is_admin:
         return jsonify({'error': 'غير مصرح بتعديل مسؤول النظام'}), 403
     
+    old_role, old_perms = user.role, user.permissions
     user.role = new_role
     
     # إعادة ضبط الصلاحيات المخصصة عند تغيير الدور
     if data.get('reset_permissions', False):
         user.permissions = None
-    
+
+    refused = _guard_and_record(current_user, user, old_role, old_perms)
+    if refused:
+        db.session.rollback()
+        return refused
     db.session.commit()
     
     return jsonify({

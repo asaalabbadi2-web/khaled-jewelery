@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../providers/auth_provider.dart';
 
 import '../settings/settings_opener.dart';
 import '../settings/settings_registry.dart';
@@ -12,9 +15,13 @@ import '../theme/app_semantic_colors.dart';
 /// section's own page replaces them (phase 7). Every name and place is the
 /// registry's (lib/settings/settings_registry.dart).
 class SettingsCenterScreen extends StatefulWidget {
-  const SettingsCenterScreen({super.key, this.opener = openSettingEntry});
+  const SettingsCenterScreen({super.key, this.opener = openSettingEntry, this.financialAllowed});
 
   final SettingsOpener opener;
+
+  /// Whether the user may change a financial (level-3) setting (ADR-103);
+  /// null reads it from the signed-in user.
+  final bool? financialAllowed;
 
   @override
   State<SettingsCenterScreen> createState() => _SettingsCenterScreenState();
@@ -32,6 +39,15 @@ class _SettingsCenterScreenState extends State<SettingsCenterScreen> {
 
   bool get _searching => _query.text.trim().isNotEmpty;
 
+  bool get _financial {
+    if (widget.financialAllowed != null) return widget.financialAllowed!;
+    try {
+      return context.read<AuthProvider>().hasPermission('system.financial_settings');
+    } catch (_) {
+      return false;
+    }
+  }
+
   void _openSection(SettingsSection s, {required bool wide}) {
     if (wide) {
       setState(() {
@@ -42,7 +58,7 @@ class _SettingsCenterScreenState extends State<SettingsCenterScreen> {
       Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => Scaffold(
           appBar: AppBar(title: Text(sections[s]!.label)),
-          body: SectionEntries(section: s, opener: widget.opener),
+          body: SectionEntries(section: s, opener: widget.opener, financialAllowed: _financial),
         ),
       ));
     }
@@ -69,7 +85,7 @@ class _SettingsCenterScreenState extends State<SettingsCenterScreen> {
                             ? _results()
                             : _section == null
                             ? _index(wide: true)
-                            : SectionEntries(section: _section!, opener: widget.opener),
+                            : SectionEntries(section: _section!, opener: widget.opener, financialAllowed: _financial),
                       ),
                     ],
                   ),
@@ -226,6 +242,7 @@ class _SettingsCenterScreenState extends State<SettingsCenterScreen> {
     final where = [
       sections[e.section]!.label,
       if (h.matchedBy != null) 'وُجد بـ «${h.matchedBy}»',
+      if (e.level == 3 && !_financial) needsFinancialPermission,
     ].join(' · ');
     return ListTile(
       key: Key('settings-hit-${e.id}'),
@@ -243,11 +260,15 @@ class _SettingsCenterScreenState extends State<SettingsCenterScreen> {
 
 /// A section's entries: each setting with where it is set today, each screen
 /// it links to -- read-only; its own page comes in phase 7.
+/// Said beside a financial setting to whoever does not hold its permission.
+const needsFinancialPermission = 'يحتاج صلاحية «الإعدادات المالية والمحاسبية»';
+
 class SectionEntries extends StatelessWidget {
-  const SectionEntries({super.key, required this.section, required this.opener});
+  const SectionEntries({super.key, required this.section, required this.opener, this.financialAllowed = false});
 
   final SettingsSection section;
   final SettingsOpener opener;
+  final bool financialAllowed;
 
   @override
   Widget build(BuildContext context) {
@@ -289,6 +310,7 @@ class SectionEntries extends StatelessWidget {
             subtitle: Text([
               if (e.description.isNotEmpty) e.description,
               if (e.effect != null) e.effect!,
+              if (e.level == 3 && !financialAllowed) needsFinancialPermission,
               'يُضبط اليوم في: ${legacyTabNames[e.legacyTab ?? 0]}',
             ].join('\n')),
             trailing: const Icon(Icons.chevron_left),

@@ -22,7 +22,7 @@ void main() {
     await cairo.load();
   });
 
-  Future<List<String>> open(WidgetTester tester, Size size, {bool dark = false}) async {
+  Future<List<String>> open(WidgetTester tester, Size size, {bool dark = false, bool financial = false}) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -30,7 +30,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(
       theme: dark ? DarkTheme.theme : LightTheme.theme,
       builder: (context, child) => Directionality(textDirection: TextDirection.rtl, child: child!),
-      home: SettingsCenterScreen(opener: (_, e) async => opened.add(e.id)),
+      home: SettingsCenterScreen(opener: (_, e) async => opened.add(e.id), financialAllowed: financial),
     ));
     await tester.pumpAndSettle();
     return opened;
@@ -115,5 +115,18 @@ void main() {
     await tester.enterText(find.byKey(const Key('settings-search')), 'زززز');
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('settings-no-hit')), findsOneWidget);
+  });
+
+  // ADR-103: a financial setting says it wants its permission to whoever lacks it.
+  testWidgets('a financial setting says its permission to whoever does not hold it', (tester) async {
+    await open(tester, _sizes['wide']!);
+    await tester.tap(find.byKey(const Key('settings-section-tax')));
+    await tester.pumpAndSettle();
+    expect(find.descendant(of: find.byKey(const Key('settings-entry-tax_rate')),
+        matching: find.textContaining(needsFinancialPermission)), findsOneWidget);
+    await open(tester, _sizes['wide']!, financial: true);
+    await tester.tap(find.byKey(const Key('settings-section-tax')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining(needsFinancialPermission), findsNothing);
   });
 }

@@ -39,6 +39,7 @@ SKIP_DIRS = {'tests', 'venv', 'alembic', 'migrations', '_archived', 'graphify-ou
 MATRIX = {
     'users.view': '', 'users.create': '', 'users.edit': '', 'users.delete': '',
     'users.change_permissions': '', 'system.settings': '', 'system.backup': '', 'system.logs': '',
+    'system.financial_settings': '',   # ADR-103: no role; granted by the system admin alone (26 Nov 2026)
     'business.setup': 'C',
     'accounting.mapping': 'M',   # MAPPING-UI-1: the owner or the manager
     'accounting.period_lock': '',  # ADR-090 law 9: closing and reopening a month, the owner alone

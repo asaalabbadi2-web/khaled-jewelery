@@ -27,6 +27,11 @@ SYSTEM_PERMISSIONS = {
     'users.delete': 'حذف المستخدمين',
     'users.change_permissions': 'تغيير صلاحيات المستخدمين',
     'system.settings': 'إعدادات النظام',
+    # ADR-103 (the owner, 26 Nov 2026): a level-3 setting -- VAT, the main
+    # karat, posting, the safes, the office price -- is changed only by who
+    # holds this. No role holds it: the system admin alone, by the code, and
+    # the system admin alone grants it, never to themselves.
+    'system.financial_settings': 'الإعدادات المالية والمحاسبية',
     'system.backup': 'النسخ الاحتياطي والاستعادة',
     'system.logs': 'عرض سجلات النظام',
     'business.setup': 'إعداد وسائل الدفع والفروع والمكاتب وربط الحسابات',

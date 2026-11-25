@@ -512,6 +512,9 @@ def get_weight_closing_settings():
 @require_permission('system.settings')
 def update_weight_closing_settings():
     """Update weight closing settings (stored in Settings.weight_closing_settings JSON)."""
+    refused = _financial_refusal(['weight_closing_settings'])   # level 3 (ADR-103)
+    if refused:
+        return refused
     payload = request.get_json(silent=True) or {}
     if not isinstance(payload, dict):
         return jsonify({'error': 'invalid_payload'}), 400
@@ -654,6 +657,9 @@ def get_settings():
 @require_permission('system.settings')
 def add_vat_period():
     """A VAT period from a day on (ADR-043): input VAT recovered, sales VAT charged."""
+    refused = _financial_refusal(['sales_vat_enabled'])      # a VAT policy is a level-3 setting (ADR-103)
+    if refused:
+        return refused
     from datetime import date as _date
     from services.vat_policy import PeriodRefused, add_period
     data = request.get_json(silent=True) or {}
@@ -695,6 +701,47 @@ def get_wage_treatment():
     return jsonify({'mode': live_wage_mode(), 'wage_inventory_account': wage_inventory})
 
 
+FINANCIAL_SETTINGS = 'system.financial_settings'
+
+
+def _holds_financial_settings() -> bool:
+    user = getattr(g, 'current_user', None)
+    return bool(user is not None and user.has_permission(FINANCIAL_SETTINGS))
+
+
+def _owner_only_refusal(settings, data):
+    """Posting manual entries at creation is the system admin's to turn on or
+    off (the owner, 9 Oct 2026) -- even for a user granted system.settings or
+    the financial settings. Sending the value unchanged, as the settings screen
+    does, is not a change. The narrower law speaks before the financial one."""
+    if 'auto_post_entries' in data and bool(data['auto_post_entries']) != bool(settings.auto_post_entries):
+        from services.approval_policy import may_approve_own
+        if not may_approve_own():
+            return jsonify({
+                'error': 'auto_post_entries_owner_only',
+                'message': 'ترحيل القيود اليدوية تلقائيًا يغيّره مسؤول النظام وحده',
+            }), 403
+    return None
+
+
+def _financial_refusal(keys):
+    """403 when *keys* -- level-3 settings a save changes -- are not the
+    user's to change (ADR-103); None otherwise."""
+    keys = sorted(set(keys))
+    if not keys or _holds_financial_settings():
+        return None
+    return jsonify({'error': 'financial_settings_permission',
+                    'message': 'هذه الإعدادات تمسّ الدفاتر: تغييرها لمن يحمل صلاحية «الإعدادات المالية والمحاسبية»',
+                    'keys': keys}), 403
+
+
+def _financial_keys_changed(settings, data) -> list:
+    """The level-3 keys of *data* whose value differs, by its type, from the row's."""
+    from services.settings_policy import level, same
+    return [k for k, v in data.items()
+            if level(_version_key(k)) == 3 and not (hasattr(Settings, k) and same(k, getattr(settings, k), v))]
+
+
 @system_bp.route('/settings', methods=['PUT'])
 @require_permission('system.settings')
 def update_settings():
@@ -704,6 +751,10 @@ def update_settings():
     data = request.get_json(silent=True) or {}
     if not isinstance(data, dict):
         return jsonify({'error': 'invalid_payload'}), 400
+    current = _get_settings_singleton(create_if_missing=True)
+    refused = _owner_only_refusal(current, data) or _financial_refusal(_financial_keys_changed(current, data))
+    if refused:
+        return refused
     return _apply_settings(data)
 
 
@@ -777,6 +828,10 @@ def patch_settings():
     if not effective:
         db.session.rollback()
         return jsonify({'settings': settings.to_dict(), 'versions': current, 'written': []})
+    refused = _owner_only_refusal(settings, effective) or _financial_refusal(_financial_keys_changed(settings, effective))
+    if refused:
+        db.session.rollback()
+        return refused
     reason = str(body.get('reason') or '').strip()
     wanting = sorted(k for k in effective if level(_version_key(k)) == 3)
     if wanting and not reason:
@@ -1092,16 +1147,9 @@ def _apply_settings(data):
     if 'voucher_auto_post' in data:
         settings.voucher_auto_post = data['voucher_auto_post']
 
-    # Posting manual entries at creation is the system admin's to turn on or
-    # off (the owner, 9 Oct 2026) -- even for a user granted system.settings.
-    # Sending the value unchanged, as the settings screen does, is not a change.
-    if 'auto_post_entries' in data and bool(data['auto_post_entries']) != bool(settings.auto_post_entries):
-        from services.approval_policy import may_approve_own
-        if not may_approve_own():
-            return jsonify({
-                'error': 'auto_post_entries_owner_only',
-                'message': 'ترحيل القيود اليدوية تلقائيًا يغيّره مسؤول النظام وحده',
-            }), 403
+    refused = _owner_only_refusal(settings, data)
+    if refused:
+        return refused
 
     # 🆕 إعدادات الترحيل (Posting Preferences)
     for _pk in ('auto_post_invoices', 'auto_post_entries', 'require_approval_before_post', 'allow_unposting'):
