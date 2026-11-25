@@ -698,12 +698,109 @@ def get_wage_treatment():
 @system_bp.route('/settings', methods=['PUT'])
 @require_permission('system.settings')
 def update_settings():
-    import json
-    settings = _get_settings_singleton(create_if_missing=True)
-
+    """The settings screen's save: the keys sent, written as they come. Every
+    change is recorded (ADR-102); PATCH /settings is the save that also refuses
+    a key moved since it was seen."""
     data = request.get_json(silent=True) or {}
     if not isinstance(data, dict):
         return jsonify({'error': 'invalid_payload'}), 400
+    return _apply_settings(data)
+
+
+# A key whose save writes another column: its version is that column's (ADR-102).
+_VERSION_COLUMN = {'coding_on': 'coding_from'}
+
+
+def _version_key(key: str) -> str:
+    return _VERSION_COLUMN.get(key, key)
+
+
+@system_bp.route('/settings/versions', methods=['GET'])
+@require_permission('system.settings')
+def settings_versions():
+    """{key: the id of its last change} -- what a PATCH names as seen (ADR-102)."""
+    from settings_audit import versions
+    return jsonify({'versions': versions()})
+
+
+@system_bp.route('/settings', methods=['PATCH'])
+@require_permission('system.settings')
+def patch_settings():
+    """Save what changed, at the version seen (ADR-102).
+
+    Body: changes {key: value}, versions {key: id of the key's last change as
+    seen -- 0 if never changed}, reason (required for a level-3 key), source
+    {device?}. Under the Settings row's lock: a key whose last change is not
+    the one seen refuses the whole save (409 settings_conflict, nothing
+    written) -- even if its value is back to what was seen. A value equal by
+    its type to the current one is not written. The rest is the settings
+    route's own law, unchanged (_apply_settings)."""
+    from flask import make_response
+    from models import SettingsChange
+    from services.settings_policy import level, same
+    import settings_audit
+
+    body = request.get_json(silent=True) or {}
+    changes, seen = body.get('changes'), body.get('versions')
+    if not isinstance(changes, dict) or not changes:
+        return jsonify({'error': 'no_changes', 'message': 'لا تغيير يُحفظ'}), 400
+    if not isinstance(seen, dict) or any(k not in seen for k in changes):
+        return jsonify({'error': 'versions_required',
+                        'message': 'لكل إعداد يُحفظ إصداره كما رآه المستخدم',
+                        'keys': sorted(k for k in changes if not isinstance(seen, dict) or k not in seen)}), 400
+
+    row = _get_settings_singleton(create_if_missing=True)
+    settings = Settings.query.filter_by(id=row.id).with_for_update().one()
+    current = settings_audit.versions([_version_key(k) for k in changes])
+    conflicts = []
+    for key in sorted(changes):
+        vkey = _version_key(key)
+        try:
+            seen_version = int(seen[key] or 0)
+        except (TypeError, ValueError):
+            seen_version = -1
+        if seen_version != current[vkey]:
+            last = db.session.get(SettingsChange, current[vkey]) if current[vkey] else None
+            conflicts.append({'key': key, 'seen_version': seen_version, 'current_version': current[vkey],
+                              'current': settings.to_dict().get(key, getattr(settings, vkey, None)),
+                              'yours': changes[key],
+                              'changed_by': last.actor if last else None,
+                              'changed_at': last.changed_at.isoformat() if last and last.changed_at else None})
+    if conflicts:
+        db.session.rollback()
+        return jsonify({'error': 'settings_conflict',
+                        'message': 'غيّر مستخدم آخر بعض هذه الإعدادات بعد أن فتحتها: راجعها ثم احفظ',
+                        'conflicts': conflicts}), 409
+
+    effective = {k: v for k, v in changes.items()
+                 if not (hasattr(Settings, k) and same(k, getattr(settings, k), v))}
+    if not effective:
+        db.session.rollback()
+        return jsonify({'settings': settings.to_dict(), 'versions': current, 'written': []})
+    reason = str(body.get('reason') or '').strip()
+    wanting = sorted(k for k in effective if level(_version_key(k)) == 3)
+    if wanting and not reason:
+        db.session.rollback()
+        return jsonify({'error': 'reason_required',
+                        'message': 'هذه الإعدادات تمسّ الدفاتر: اكتب سبب التغيير', 'keys': wanting}), 400
+    source = body.get('source') if isinstance(body.get('source'), dict) else None
+    settings_audit.set_context(reason=reason or None, source=source)
+
+    resp = make_response(_apply_settings(effective))
+    if resp.status_code >= 400:
+        db.session.rollback()
+        return resp
+    written = sorted(effective)
+    db.session.expire_all()
+    saved = db.session.get(Settings, row.id)
+    return jsonify({'settings': saved.to_dict() if saved else resp.get_json(), 'written': written,
+                    'versions': settings_audit.versions([_version_key(k) for k in written])})
+
+
+def _apply_settings(data):
+    """The settings' own law, key by key, then one commit -- shared by PUT and PATCH."""
+    import json
+    settings = _get_settings_singleton(create_if_missing=True)
 
     # The wage treatment is one of two (ADR-039); anything else is refused, not
     # read later as the default.

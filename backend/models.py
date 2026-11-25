@@ -3441,6 +3441,44 @@ class Settings(db.Model):
         }
 
 
+class SettingsChange(db.Model):
+    """One change of one setting (ADR-102): what it was and became, who changed
+    it, when, from where and why -- written with the change, in its flush
+    (settings_audit.py), never edited or deleted (settings_change_trigger.py).
+    Its id is the key's version: PATCH /settings refuses a save over a key
+    whose last change is not the one its user saw."""
+    __tablename__ = 'settings_change'
+
+    id = db.Column(db.Integer, primary_key=True)
+    changed_at = db.Column(db.DateTime, nullable=False)
+    actor = db.Column(db.String(120), nullable=False)
+    actor_type = db.Column(db.String(16), nullable=False)          # user / system / migration
+    user_id = db.Column(db.Integer, nullable=True)
+    source_ip = db.Column(db.String(64), nullable=True)
+    user_agent = db.Column(db.String(300), nullable=True)
+    device_label = db.Column(db.String(120), nullable=True)
+    request_id = db.Column(db.String(40), nullable=False, index=True)
+    key = db.Column(db.String(80), nullable=False, index=True)
+    level = db.Column(db.Integer, nullable=False)
+    old_value = db.Column(db.Text, nullable=True)                   # JSON, or its hash (services/settings_policy)
+    new_value = db.Column(db.Text, nullable=True)
+    reason = db.Column(db.Text, nullable=True)
+
+    def to_dict(self):
+        import json as _json
+
+        def _v(raw):
+            try:
+                return _json.loads(raw) if raw is not None else None
+            except (TypeError, ValueError):
+                return raw
+        return {'id': self.id, 'changed_at': self.changed_at.isoformat() if self.changed_at else None,
+                'actor': self.actor, 'actor_type': self.actor_type, 'user_id': self.user_id,
+                'source_ip': self.source_ip, 'device_label': self.device_label, 'request_id': self.request_id,
+                'key': self.key, 'level': self.level, 'old_value': _v(self.old_value),
+                'new_value': _v(self.new_value), 'reason': self.reason}
+
+
 class VatPolicyPeriod(db.Model):
     """VAT as a dated policy (ADR-043): from effective_from until the next period,
     whether input VAT is recovered and whether sales are charged VAT. An invoice
@@ -7743,6 +7781,14 @@ from sqlalchemy import DDL as _DDL  # noqa: E402
 db.event.listen(JournalEntry.__table__, 'after_create',
                 # DDL formats its text with %: PL/pgSQL's RAISE placeholders are escaped.
                 _DDL(_POSTED_ENTRY_TRIGGER_SQL.replace('%', '%%')).execute_if(dialect='postgresql'))
+
+# ADR-102: every change of the Settings row is recorded in its flush, and the
+# record is append-only in the database (its DDL the migration's, shared).
+import settings_audit as _settings_audit  # noqa: E402
+from settings_change_trigger import INSTALL_SQL as _SETTINGS_CHANGE_TRIGGER_SQL  # noqa: E402
+_settings_audit.register(Settings, SettingsChange)
+db.event.listen(SettingsChange.__table__, 'after_create',
+                _DDL(_SETTINGS_CHANGE_TRIGGER_SQL.replace('%', '%%')).execute_if(dialect='postgresql'))
 
 # ADR-043: a deactivated account takes no new line -- the database's last line.
 from account_status_trigger import INSTALL_SQL as _ACCOUNT_ACTIVE_TRIGGER_SQL  # noqa: E402
