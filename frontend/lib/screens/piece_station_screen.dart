@@ -146,6 +146,34 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
     }
   }
 
+  /// «إقفال الباقي»: its reason asked, the rest closed onto the shortage by the server.
+  Future<void> _closeRest(Map<String, dynamic> line) async {
+    final why = await showDialog<String>(
+      context: context,
+      builder: (_) => _CloseRestDialog(
+        title: 'إقفال الباقي ${_g(line['rest'])} جم؟',
+        body: 'يُسجَّل خسارة وزن بقيد باسمك، ولا يبقى من هذا السطر شيء يُرمَّز.',
+        reason: 'فرق الميزان بين وزن الدفعة ووزن قطعها',
+        action: 'أقفل الباقي',
+      ),
+    );
+    final reason = why?.trim() ?? '';
+    if (reason.isEmpty || !mounted) return;
+    try {
+      final body = await _api.closeCodingRest(
+        lineId: _isBatch(line) ? null : line['line_id'] as int?,
+        codingId: _isBatch(line) ? line['coding_id'] as int? : null,
+        reason: reason,
+      );
+      if (!mounted) return;
+      setState(() => _line = body['line'] as Map<String, dynamic>);
+      AppFeedback.success(context, 'أُقفل الباقي وسُجّل خسارة وزن');
+      _refreshQueue();
+    } catch (e) {
+      if (mounted) AppFeedback.error(context, e);
+    }
+  }
+
   void _show(Map<String, dynamic> body) {
     setState(() {
       _line = body['line'] as Map<String, dynamic>;
@@ -545,7 +573,25 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
     await _loadPending();
   }
 
-  Future<void> _register() async {
+  /// The last piece heavier than the rest by the scale's drift (the owner, 25
+  /// Nov 2026: «ماذا ان كان الفرق سالب؟»): its reason asked, registered whole,
+  /// its excess the count's surplus -- the server's.
+  Future<void> _registerOverRest(String excess) async {
+    final why = await showDialog<String>(
+      context: context,
+      builder: (_) => _CloseRestDialog(
+        title: 'تسجيل القطعة وزيادة $excess جم؟',
+        body: 'تُسجَّل القطعة بوزنها، والزيادة زيادة جرد بقيد باسمك، ويُغلق هذا السطر.',
+        reason: 'فرق الميزان: القطعة الأخيرة أثقل من الباقي',
+        action: 'سجّلها',
+      ),
+    );
+    final reason = why?.trim() ?? '';
+    if (reason.isEmpty || !mounted) return;
+    await _register(overRestReason: reason);
+  }
+
+  Future<void> _register({String? overRestReason}) async {
     final line = _line;
     final weight = readTypedNumber(_weight.text) ?? 0;
     if (line == null || _saving) return;
@@ -578,6 +624,7 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
         if (_model != null) 'model_id': _model!['id'],
         if (_sizeId != null) 'size_id': _sizeId,
         if (byPiece) ...{'wage': wage, 'wage_whole': _wageWhole},
+        if (overRestReason != null) 'over_rest_reason': overRestReason,
         'request_key': _requestKey,
       });
       if (!mounted) return;
@@ -988,22 +1035,36 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
             if (((w['stones_weight'] as num?) ?? 0) > 0) _stonesWords(w['stones_weight'], w['stones_kind']),
             'يبقى ${_g(w['rest_after'])} جم',
           ].join(' · ');
-    final tone = refused != null ? tones.blocked : tones.info;
+    // heavier by the scale's drift alone: registered with its excess the surplus, when said so
+    final over = refused?['over_rest_closable'] == true;
+    final tone = over ? tones.warning : (refused != null ? tones.blocked : tones.info);
     return Padding(
       padding: const EdgeInsets.only(top: 8),
-      child: Row(
-        children: [
-          Icon(refused != null ? Icons.error_outline : Icons.scale_outlined, size: 18, color: tone.fg),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              words,
-              key: const Key('station-weighed'),
-              style: theme.textTheme.bodyMedium?.copyWith(color: tone.fg, fontWeight: FontWeight.w700),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(
+          children: [
+            Icon(refused != null ? Icons.error_outline : Icons.scale_outlined, size: 18, color: tone.fg),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                words,
+                key: const Key('station-weighed'),
+                style: theme.textTheme.bodyMedium?.copyWith(color: tone.fg, fontWeight: FontWeight.w700),
+              ),
+            ),
+          ],
+        ),
+        if (over)
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: TextButton.icon(
+              key: const Key('station-over-rest'),
+              icon: const Icon(Icons.add_task),
+              label: const Text('سجّلها والزيادة زيادة جرد'),
+              onPressed: _saving ? null : () => _registerOverRest(_g(refused!['over_rest'])),
             ),
           ),
-        ],
-      ),
+      ]),
     );
   }
 
@@ -1089,6 +1150,20 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
               key: const Key('station-counter'),
               style: theme.textTheme.titleSmall,
             ),
+            // the scale's drift left after its pieces, written off within the tolerance
+            // (the owner, 25 Nov 2026: «إقفال الباقي»); beyond it, a count's
+            if (line['rest_closable'] == true) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: OutlinedButton.icon(
+                  key: const Key('station-close-rest'),
+                  icon: const Icon(Icons.done_all),
+                  label: Text('إقفال الباقي (${_g(line['rest'])} جم)'),
+                  onPressed: () => _closeRest(line),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -1521,4 +1596,53 @@ class _FromStockDialogState extends State<_FromStockDialog> {
       ],
     );
   }
+}
+
+
+/// «إقفال الباقي»'s question: its reason, the dialog's own field -- popped with it, or nothing.
+class _CloseRestDialog extends StatefulWidget {
+  const _CloseRestDialog({required this.title, required this.body, required this.reason, required this.action});
+  final String title;
+  final String body;
+  final String reason;
+  final String action;
+
+  @override
+  State<_CloseRestDialog> createState() => _CloseRestDialogState();
+}
+
+class _CloseRestDialogState extends State<_CloseRestDialog> {
+  late final _reason = TextEditingController(text: widget.reason);
+
+  @override
+  void dispose() {
+    _reason.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: Text(widget.title),
+          content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(widget.body),
+            const SizedBox(height: 12),
+            TextField(
+              key: const Key('station-close-rest-reason'),
+              controller: _reason,
+              maxLength: 200,
+              decoration: const InputDecoration(labelText: 'السبب'),
+            ),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('رجوع')),
+            FilledButton(
+              key: const Key('station-close-rest-sure'),
+              onPressed: () => Navigator.of(context).pop(_reason.text),
+              child: Text(widget.action),
+            ),
+          ],
+        ),
+      );
 }

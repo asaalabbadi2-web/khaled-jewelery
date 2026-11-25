@@ -163,9 +163,25 @@ class _Api extends ApiService {
   /// The line's stones priced by the carat: out of its gold (ت4).
   bool pricedStones = false;
 
+  /// Its rest the scale's drift: closable (the owner, 25 Nov 2026: «إقفال الباقي»).
+  bool restClosable = false;
+  final restsClosed = <Map<String, dynamic>>[];
+
   @override
-  Future<Map<String, dynamic>> pieceLine(int lineId) async =>
-      {'line': {..._line(), if (pricedStones) 'stones_kind': 'priced'}, 'pieces': []};
+  Future<Map<String, dynamic>> pieceLine(int lineId) async => {
+        'line': {
+          ..._line(),
+          if (pricedStones) 'stones_kind': 'priced',
+          if (restClosable) ...{'pieces': 3, 'pieces_weight': 29.97, 'rest': 0.03, 'rest_closable': true},
+        },
+        'pieces': [],
+      };
+
+  @override
+  Future<Map<String, dynamic>> closeCodingRest({int? lineId, int? codingId, required String reason}) async {
+    restsClosed.add({'line_id': lineId, 'coding_id': codingId, 'reason': reason});
+    return {'closed': {'grams': 0.03}, 'line': {..._line(pieces: 3, coded: 29.97), 'rest': 0.0, 'rest_closable': false}};
+  }
 
   /// The server's reading of a weight typed, each question recorded.
   final weighs = <Map<String, dynamic>>[];
@@ -234,6 +250,23 @@ void main() {
     expect(find.textContaining('بانتظار الفاتورة'), findsOneWidget);
     expect(find.byKey(const Key('piece-wage')), findsNothing, reason: 'a receipt\'s piece takes its invoice\'s wage');
     expect(api.sent.single.containsKey('wage'), isFalse);
+  });
+
+  testWidgets('the scale\'s drift left after the pieces: closed with its reason, the line done', (tester) async {
+    final api = _Api()..restClosable = true;
+    await _open(tester, api);
+    await tester.tap(find.byKey(const Key('station-close-rest')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('station-close-rest-reason')), 'فرق الميزان');
+    await tester.tap(find.byKey(const Key('station-close-rest-sure')));
+    await tester.pumpAndSettle();
+    expect(api.restsClosed.single, {'line_id': 7, 'coding_id': null, 'reason': 'فرق الميزان'});
+    expect(find.byKey(const Key('station-close-rest')), findsNothing, reason: 'nothing left to close');
+  });
+
+  testWidgets('a rest beyond the tolerance offers no closing: a count\'s', (tester) async {
+    await _open(tester, _Api());
+    expect(find.byKey(const Key('station-close-rest')), findsNothing);
   });
 
   testWidgets('refused, the words said and the next attempt a new key', (tester) async {
@@ -718,6 +751,41 @@ void main() {
     expect(tester.widget<Text>(find.byKey(const Key('station-weighed'))).data,
         'الوزن 12.05 جم · + فصوص 0.35 جم · يبقى 17.95 جم', reason: 'priced apart: its gold, the stones added');
     expect(api.sent, isEmpty, reason: 'asked, not registered');
+  });
+
+  // The owner, 25 Nov 2026: «ماذا ان كان الفرق سالب؟» -- «ابنه».
+  testWidgets('heavier than the rest by the scale\'s drift: registered with its reason, the excess the surplus',
+      (tester) async {
+    final api = _Api()
+      ..weighAnswer = {
+        'weighed': null,
+        'refused': {'code': 'piece_heavier_than_rest', 'over_rest': 0.02, 'over_rest_closable': true,
+                    'message': 'القطعة (30.02 جم) أثقل من باقي السطر (30.00 جم) بـ 0.02 جم'},
+      };
+    await _open(tester, api);
+    await tester.enterText(find.byKey(const Key('piece-weight')), '30.02');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('station-over-rest')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('station-close-rest-sure')));
+    await tester.pumpAndSettle();
+    expect(api.sent.single['weight'], 30.02);
+    expect(api.sent.single['over_rest_reason'], contains('فرق الميزان'));
+  });
+
+  testWidgets('heavier beyond the drift: no offer, the refusal alone', (tester) async {
+    final api = _Api()
+      ..weighAnswer = {
+        'weighed': null,
+        'refused': {'code': 'piece_heavier_than_rest', 'over_rest': 1.0, 'over_rest_closable': false,
+                    'message': 'القطعة (31.00 جم) أثقل من باقي السطر (30.00 جم)'},
+      };
+    await _open(tester, api);
+    await tester.enterText(find.byKey(const Key('piece-weight')), '31');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('station-over-rest')), findsNothing);
   });
 
   testWidgets('the refusal the press would meet is said before it', (tester) async {

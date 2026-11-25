@@ -3144,6 +3144,10 @@ class Settings(db.Model):
     # difference written a count's shortage or surplus in the split's own
     # entry (ADR-099; the owner, 23 Nov 2026: 0.05). Policy.
     piece_split_tolerance = db.Column(db.Float, nullable=False, default=0.05, server_default=db.text('0.05'))
+    # A receipt line's or a batch's rest left uncoded may be closed onto the
+    # count's shortage up to this (the owner, 25 Nov 2026: «ابنه»); beyond it,
+    # a count's. Policy.
+    coding_rest_tolerance = db.Column(db.Float, nullable=False, default=0.05, server_default=db.text('0.05'))
     # ترحيل القيود تلقائياً فور الحفظ
     auto_post_entries = db.Column(db.Boolean, default=True)
     # طلب موافقة قبل الترحيل (يؤثر على بوابات الاعتماد - below_cost/large_discount)
@@ -6503,6 +6507,28 @@ class PieceSplitPart(db.Model):
     )
 
 
+class CodingRestClose(db.Model):
+    """«إقفال الباقي» (the owner, 25 Nov 2026): what of a receipt line or a
+    batch of stock was left uncoded -- the scale's drift between its weight and
+    its pieces' -- closed onto the count's shortage by its own entry, once,
+    within the settings' tolerance; beyond it, a count's. Kept as written."""
+    __tablename__ = 'coding_rest_close'
+    __table_args__ = (db.CheckConstraint('(receipt_item_id IS NULL) <> (coding_id IS NULL)',
+                                         name='ck_coding_rest_close_one_source'),
+                      db.CheckConstraint('grams <> 0', name='ck_coding_rest_close_grams'))
+
+    id = db.Column(db.Integer, primary_key=True)
+    receipt_item_id = db.Column(db.Integer, db.ForeignKey('invoice_item.id', ondelete='RESTRICT'), nullable=True,
+                                unique=True)
+    coding_id = db.Column(db.Integer, db.ForeignKey('stock_coding.id', ondelete='RESTRICT'), nullable=True,
+                          unique=True)
+    grams = db.Column(db.Float, nullable=False)
+    journal_entry_id = db.Column(db.Integer, db.ForeignKey('journal_entry.id', ondelete='RESTRICT'), nullable=False)
+    reason = db.Column(db.String(200), nullable=False)
+    closed_by = db.Column(db.String(100), nullable=False)
+    closed_at = db.Column(db.DateTime, nullable=False)
+
+
 class PieceReturnTag(db.Model):
     """A piece sold and brought back: its label as the return found it
     (ADR-097, the sale return; the owner, 23 Nov 2026: «الزبون قد يتلف
@@ -6528,7 +6554,7 @@ def _split_kept_as_written(mapper, connection, target):
     raise ValueError(f'{target.__tablename__} #{target.id}: التفكيك يبقى كما كُتب -- لا تعديل ولا حذف (ADR-099)')
 
 
-for _model in (PieceSplit, PieceSplitPart):
+for _model in (PieceSplit, PieceSplitPart, CodingRestClose):
     event.listen(_model, 'before_update', _split_kept_as_written)
     event.listen(_model, 'before_delete', _split_kept_as_written)
 

@@ -72,6 +72,8 @@ REFERENCES = {
     ('safe_box_transaction', 'invoice_id'): ('invoice', OWNED),
     # a sale return's piece and its label as the return found it (ADR-097): the return wrote it
     ('piece_return_tag', 'invoice_id'): ('invoice', OWNED),
+    # a receipt line's rest closed at the station: its own entry, not the invoice's
+    ('coding_rest_close', 'receipt_item_id'): ('invoice_item', EVIDENCE),
 
     ('invoice_payment', 'invoice_id'): ('invoice', EVIDENCE),
     ('voucher_invoice_gold_attribution', 'invoice_id'): ('invoice', EVIDENCE),

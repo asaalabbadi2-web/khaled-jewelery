@@ -47,6 +47,8 @@ POST /api/pieces/<id>/split/check -- a split read before it is made (ADR-099):
      {'split': ...} or {'refused': {code, message}}, a 200 either way. Nothing
      written.
 GET  /api/pieces/splits           -- «سجلّ التفكيك»: every split, the newest first.
+POST /api/pieces/rest-close       -- «إقفال الباقي»: line_id or coding_id, reason --
+     the rest left uncoded closed onto the shortage, within the tolerance.
 POST /api/pieces/<id>/split       -- the split made: parts, reason,
      request_key (pressed twice, one) -- its parts, each a piece's number or
      its category's grams, and the entry's number.
@@ -146,10 +148,11 @@ def station_register():
             piece = register_piece(line, weight=data.get('weight'), stones_weight=data.get('stones_weight'),
                                    model_id=data.get('model_id'), size_id=data.get('size_id'),
                                    wage=data.get('wage'), wage_whole=data.get('wage_whole') is True,
-                                   by=_by(), now=datetime.now(), request_key=key)
+                                   by=_by(), now=datetime.now(), request_key=key,
+                                   over_rest_reason=data.get('over_rest_reason'))
     except PieceRefused as refused:
         db.session.rollback()
-        return jsonify({'error': refused.code, 'message': refused.message}), 400
+        return jsonify({'error': refused.code, 'message': refused.message, **refused.detail}), 400
     except IntegrityError:
         # two stations, one key, the same moment: the second meets the first's row
         db.session.rollback()
@@ -179,7 +182,8 @@ def station_weigh():
         weighed = weigh(source, weight=request.args.get('weight'),
                         stones_weight=request.args.get('stones_weight') or 0.0)
     except PieceRefused as refused:
-        return jsonify({'weighed': None, 'refused': {'code': refused.code, 'message': refused.message}}), 200
+        return jsonify({'weighed': None, 'refused': {'code': refused.code, 'message': refused.message,
+                                                     **refused.detail}}), 200
     return jsonify({'weighed': weighed, 'refused': None}), 200
 
 
@@ -579,6 +583,31 @@ def label_printer_test_label(printer_id: int):
 
 
 # ── a composite piece split (ADR-099) ───────────────────────────────────────
+
+@pieces_bp.route('/pieces/rest-close', methods=['POST'])
+@require_permission('items.create')
+def station_close_rest():
+    """«إقفال الباقي»: a receipt line's (line_id) or a batch's (coding_id) rest
+    closed onto the shortage, within the tolerance, with a reason (services/coding_rest.py)."""
+    from services.coding_rest import close_rest
+    data = request.get_json(silent=True) or {}
+    try:
+        source = (db.session.get(StockCoding, int(data['coding_id'])) if data.get('coding_id')
+                  else db.session.get(InvoiceItem, int(data.get('line_id'))))
+    except (TypeError, ValueError):
+        source = None
+    if source is None:
+        return jsonify({'error': 'not_found', 'message': 'سطر الاستلام أو دفعة الترميز غير موجودة'}), 404
+    try:
+        with db.session.begin_nested():
+            closed = close_rest(source, reason=data.get('reason'), by=_by(), now=datetime.now())
+    except PieceRefused as refused:
+        db.session.rollback()
+        return jsonify({'error': refused.code, 'message': refused.message}), 400
+    db.session.commit()
+    return jsonify({'closed': {'grams': closed.grams, 'journal_entry_id': closed.journal_entry_id},
+                    'line': _view(source)}), 201
+
 
 @pieces_bp.route('/pieces/splits', methods=['GET'])
 @require_permission('items.view')

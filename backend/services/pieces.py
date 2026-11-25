@@ -39,10 +39,11 @@ RECEIVED_STAGES = ('received', 'invoiced')
 
 
 class PieceRefused(ValueError):
-    def __init__(self, code: str, message: str):
+    def __init__(self, code: str, message: str, detail: dict | None = None):
         super().__init__(message)
         self.code = code
         self.message = message
+        self.detail = detail or {}
 
 
 def is_piece(item) -> bool:
@@ -79,11 +80,19 @@ def returned_loose(line) -> float:
                        .scalar() or 0.0), 3)
 
 
+def closed_rest(source) -> float:
+    """The grams of a receipt line's or a batch's rest closed onto the shortage («إقفال الباقي»)."""
+    from models import CodingRestClose
+    column = CodingRestClose.coding_id if isinstance(source, StockCoding) else CodingRestClose.receipt_item_id
+    return round(float(db.session.query(func.coalesce(func.sum(CodingRestClose.grams), 0.0))
+                       .filter(column == source.id).scalar() or 0.0), 3)
+
+
 def line_rest(line) -> float:
     """What of a receipt line is neither a piece nor returned to its supplier
-    loose: what may still be coded, or returned under no piece -- one reading
-    for both, so gold returned is not coded and a piece's gold not returned."""
-    return round(float(line.weight or 0.0) - pieces_weight(line) - returned_loose(line), 3)
+    loose nor closed: what may still be coded, or returned under no piece -- one
+    reading for both, so gold returned is not coded and a piece's gold not returned."""
+    return round(float(line.weight or 0.0) - pieces_weight(line) - returned_loose(line) - closed_rest(line), 3)
 
 
 def _receipt_stock_allocations(line: InvoiceItem, karat: int):
@@ -139,19 +148,32 @@ def stones_kind(source) -> str:
     return STONES_AS_GOLD
 
 
+def batch_rest(batch) -> float:
+    """What of a batch is not coded nor closed."""
+    return round(float(batch.weight or 0.0) - pieces_weight(batch) - closed_rest(batch), 3)
+
+
 def _rest_of(source) -> float:
-    if isinstance(source, (StockCoding, PieceSplitPart)):
+    if isinstance(source, StockCoding):
+        return batch_rest(source)
+    if isinstance(source, PieceSplitPart):
         return round(float(source.weight or 0.0) - pieces_weight(source), 3)
     return line_rest(source)
 
 
-def weigh(source, *, weight, stones_weight=0.0) -> dict:
+def weigh(source, *, weight, stones_weight=0.0, over_rest_ok: bool = False) -> dict:
     """A piece weighed on the scale, read against its source before it is one:
     {standing_weight, stones_weight, stones_kind, grams -- what it takes of the
     source's gold, its weight in the books -- net_weight -- its gold alone --
     rest, rest_after}; or PieceRefused: not understood, heavier than the rest,
     or than its location holds. The station asks it as the weight is typed,
-    and register_piece reads it again, its source locked."""
+    and register_piece reads it again, its source locked.
+
+    Heavier than the rest by the scale's drift alone -- within the tolerance,
+    nothing closed of its source yet (the owner, 25 Nov 2026: «ماذا ان كان
+    الفرق سالب؟» -- «ابنه») -- it is said so (`over_rest`, `over_rest_closable`
+    in the refusal's detail); with *over_rest_ok* it is read, its excess the
+    count's surplus at its registration (services/coding_rest.close_over)."""
     try:
         standing = round(float(weight), 3)
         stones = round(float(stones_weight or 0.0), 3)
@@ -164,20 +186,29 @@ def weigh(source, *, weight, stones_weight=0.0) -> dict:
     grams = net if kind == STONES_PRICED else standing
     batch = isinstance(source, StockCoding)
     rest = _rest_of(source)
+    over = 0.0
     if grams > rest + GRAM:
         what = 'ذهب القطعة' if kind == STONES_PRICED else 'القطعة'
-        raise PieceRefused('piece_heavier_than_rest',
-                           f'{what} ({grams:.2f} جم) أثقل من باقي {"الدفعة" if batch else "السطر"} ({rest:.2f} جم)')
+        excess = round(grams - max(rest, 0.0), 3)
+        closable = (not isinstance(source, PieceSplitPart) and abs(closed_rest(source)) <= GRAM
+                    and excess <= coding_rest_tolerance() + GRAM)
+        if not (over_rest_ok and closable):
+            raise PieceRefused('piece_heavier_than_rest',
+                               f'{what} ({grams:.2f} جم) أثقل من باقي {"الدفعة" if batch else "السطر"} ({rest:.2f} جم)'
+                               + (f' بـ {excess:.2f} جم — في حدود فرق الميزان: تُسجَّل والزيادة زيادة جرد'
+                                  if closable else ''),
+                               detail={'over_rest': excess, 'over_rest_closable': closable})
+        over = excess
     if batch:
         safe = db.session.get(SafeBox, source.safe_box_id)
         category = db.session.get(Category, source.category_id)
         free = free_grams(safe, int(source.karat), category.id)
-        if grams > free + GRAM:
+        if grams - over > free + GRAM:
             raise PieceRefused('piece_more_than_held',
                                f'القطعة ({grams:.2f} جم) أثقل مما في «{safe.name}» من «{category.name}» '
                                f'خارج الاستلامات بلا ترميز ({free:.2f} جم)')
     return {'standing_weight': standing, 'stones_weight': stones, 'stones_kind': kind, 'grams': grams,
-            'net_weight': net, 'rest': rest, 'rest_after': round(rest - grams, 3)}
+            'net_weight': net, 'rest': rest, 'rest_after': round(rest - grams + over, 3), 'over_rest': over}
 
 
 def piece_weights(piece: Item) -> dict:
@@ -250,7 +281,7 @@ def _written_wage(wage, wage_whole, weight: float) -> float:
 
 
 def register_piece(source, *, weight, stones_weight=0.0, model_id=None, size_id=None, wage=None,
-                   wage_whole=False, by: str, now, request_key=None) -> Item:
+                   wage_whole=False, by: str, now, request_key=None, over_rest_reason=None) -> Item:
     """One piece under a posted receipt's line or a batch of stock -- or PieceRefused.
     Its model and size describe it (ADR-093). A receipt's piece takes its
     invoice's wage (§6): none is written for it. A batch's piece is written its
@@ -264,8 +295,14 @@ def register_piece(source, *, weight, stones_weight=0.0, model_id=None, size_id=
         raise PieceRefused('piece_category_by_weight', 'تصنيف السطر يُتابَع بالوزن: لا تُسجَّل فيه قطع')
     model, size = model_and_size(category, model_id, size_id)
     # what the scale said, in the books: its grams of its source's gold (weigh)
-    weighed = weigh(source, weight=weight, stones_weight=stones_weight)
+    over_reason = str(over_rest_reason or '').strip()
+    weighed = weigh(source, weight=weight, stones_weight=stones_weight, over_rest_ok=bool(over_reason))
     weight, stones = weighed['grams'], weighed['stones_weight']
+    over_entry = None
+    if weighed['over_rest'] > GRAM:
+        # the scale's drift over the rest: the count's surplus first, in this transaction
+        from services.coding_rest import close_over
+        over_entry = close_over(source, weighed['over_rest'], reason=over_reason, by=by, now=now).journal_entry_id
     from services.wage_ledger import pools, riyals_at_average, wage_pools_on
     from_pool = wage_pools_on(now)
     written = wage is not None and not (isinstance(wage, str) and not wage.strip())
@@ -298,7 +335,14 @@ def register_piece(source, *, weight, stones_weight=0.0, model_id=None, size_id=
         rows = (_free_allocations(safe, karat, category.id).filter(StockLineAllocation.grams > GRAM)
                 .order_by(StockLineAllocation.id).all())
     else:
-        rows = _receipt_stock_allocations(source, karat)
+        rows = list(_receipt_stock_allocations(source, karat))
+    if over_entry is not None and not batch:
+        # a receipt's piece takes the surplus's grams too: its line's own, under no piece
+        rows += (StockLineAllocation.query.join(JournalEntryLine,
+                                                 JournalEntryLine.id == StockLineAllocation.journal_entry_line_id)
+                 .filter(JournalEntryLine.journal_entry_id == over_entry, StockLineAllocation.karat == int(karat),
+                         StockLineAllocation.category_id == category.id, StockLineAllocation.item_id.is_(None),
+                         StockLineAllocation.grams > GRAM).all())
 
     number = db.session.execute(PIECE_NUMBER.next_value()).scalar()
     code = f'KJ-{int(number):06d}'
@@ -696,7 +740,7 @@ def line_view(line: InvoiceItem) -> dict:
             'wage_per_gram': source_wage_per_gram(line), 'wage_by_piece': False,
             'stones_kind': stones_kind(line),
             'pieces': len(pieces), 'pieces_weight': coded, 'returned_loose': returned_loose(line),
-            'rest': line_rest(line)}
+            'rest': line_rest(line), **_rest_closing(line, line_rest(line))}
 
 
 def piece_view(piece: Item) -> dict:
@@ -747,6 +791,21 @@ def coded_lines(invoice_id: int) -> dict:
     return out
 
 
+def coding_rest_tolerance() -> float:
+    from models import Settings
+    value = getattr(Settings.query.first(), 'coding_rest_tolerance', None)
+    return float(0.05 if value is None else value)
+
+
+def _rest_closing(source, rest: float) -> dict:
+    """Whether the station offers «إقفال الباقي»: a rest above nothing, within
+    the tolerance -- the scale's drift; beyond it, a count's."""
+    tolerance = coding_rest_tolerance()
+    closed = closed_rest(source)
+    return {'rest_tolerance': tolerance, 'rest_closed': closed,
+            'rest_closable': abs(closed) <= GRAM and GRAM < rest <= tolerance + GRAM}
+
+
 def pending_lines() -> list[dict]:
     """The station's list: posted receipt lines of categories tracked by the
     piece with weight left to code, oldest first."""
@@ -782,13 +841,14 @@ def coding_view(batch: StockCoding) -> dict:
             'size_system_id': getattr(category, 'size_system_id', None),
             'wage_per_gram': None, 'wage_by_piece': not from_pool, 'wage_from_pool': from_pool,
             'pool_wage_per_gram': pool_per_gram, 'note': batch.note, 'stones_kind': stones_kind(batch),
-            'pieces': len(pieces), 'pieces_weight': coded, 'rest': round(float(batch.weight) - coded, 3)}
+            'pieces': len(pieces), 'pieces_weight': coded, 'rest': batch_rest(batch),
+            **_rest_closing(batch, batch_rest(batch))}
 
 
 def reserved_grams(safe_box_id: int, karat: int, category_id: int) -> float:
     """What the open batches of a location's category have yet to code."""
     batches = StockCoding.query.filter_by(safe_box_id=safe_box_id, karat=karat, category_id=category_id).all()
-    return round(sum(max(float(b.weight) - pieces_weight(b), 0.0) for b in batches), 3)
+    return round(sum(max(batch_rest(b), 0.0) for b in batches), 3)
 
 
 def open_coding(*, safe_box_id, category_id, weight, note=None, by: str, now) -> StockCoding:

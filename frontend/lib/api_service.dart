@@ -5977,6 +5977,13 @@ class ApiService {
   Future<Map<String, dynamic>> checkPieceSplit(int pieceId, List<Map<String, dynamic>> parts) =>
       _postJson('/pieces/$pieceId/split/check', {'parts': parts}, fallback: 'تعذّر حساب التفكيك');
 
+  /// «إقفال الباقي»: a receipt line's or a batch's rest closed onto the
+  /// shortage, within the tolerance -- `{closed, line}`.
+  Future<Map<String, dynamic>> closeCodingRest({int? lineId, int? codingId, required String reason}) => _postJson(
+      '/pieces/rest-close',
+      {if (lineId != null) 'line_id': lineId, if (codingId != null) 'coding_id': codingId, 'reason': reason},
+      fallback: 'تعذّر إقفال الباقي');
+
   /// «سجلّ التفكيك»: every split, the newest first -- who, when, why, into what.
   Future<List<Map<String, dynamic>>> pieceSplits() async {
     final body = await _getMap('/pieces/splits', fallback: 'تعذّر تحميل سجلّ التفكيك');
