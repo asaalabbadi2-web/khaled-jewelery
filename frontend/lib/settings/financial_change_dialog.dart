@@ -205,7 +205,7 @@ class _FinancialChangeDialogState extends State<FinancialChangeDialog> {
               if (first.effect != null) fact('ما يتغيّر', first.effect!),
               if (first.revertRule != null) fact('التراجع', first.revertRule!),
               if (_single && _spec(first).explain != null)
-                fact('بعد التأكيد', _spec(first).explain!(_values[first.key])),
+                fact('بعد التأكيد', _spec(first).explain!(_values[first.key], const {})),
               if (widget.note != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),

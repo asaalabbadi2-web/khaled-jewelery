@@ -62,6 +62,8 @@ class SectionEditorState extends State<SectionEditor> {
   List<Map<String, dynamic>> _conflicts = const [];
   bool _wasDirty = false;
   String _currency = '';
+  // The settings as the server last sent them (what a setting says beside it).
+  Map<String, dynamic> _server = const {};
   // The safes a safe setting chooses among, by type, read with the section.
   final _safes = <String, List<(Object, String)>>{};
 
@@ -117,13 +119,14 @@ class SectionEditorState extends State<SectionEditor> {
           ..clear()
           ..addAll(safes);
         _currency = '${settings['currency_symbol'] ?? ''}';
+        _server = settings;
         for (final e in _entries) {
           final key = e.key!;
           final spec = _spec(key);
-          final value = spec.read(settings[key]);
+          final value = spec.read(settings[spec.sourceOf(key)]);
           _initial[key] = value;
           _draft[key] = value;
-          _versions[key] = versions[key] ?? 0;
+          _versions[key] = versions[spec.sourceOf(key)] ?? 0;
           if (spec.kind == EditorKind.text || spec.kind == EditorKind.currency || spec.kind == EditorKind.number) {
             _text[key] = TextEditingController(text: '${value ?? ''}');
           }
@@ -201,9 +204,10 @@ class SectionEditorState extends State<SectionEditor> {
       if (!mounted) return;
       final saved = (result['versions'] as Map?) ?? const {};
       setState(() {
+        if (result['settings'] case final Map<String, dynamic> now) _server = now;
         for (final k in keys) {
           _initial[k] = _draft[k];
-          _versions[k] = (saved[k] as num?)?.toInt() ?? _versions[k]!;
+          _versions[k] = (saved[_spec(k).sourceOf(k)] as num?)?.toInt() ?? _versions[k]!;
         }
         _saving = false;
         _conflicts = const [];
@@ -368,7 +372,7 @@ class SectionEditorState extends State<SectionEditor> {
           if (e.description.isNotEmpty)
             Text(e.description, style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
           if (spec.explain != null)
-            Text(spec.explain!(_draft[key]), style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+            Text(spec.explain!(_draft[key], _server), key: Key('settings-explain-$key'), style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
           if (e.level >= 2 && e.effect != null)
             Text(e.effect!, style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
           if (held == null && !financial && spec.kind != EditorKind.toggle) ...[const SizedBox(height: 6), control],
@@ -434,11 +438,12 @@ class SectionEditorState extends State<SectionEditor> {
           if (!mounted) return (error: null, stale: false);
           final versions = (result['versions'] as Map?) ?? const {};
           setState(() {
+            if (result['settings'] case final Map<String, dynamic> now) _server = now;
             for (final MapEntry(:key, :value) in changes.entries) {
               _initial[key] = _spec(key).read(value); // as the server keeps it, read back
               _draft[key] = _initial[key];
               _text[key]?.text = '${_initial[key] ?? ''}';
-              _versions[key] = (versions[key] as num?)?.toInt() ?? _versions[key]!;
+              _versions[key] = (versions[_spec(key).sourceOf(key)] as num?)?.toInt() ?? _versions[key]!;
             }
           });
           return (error: null, stale: false);

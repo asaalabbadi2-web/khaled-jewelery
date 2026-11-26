@@ -280,8 +280,7 @@ const settingsRegistry = <SettingEntry>[
 
   // ── الأصناف والقطع ────────────────────────────────────────────────────
   SettingEntry(id: 'coding_on', key: 'coding_on', section: SettingsSection.itemsPieces,
-      label: 'ترميز المخزون الموجود قطعًا', synonyms: ['الترميز', 'القطع', 'الجرد'], level: 2,
-      legacyTab: LegacyTab.companyInvoices),
+      label: 'ترميز المخزون الموجود قطعًا', synonyms: ['الترميز', 'القطع', 'الجرد'], level: 2),
   SettingEntry(id: 'categories', kind: SettingKind.link, section: SettingsSection.itemsPieces, label: 'التصنيفات',
       synonyms: ['الأصناف'], screen: 'categories'),
   SettingEntry(id: 'item_sections', kind: SettingKind.link, section: SettingsSection.itemsPieces, label: 'الأقسام',

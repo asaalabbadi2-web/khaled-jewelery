@@ -84,8 +84,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
 
   /// Coding the stock on hand opened on its own day (the owner, 19 Nov 2026):
   /// the server keeps the day it was turned on.
-  bool _codingOn = false;
-  String? _codingFrom;
 
   /// How a purchase and a sale treat manufacturing wages (ADR-039).
 
@@ -219,8 +217,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
         if (parsedIdleMinutes > 10080) parsedIdleMinutes = 10080;
         _idleTimeoutMinutes = parsedIdleMinutes;
 
-        _codingFrom = settings['coding_from']?.toString();
-        _codingOn = _codingFrom != null;
 
         _voucherAutoPost = _safeBool(
           settings['voucher_auto_post'],
@@ -272,7 +268,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
       'voucher_auto_post': _voucherAutoPost,
       'idle_timeout_enabled': _idleTimeoutEnabled,
       'idle_timeout_minutes': _idleTimeoutMinutes,
-      'coding_on': _codingOn,
 
       // 🆕 Feature toggles + default safes (employee routing)
     };
@@ -444,33 +439,7 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
       padding: const EdgeInsets.all(20),
       children: [
         _buildMovedNote('بيانات الشركة والترقيم في «المنشأة»، والصنف اليدوي والدفع الجزئي وإلزام الدخول في «البيع والفواتير»، '
-            'وضريبة المبيعات ونسبة الضريبة والعيارات المعفاة في «الضريبة»'),
-        const SizedBox(height: 16),
-        _buildSectionCard(
-          icon: Icons.receipt_long_outlined,
-          iconColor: _colors.tertiary,
-          title: 'الترميز',
-          children: [
-            SwitchListTile.adaptive(
-              key: const Key('settings-coding-on'),
-              value: _codingOn,
-              onChanged: (value) => setState(() => _codingOn = value),
-              thumbColor: _thumbColorFor(_colors.tertiary),
-              trackColor: _trackColorFor(_colors.tertiary),
-              title: Text(
-                'ترميز المخزون الموجود قطعًا',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              subtitle: Text(
-                _codingOn && _codingFrom != null
-                    ? 'مفتوح منذ $_codingFrom: «ترميز من المخزون الموجود» في محطة ترميز القطع، تصنيفًا تصنيفًا قبل جرد 31 ديسمبر. '
-                        'الاستلام من المورد يبقى كما هو.'
-                    : 'عند التفعيل يُفتح «ترميز من المخزون الموجود» في محطة ترميز القطع من اليوم، لتُرمَّز قطع المخزون قبل جرد 31 ديسمبر. '
-                        'الاستلام من المورد يبقى كما هو.',
-              ),
-            ),
-          ],
-        ),
+            'وضريبة المبيعات ونسبة الضريبة والعيارات المعفاة في «الضريبة»، وترميز المخزون الموجود في «الأصناف والقطع»'),
       ],
     );
   }

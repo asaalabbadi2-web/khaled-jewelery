@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../utils/currency_utils.dart' as cu;
+import '../utils/display_date.dart';
 import '../utils/wage_treatment.dart';
 import 'settings_registry.dart';
 
@@ -16,6 +17,7 @@ const movedSections = {
   SettingsSection.tax,
   SettingsSection.paymentsSafes,
   SettingsSection.accounting,
+  SettingsSection.itemsPieces,
 };
 
 /// Settings of a moved section the center only shows, until the owner's
@@ -40,7 +42,8 @@ class EditorSpec {
       this.group,
       this.unset,
       this.safeType,
-      this.explain});
+      this.explain,
+      this.source});
 
   final EditorKind kind;
 
@@ -79,8 +82,17 @@ class EditorSpec {
   final String? safeType;
 
   /// What a value does, said beside it and in its confirmation (the wage
-  /// treatment's two ways).
-  final String Function(Object? value)? explain;
+  /// treatment's two ways) -- from the settings as the server sent them too
+  /// (since when the coding is open).
+  final String Function(Object? value, Map<String, dynamic> server)? explain;
+
+  /// The column the server keeps this setting in and versions it by, when it
+  /// is not the key (coding_on is coding_from, its day: routes/system.py
+  /// _VERSION_COLUMN). A toggle with a source is on while the source is set.
+  final String? source;
+
+  /// The key the server sends this setting's value and version under.
+  String sourceOf(String key) => source ?? key;
 
   /// This spec with [options] -- a safe's, known once the safes are read.
   EditorSpec withOptions(List<(Object, String)> options) => EditorSpec(kind,
@@ -97,10 +109,12 @@ class EditorSpec {
       group: group,
       unset: unset,
       safeType: safeType,
-      explain: explain);
+      explain: explain,
+      source: source);
 
   /// The value as the editor holds it, from what the server sent.
   Object? read(Object? raw) => switch (kind) {
+        EditorKind.toggle when source != null => raw != null && '$raw'.isNotEmpty,
         EditorKind.toggle => raw == true || raw == 1 || raw == 'true',
         EditorKind.percent => _percent(raw),
         EditorKind.choice => _choice(raw),
@@ -225,7 +239,14 @@ const dateFormats = ['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'];
 
 const _office = 'office_terms';
 
-String _wageExplained(Object? mode) => wageModeExplanation('$mode');
+String _wageExplained(Object? mode, Map<String, dynamic> _) => wageModeExplanation('$mode');
+
+// As the old tab said it: open since its day, or what opening it does.
+String _codingExplained(Object? on, Map<String, dynamic> server) => on == true && server['coding_from'] != null
+    ? 'مفتوح منذ ${displayDate(server['coding_from'])}: «ترميز من المخزون الموجود» في محطة ترميز القطع، '
+        'تصنيفًا تصنيفًا قبل جرد 31 ديسمبر. الاستلام من المورد يبقى كما هو.'
+    : 'عند التفعيل يُفتح «ترميز من المخزون الموجود» في محطة ترميز القطع من اليوم، '
+        'لتُرمَّز قطع المخزون قبل جرد 31 ديسمبر. الاستلام من المورد يبقى كما هو.';
 
 /// A group's name and what it says, as one setting is named (its parts keep
 /// their own labels).
@@ -282,6 +303,8 @@ final Map<String, EditorSpec> editors = {
   'manufacturing_wage_mode': EditorSpec(EditorKind.choice, options: [
     for (final mode in [kWageModeExpense, kWageModeInventory]) (mode, wageModeLabel(mode)),
   ], explain: _wageExplained),
+  // الأصناف والقطع
+  'coding_on': const EditorSpec(EditorKind.toggle, source: 'coding_from', explain: _codingExplained),
   // البيع والفواتير
   'allow_discount': const EditorSpec(EditorKind.toggle),
   'default_discount_rate': const EditorSpec(EditorKind.percent, max: 50, dependsOn: 'allow_discount'),
