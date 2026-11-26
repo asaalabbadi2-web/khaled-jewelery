@@ -1,6 +1,6 @@
 // «المحاسبة والاعتماد» in the center (settings spec v2, phase 7, batch 5):
-// the voucher auto-post is only shown until the owner's decision D2 -- set
-// where it was, opened from here; the wage treatment changed alone through
+// the voucher auto-approval changed alone through its confirmation (D2,
+// ADR-104); the wage treatment changed alone through
 // its confirmation, each way said, with the wage inventory's balance and the
 // entry that zeroes it read when the change is asked (ADR-039); the
 // accountant's limits and the gold tolerance saved from the bar within the
@@ -123,14 +123,20 @@ void main() {
     }
   }
 
-  testWidgets('the voucher auto-post is only shown until D2, and opened where it is set', (tester) async {
-    final (_, opened) = await open(tester);
+  // D2 decided (ADR-104): the voucher key approves the system admin's own
+  // voucher at creation; a financial setting, changed through its confirmation.
+  testWidgets('the voucher auto-approval is changed alone, with its reason, said as it is', (tester) async {
+    final (api, _) = await open(tester);
     expect(textOf(tester, const Key('settings-value-voucher_auto_post')), 'مفعّل');
-    expect(find.byKey(const Key('settings-change-voucher_auto_post')), findsNothing);
-    expect(find.byKey(const Key('settings-field-voucher_auto_post')), findsNothing);
-    expect(textOf(tester, const Key('settings-held-voucher_auto_post')), contains('القرار D2'));
-    await tapKey(tester, 'settings-open-voucher_auto_post');
-    expect(opened, ['voucher_auto_post']);
+    expect(find.textContaining('مدير النظام'), findsWidgets, reason: 'whose voucher it approves');
+    await tapKey(tester, 'settings-change-voucher_auto_post');
+    expect(textOf(tester, const Key('financial-after')), contains('معطّل'));
+    await tester.enterText(find.byKey(const Key('financial-reason')), 'فصل المهام');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('financial-confirm')));
+    await tester.pumpAndSettle();
+    expect(api.saved.single.$1, {'voucher_auto_post': false});
+    expect(api.saved.single.$3, 'فصل المهام');
   });
 
   testWidgets('the wage treatment: each way said, the balance and its entry read, changed alone with its reason',

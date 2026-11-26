@@ -341,14 +341,8 @@ class SectionEditorState extends State<SectionEditor> {
     final dirty = !spec.same(_initial[key], _draft[key]);
     final enabled = spec.dependsOn == null || _draft[spec.dependsOn] == true;
     final highlighted = widget.highlight == e.id;
-    final held = heldBack[key];
-    final financial = e.level == 3 && held == null;
-    final control = held != null
-        ? Text(spec.display(_draft[key]), key: Key('settings-value-$key'),
-            style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700))
-        : financial
-        ? _financialControl(e, spec, enabled)
-        : _control(e, spec, enabled);
+    final financial = e.level == 3;
+    final control = financial ? _financialControl(e, spec, enabled) : _control(e, spec, enabled);
     return Container(
       key: _rowKeys[e.id],
       margin: const EdgeInsets.symmetric(vertical: 4),
@@ -367,7 +361,7 @@ class SectionEditorState extends State<SectionEditor> {
               child: Text(dirty ? '${e.label} ●' : e.label,
                   style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
             ),
-            if (held != null || financial || spec.kind == EditorKind.toggle) control,
+            if (financial || spec.kind == EditorKind.toggle) control,
           ]),
           if (e.description.isNotEmpty)
             Text(e.description, style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
@@ -375,17 +369,7 @@ class SectionEditorState extends State<SectionEditor> {
             Text(spec.explain!(_draft[key], _server), key: Key('settings-explain-$key'), style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
           if (e.level >= 2 && e.effect != null)
             Text(e.effect!, style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
-          if (held == null && !financial && spec.kind != EditorKind.toggle) ...[const SizedBox(height: 6), control],
-          if (held != null)
-            Row(children: [
-              Expanded(
-                child: Text('يُعرض هنا فقط حتى $held، ويُغيَّر من مكانه في الإعدادات القديمة.',
-                    key: Key('settings-held-$key'),
-                    style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
-              ),
-              TextButton(key: Key('settings-open-$key'), onPressed: () => widget.opener(context, e),
-                  child: const Text('افتح مكانه')),
-            ]),
+          if (!financial && spec.kind != EditorKind.toggle) ...[const SizedBox(height: 6), control],
           if (financial && !widget.financialAllowed)
             Text(needsFinancialPermission, key: Key('settings-needs-permission-$key'),
                 style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),

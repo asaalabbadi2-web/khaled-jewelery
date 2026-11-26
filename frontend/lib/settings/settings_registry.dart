@@ -235,9 +235,11 @@ const settingsRegistry = <SettingEntry>[
 
   // ── المحاسبة والاعتماد ────────────────────────────────────────────────
   SettingEntry(id: 'voucher_auto_post', key: 'voucher_auto_post', section: SettingsSection.accounting,
-      label: 'ترحيل السندات تلقائيًا عند الحفظ', synonyms: ['ترحيل', 'اعتماد', 'السندات'], level: 3,
-      screen: 'held_settings', description: 'يقرّر اليوم اعتماد سندات مدير النظام عند إنشائها (القرار D2)',
-      effect: _forward, revertRule: 'للمستقبل؛ ما رُحّل يبقى مرحّلًا.'),
+      label: 'اعتماد سندات مدير النظام عند إنشائها', synonyms: ['ترحيل السندات', 'اعتماد', 'السندات', 'ترحيل'],
+      level: 3,
+      description: 'مفعّلًا يُعتمد السند الذي ينشئه مدير النظام عند حفظه، فيُرحَّل قيده معه؛ معطّلًا ينتظر من '
+          'يعتمده كغيره. سندات غيره تنتظر من يعتمدها دائمًا، وقيد كل سند معتمد يُرحَّل معه (ADR-104).',
+      effect: _forward, revertRule: 'للمستقبل؛ ما اعتُمد يبقى معتمدًا.'),
   SettingEntry(id: 'accountant_approval_limit_cash', key: 'accountant_approval_limit_cash',
       section: SettingsSection.accounting, label: 'حدّ اعتماد المحاسب نقدًا', synonyms: ['اعتماد', 'المحاسب'],
       level: 2,

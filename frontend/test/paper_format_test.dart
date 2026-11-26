@@ -70,7 +70,6 @@ void main() {
     final s = _src('lib/settings/device_section_editor.dart');
     expect(s.contains("'invoice_paper_size'"), isFalse, reason: 'the key no print reads is not written');
     expect(s.contains('InvoiceUiSettings.setPaperSize('), isTrue);
-    expect(_src('lib/screens/settings_screen_enhanced.dart').contains("'invoice_paper_size'"), isFalse);
   });
 
   test('«إعدادات الطابعة» opens «هذا الجهاز» in the settings center', () {

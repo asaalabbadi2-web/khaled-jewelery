@@ -24,53 +24,27 @@ Set<String> _pySet(String src, String name) {
 void main() {
   final byKey = {for (final e in settingsRegistry) if (e.key != null) e.key!: e};
 
-  // What the old screen still saves: the keys held back, and nothing else --
-  // a moved key sent from it would write a stale value over the center's.
-  Set<String> oldScreenSends() {
-    final s = _src('lib/screens/settings_screen_enhanced.dart');
-    return {
-      for (final m in RegExp(r'updateSettings\(\{(.*?)\}\)', dotAll: true).allMatches(s))
-        ...RegExp(r"'([a-z_0-9]+)':").allMatches(m.group(1)!).map((x) => x.group(1)!),
-    };
-  }
-
-  test('the old screen saves the held-back settings, and only them', () {
-    expect(oldScreenSends(), heldBack.keys.toSet());
-  });
-
-  test('a moved key is edited in the center', () {
+  // The old settings screen is gone (D2 decided, ADR-104): every setting is
+  // edited in the center, none is held elsewhere.
+  test('the old settings screen is gone, and every setting is edited in the center', () {
+    expect(File('lib/screens/settings_screen_enhanced.dart').existsSync(), isFalse);
     for (final section in movedSections) {
       for (final e in entriesOf(section).where((e) => e.kind == SettingKind.setting)) {
         expect(editors.containsKey(e.key), isTrue, reason: '${e.key}: moved without its editor');
-        if (!heldBack.containsKey(e.key)) expect(e.screen, isNull, reason: '${e.key}: set elsewhere too');
+        expect(e.screen, isNull, reason: '${e.key}: set elsewhere too');
       }
     }
   });
 
-  // A setting held back until a decision (D2) is only shown in the center: it
-  // is set where it was, on the old screen's page.
-  test('a held-back setting is set on its page, and only there', () {
-    expect(heldBack.keys, ['voucher_auto_post'], reason: 'a new held-back setting is a decision: name it here');
-    for (final key in heldBack.keys) {
-      final e = byKey[key]!;
-      expect(movedSections, contains(e.section), reason: key);
-      expect(e.screen, 'held_settings', reason: '$key: no place left to set it');
-      expect(settingsScreens.containsKey(e.screen), isTrue);
-    }
-  });
-
   test("every key saved on this device is in the registry, as this device's, edited in the center alone", () {
-    final old = _src('lib/screens/settings_screen_enhanced.dart');
     for (final k in deviceSettings.keys) {
       expect(byKey[k], isNotNull, reason: k);
       expect(byKey[k]!.scope, SettingScope.device, reason: k);
       expect(byKey[k]!.section, SettingsSection.thisDevice, reason: k);
-      expect(old.contains("'$k'"), isFalse, reason: '$k: the old screen still holds it');
     }
     for (final e in settingsRegistry.where((e) => e.kind == SettingKind.setting && e.scope == SettingScope.device)) {
       expect(deviceSettings.containsKey(e.key), isTrue, reason: '${e.key}: a device setting with no editor');
     }
-    expect(old.contains('SharedPreferences'), isFalse, reason: 'the old screen keeps nothing on the device');
   });
 
   // The owner, 26 Nov 2026: what nothing reads is not shown.

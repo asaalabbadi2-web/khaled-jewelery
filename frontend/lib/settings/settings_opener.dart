@@ -22,7 +22,6 @@ import '../screens/posting_management_screen.dart';
 import '../screens/safe_boxes_screen.dart';
 import '../screens/sales_race_management_screen.dart';
 import '../screens/security_sessions_screen.dart';
-import '../screens/settings_screen_enhanced.dart';
 import '../screens/size_systems_screen.dart';
 import '../screens/supplier_settlement_policy_screen.dart';
 import '../screens/system_reset_screen.dart';
@@ -63,8 +62,6 @@ final Map<String, Widget Function(BuildContext context, ApiService api)> setting
   'import_excel': (_, _) => const ImportDocumentsScreen(isArabic: true),
   'system_reset': (_, _) => const SystemResetScreen(),
   'about': (_, _) => const AboutScreen(),
-  // What the center only shows until a decision (heldBack, D2) is set here.
-  'held_settings': (_, _) => const SettingsScreenEnhanced(),
 };
 
 Future<void> openSettingEntry(BuildContext context, SettingEntry entry) async {

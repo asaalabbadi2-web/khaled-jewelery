@@ -170,8 +170,8 @@ void main() {
     await tester.tap(find.byKey(const Key('settings-section-accounting')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('settings-needs-permission-manufacturing_wage_mode')), findsOneWidget);
-    expect(find.byKey(const Key('settings-needs-permission-voucher_auto_post')), findsNothing,
-        reason: 'held back until D2: shown, not changed here');
+    expect(find.byKey(const Key('settings-needs-permission-voucher_auto_post')), findsOneWidget,
+        reason: 'D2 decided: a financial setting of the center');
     await tester.tap(find.byKey(const Key('settings-section-tax')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('settings-needs-permission-tax_rate')), findsOneWidget);

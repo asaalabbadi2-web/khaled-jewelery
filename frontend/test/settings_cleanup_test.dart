@@ -1,10 +1,9 @@
-// What is left of the old settings screen once every section moved into the
-// center (settings spec v2, phase 7 cleanup): the voucher auto-post alone,
-// held there until the owner's decision D2 -- its switch and words as they
-// were, saved alone, only when changed, through the settings provider (PUT);
-// «حول النظام» on a page of its own; a screen that sends the user to a
-// setting opens the center on it (the sales invoice's manual item, which said
-// a tab that no longer holds it).
+// The old settings screen is gone into the center (settings spec v2, phase 7
+// cleanup; its last setting, the voucher auto-approval, moved once D2 was
+// decided, ADR-104): «حول النظام» is a page of its own; a screen that sends
+// the user to a setting opens the center on it (the sales invoice's manual
+// item, which said a tab that no longer holds it); nothing opens the old
+// screen, and no words name its tabs.
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -14,7 +13,6 @@ import 'package:frontend/api_service.dart';
 import 'package:frontend/providers/settings_provider.dart';
 import 'package:frontend/screens/about_screen.dart';
 import 'package:frontend/screens/settings_center_screen.dart';
-import 'package:frontend/screens/settings_screen_enhanced.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -74,44 +72,17 @@ void main() {
 
   for (final MapEntry(key: name, value: size) in _sizes.entries) {
     for (final dark in [false, true]) {
-      testWidgets('$name, ${dark ? 'dark' : 'light'}: the held page and «حول النظام» fit and read', (tester) async {
-        await open(tester, SettingsScreenEnhanced(api: _Api()), size: size, dark: dark);
-        expect(find.byKey(const Key('held-voucher-auto-post')), findsOneWidget);
+      testWidgets('$name, ${dark ? 'dark' : 'light'}: «حول النظام» fits and reads', (tester) async {
+        await open(tester, const AboutScreen(), size: size, dark: dark);
+        expect(find.text('نظام مجوهرات خالد'), findsOneWidget);
         expect(tester.takeException(), isNull);
         if (dark) {
           expectNoTextVanishesOnDark(tester);
           expectNoLightSurfaceOnDark(tester);
         }
-        await open(tester, const AboutScreen(), size: size, dark: dark);
-        expect(find.text('نظام مجوهرات خالد'), findsOneWidget);
-        expect(tester.takeException(), isNull);
-        if (dark) expectNoTextVanishesOnDark(tester);
       });
     }
   }
-
-  testWidgets('the voucher auto-post is saved alone, only when changed, as before', (tester) async {
-    final provider = await open(tester, SettingsScreenEnhanced(api: _Api()));
-    final toggle = find.byKey(const Key('held-voucher-auto-post'));
-    expect(tester.widget<SwitchListTile>(toggle).value, isTrue, reason: 'read from the server');
-    expect(find.text('ترحيل السندات تلقائياً عند الحفظ'), findsOneWidget, reason: 'its words, unchanged (D2)');
-    expect(tester.widget<FilledButton>(find.byKey(const Key('held-save'))).onPressed, isNull, reason: 'unchanged');
-    await tester.tap(toggle);
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('held-save')));
-    await tester.pumpAndSettle();
-    expect(provider.sent, [
-      {'voucher_auto_post': false}
-    ]);
-    expect(tester.widget<FilledButton>(find.byKey(const Key('held-save'))).onPressed, isNull, reason: 'saved');
-  });
-
-  testWidgets('the held page sends the user to the center for the rest', (tester) async {
-    await open(tester, SettingsScreenEnhanced(api: _Api()), size: _sizes['wide']!);
-    await tester.tap(find.text('افتح المركز'));
-    await tester.pumpAndSettle();
-    expect(find.byType(SettingsCenterScreen), findsOneWidget);
-  });
 
   for (final size in _sizes.values) {
     testWidgets('a screen that sends the user to a setting opens the center on it (${size.width})', (tester) async {
@@ -127,19 +98,18 @@ void main() {
     });
   }
 
-  // The old screen's tabs are gone: nothing opens it but the held setting's
-  // link, and no screen's words send the user to a tab.
-  test('nothing opens the old screen but the held setting, and no words name its tabs', () {
+  // Nothing opens the old screen, and no screen's words send the user to a tab.
+  test('nothing opens the old screen, and no words name its tabs', () {
     final opens = <String>[];
     final names = <String>[];
     for (final f in Directory('lib').listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.dart'))) {
       final src = f.readAsStringSync();
-      if (src.contains('SettingsScreenEnhanced(') && !f.path.endsWith('settings_screen_enhanced.dart')) opens.add(f.path);
+      if (src.contains('SettingsScreenEnhanced')) opens.add(f.path);
       if (RegExp(r'الإعدادات\s*>\s*(عام|الشركة والفواتير|المدفوعات|محاسبة|الطباعة|النظام)').hasMatch(src)) {
         names.add(f.path);
       }
     }
-    expect(opens, ['lib/settings/settings_opener.dart']);
+    expect(opens, isEmpty, reason: 'the old screen is gone (D2 decided, ADR-104)');
     expect(names, isEmpty);
     final sale = File('lib/screens/sales_invoice_screen_v2.dart').readAsStringSync();
     expect(sale.contains("SettingsCenterScreen(initialSetting: 'allow_manual_invoice_items')"), isTrue);

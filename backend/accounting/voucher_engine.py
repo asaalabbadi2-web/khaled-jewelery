@@ -21,7 +21,6 @@ from models import (
     VoucherAccountLine,
 )
 from accounting.reference_number_service import generate_journal_entry_number as _gen_je_number
-from core.settings import _get_settings_singleton
 from accounting.balances import _recalculate_account_balances_for_accounts
 
 
@@ -288,21 +287,9 @@ def create_journal_entry_from_voucher(voucher):
         if _gold_cost_applies(voucher.date):
             value_the_gold(journal_entry.id, description=f'سند {voucher.voucher_number}')
 
-        try:
-            _post_settings = _get_settings_singleton(create_if_missing=False)
-            _should_auto_post = False
-            if _post_settings:
-                _should_auto_post = (
-                    bool(getattr(_post_settings, 'voucher_auto_post', False))
-                    or bool(getattr(_post_settings, 'auto_post_entries', False))
-                )
-            if _should_auto_post and not journal_entry.is_posted:
-                journal_entry.is_posted = True
-                journal_entry.is_draft = False
-                journal_entry.posted_at = datetime.now()
-                journal_entry.posted_by = voucher.created_by or 'system'
-        except Exception:
-            pass
+        # Built, not posted: what posts a voucher's entry is its approval -- every
+        # path that approves posts the entries it builds (ADR-035 V0, held by
+        # journal_entry_guard). No posting setting is read here (D2, ADR-104).
 
         # NOTE: do NOT also call _rebuild_safe_box_transactions_for_journal_entry
         # here. Every voucher-creation call site already calls

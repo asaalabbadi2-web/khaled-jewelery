@@ -42,7 +42,6 @@ WRITERS = {
     'routes/journals.py::soft_delete_journal_entry': 1,
     'routes/vouchers.py::approve_voucher': 2,
     'routes/vouchers.py::create_voucher': 1,
-    'accounting/voucher_engine.py::create_journal_entry_from_voucher': 1,
     'accounting/voucher_engine.py::post_entry_of_approved_voucher': 1,
     # The one rejection (ADR-052): moved out of routes/invoices.py::reject_invoice,
     # shared with the undoing of an execution -- it drafts the invoice's entries.

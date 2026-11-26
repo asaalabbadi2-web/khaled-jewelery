@@ -21,10 +21,6 @@ const movedSections = {
   SettingsSection.usersSecurity,
 };
 
-/// Settings of a moved section the center only shows, until the owner's
-/// decision named: they are set where they were, and the old tab still holds
-/// and sends them (test/settings_registry_test.dart holds both).
-const heldBack = {'voucher_auto_post': 'القرار D2'};
 
 enum EditorKind { text, toggle, percent, choice, currency, karats, number, safe }
 

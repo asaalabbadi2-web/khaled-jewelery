@@ -4,10 +4,11 @@ The rule since V1 (ADR-035, V0 addendum; the owner, 1 Oct 2026): an approved
 voucher's entry stands posted, held at commit by journal_entry_guard. The
 bonus paths and the office-reservation deposit build it with
 `post_entry_of_approved_voucher`. Nine others built it with
-`create_journal_entry_from_voucher`, which posts only when `voucher_auto_post`
-or `auto_post_entries` is on, and marked the voucher approved: with auto-post
-off each operation failed at commit (500). Production runs with it on, so it
-was latent -- until someone turns it off.
+`create_journal_entry_from_voucher`, which then posted only when `voucher_auto_post`
+or `auto_post_entries` was on -- since D2 (ADR-104) it posts never: it builds --
+and marked the voucher approved: with auto-post off each operation failed at
+commit (500). Production runs with it on, so it was latent -- until someone
+turns it off.
 
 The laws:
   - the gold safe transfer, auto-post off, succeeds and its entry stands posted;
@@ -77,8 +78,8 @@ def test_who_builds_a_voucher_entry_unposted_is_frozen():
     found = _callers()
     new = {k: v for k, v in found.items() if v > CALLERS.get(k, 0)}
     assert not new, (
-        'these build a voucher\'s entry with create_journal_entry_from_voucher, which posts it only '
-        'when auto-post is on -- a voucher born approved calls post_entry_of_approved_voucher: '
+        'these build a voucher\'s entry with create_journal_entry_from_voucher, which builds it '
+        'unposted -- a voucher born approved calls post_entry_of_approved_voucher: '
         + ', '.join(f'{k} ({v})' for k, v in sorted(new.items())))
     gone = sorted(k for k in CALLERS if k not in found)
     assert not gone, f'remove from CALLERS, they no longer call it: {gone}'
