@@ -25,11 +25,12 @@ Future<bool?> showFinancialChange(
   String? title,
   String? description,
   EditorSpec Function(String key)? specOf,
+  String? note,
 }) =>
     showDialog<bool>(
       context: context,
       builder: (_) => FinancialChangeDialog(
-          entries: entries, current: current, save: save, title: title, description: description, specOf: specOf),
+          entries: entries, current: current, save: save, title: title, description: description, specOf: specOf, note: note),
     );
 
 class FinancialChangeDialog extends StatefulWidget {
@@ -41,6 +42,7 @@ class FinancialChangeDialog extends StatefulWidget {
     this.title,
     this.description,
     this.specOf,
+    this.note,
   });
 
   final List<SettingEntry> entries;
@@ -51,6 +53,10 @@ class FinancialChangeDialog extends StatefulWidget {
 
   /// A setting's spec as its section knows it (a safe's options); else its own.
   final EditorSpec Function(String key)? specOf;
+
+  /// What the section read for this change, said above the reason (the wage
+  /// inventory's balance and the entry that zeroes it, ADR-039).
+  final String? note;
 
   @override
   State<FinancialChangeDialog> createState() => _FinancialChangeDialogState();
@@ -198,6 +204,14 @@ class _FinancialChangeDialogState extends State<FinancialChangeDialog> {
               if (description.isNotEmpty) fact('ما يشمله', description),
               if (first.effect != null) fact('ما يتغيّر', first.effect!),
               if (first.revertRule != null) fact('التراجع', first.revertRule!),
+              if (_single && _spec(first).explain != null)
+                fact('بعد التأكيد', _spec(first).explain!(_values[first.key])),
+              if (widget.note != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(widget.note!, key: const Key('financial-note'),
+                      style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
+                ),
               const SizedBox(height: 12),
               TextField(
                 key: const Key('financial-reason'),

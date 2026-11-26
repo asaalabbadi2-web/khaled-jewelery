@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../utils/currency_utils.dart' as cu;
+import '../utils/wage_treatment.dart';
 import 'settings_registry.dart';
 
 /// How a setting moved into the center is edited (settings spec v2, phase 7).
@@ -14,7 +15,13 @@ const movedSections = {
   SettingsSection.salesInvoices,
   SettingsSection.tax,
   SettingsSection.paymentsSafes,
+  SettingsSection.accounting,
 };
+
+/// Settings of a moved section the center only shows, until the owner's
+/// decision named: they are set where they were, and the old tab still holds
+/// and sends them (test/settings_registry_test.dart holds both).
+const heldBack = {'voucher_auto_post': 'القرار D2'};
 
 enum EditorKind { text, toggle, percent, choice, currency, karats, number, safe }
 
@@ -32,7 +39,8 @@ class EditorSpec {
       this.unit = '',
       this.group,
       this.unset,
-      this.safeType});
+      this.safeType,
+      this.explain});
 
   final EditorKind kind;
 
@@ -70,6 +78,10 @@ class EditorSpec {
   /// read when the section opens ([withOptions]); none chosen is null.
   final String? safeType;
 
+  /// What a value does, said beside it and in its confirmation (the wage
+  /// treatment's two ways).
+  final String Function(Object? value)? explain;
+
   /// This spec with [options] -- a safe's, known once the safes are read.
   EditorSpec withOptions(List<(Object, String)> options) => EditorSpec(kind,
       options: options,
@@ -84,7 +96,8 @@ class EditorSpec {
       unit: unit,
       group: group,
       unset: unset,
-      safeType: safeType);
+      safeType: safeType,
+      explain: explain);
 
   /// The value as the editor holds it, from what the server sent.
   Object? read(Object? raw) => switch (kind) {
@@ -125,7 +138,8 @@ class EditorSpec {
     if (kind != EditorKind.number) return null;
     final v = _parse(value);
     if (v == null) return 'اكتب رقمًا';
-    if (v < min || v > max) return 'بين ${_say(min)} و${_say(max)}';
+    if (v < min) return max.isInfinite ? 'لا يقل عن ${_say(min)}' : 'بين ${_say(min)} و${_say(max)}';
+    if (v > max) return 'بين ${_say(min)} و${_say(max)}';
     if (decimals == 0 && v != v.roundToDouble()) return 'رقم صحيح';
     return null;
   }
@@ -211,6 +225,8 @@ const dateFormats = ['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'];
 
 const _office = 'office_terms';
 
+String _wageExplained(Object? mode) => wageModeExplanation('$mode');
+
 /// A group's name and what it says, as one setting is named (its parts keep
 /// their own labels).
 const policyGroups = {
@@ -254,6 +270,18 @@ final Map<String, EditorSpec> editors = {
   'main_cash_safe_box_id': const EditorSpec(EditorKind.safe, safeType: 'cash'),
   'sale_gold_safe_box_id': const EditorSpec(EditorKind.safe, safeType: 'gold'),
   'main_scrap_gold_safe_box_id': const EditorSpec(EditorKind.safe, safeType: 'gold'),
+  // المحاسبة والاعتماد
+  'voucher_auto_post': const EditorSpec(EditorKind.toggle),
+  'accountant_approval_limit_cash':
+      const EditorSpec(EditorKind.number, max: double.infinity, unit: 'ريال', hint: 'صفر = لا يعتمد المحاسب شيئًا'),
+  'accountant_approval_limit_gold_grams': const EditorSpec(EditorKind.number,
+      max: double.infinity, decimals: 3, unit: 'غرام بالعيار الرئيسي', hint: 'صفر = لا يعتمد المحاسب شيئًا'),
+  'gold_settlement_tolerance_grams':
+      const EditorSpec(EditorKind.number, max: 5, decimals: 3, unit: 'غرام بالعيار الرئيسي', hint: 'مثلًا 0.05'),
+  // The server's default is expense: a value it does not know is expense, as the old tab read it.
+  'manufacturing_wage_mode': EditorSpec(EditorKind.choice, options: [
+    for (final mode in [kWageModeExpense, kWageModeInventory]) (mode, wageModeLabel(mode)),
+  ], explain: _wageExplained),
   // البيع والفواتير
   'allow_discount': const EditorSpec(EditorKind.toggle),
   'default_discount_rate': const EditorSpec(EditorKind.percent, max: 50, dependsOn: 'allow_discount'),

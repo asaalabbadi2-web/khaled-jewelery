@@ -5,6 +5,7 @@ import '../api_service.dart';
 import '../models/safe_box_model.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_semantic_colors.dart';
+import '../utils/wage_treatment.dart';
 import '../utils.dart' show NormalizeNumberFormatter;
 import '../utils/currency_utils.dart' as cu;
 import '../utils/currency_utils.dart' show formatAmount;
@@ -333,8 +334,14 @@ class SectionEditorState extends State<SectionEditor> {
     final dirty = !spec.same(_initial[key], _draft[key]);
     final enabled = spec.dependsOn == null || _draft[spec.dependsOn] == true;
     final highlighted = widget.highlight == e.id;
-    final financial = e.level == 3;
-    final control = financial ? _financialControl(e, spec, enabled) : _control(e, spec, enabled);
+    final held = heldBack[key];
+    final financial = e.level == 3 && held == null;
+    final control = held != null
+        ? Text(spec.display(_draft[key]), key: Key('settings-value-$key'),
+            style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700))
+        : financial
+        ? _financialControl(e, spec, enabled)
+        : _control(e, spec, enabled);
     return Container(
       key: _rowKeys[e.id],
       margin: const EdgeInsets.symmetric(vertical: 4),
@@ -353,13 +360,25 @@ class SectionEditorState extends State<SectionEditor> {
               child: Text(dirty ? '${e.label} ●' : e.label,
                   style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
             ),
-            if (financial || spec.kind == EditorKind.toggle) control,
+            if (held != null || financial || spec.kind == EditorKind.toggle) control,
           ]),
           if (e.description.isNotEmpty)
             Text(e.description, style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+          if (spec.explain != null)
+            Text(spec.explain!(_draft[key]), style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
           if (e.level >= 2 && e.effect != null)
             Text(e.effect!, style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
-          if (!financial && spec.kind != EditorKind.toggle) ...[const SizedBox(height: 6), control],
+          if (held == null && !financial && spec.kind != EditorKind.toggle) ...[const SizedBox(height: 6), control],
+          if (held != null)
+            Row(children: [
+              Expanded(
+                child: Text('يُعرض هنا فقط حتى $held، ويُغيَّر من مكانه في الإعدادات القديمة.',
+                    key: Key('settings-held-$key'),
+                    style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+              ),
+              TextButton(key: Key('settings-open-$key'), onPressed: () => widget.opener(context, e),
+                  child: const Text('افتح مكانه')),
+            ]),
           if (financial && !widget.financialAllowed)
             Text(needsFinancialPermission, key: Key('settings-needs-permission-$key'),
                 style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
@@ -392,6 +411,8 @@ class SectionEditorState extends State<SectionEditor> {
   Future<void> _changeFinancial(List<SettingEntry> entries, {String? title, String? description}) async {
     final label = title ?? entries.first.label;
     String? staleNote;
+    final note = entries.length == 1 && entries.first.key == 'manufacturing_wage_mode' ? await _wageAdvice() : null;
+    if (!mounted) return;
     final saved = await showFinancialChange(
       context,
       entries: entries,
@@ -399,6 +420,7 @@ class SectionEditorState extends State<SectionEditor> {
       title: title,
       description: description,
       specOf: _spec,
+      note: note,
       save: (changes, reason) async {
         try {
           final result = await widget.api.patchSettings(
@@ -450,6 +472,23 @@ class SectionEditorState extends State<SectionEditor> {
       _refreshApp();
     } else if (staleNote != null) {
       AppFeedback.warning(context, staleNote!);
+    }
+  }
+
+  /// What a change of wage treatment leaves on the wage inventory, and the
+  /// entry that zeroes it (ADR-039) -- read when the change is asked, as the
+  /// old tab did; the screen advises, it posts nothing.
+  Future<String> _wageAdvice() async {
+    try {
+      final account = (await widget.api.getWageTreatment())['wage_inventory_account'];
+      if (account is! Map) return 'لا يوجد حساب لمخزون أجور المصنعية.';
+      return wageModeChangeAdvice(
+        balance: (account['balance'] as num?)?.toDouble() ?? 0.0,
+        accountLabel: '${account['account_number']} ${account['name']}',
+        formatCash: (v) => formatAmount(v),
+      );
+    } catch (e) {
+      return 'تعذّر قراءة رصيد مخزون أجور المصنعية: ${AppFeedback.messageOf(e)}';
     }
   }
 

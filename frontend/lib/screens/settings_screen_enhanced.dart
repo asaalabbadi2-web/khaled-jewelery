@@ -9,7 +9,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:printing/printing.dart';
 
 import '../api_service.dart';
-import '../utils/wage_treatment.dart';
 import '../providers/sales_race_refresh_provider.dart';
 import '../providers/settings_provider.dart';
 import 'accounting_mapping_screen_enhanced.dart';
@@ -89,16 +88,12 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
   String? _codingFrom;
 
   /// How a purchase and a sale treat manufacturing wages (ADR-039).
-  String _wageMode = kWageModeExpense;
 
   bool _voucherAutoPost = false;
   // هامش فرق سداد الذهب (2 أكتوبر 2026): رقم ثابت بالغرام، زاد الوزن أو نقص.
-  final TextEditingController _goldToleranceGramsController = TextEditingController(text: '0.05');
   // سعر الشراء = سعر السوق × النسبة (PRICE-BUY-1)؛ تُعرض بالمئة.
   // The closing office's terms (OFFICE-PRICE-1): what the server prices gold by.
   // حدّ اعتماد المحاسب (ADR-036 R4): يعتمد سندات غيره ما دونه؛ 0 = لا شيء.
-  final TextEditingController _accountantLimitCashController = TextEditingController(text: '0');
-  final TextEditingController _accountantLimitGoldController = TextEditingController(text: '0');
 
   // ---------------------------------------------------------------------------
   // 🆕 Feature toggles + default safes (employee routing)
@@ -154,9 +149,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
 
   @override
   void dispose() {
-    _goldToleranceGramsController.dispose();
-    _accountantLimitCashController.dispose();
-    _accountantLimitGoldController.dispose();
     _systemScrollController.dispose();
     _tabController.dispose();
     super.dispose();
@@ -229,22 +221,11 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
 
         _codingFrom = settings['coding_from']?.toString();
         _codingOn = _codingFrom != null;
-        _wageMode =
-            settings['manufacturing_wage_mode']?.toString() ==
-                kWageModeInventory
-            ? kWageModeInventory
-            : kWageModeExpense;
 
         _voucherAutoPost = _safeBool(
           settings['voucher_auto_post'],
           fallback: false,
         );
-        _goldToleranceGramsController.text =
-            '${(settings['gold_settlement_tolerance_grams'] as num?) ?? 0.05}';
-        _accountantLimitCashController.text =
-            '${(settings['accountant_approval_limit_cash'] as num?) ?? 0}';
-        _accountantLimitGoldController.text =
-            '${(settings['accountant_approval_limit_gold_grams'] as num?) ?? 0}';
 
         // 🆕 Feature toggles + default safes
 
@@ -279,97 +260,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
     }
   }
 
-  Widget _buildWageModeSetting() {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('معالجة أجور المصنعية', style: theme.textTheme.titleSmall),
-          const SizedBox(height: 8),
-          SegmentedButton<String>(
-            segments: [
-              ButtonSegment(
-                value: kWageModeInventory,
-                label: Text(wageModeLabel(kWageModeInventory)),
-              ),
-              ButtonSegment(
-                value: kWageModeExpense,
-                label: Text(wageModeLabel(kWageModeExpense)),
-              ),
-            ],
-            selected: {_wageMode},
-            onSelectionChanged: (selection) =>
-                _confirmWageModeChange(selection.first),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            wageModeExplanation(_wageMode),
-            style: theme.textTheme.bodySmall,
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// A change of treatment leaves the wage inventory unmatched: say what is on
-  /// it and the entry that zeroes it before taking the change (ADR-039).
-  Future<void> _confirmWageModeChange(String mode) async {
-    if (mode == _wageMode) return;
-    String advice;
-    try {
-      final treatment = await _apiService.getWageTreatment();
-      final account = treatment['wage_inventory_account'];
-      if (account is Map) {
-        final label = '${account['account_number']} ${account['name']}';
-        advice = wageModeChangeAdvice(
-          balance: (account['balance'] as num?)?.toDouble() ?? 0.0,
-          accountLabel: label,
-          formatCash: (v) => v.toStringAsFixed(2),
-        );
-      } else {
-        advice = 'لا يوجد حساب لمخزون أجور المصنعية.';
-      }
-    } catch (e) {
-      advice = 'تعذّر قراءة رصيد مخزون أجور المصنعية: $e';
-    }
-    if (!mounted) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('تغيير المعالجة إلى «${wageModeLabel(mode)}»'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(wageModeExplanation(mode)),
-            const SizedBox(height: 12),
-            const Text(
-              'الفواتير المحفوظة تبقى على معالجتها، والتغيير يسري على ما يُنشأ بعد الحفظ. '
-              'القطع الموجودة اليوم لا تتطابق أجورها بعد التغيير.',
-            ),
-            const SizedBox(height: 12),
-            Text(advice, style: const TextStyle(fontWeight: FontWeight.w700)),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('إلغاء'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('تغيير'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed == true && mounted) {
-      setState(() => _wageMode = mode);
-    }
-  }
-
   Future<void> _saveSettings() async {
     if (_isSaving) return;
     FocusScope.of(context).unfocus();
@@ -380,15 +270,8 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
 
     final payload = <String, dynamic>{
       'voucher_auto_post': _voucherAutoPost,
-      'gold_settlement_tolerance_grams':
-          double.tryParse(_goldToleranceGramsController.text.trim()) ?? 0.05,
-      'accountant_approval_limit_cash':
-          double.tryParse(_accountantLimitCashController.text.trim()) ?? 0.0,
-      'accountant_approval_limit_gold_grams':
-          double.tryParse(_accountantLimitGoldController.text.trim()) ?? 0.0,
       'idle_timeout_enabled': _idleTimeoutEnabled,
       'idle_timeout_minutes': _idleTimeoutMinutes,
-      'manufacturing_wage_mode': _wageMode,
       'coding_on': _codingOn,
 
       // 🆕 Feature toggles + default safes (employee routing)
@@ -566,10 +449,8 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
         _buildSectionCard(
           icon: Icons.receipt_long_outlined,
           iconColor: _colors.tertiary,
-          title: 'الأجور والترميز',
+          title: 'الترميز',
           children: [
-            _buildWageModeSetting(),
-            const Divider(height: 32),
             SwitchListTile.adaptive(
               key: const Key('settings-coding-on'),
               value: _codingOn,
@@ -662,55 +543,8 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
           ],
         ),
         const SizedBox(height: 20),
-        _buildSectionCard(
-          icon: Icons.balance_outlined,
-          iconColor: _primaryColor,
-          title: 'هامش فرق سداد الذهب',
-          children: [
-            Text(
-              'فرق الوزن داخل هذا الهامش يُتجاهَل في حالة الفاتورة، زاد الوزن أو نقص: '
-              'دفعة أقل بقليل تُسدّد الفاتورة، وأكثر بقليل يُقبل نسبها. '
-              'لا يمسّ القيود؛ يبقى الفرق في رصيد المورد كما هو.',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _goldToleranceGramsController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(
-                labelText: 'الهامش (غرام بالعيار الرئيسي)',
-                helperText: 'مثلًا 0.05 — من 0 إلى 5',
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 20),
-        _buildMovedNote('سعر الشراء وشروط سعر مكتب التسكير في «الذهب والأسعار»'),
-        const SizedBox(height: 20),
-        _buildSectionCard(
-          icon: Icons.verified_user_outlined,
-          iconColor: _primaryColor,
-          title: 'حدّ اعتماد المحاسب',
-          children: [
-            Text(
-              'لا يعتمد السند من أنشأه. يعتمد المحاسب سندات غيره ما دون هذا الحدّ نقدًا ووزنًا، '
-              'وما فوقه يعتمده المدير. صفر = لا يعتمد المحاسب شيئًا.',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _accountantLimitCashController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'الحدّ النقدي (ريال)'),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _accountantLimitGoldController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'حدّ الذهب (غرام بالعيار الرئيسي)'),
-            ),
-          ],
-        ),
+        _buildMovedNote('هامش فرق سداد الذهب وحدّا اعتماد المحاسب ومعالجة أجور المصنعية في «المحاسبة والاعتماد»، '
+            'وسعر الشراء وشروط سعر مكتب التسكير في «الذهب والأسعار»'),
         const SizedBox(height: 20),
         _buildMovedNote('خزائن الموظفين والصندوق النقدي الرئيسي وخزينتا الذهب المعروض والكسر في «المدفوعات والخزائن»'),
         const SizedBox(height: 20),

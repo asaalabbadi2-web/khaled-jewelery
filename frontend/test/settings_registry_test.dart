@@ -44,9 +44,24 @@ void main() {
     for (final section in movedSections) {
       for (final e in entriesOf(section).where((e) => e.kind == SettingKind.setting)) {
         expect(editors.containsKey(e.key), isTrue, reason: '${e.key}: moved without its editor');
+        if (heldBack.containsKey(e.key)) continue; // below
         expect(save.contains("'${e.key}'"), isFalse, reason: '${e.key}: the old screen still sends it');
         expect(e.legacyTab, isNull, reason: '${e.key}: still pointed at the old tab');
       }
+    }
+  });
+
+  // A setting held back until a decision (D2) is only shown in the center:
+  // it is set where it was, so the old tab still holds and sends it.
+  test('a held-back setting is still set in its old tab, and only there', () {
+    final s = _src('lib/screens/settings_screen_enhanced.dart');
+    final save = s.substring(s.indexOf('Future<void> _saveSettings()'), s.indexOf('updateSettings(payload)'));
+    expect(heldBack.keys, ['voucher_auto_post'], reason: 'a new held-back setting is a decision: name it here');
+    for (final key in heldBack.keys) {
+      final e = byKey[key]!;
+      expect(movedSections, contains(e.section), reason: key);
+      expect(e.legacyTab, isNotNull, reason: '$key: no place left to set it');
+      expect(save.contains("'$key'"), isTrue, reason: '$key: the old tab no longer sends it');
     }
   });
 

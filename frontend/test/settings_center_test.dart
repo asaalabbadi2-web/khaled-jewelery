@@ -72,7 +72,7 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('settings-index-accounting')));
         await tester.pumpAndSettle();
-        expect(find.byKey(const Key('settings-section-view-accounting')), findsOneWidget);
+        expect(find.byKey(const Key('settings-editor-accounting')), findsOneWidget);
         expect(tester.takeException(), isNull, reason: 'the section overflows');
         if (dark) {
           expectNoTextVanishesOnDark(tester);
@@ -160,12 +160,12 @@ void main() {
   // ADR-103: a financial setting says it wants its permission to whoever lacks it.
   testWidgets('a financial setting says its permission to whoever does not hold it', (tester) async {
     await open(tester, _sizes['wide']!);
-    // listed, read-only
+    // every financial setting is edited in the center now: alone and as a group
     await tester.tap(find.byKey(const Key('settings-section-accounting')));
     await tester.pumpAndSettle();
-    expect(find.descendant(of: find.byKey(const Key('settings-entry-manufacturing_wage_mode')),
-        matching: find.textContaining(needsFinancialPermission)), findsOneWidget);
-    // edited in the center, alone and as a group
+    expect(find.byKey(const Key('settings-needs-permission-manufacturing_wage_mode')), findsOneWidget);
+    expect(find.byKey(const Key('settings-needs-permission-voucher_auto_post')), findsNothing,
+        reason: 'held back until D2: shown, not changed here');
     await tester.tap(find.byKey(const Key('settings-section-tax')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('settings-needs-permission-tax_rate')), findsOneWidget);
