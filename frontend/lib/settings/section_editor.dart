@@ -364,7 +364,8 @@ class SectionEditorState extends State<SectionEditor> {
     final dirty = !spec.same(_initial[key], _draft[key]);
     final enabled = spec.dependsOn == null || _draft[spec.dependsOn] == true;
     final highlighted = widget.highlight == e.id;
-    final readOnly = !widget.settingsAllowed;
+    final locked = spec.lockedBy != null && _server[spec.lockedBy] == true;
+    final readOnly = !widget.settingsAllowed || locked;
     final financial = e.level == 3 && !readOnly;
     final control = readOnly
         ? Text(spec.display(_draft[key]), key: Key('settings-value-$key'),
@@ -399,6 +400,10 @@ class SectionEditorState extends State<SectionEditor> {
           if (e.level >= 2 && e.effect != null)
             Text(e.effect!, style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
           if (!readOnly && !financial && spec.kind != EditorKind.toggle) ...[const SizedBox(height: 6), control],
+          if (locked)
+            Text('مقفل: لا يُغيَّر بعد أول قيد بوزن، فكل وزن معادل في الدفاتر كُتب به (القرار D9).',
+                key: Key('settings-locked-$key'),
+                style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
           if (financial && !widget.financialAllowed)
             Text(needsFinancialPermission, key: Key('settings-needs-permission-$key'),
                 style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),

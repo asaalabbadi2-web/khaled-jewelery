@@ -636,6 +636,7 @@ def get_settings():
     # Receiving works today or not -- the server's day, not the screen's (ADR-087 R2).
     from services.receiving import coding_from, coding_on, receiving_from, receiving_on
     from services.wage_ledger import wage_pools_on as _wage_pools_on
+    from services.main_karat_lock import locked as _main_karat_locked
     _start = receiving_from()
     _coding = coding_from()
     response = jsonify({**settings.to_dict(), 'vat_periods': _vat_periods(),
@@ -646,7 +647,9 @@ def get_settings():
                         'coding_active': coding_on(datetime.now()),
                         # a sale's wage cost is its pool's, the server's (ADR-096 ت2; 2027's opening)
                         'wage_pools_from': settings.wage_pools_from.isoformat() if settings.wage_pools_from else None,
-                        'wage_pools_active': _wage_pools_on(datetime.now())})
+                        'wage_pools_active': _wage_pools_on(datetime.now()),
+                        # after the books' first weight, the main karat is not changed (D9, ADR-105)
+                        'main_karat_locked': _main_karat_locked()})
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
@@ -1038,6 +1041,13 @@ def _apply_settings(data):
         if chosen not in KARATS:
             return jsonify({'error': 'invalid_main_karat',
                             'message': 'العيار الرئيسي واحد من 18 أو 21 أو 22 أو 24'}), 400
+        # Every weight the books equate is in it, never rewritten: after the first,
+        # another would mix two units in one ledger (D9, ADR-105).
+        from services.main_karat_lock import locked as _main_karat_locked
+        if settings.main_karat is not None and chosen != settings.main_karat and _main_karat_locked():
+            return jsonify({'error': 'main_karat_locked',
+                            'message': f'العيار الرئيسي عيار {settings.main_karat} لا يُغيَّر بعد أول قيد بوزن: '
+                                       'كل وزن معادل في الدفاتر كُتب به، وتغييره يخلط وحدتين'}), 409
         settings.main_karat = chosen
         from pricing.gold_price_service import forget_main_karat
         forget_main_karat()

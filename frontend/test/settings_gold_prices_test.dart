@@ -142,6 +142,17 @@ void main() {
     expect(textOf(tester, const Key('settings-value-main_karat')), 'عيار 24');
   });
 
+  // D9 (ADR-105): after the books' first weight the server refuses another
+  // main karat -- the center says it is locked, and offers no change.
+  testWidgets('a main karat the books are weighed in is said locked, and not offered', (tester) async {
+    final api = _Api()..settings['main_karat_locked'] = true;
+    await open(tester, api: api);
+    expect(textOf(tester, const Key('settings-value-main_karat')), 'عيار 21');
+    expect(find.byKey(const Key('settings-change-main_karat')), findsNothing);
+    expect(find.byKey(const Key('settings-locked-main_karat')), findsOneWidget);
+    expect(find.byKey(const Key('settings-change-office_terms')), findsOneWidget, reason: 'the rest of the section is not');
+  });
+
   testWidgets('a main karat not set is said so, never guessed', (tester) async {
     final api = _Api()..settings['main_karat'] = null;
     await open(tester, api: api);

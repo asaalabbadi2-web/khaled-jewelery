@@ -40,7 +40,8 @@ class EditorSpec {
       this.unset,
       this.safeType,
       this.explain,
-      this.source});
+      this.source,
+      this.lockedBy});
 
   final EditorKind kind;
 
@@ -88,6 +89,10 @@ class EditorSpec {
   /// _VERSION_COLUMN). A toggle with a source is on while the source is set.
   final String? source;
 
+  /// What the server says when it no longer takes a change: the setting is then
+  /// shown, said locked, and not offered (the main karat, D9).
+  final String? lockedBy;
+
   /// The key the server sends this setting's value and version under.
   String sourceOf(String key) => source ?? key;
 
@@ -107,7 +112,8 @@ class EditorSpec {
       unset: unset,
       safeType: safeType,
       explain: explain,
-      source: source);
+      source: source,
+      lockedBy: lockedBy);
 
   /// The value as the editor holds it, from what the server sent.
   Object? read(Object? raw) => switch (kind) {
@@ -273,7 +279,8 @@ final Map<String, EditorSpec> editors = {
   'date_format': EditorSpec(EditorKind.choice, options: [for (final f in dateFormats) (f, f)]),
   // الذهب والأسعار
   'main_karat': const EditorSpec(EditorKind.choice,
-      options: [(18, 'عيار 18'), (21, 'عيار 21'), (22, 'عيار 22'), (24, 'عيار 24')], unset: 'غير مضبوط'),
+      options: [(18, 'عيار 18'), (21, 'عيار 21'), (22, 'عيار 22'), (24, 'عيار 24')], unset: 'غير مضبوط',
+      lockedBy: 'main_karat_locked'),
   'buy_price_ratio': const EditorSpec(EditorKind.number, min: 50, max: 100, fraction: true, unit: '%', hint: 'مثلًا 98'),
   'office_main_fees_usd': const EditorSpec(EditorKind.number, max: 500, decimals: 4, unit: 'دولار للأونصة', group: _office),
   'office_custom_fees_usd': const EditorSpec(EditorKind.number, max: 500, decimals: 4, unit: 'دولار للأونصة', group: _office),
