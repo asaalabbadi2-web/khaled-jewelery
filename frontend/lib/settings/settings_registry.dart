@@ -76,6 +76,10 @@ abstract final class LegacyTab {
   static const system = 5;
 }
 
+/// Said beside a financial (level-3) setting to whoever does not hold its
+/// permission (ADR-103).
+const needsFinancialPermission = 'يحتاج صلاحية «الإعدادات المالية والمحاسبية»';
+
 class SettingEntry {
   const SettingEntry({
     required this.id,
@@ -201,21 +205,20 @@ const settingsRegistry = <SettingEntry>[
   // ── الضريبة ───────────────────────────────────────────────────────────
   SettingEntry(id: 'tax_enabled', key: 'tax_enabled', section: SettingsSection.tax,
       label: 'ضريبة الفواتير (المفتاح العام)', synonyms: ['VAT', 'القيمة المضافة', 'ضريبة'], level: 3,
-      legacyTab: LegacyTab.companyInvoices,
       description: 'يشمل البيع والشراء والأحجار وضريبة عمولات وسائل الدفع',
       effect: 'يسري على الفواتير التي تُحفظ بعده.',
       revertRule: 'بتغيير جديد؛ بلا تاريخ، فلا يصلح فاتورة حُفظت بينهما.'),
   SettingEntry(id: 'sales_vat_enabled', key: 'sales_vat_enabled', section: SettingsSection.tax,
       label: 'ضريبة المبيعات', synonyms: ['VAT', 'القيمة المضافة', 'فاتورة بدون ضريبة'], level: 3,
-      legacyTab: LegacyTab.companyInvoices, description: 'للبيع وحده، بتاريخ؛ لا تمسّ ضريبة المشتريات',
+      description: 'للبيع وحده، بتاريخ؛ لا تمسّ ضريبة المشتريات',
       effect: 'تُكتب فترة من اليوم في سياسة الضريبة.',
       revertRule: 'فترة جديدة؛ ما بيع بين الفترتين يبقى كما بيع.'),
   SettingEntry(id: 'tax_rate', key: 'tax_rate', section: SettingsSection.tax, label: 'نسبة الضريبة',
-      synonyms: ['VAT', '15'], level: 3, legacyTab: LegacyTab.companyInvoices, effect: _forward,
+      synonyms: ['VAT', '15'], level: 3, effect: _forward,
       revertRule: 'بتغيير جديد؛ لا يصلح فاتورة حُفظت بينهما.'),
   SettingEntry(id: 'vat_exempt_karats', key: 'vat_exempt_karats', section: SettingsSection.tax,
       label: 'العيارات المعفاة من الضريبة', synonyms: ['24', 'إعفاء'], level: 3,
-      legacyTab: LegacyTab.companyInvoices, effect: _forward, revertRule: 'بتغيير جديد.'),
+      effect: _forward, revertRule: 'بتغيير جديد.'),
 
   // ── المدفوعات والخزائن ────────────────────────────────────────────────
   SettingEntry(id: 'employee_cash_safes_enabled', key: 'employee_cash_safes_enabled',

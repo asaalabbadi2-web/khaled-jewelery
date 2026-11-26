@@ -10,6 +10,7 @@ import '../utils/currency_utils.dart' show formatAmount;
 import '../widgets/app_feedback.dart';
 import '../widgets/app_leave_guard.dart';
 import '../widgets/app_state_views.dart';
+import 'financial_change_dialog.dart';
 import 'settings_editors.dart';
 import 'settings_opener.dart';
 import 'settings_registry.dart';
@@ -58,6 +59,7 @@ class SectionEditorState extends State<SectionEditor> {
   String? _barError;
   List<Map<String, dynamic>> _conflicts = const [];
   bool _wasDirty = false;
+  String _currency = '';
 
   List<SettingEntry> get _entries => editedIn(widget.section);
 
@@ -88,6 +90,7 @@ class SectionEditorState extends State<SectionEditor> {
       final versions = await widget.api.getSettingsVersions();
       if (!mounted) return;
       setState(() {
+        _currency = '${settings['currency_symbol'] ?? ''}';
         for (final e in _entries) {
           final key = e.key!;
           final spec = editors[key]!;
@@ -252,6 +255,7 @@ class SectionEditorState extends State<SectionEditor> {
                 ),
                 const SizedBox(height: 8),
                 for (final e in _entries) _row(e),
+                if (widget.section == SettingsSection.tax && _draft['tax_enabled'] == true) _taxExamples(),
                 for (final e in entriesOf(widget.section).where((e) => e.kind == SettingKind.link))
                   Card(
                     margin: const EdgeInsets.only(top: 8),
@@ -282,7 +286,8 @@ class SectionEditorState extends State<SectionEditor> {
     final dirty = !spec.same(_initial[key], _draft[key]);
     final enabled = spec.dependsOn == null || _draft[spec.dependsOn] == true;
     final highlighted = widget.highlight == e.id;
-    final control = _control(e, spec, enabled);
+    final financial = e.level == 3;
+    final control = financial ? _financialControl(e, spec, enabled) : _control(e, spec, enabled);
     return Container(
       key: _rowKeys[e.id],
       margin: const EdgeInsets.symmetric(vertical: 4),
@@ -301,14 +306,125 @@ class SectionEditorState extends State<SectionEditor> {
               child: Text(dirty ? '${e.label} ●' : e.label,
                   style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
             ),
-            if (spec.kind == EditorKind.toggle) control,
+            if (financial || spec.kind == EditorKind.toggle) control,
           ]),
           if (e.description.isNotEmpty)
             Text(e.description, style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
           if (e.level >= 2 && e.effect != null)
             Text(e.effect!, style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
-          if (spec.kind != EditorKind.toggle) ...[const SizedBox(height: 6), control],
+          if (!financial && spec.kind != EditorKind.toggle) ...[const SizedBox(height: 6), control],
+          if (financial && !widget.financialAllowed)
+            Text(needsFinancialPermission, key: Key('settings-needs-permission-$key'),
+                style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
         ],
+      ),
+    );
+  }
+
+  /// A financial setting: its value said, and changed alone through its
+  /// confirmation (ADR-102, ADR-103) -- never with the section's bar.
+  Widget _financialControl(SettingEntry e, EditorSpec spec, bool enabled) {
+    final key = e.key!;
+    final theme = Theme.of(context);
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Flexible(
+        child: Text(spec.display(_draft[key]), key: Key('settings-value-$key'),
+            style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700)),
+      ),
+      const SizedBox(width: 8),
+      OutlinedButton(
+        key: Key('settings-change-$key'),
+        onPressed: enabled && widget.financialAllowed ? () => _changeFinancial(e, spec) : null,
+        child: const Text('تغيير…'),
+      ),
+    ]);
+  }
+
+  Future<void> _changeFinancial(SettingEntry e, EditorSpec spec) async {
+    final key = e.key!;
+    String? staleNote;
+    final saved = await showFinancialChange(
+      context,
+      entry: e,
+      spec: spec,
+      current: _draft[key],
+      save: (value, reason) async {
+        try {
+          final result = await widget.api.patchSettings(
+            changes: {key: value},
+            versions: {key: _versions[key] ?? 0},
+            reason: reason,
+          );
+          if (!mounted) return (error: null, stale: false);
+          final versions = (result['versions'] as Map?) ?? const {};
+          setState(() {
+            _initial[key] = spec.read(value); // as the server keeps it, read back
+            _draft[key] = _initial[key];
+            _versions[key] = (versions[key] as num?)?.toInt() ?? _versions[key]!;
+          });
+          return (error: null, stale: false);
+        } on ApiException catch (err) {
+          if (err.statusCode != 409) return (error: err.message, stale: false);
+          final c = [for (final x in (err.details['conflicts'] as List? ?? const [])) (x as Map)]
+              .where((x) => x['key'] == key)
+              .firstOrNull;
+          if (c != null && mounted) {
+            setState(() {
+              _initial[key] = spec.read(c['current']);
+              _draft[key] = _initial[key];
+              _versions[key] = (c['current_version'] as num).toInt();
+            });
+          }
+          staleNote = '«${e.label}»: غيّره ${c?['changed_by'] ?? 'مستخدم آخر'} بعد أن فتحت الصفحة؛ '
+                'القيمة الآن ${spec.display(_draft[key])}. راجعها ثم غيّرها من جديد إن أردت.';
+          return (error: staleNote, stale: true);
+        } catch (err) {
+          return (error: AppFeedback.messageOf(err), stale: false);
+        }
+      },
+    );
+    if (!mounted) return;
+    if (saved == true) {
+      AppFeedback.success(context, 'حُفظ: ${e.label}');
+      _refreshApp();
+    } else if (staleNote != null) {
+      AppFeedback.warning(context, staleNote!);
+    }
+  }
+
+  /// The old tax tab's worked examples, at the rate now set.
+  Widget _taxExamples() {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final rate = ((_draft['tax_rate'] as num?) ?? 0).toDouble();
+    Widget money(double v, {TextStyle? style}) =>
+        cu.CurrencyText(amount: v, symbol: _currency, style: style ?? theme.textTheme.bodyMedium);
+    return Card(
+      key: const Key('settings-tax-examples'),
+      margin: const EdgeInsets.only(top: 8),
+      elevation: 0,
+      color: cs.surfaceContainerHigh,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text('أمثلة حسابية بالنسبة الحالية', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          for (final amount in const [1000.0, 5000.0, 10000.0])
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Wrap(spacing: 12, runSpacing: 2, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                money(amount),
+                Row(mainAxisSize: MainAxisSize.min, children: [
+                  Text('ضريبة: ', style: theme.textTheme.bodyMedium),
+                  money(amount * rate / 100),
+                ]),
+                Row(mainAxisSize: MainAxisSize.min, children: [
+                  Text('الإجمالي: ', style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
+                  money(amount * (1 + rate / 100), style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
+                ]),
+              ]),
+            ),
+        ]),
       ),
     );
   }
@@ -342,13 +458,16 @@ class SectionEditorState extends State<SectionEditor> {
               value: v,
               min: 0,
               max: spec.max,
-              divisions: (spec.max * 2).round(),
+              divisions: (spec.max / spec.step).round(),
               label: '${formatAmount(v, decimals: 1)}%',
               onChanged: enabled ? (x) => _set(key, x) : null,
             ),
           ),
           Text('${formatAmount(v, decimals: 1)}%', style: theme.textTheme.titleSmall),
         ]);
+      case EditorKind.karats:
+        return KaratChips(
+            keyPrefix: 'settings-field-$key', value: _draft[key], onChanged: enabled ? (v) => _set(key, v) : null);
       case EditorKind.choice:
         return Wrap(spacing: 8, runSpacing: 6, children: [
           for (final (value, label) in spec.options)

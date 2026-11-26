@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../utils/currency_utils.dart' as cu;
 import 'settings_registry.dart';
 
@@ -6,21 +8,27 @@ import 'settings_registry.dart';
 /// settings tabs no longer hold their keys, and no longer send them -- a stale
 /// value from the old screen would write over the center's
 /// (test/settings_registry_test.dart holds both).
-const movedSections = {SettingsSection.company, SettingsSection.salesInvoices};
+const movedSections = {SettingsSection.company, SettingsSection.salesInvoices, SettingsSection.tax};
 
-enum EditorKind { text, toggle, percent, choice, currency }
+enum EditorKind { text, toggle, percent, choice, currency, karats }
 
 class EditorSpec {
   const EditorSpec(this.kind,
-      {this.options = const [], this.max = 100, this.digits = false, this.hint, this.dependsOn});
+      {this.options = const [],
+      this.max = 100,
+      this.step = 0.5,
+      this.digits = false,
+      this.hint,
+      this.dependsOn});
 
   final EditorKind kind;
 
   /// A choice's (stored value, label).
   final List<(Object, String)> options;
 
-  /// A percent's largest value (it is stored as a fraction).
+  /// A percent's largest value (it is stored as a fraction), and its step.
   final double max;
+  final double step;
   final bool digits;
   final String? hint;
 
@@ -32,6 +40,7 @@ class EditorSpec {
         EditorKind.toggle => raw == true || raw == 1 || raw == 'true',
         EditorKind.percent => _percent(raw),
         EditorKind.choice => _choice(raw),
+        EditorKind.karats => _karats(raw),
         _ => raw?.toString() ?? '',
       };
 
@@ -46,8 +55,40 @@ class EditorSpec {
   bool same(Object? a, Object? b) => switch (kind) {
         EditorKind.percent => (((a as num?) ?? 0) - ((b as num?) ?? 0)).abs() < 0.005,
         EditorKind.text || EditorKind.currency => '${a ?? ''}'.trim() == '${b ?? ''}'.trim(),
+        EditorKind.karats => '${a ?? const []}' == '${b ?? const []}',
         _ => a == b,
       };
+
+  /// The value said as a reader says it (a financial setting's before and after).
+  String display(Object? value) => switch (kind) {
+        EditorKind.toggle => value == true ? 'مفعّل' : 'معطّل',
+        EditorKind.percent => '${cu.formatAmount((value as num?) ?? 0, decimals: 1)}%',
+        EditorKind.karats => [for (final k in (value as List? ?? const [])) 'عيار $k'].join('، '),
+        EditorKind.choice => options.firstWhere((o) => o.$1 == value, orElse: () => (value ?? '', '${value ?? '—'}')).$2,
+        _ => '${value ?? ''}'.isEmpty ? '—' : '$value',
+      };
+
+  // As the old screen read them: a list, its JSON, or «24,22»; only the
+  // known karats, sorted; none is 24 (a VAT-exempt list is never empty).
+  static List<int> _karats(Object? raw) {
+    Iterable<Object?> parts = const [];
+    if (raw is List) {
+      parts = raw;
+    } else if (raw is String && raw.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        parts = decoded is List ? decoded : raw.split(',');
+      } catch (_) {
+        parts = raw.split(',');
+      }
+    }
+    final out = <int>{
+      for (final p in parts)
+        if (int.tryParse('$p'.trim()) case final int k when karatOptions.contains(k)) k,
+    }.toList()
+      ..sort();
+    return out.isEmpty ? [24] : out;
+  }
 
   // As the old screen read them: a fraction up to 1 is a share, above it a percent.
   static double _percent(Object? raw) {
@@ -64,6 +105,7 @@ class EditorSpec {
 }
 
 const dateFormats = ['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'];
+const karatOptions = [18, 21, 22, 24];
 
 final Map<String, EditorSpec> editors = {
   // المنشأة
@@ -83,6 +125,11 @@ final Map<String, EditorSpec> editors = {
   'allow_manual_invoice_items': const EditorSpec(EditorKind.toggle),
   'allow_partial_invoice_payments': const EditorSpec(EditorKind.toggle),
   'require_auth_for_invoice_create': const EditorSpec(EditorKind.toggle),
+  // الضريبة -- all four level 3: changed one at a time, through the confirmation
+  'sales_vat_enabled': const EditorSpec(EditorKind.toggle),
+  'tax_enabled': const EditorSpec(EditorKind.toggle),
+  'tax_rate': const EditorSpec(EditorKind.percent, max: 30, step: 0.1, dependsOn: 'tax_enabled'),
+  'vat_exempt_karats': const EditorSpec(EditorKind.karats, dependsOn: 'tax_enabled'),
 };
 
 /// The settings of [section] edited in the center, in the registry's order.

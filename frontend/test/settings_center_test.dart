@@ -115,9 +115,22 @@ void main() {
 
   testWidgets('a phone opens a section on a page of its own', (tester) async {
     await open(tester, _sizes['phone']!);
+    await tester.scrollUntilVisible(find.byKey(const Key('settings-index-backupMaintenance')), 200,
+        scrollable: find.ancestor(of: find.byKey(const Key('settings-index-company')), matching: find.byType(Scrollable)).first);
+    await tester.ensureVisible(find.byKey(const Key('settings-index-backupMaintenance')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('settings-index-backupMaintenance')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('settings-section-view-backupMaintenance')), findsOneWidget);
+    expect(find.byKey(const Key('settings-index-backupMaintenance')), findsNothing,
+        reason: 'a page, not beside the index');
+  });
+
+  testWidgets('a phone opens an edited section on a page of its own', (tester) async {
+    await open(tester, _sizes['phone']!);
     await tester.tap(find.byKey(const Key('settings-index-tax')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('settings-section-view-tax')), findsOneWidget);
+    expect(find.byKey(const Key('settings-editor-tax')), findsOneWidget);
     expect(find.byKey(const Key('settings-index-tax')), findsNothing, reason: 'a page, not beside the index');
   });
 
@@ -131,13 +144,20 @@ void main() {
   // ADR-103: a financial setting says it wants its permission to whoever lacks it.
   testWidgets('a financial setting says its permission to whoever does not hold it', (tester) async {
     await open(tester, _sizes['wide']!);
-    await tester.tap(find.byKey(const Key('settings-section-tax')));
+    // listed, read-only
+    await tester.tap(find.byKey(const Key('settings-section-goldPrices')));
     await tester.pumpAndSettle();
-    expect(find.descendant(of: find.byKey(const Key('settings-entry-tax_rate')),
+    expect(find.descendant(of: find.byKey(const Key('settings-entry-main_karat')),
         matching: find.textContaining(needsFinancialPermission)), findsOneWidget);
-    await open(tester, _sizes['wide']!, financial: true);
+    // edited in the center
     await tester.tap(find.byKey(const Key('settings-section-tax')));
     await tester.pumpAndSettle();
-    expect(find.textContaining(needsFinancialPermission), findsNothing);
+    expect(find.byKey(const Key('settings-needs-permission-tax_rate')), findsOneWidget);
+    await open(tester, _sizes['wide']!, financial: true);
+    for (final section in ['goldPrices', 'tax']) {
+      await tester.tap(find.byKey(Key('settings-section-$section')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining(needsFinancialPermission), findsNothing, reason: section);
+    }
   });
 }

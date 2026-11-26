@@ -1,7 +1,6 @@
 import '../utils/paper_format.dart';
 import 'settings_center_screen.dart';
 import '../widgets/invoice_settings_sheet.dart' show InvoiceUiContext, InvoiceUiSettings;
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -14,7 +13,6 @@ import '../utils/wage_treatment.dart';
 import '../models/safe_box_model.dart';
 import '../providers/sales_race_refresh_provider.dart';
 import '../providers/settings_provider.dart';
-import '../utils/currency_utils.dart' as cu;
 import 'accounting_mapping_screen_enhanced.dart';
 import 'payment_methods_screen_enhanced.dart';
 import 'safe_boxes_screen.dart';
@@ -81,9 +79,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
   // The settings' main karat from the start -- never a fixed one.
   late int _mainKarat = context.read<SettingsProvider>().mainKarat;
 
-  bool _taxEnabled = true;
-  double _taxRatePercent = 15.0;
-  Set<int> _vatExemptKarats = {24};
 
 
 
@@ -92,7 +87,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
 
 
   /// VAT on sales, apart from purchases (SALES-VAT-1).
-  bool _salesVatEnabled = true;
 
   /// Coding the stock on hand opened on its own day (the owner, 19 Nov 2026):
   /// the server keeps the day it was turned on.
@@ -215,9 +209,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
         )
       : Color.alphaBlend(_withOpacity(_colors.primary, 0.06), _surfaceColor);
 
-  // The currency is set in the center («المنشأة»); the tax examples read it as saved.
-  String get _currencySymbol => context.read<SettingsProvider>().currencySymbol;
-
   Future<void> _loadInitialData() async {
     setState(() {
       _isLoading = true;
@@ -264,40 +255,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
           fallback: context.read<SettingsProvider>().mainKarat,
         );
 
-        _taxEnabled = _safeBool(settings['tax_enabled'], fallback: true);
-        _taxRatePercent = _normalizePercent(
-          settings['tax_rate'],
-          fallbackPercent: 15,
-        );
-
-        // VAT exemptions by karat (default: 24)
-        final rawExempt = settings['vat_exempt_karats'];
-        final parsed = <int>{};
-        if (rawExempt is List) {
-          for (final v in rawExempt) {
-            final k = int.tryParse(v.toString().trim());
-            if (k == null) continue;
-            if (_karatOptions.contains(k)) parsed.add(k);
-          }
-        } else if (rawExempt is String && rawExempt.trim().isNotEmpty) {
-          try {
-            final decoded = jsonDecode(rawExempt);
-            if (decoded is List) {
-              for (final v in decoded) {
-                final k = int.tryParse(v.toString().trim());
-                if (k == null) continue;
-                if (_karatOptions.contains(k)) parsed.add(k);
-              }
-            }
-          } catch (_) {
-            for (final part in rawExempt.split(',')) {
-              final k = int.tryParse(part.trim());
-              if (k == null) continue;
-              if (_karatOptions.contains(k)) parsed.add(k);
-            }
-          }
-        }
-        _vatExemptKarats = parsed.isEmpty ? {24} : parsed;
 
 
 
@@ -320,10 +277,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
         if (parsedIdleMinutes > 10080) parsedIdleMinutes = 10080;
         _idleTimeoutMinutes = parsedIdleMinutes;
 
-        _salesVatEnabled = _safeBool(
-          settings['sales_vat_enabled'],
-          fallback: true,
-        );
         _codingFrom = settings['coding_from']?.toString();
         _codingOn = _codingFrom != null;
         _wageMode =
@@ -505,9 +458,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
 
     final payload = <String, dynamic>{
       'main_karat': _mainKarat,
-      'tax_enabled': _taxEnabled,
-      'tax_rate': _taxRatePercent / 100,
-      'vat_exempt_karats': (_vatExemptKarats.toList()..sort()),
       'voucher_auto_post': _voucherAutoPost,
       'gold_settlement_tolerance_grams':
           double.tryParse(_goldToleranceGramsController.text.trim()) ?? 0.05,
@@ -525,7 +475,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
       'idle_timeout_minutes': _idleTimeoutMinutes,
       'manufacturing_wage_mode': _wageMode,
       'coding_on': _codingOn,
-      'sales_vat_enabled': _salesVatEnabled,
 
       // 🆕 Feature toggles + default safes (employee routing)
       'employee_cash_safes_enabled': _employeeCashSafesEnabled,
@@ -732,16 +681,16 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
   }
 
   Widget _buildCompanyAndInvoicesTab() {
-    final examples = [1000, 5000, 10000];
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
-        _buildMovedNote('بيانات الشركة والترقيم في «المنشأة»، والصنف اليدوي والدفع الجزئي وإلزام الدخول في «البيع والفواتير»'),
+        _buildMovedNote('بيانات الشركة والترقيم في «المنشأة»، والصنف اليدوي والدفع الجزئي وإلزام الدخول في «البيع والفواتير»، '
+            'وضريبة المبيعات ونسبة الضريبة والعيارات المعفاة في «الضريبة»'),
         const SizedBox(height: 16),
         _buildSectionCard(
           icon: Icons.receipt_long_outlined,
           iconColor: _colors.tertiary,
-          title: 'الضريبة والأجور والترميز',
+          title: 'الأجور والترميز',
           children: [
             _buildWageModeSetting(),
             const Divider(height: 32),
@@ -763,112 +712,7 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
                         'الاستلام من المورد يبقى كما هو.',
               ),
             ),
-            const Divider(height: 32),
-            SwitchListTile.adaptive(
-              value: _salesVatEnabled,
-              onChanged: (value) => setState(() => _salesVatEnabled = value),
-              thumbColor: _thumbColorFor(_colors.tertiary),
-              trackColor: _trackColorFor(_colors.tertiary),
-              title: Text(
-                'ضريبة على المبيعات',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              subtitle: const Text(
-                'لكل فواتير البيع وبيع الكسر، من كل الأجهزة. عند الإيقاف لا تحمل فاتورة البيع ضريبة، ويرفض الخادم ما يحملها. لا يمسّ ضريبة المشتريات.',
-              ),
-            ),
-            const SizedBox(height: 8),
-            SwitchListTile.adaptive(
-              value: _taxEnabled,
-              onChanged: (value) => setState(() => _taxEnabled = value),
-              thumbColor: _thumbColorFor(_colors.tertiary),
-              trackColor: _trackColorFor(_colors.tertiary),
-              title: Text(
-                'تفعيل احتساب الضريبة',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-            ),
-            const SizedBox(height: 16),
-            AnimatedOpacity(
-              opacity: _taxEnabled ? 1.0 : 0.4,
-              duration: const Duration(milliseconds: 200),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('نسبة الضريبة (%)', style: _fieldLabelStyle()),
-                  const SizedBox(height: 12),
-                  SliderTheme(
-                    data: SliderTheme.of(context).copyWith(
-                      activeTrackColor: _colors.tertiary,
-                      inactiveTrackColor: _withOpacity(_colors.tertiary, 0.3),
-                      thumbColor: _colors.tertiary,
-                      overlayColor: _withOpacity(_colors.tertiary, 0.15),
-                    ),
-                    child: Slider(
-                      value: _taxRatePercent,
-                      min: 0,
-                      max: 30,
-                      divisions: 300,
-                      label: '${_taxRatePercent.toStringAsFixed(1)}%',
-                      onChanged: _taxEnabled
-                          ? (value) => setState(() => _taxRatePercent = value)
-                          : null,
-                    ),
-                  ),
-                  Align(
-                    alignment: AlignmentDirectional.centerEnd,
-                    child: Text(
-                      '${_taxRatePercent.toStringAsFixed(1)}%',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: _colors.tertiary,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'إعفاء العيارات من ضريبة الذهب',
-                    style: _fieldLabelStyle(),
-                  ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: _karatOptions.map((karat) {
-                      final selected = _vatExemptKarats.contains(karat);
-                      return FilterChip(
-                        label: Text('عيار $karat'),
-                        selected: selected,
-                        onSelected: _taxEnabled
-                            ? (value) {
-                                setState(() {
-                                  if (value) {
-                                    _vatExemptKarats.add(karat);
-                                  } else {
-                                    _vatExemptKarats.remove(karat);
-                                  }
-                                  if (_vatExemptKarats.isEmpty) {
-                                    _vatExemptKarats = {24};
-                                  }
-                                });
-                              }
-                            : null,
-                        selectedColor: _withOpacity(_colors.tertiary, 0.15),
-                        checkmarkColor: _colors.tertiary,
-                      );
-                    }).toList(),
-                  ),
-                ],
-              ),
-            ),
           ],
-        ),
-        const SizedBox(height: 20),
-        _buildSectionCard(
-          icon: Icons.calculate_outlined,
-          iconColor: _accentColor,
-          title: 'أمثلة حسابية للضريبة',
-          children: [...examples.map(_buildTaxExampleRow)],
         ),
       ],
     );
@@ -2153,56 +1997,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
     );
   }
 
-  Widget _buildTaxExampleRow(int amount) {
-    final double taxValue = _taxRatePercent / 100 * amount;
-    final double total = amount + taxValue;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: _blendOnSurface(_colors.secondary, 0.08),
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: cu.SarAwareText(
-                '${amount.toStringAsFixed(0)} ${cu.isNewSarSymbol(_currencySymbol) ? 'ر.س' : _currencySymbol}',
-                isNewSar: cu.isNewSarSymbol(_currencySymbol),
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-            ),
-            Icon(Icons.arrow_forward_ios, size: 16, color: _mutedTextColor),
-            const SizedBox(width: 8),
-            Expanded(
-              child: cu.SarAwareText(
-                'ضريبة: ${taxValue.toStringAsFixed(2)} ${cu.isNewSarSymbol(_currencySymbol) ? 'ر.س' : _currencySymbol}',
-                isNewSar: cu.isNewSarSymbol(_currencySymbol),
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: _colors.tertiary,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-            Icon(Icons.arrow_forward_ios, size: 16, color: _mutedTextColor),
-            const SizedBox(width: 8),
-            Expanded(
-              child: cu.SarAwareText(
-                'الإجمالي: ${total.toStringAsFixed(2)} ${cu.isNewSarSymbol(_currencySymbol) ? 'ر.س' : _currencySymbol}',
-                isNewSar: cu.isNewSarSymbol(_currencySymbol),
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: _primaryColor,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   TextStyle _fieldLabelStyle() {
     return Theme.of(context).textTheme.titleSmall?.copyWith(
@@ -2256,17 +2050,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
       suffixIconColor: _mutedTextColor,
       helperStyle: TextStyle(color: _mutedTextColor),
     );
-  }
-
-  double _normalizePercent(dynamic value, {required double fallbackPercent}) {
-    if (value is num) {
-      final double doubleValue = value.toDouble();
-      if (doubleValue <= 1.0) {
-        return doubleValue * 100;
-      }
-      return doubleValue;
-    }
-    return fallbackPercent;
   }
 
   int _safeInt(dynamic value, {int fallback = 0}) {

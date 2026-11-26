@@ -295,8 +295,6 @@ class _SettingsCenterScreenState extends State<SettingsCenterScreen> {
 
 /// A section's entries: each setting with where it is set today, each screen
 /// it links to -- read-only; its own page comes in phase 7.
-/// Said beside a financial setting to whoever does not hold its permission.
-const needsFinancialPermission = 'يحتاج صلاحية «الإعدادات المالية والمحاسبية»';
 
 class SectionEntries extends StatelessWidget {
   const SectionEntries({super.key, required this.section, required this.opener, this.financialAllowed = false});
