@@ -95,7 +95,8 @@ void main() {
     await tester.enterText(find.byKey(const Key('settings-search')), 'الديوان');
     await tester.testTextInput.receiveAction(TextInputAction.search);
     await tester.pumpAndSettle();
-    expect(opened.last, startsWith('office_'));
+    expect(opened, isEmpty, reason: 'the office terms moved too');
+    expect(find.byKey(const Key('settings-group-office_terms')), findsOneWidget);
   });
 
   testWidgets('a section lists its settings and screens, and its device section says so', (tester) async {
@@ -145,16 +146,20 @@ void main() {
   testWidgets('a financial setting says its permission to whoever does not hold it', (tester) async {
     await open(tester, _sizes['wide']!);
     // listed, read-only
-    await tester.tap(find.byKey(const Key('settings-section-goldPrices')));
+    await tester.tap(find.byKey(const Key('settings-section-paymentsSafes')));
     await tester.pumpAndSettle();
-    expect(find.descendant(of: find.byKey(const Key('settings-entry-main_karat')),
+    expect(find.descendant(of: find.byKey(const Key('settings-entry-employee_cash_safes_enabled')),
         matching: find.textContaining(needsFinancialPermission)), findsOneWidget);
-    // edited in the center
+    // edited in the center, alone and as a group
     await tester.tap(find.byKey(const Key('settings-section-tax')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('settings-needs-permission-tax_rate')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('settings-section-goldPrices')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('settings-needs-permission-main_karat')), findsOneWidget);
+    expect(find.byKey(const Key('settings-needs-permission-office_terms')), findsOneWidget);
     await open(tester, _sizes['wide']!, financial: true);
-    for (final section in ['goldPrices', 'tax']) {
+    for (final section in ['paymentsSafes', 'goldPrices', 'tax']) {
       await tester.tap(find.byKey(Key('settings-section-$section')));
       await tester.pumpAndSettle();
       expect(find.textContaining(needsFinancialPermission), findsNothing, reason: section);

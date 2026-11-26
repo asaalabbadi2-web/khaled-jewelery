@@ -70,14 +70,12 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
   int get _systemTabIndex => SettingsScreenEnhanced.systemTabIndex;
 
 
-  final List<int> _karatOptions = const [18, 21, 22, 24];
 
   bool _isInitialized = false;
   bool _isLoading = true;
   bool _isSaving = false;
 
   // The settings' main karat from the start -- never a fixed one.
-  late int _mainKarat = context.read<SettingsProvider>().mainKarat;
 
 
 
@@ -100,12 +98,7 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
   // هامش فرق سداد الذهب (2 أكتوبر 2026): رقم ثابت بالغرام، زاد الوزن أو نقص.
   final TextEditingController _goldToleranceGramsController = TextEditingController(text: '0.05');
   // سعر الشراء = سعر السوق × النسبة (PRICE-BUY-1)؛ تُعرض بالمئة.
-  final TextEditingController _buyPricePercentController = TextEditingController(text: '98');
   // The closing office's terms (OFFICE-PRICE-1): what the server prices gold by.
-  final TextEditingController _officeMainFeesController = TextEditingController(text: '1.35');
-  final TextEditingController _officeCustomFeesController = TextEditingController(text: '43');
-  final TextEditingController _officeDiscount21Controller = TextEditingController(text: '0.75');
-  final TextEditingController _officeDiscount18Controller = TextEditingController(text: '1');
   // حدّ اعتماد المحاسب (ADR-036 R4): يعتمد سندات غيره ما دونه؛ 0 = لا شيء.
   final TextEditingController _accountantLimitCashController = TextEditingController(text: '0');
   final TextEditingController _accountantLimitGoldController = TextEditingController(text: '0');
@@ -177,11 +170,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
   @override
   void dispose() {
     _goldToleranceGramsController.dispose();
-    _buyPricePercentController.dispose();
-    _officeMainFeesController.dispose();
-    _officeCustomFeesController.dispose();
-    _officeDiscount21Controller.dispose();
-    _officeDiscount18Controller.dispose();
     _accountantLimitCashController.dispose();
     _accountantLimitGoldController.dispose();
     _systemScrollController.dispose();
@@ -250,10 +238,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
 
       setState(() {
         _isInitialized = true;
-        _mainKarat = _safeInt(
-          settings['main_karat'],
-          fallback: context.read<SettingsProvider>().mainKarat,
-        );
 
 
 
@@ -291,14 +275,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
         );
         _goldToleranceGramsController.text =
             '${(settings['gold_settlement_tolerance_grams'] as num?) ?? 0.05}';
-        final buyRatio = (settings['buy_price_ratio'] as num?)?.toDouble() ?? 0.98;
-        _buyPricePercentController.text = (buyRatio * 100)
-            .toStringAsFixed(2)
-            .replaceFirst(RegExp(r'\.?0+$'), '');
-        _officeMainFeesController.text = '${(settings['office_main_fees_usd'] as num?) ?? 1.35}';
-        _officeCustomFeesController.text = '${(settings['office_custom_fees_usd'] as num?) ?? 43}';
-        _officeDiscount21Controller.text = '${(settings['office_discount_21'] as num?) ?? 0.75}';
-        _officeDiscount18Controller.text = '${(settings['office_discount_18'] as num?) ?? 1}';
         _accountantLimitCashController.text =
             '${(settings['accountant_approval_limit_cash'] as num?) ?? 0}';
         _accountantLimitGoldController.text =
@@ -457,16 +433,9 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
     });
 
     final payload = <String, dynamic>{
-      'main_karat': _mainKarat,
       'voucher_auto_post': _voucherAutoPost,
       'gold_settlement_tolerance_grams':
           double.tryParse(_goldToleranceGramsController.text.trim()) ?? 0.05,
-      'buy_price_ratio':
-          (double.tryParse(_buyPricePercentController.text.trim()) ?? 98) / 100,
-      'office_main_fees_usd': double.tryParse(_officeMainFeesController.text.trim()) ?? 1.35,
-      'office_custom_fees_usd': double.tryParse(_officeCustomFeesController.text.trim()) ?? 43,
-      'office_discount_21': double.tryParse(_officeDiscount21Controller.text.trim()) ?? 0.75,
-      'office_discount_18': double.tryParse(_officeDiscount18Controller.text.trim()) ?? 1,
       'accountant_approval_limit_cash':
           double.tryParse(_accountantLimitCashController.text.trim()) ?? 0.0,
       'accountant_approval_limit_gold_grams':
@@ -618,42 +587,8 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
-        _buildSectionCard(
-          icon: Icons.diamond_outlined,
-          iconColor: _primaryColor,
-          title: 'إعدادات الذهب',
-          children: [
-            Text('العيار الرئيسي', style: _fieldLabelStyle()),
-            const SizedBox(height: 12),
-            Directionality(
-              textDirection: TextDirection.rtl,
-              child: DropdownMenu<int>(
-                initialSelection: _mainKarat,
-                onSelected: (value) {
-                  if (value == null) return;
-                  setState(() => _mainKarat = value);
-                },
-                leadingIcon: Icon(Icons.scale, color: _primaryColor),
-                trailingIcon: const Icon(Icons.keyboard_arrow_down),
-                textStyle: Theme.of(context).textTheme.bodyLarge,
-                enableSearch: false,
-                inputDecorationTheme: _dropdownDecoration(
-                  accentColor: _primaryColor,
-                ),
-                dropdownMenuEntries: _karatOptions
-                    .map(
-                      (karat) => DropdownMenuEntry<int>(
-                        value: karat,
-                        label: 'عيار $karat',
-                      ),
-                    )
-                    .toList(),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        _buildMovedNote('العملة والمنازل العشرية وتنسيق التاريخ في «المنشأة»، والخصم في «البيع والفواتير»'),
+        _buildMovedNote('العيار الرئيسي في «الذهب والأسعار»، والعملة والمنازل العشرية وتنسيق التاريخ في «المنشأة»، '
+            'والخصم في «البيع والفواتير»'),
       ],
     );
   }
@@ -809,66 +744,7 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
           ],
         ),
         const SizedBox(height: 20),
-        _buildSectionCard(
-          icon: Icons.price_change_outlined,
-          iconColor: _primaryColor,
-          title: 'سعر الشراء',
-          children: [
-            Text(
-              'سعر الشراء لكل عيار = سعر السوق × هذه النسبة. يظهر في شريط الأسعار، '
-              'ويُقترح به سعر شراء الكسر حين لا يوجد سعر شراء سابق.',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _buyPricePercentController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(
-                labelText: 'النسبة من سعر السوق (%)',
-                helperText: 'مثلًا 98 — من 50 إلى 100',
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 20),
-        _buildSectionCard(
-          icon: Icons.storefront_outlined,
-          iconColor: _primaryColor,
-          title: 'سعر مكتب التسكير',
-          children: [
-            Text(
-              'سعر السوق في النظام هو سعر مكتب التسكير لا سعر الأونصة العالمي: '
-              'كيلو عيار 24 = (الأونصة + الرسوم الرئيسية + الرسوم الخاصة) × 32.148 × 3.75، '
-              'وغرام 21 = الكيلو ÷ 1143 − خصم 21، وغرام 18 = الكيلو ÷ 1333 − خصم 18، و22 من 21. '
-              'عدّلها حين يغيّرها المكتب؛ يُسعَّر بها البيع التالي فورًا، وتبقى الأسعار السابقة بشروطها.',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _officeMainFeesController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'الرسوم الرئيسية (دولار للأونصة)'),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _officeCustomFeesController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'الرسوم الخاصة (دولار للأونصة)'),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _officeDiscount21Controller,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'خصم عيار 21 (ريال للغرام)'),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _officeDiscount18Controller,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'خصم عيار 18 (ريال للغرام)'),
-            ),
-          ],
-        ),
+        _buildMovedNote('سعر الشراء وشروط سعر مكتب التسكير في «الذهب والأسعار»'),
         const SizedBox(height: 20),
         _buildSectionCard(
           icon: Icons.verified_user_outlined,
@@ -1262,21 +1138,8 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
     );
   }
 
-  /// «كل 15 ثانية»، «كل دقيقة»، «كل 5 دقائق» -- the interval as it is said.
-  String _everySeconds(int seconds) {
-    if (seconds % 60 != 0) return 'كل $seconds ثانية';
-    final minutes = seconds ~/ 60;
-    if (minutes == 1) return 'كل دقيقة';
-    return minutes <= 10 ? 'كل $minutes دقائق' : 'كل $minutes دقيقة';
-  }
-
   Widget _buildSystemTab() {
     final settingsProvider = Provider.of<SettingsProvider>(context);
-    final bool goldAutoEnabled =
-        (settingsProvider.settings['gold_price_auto_update_enabled'] == true);
-    // The interval in seconds (PRICE-LIVE-1).
-    final int goldAutoIntervalSeconds =
-        settingsProvider.goldPriceAutoUpdateIntervalSeconds;
     final weightConfig = settingsProvider.weightClosingSettings;
     final bool weightEnabled = weightConfig['enabled'] == true;
     final String weightPriceSource =
@@ -1319,121 +1182,8 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
                 ).showSnackBar(const SnackBar(content: Text('تم حفظ الإعداد')));
               },
             ),
-            const Divider(height: 24),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('تحديث تلقائي'),
-              subtitle: const Text('يتم التحديث تلقائياً حسب الفترة المحددة'),
-              value: goldAutoEnabled,
-              onChanged: (val) async {
-                try {
-                  await settingsProvider.updateSettings({
-                    'gold_price_auto_update_enabled': val,
-                    'gold_price_auto_update_mode': 'interval',
-                  });
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('تم حفظ الإعداد')),
-                    );
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('فشل حفظ الإعداد: $e')),
-                    );
-                  }
-                }
-              },
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.schedule),
-              title: const Text('فترة التحديث'),
-              subtitle: Text(_everySeconds(goldAutoIntervalSeconds)),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () async {
-                final controller = TextEditingController(
-                  text: goldAutoIntervalSeconds.toString(),
-                );
-                final picked = await showDialog<int>(
-                  context: context,
-                  builder: (ctx) {
-                    return AlertDialog(
-                      title: const Text('تحديد فترة التحديث'),
-                      content: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('أدخل عدد الثواني بين كل تحديث (10 على الأقل).'),
-                          const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              OutlinedButton(
-                                onPressed: () => controller.text = '15',
-                                child: const Text('كل 15 ثانية'),
-                              ),
-                              OutlinedButton(
-                                onPressed: () => controller.text = '60',
-                                child: const Text('كل دقيقة'),
-                              ),
-                              OutlinedButton(
-                                onPressed: () => controller.text = '300',
-                                child: const Text('كل 5 دقائق'),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: controller,
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'الثواني',
-                              hintText: 'مثال: 15 أو 60 أو 300',
-                            ),
-                          ),
-                        ],
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          child: const Text('إلغاء'),
-                        ),
-                        FilledButton(
-                          onPressed: () {
-                            final v = int.tryParse(controller.text.trim());
-                            Navigator.pop(ctx, v);
-                          },
-                          child: const Text('حفظ'),
-                        ),
-                      ],
-                    );
-                  },
-                );
-                if (picked == null) return;
-
-                final seconds = picked < 10 ? 10 : picked;
-                try {
-                  await settingsProvider.updateSettings({
-                    'gold_price_auto_update_enabled': true,
-                    'gold_price_auto_update_mode': 'interval',
-                    'gold_price_auto_update_interval_seconds': seconds,
-                  });
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('تم حفظ الفترة')),
-                    );
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('فشل حفظ الفترة: $e')),
-                    );
-                  }
-                }
-              },
-            ),
+            const SizedBox(height: 12),
+            _buildMovedNote('التحديث التلقائي وفترته في «الذهب والأسعار»'),
           ],
         ),
         const SizedBox(height: 20),
@@ -2050,16 +1800,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
       suffixIconColor: _mutedTextColor,
       helperStyle: TextStyle(color: _mutedTextColor),
     );
-  }
-
-  int _safeInt(dynamic value, {int fallback = 0}) {
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    if (value is String) {
-      final parsed = int.tryParse(value);
-      if (parsed != null) return parsed;
-    }
-    return fallback;
   }
 
   bool _safeBool(dynamic value, {required bool fallback}) {

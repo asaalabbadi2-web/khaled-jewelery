@@ -98,7 +98,7 @@ class SectionEditorState extends State<SectionEditor> {
           _initial[key] = value;
           _draft[key] = value;
           _versions[key] = versions[key] ?? 0;
-          if (spec.kind == EditorKind.text || spec.kind == EditorKind.currency) {
+          if (spec.kind == EditorKind.text || spec.kind == EditorKind.currency || spec.kind == EditorKind.number) {
             _text[key] = TextEditingController(text: '${value ?? ''}');
           }
           _rowKeys[e.id] = GlobalKey();
@@ -106,13 +106,26 @@ class SectionEditorState extends State<SectionEditor> {
         _loaded = true;
       });
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        final row = _rowKeys[widget.highlight]?.currentContext;
+        final row = _rowKeys[_cardOf(widget.highlight)]?.currentContext;
         if (row != null) Scrollable.ensureVisible(row, alignment: 0.2, duration: const Duration(milliseconds: 300));
       });
     } catch (e) {
       if (mounted) setState(() => _loadError = e);
     }
   }
+
+  /// The id of the card a setting is shown on: its own, or its group's first.
+  String? _cardOf(String? id) {
+    final e = _entries.where((e) => e.id == id).firstOrNull;
+    final group = e == null ? null : editors[e.key]!.group;
+    if (group == null) return id;
+    return _entries.firstWhere((x) => editors[x.key]!.group == group).id;
+  }
+
+  List<SettingEntry> _groupOf(String group) => [for (final e in _entries) if (editors[e.key]!.group == group) e];
+
+  /// A changed number outside its bounds is not saved: it says so in its field.
+  bool get _invalid => dirtyKeys.any((k) => editors[k]!.invalid(_draft[k]) != null);
 
   void _set(String key, Object? value) {
     setState(() {
@@ -146,7 +159,7 @@ class SectionEditorState extends State<SectionEditor> {
 
   Future<void> save() async {
     final keys = dirtyKeys;
-    if (keys.isEmpty || _saving) return;
+    if (keys.isEmpty || _saving || _invalid) return;
     setState(() => _saving = true);
     try {
       final result = await widget.api.patchSettings(
@@ -254,7 +267,12 @@ class SectionEditorState extends State<SectionEditor> {
                       style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
                 ),
                 const SizedBox(height: 8),
-                for (final e in _entries) _row(e),
+                for (final e in _entries)
+                  if (editors[e.key]!.group case final String g)
+                    if (_cardOf(e.id) == e.id) _groupCard(g)
+                    else const SizedBox.shrink()
+                  else
+                    _row(e),
                 if (widget.section == SettingsSection.tax && _draft['tax_enabled'] == true) _taxExamples(),
                 for (final e in entriesOf(widget.section).where((e) => e.kind == SettingKind.link))
                   Card(
@@ -334,49 +352,62 @@ class SectionEditorState extends State<SectionEditor> {
       const SizedBox(width: 8),
       OutlinedButton(
         key: Key('settings-change-$key'),
-        onPressed: enabled && widget.financialAllowed ? () => _changeFinancial(e, spec) : null,
+        onPressed: enabled && widget.financialAllowed ? () => _changeFinancial([e]) : null,
         child: const Text('تغيير…'),
       ),
     ]);
   }
 
-  Future<void> _changeFinancial(SettingEntry e, EditorSpec spec) async {
-    final key = e.key!;
+  /// Changes [entries] -- one setting, or a group -- through their
+  /// confirmation: only what changed, at the versions seen, with its reason.
+  Future<void> _changeFinancial(List<SettingEntry> entries, {String? title, String? description}) async {
+    final label = title ?? entries.first.label;
     String? staleNote;
     final saved = await showFinancialChange(
       context,
-      entry: e,
-      spec: spec,
-      current: _draft[key],
-      save: (value, reason) async {
+      entries: entries,
+      current: {for (final e in entries) e.key!: _draft[e.key]},
+      title: title,
+      description: description,
+      save: (changes, reason) async {
         try {
           final result = await widget.api.patchSettings(
-            changes: {key: value},
-            versions: {key: _versions[key] ?? 0},
+            changes: changes,
+            versions: {for (final k in changes.keys) k: _versions[k] ?? 0},
             reason: reason,
           );
           if (!mounted) return (error: null, stale: false);
           final versions = (result['versions'] as Map?) ?? const {};
           setState(() {
-            _initial[key] = spec.read(value); // as the server keeps it, read back
-            _draft[key] = _initial[key];
-            _versions[key] = (versions[key] as num?)?.toInt() ?? _versions[key]!;
+            for (final MapEntry(:key, :value) in changes.entries) {
+              _initial[key] = editors[key]!.read(value); // as the server keeps it, read back
+              _draft[key] = _initial[key];
+              _text[key]?.text = '${_initial[key] ?? ''}';
+              _versions[key] = (versions[key] as num?)?.toInt() ?? _versions[key]!;
+            }
           });
           return (error: null, stale: false);
         } on ApiException catch (err) {
           if (err.statusCode != 409) return (error: err.message, stale: false);
-          final c = [for (final x in (err.details['conflicts'] as List? ?? const [])) (x as Map)]
-              .where((x) => x['key'] == key)
-              .firstOrNull;
-          if (c != null && mounted) {
+          final moved = [
+            for (final x in (err.details['conflicts'] as List? ?? const []))
+              if (changes.containsKey((x as Map)['key'])) x,
+          ];
+          if (mounted) {
             setState(() {
-              _initial[key] = spec.read(c['current']);
-              _draft[key] = _initial[key];
-              _versions[key] = (c['current_version'] as num).toInt();
+              for (final c in moved) {
+                final key = c['key'] as String;
+                _initial[key] = editors[key]!.read(c['current']);
+                _draft[key] = _initial[key];
+                _text[key]?.text = '${_initial[key] ?? ''}';
+                _versions[key] = (c['current_version'] as num).toInt();
+              }
             });
           }
-          staleNote = '«${e.label}»: غيّره ${c?['changed_by'] ?? 'مستخدم آخر'} بعد أن فتحت الصفحة؛ '
-                'القيمة الآن ${spec.display(_draft[key])}. راجعها ثم غيّرها من جديد إن أردت.';
+          final who = moved.map((c) => c['changed_by']).whereType<String>().toSet();
+          staleNote = '«$label»: غيّره ${who.isEmpty ? 'مستخدم آخر' : who.join('، ')} بعد أن فتحت الصفحة؛ '
+              'القيمة الآن ${[for (final c in moved) editors[c['key']]!.display(_draft[c['key']])].join('، ')}. '
+              'راجعها ثم غيّرها من جديد إن أردت.';
           return (error: staleNote, stale: true);
         } catch (err) {
           return (error: AppFeedback.messageOf(err), stale: false);
@@ -385,11 +416,65 @@ class SectionEditorState extends State<SectionEditor> {
     );
     if (!mounted) return;
     if (saved == true) {
-      AppFeedback.success(context, 'حُفظ: ${e.label}');
+      AppFeedback.success(context, 'حُفظ: $label');
       _refreshApp();
     } else if (staleNote != null) {
       AppFeedback.warning(context, staleNote!);
     }
+  }
+
+  /// Settings that are one policy, on one card: each part's value, and one
+  /// «تغيير…» for them all (the office terms).
+  Widget _groupCard(String group) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final parts = _groupOf(group);
+    final (label, description) = policyGroups[group]!;
+    final highlighted = parts.any((e) => e.id == widget.highlight);
+    final financial = parts.first.level == 3;
+    return Container(
+      key: _rowKeys[parts.first.id],
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: highlighted ? cs.secondaryContainer : null,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: highlighted ? cs.primary : cs.outlineVariant, width: highlighted ? 2 : 1),
+      ),
+      child: Column(
+        key: Key('settings-group-$group'),
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(children: [
+            Expanded(child: Text(label, style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700))),
+            OutlinedButton(
+              key: Key('settings-change-$group'),
+              onPressed: !financial || widget.financialAllowed
+                  ? () => _changeFinancial(parts, title: label, description: description)
+                  : null,
+              child: const Text('تغيير…'),
+            ),
+          ]),
+          Text(description, style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+          if (parts.first.effect != null)
+            Text(parts.first.effect!, style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+          const SizedBox(height: 6),
+          for (final e in parts)
+            Padding(
+              key: Key('settings-row-${e.id}'),
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(children: [
+                Expanded(child: Text(partLabel(e), style: theme.textTheme.bodyMedium)),
+                Text(editors[e.key]!.display(_draft[e.key]), key: Key('settings-value-${e.key}'),
+                    style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700)),
+              ]),
+            ),
+          if (financial && !widget.financialAllowed)
+            Text(needsFinancialPermission, key: Key('settings-needs-permission-$group'),
+                style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+        ],
+      ),
+    );
   }
 
   /// The old tax tab's worked examples, at the rate now set.
@@ -464,6 +549,41 @@ class SectionEditorState extends State<SectionEditor> {
             ),
           ),
           Text('${formatAmount(v, decimals: 1)}%', style: theme.textTheme.titleSmall),
+        ]);
+      case EditorKind.number:
+        return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          TextField(
+            key: Key('settings-field-$key'),
+            controller: _text[key],
+            enabled: enabled,
+            keyboardType: TextInputType.numberWithOptions(decimal: spec.decimals > 0),
+            inputFormatters: [NormalizeNumberFormatter()],
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: spec.hint,
+              suffixText: spec.unit.isEmpty ? null : spec.unit,
+              errorText: enabled ? spec.invalid(_draft[key]) : null,
+              border: const OutlineInputBorder(),
+            ),
+            onChanged: (v) => _set(key, v),
+          ),
+          if (spec.options.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Wrap(spacing: 8, runSpacing: 6, children: [
+              for (final (value, label) in spec.options)
+                ChoiceChip(
+                  key: Key('settings-field-$key-$value'),
+                  label: Text(label),
+                  selected: spec.same(_draft[key], '$value'),
+                  onSelected: enabled
+                      ? (_) {
+                          _text[key]?.text = '$value';
+                          _set(key, '$value');
+                        }
+                      : null,
+                ),
+            ]),
+          ],
         ]);
       case EditorKind.karats:
         return KaratChips(
@@ -546,7 +666,7 @@ class SectionEditorState extends State<SectionEditor> {
                 const SizedBox(width: 6),
                 FilledButton(
                   key: const Key('settings-save'),
-                  onPressed: _saving || _conflicts.isNotEmpty || !isDirty ? null : save,
+                  onPressed: _saving || _conflicts.isNotEmpty || !isDirty || _invalid ? null : save,
                   child: Text(_barError != null ? 'إعادة المحاولة' : 'حفظ'),
                 ),
               ]),
