@@ -72,6 +72,8 @@ def _call(method, user, body=None, path='/api/settings'):
     if method == 'patch':
         seen = client.get('/api/settings/versions', headers=headers).get_json()['versions']
         body = {'changes': body, 'versions': {k: seen.get(k, 0) for k in body}, 'reason': 'العيار'}
+    if method == 'put':
+        body = {**body, 'reason': 'العيار'}
     return getattr(client, method)(path, headers=headers, json=body)
 
 

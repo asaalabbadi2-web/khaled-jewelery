@@ -145,7 +145,7 @@ def test_resetting_the_settings_keeps_the_main_karat(settings, auth_headers):
 def test_a_main_karat_that_is_no_karat_is_not_saved(settings, auth_headers, value):
     settings.main_karat = 21
     db.session.flush()
-    resp = flask_app.test_client().put('/api/settings', headers=auth_headers, json={'main_karat': value})
+    resp = flask_app.test_client().put('/api/settings', headers=auth_headers, json={**{'main_karat': value}, 'reason': 'ضبط الاختبار'})
     assert resp.status_code == 400, resp.get_data(as_text=True)[:300]
     assert resp.get_json()['error'] == 'invalid_main_karat'
     db.session.expire_all()

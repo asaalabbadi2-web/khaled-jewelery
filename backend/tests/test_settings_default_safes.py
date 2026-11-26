@@ -62,7 +62,7 @@ def _safe(safe_type, active=True):
 def _put(user, body):
     g.pop('current_user', None)
     return flask_app.test_client().put('/api/settings', headers={'Authorization': f'Bearer {generate_token(user)}'},
-                                       json=body)
+                                       json={**body, 'reason': 'ضبط الاختبار'})
 
 
 def _patch(user, changes, reason='خزائن'):

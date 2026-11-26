@@ -50,7 +50,7 @@ def restore_ratio(auth_headers):
 
 
 def _put(headers, ratio):
-    return flask_app.test_client().put('/api/settings', headers=headers, json={'buy_price_ratio': ratio})
+    return flask_app.test_client().put('/api/settings', headers=headers, json={**{'buy_price_ratio': ratio}, 'reason': 'ضبط الاختبار'})
 
 
 def test_the_arithmetic():

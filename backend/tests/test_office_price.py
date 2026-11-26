@@ -118,7 +118,7 @@ def test_new_terms_price_the_next_sale_at_once(app, auth_headers, monkeypatch):
     db.session.commit()
     client = app.test_client()
     try:
-        resp = client.put('/api/settings', headers=auth_headers, json={'office_custom_fees_usd': 40})
+        resp = client.put('/api/settings', headers=auth_headers, json={**{'office_custom_fees_usd': 40}, 'reason': 'ضبط الاختبار'})
         assert resp.status_code == 200, resp.data
         body = client.get('/api/gold_price', headers=auth_headers).get_json()
         assert body['price_24k'] == pytest.approx(
@@ -126,10 +126,10 @@ def test_new_terms_price_the_next_sale_at_once(app, auth_headers, monkeypatch):
         db.session.expire_all()
         assert row_gram_price(GoldPrice.query.get(before.id), 24) == pytest.approx(495.59, abs=0.005)
 
-        refused = client.put('/api/settings', headers=auth_headers, json={'office_discount_21': -1})
+        refused = client.put('/api/settings', headers=auth_headers, json={**{'office_discount_21': -1}, 'reason': 'ضبط الاختبار'})
         assert refused.status_code == 400 and refused.get_json()['error'] == 'invalid_office_price_terms'
     finally:
-        assert client.put('/api/settings', headers=auth_headers, json={'office_custom_fees_usd': 43}).status_code == 200
+        assert client.put('/api/settings', headers=auth_headers, json={**{'office_custom_fees_usd': 43}, 'reason': 'ضبط الاختبار'}).status_code == 200
         GoldPrice.query.filter(GoldPrice.id >= before.id).delete()
         db.session.commit()
 

@@ -8,7 +8,9 @@ import '../theme/app_theme.dart' as theme;
 import 'audit_log_screen.dart';
 import '../providers/auth_provider.dart';
 import '../utils/currency_utils.dart' as cu;
+import '../settings/settings_registry.dart' show needsFinancialPermission;
 import '../widgets/app_feedback.dart';
+import '../widgets/confirm_financial_action.dart';
 import '../widgets/app_bar_tab_bar.dart';
 import '../utils/invoice_type_label.dart';
 
@@ -17,7 +19,14 @@ import '../utils/invoice_type_label.dart';
 class PostingManagementScreen extends StatefulWidget {
   final bool isArabic;
 
-  const PostingManagementScreen({super.key, this.isArabic = true});
+  /// The API it works through (tests pass a fake).
+  final ApiService? api;
+
+  /// Whether the user may change a financial setting (ADR-103); null reads it
+  /// from the signed-in user.
+  final bool? financialAllowed;
+
+  const PostingManagementScreen({super.key, this.isArabic = true, this.api, this.financialAllowed});
 
   @override
   State<PostingManagementScreen> createState() =>
@@ -26,7 +35,7 @@ class PostingManagementScreen extends StatefulWidget {
 
 class _PostingManagementScreenState extends State<PostingManagementScreen>
     with SingleTickerProviderStateMixin {
-  final ApiService _apiService = ApiService();
+  late final ApiService _apiService = widget.api ?? ApiService();
   late TabController _tabController;
 
   // Statistics
@@ -56,8 +65,13 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
   // Posting Settings
   bool _autoPostInvoices = false;
   bool _autoPostEntries = false;
-  bool _requireApproval = true;
   bool _allowUnposting = true;
+
+  /// The posting settings as the server holds them, and each one's version --
+  /// a change is a financial setting's: alone, through its confirmation, at
+  /// the version seen, with its reason (D12; ADR-102, ADR-103).
+  bool _postingLoaded = false;
+  Map<String, int> _postingVersions = const {};
   bool _validateBalance = true;
   final TextEditingController _defaultUserController = TextEditingController();
 
@@ -352,25 +366,21 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
     try {
       final prefs = await SharedPreferences.getInstance();
 
-      // 🆕 Load core posting settings from BACKEND (authoritative source)
+      // The posting settings are the server's alone: never a local copy, which
+      // would show what the server no longer holds.
       try {
         final serverSettings = await _apiService.getSettings();
+        final versions = await _apiService.getSettingsVersions();
         setState(() {
           _autoPostInvoices = serverSettings['auto_post_invoices'] == true;
           _autoPostEntries = serverSettings['auto_post_entries'] == true;
-          _requireApproval =
-              serverSettings['require_approval_before_post'] == true;
           _allowUnposting = serverSettings['allow_unposting'] == true;
+          _postingVersions = versions;
+          _postingLoaded = true;
         });
       } catch (e) {
-        // Fallback to SharedPreferences if backend unreachable
-        debugPrint('⚠️ Failed to load posting settings from backend: $e');
-        setState(() {
-          _autoPostInvoices = prefs.getBool('posting_auto_invoices') ?? false;
-          _autoPostEntries = prefs.getBool('posting_auto_entries') ?? false;
-          _requireApproval = prefs.getBool('posting_require_approval') ?? true;
-          _allowUnposting = prefs.getBool('posting_allow_unpost') ?? true;
-        });
+        if (mounted) setState(() => _postingLoaded = false);
+        _showError('تعذّر تحميل إعدادات الترحيل من الخادم: ${AppFeedback.messageOf(e)}');
       }
 
       // Local-only preferences (permissions, schedule, etc.)
@@ -436,30 +446,67 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
     }
   }
 
+  bool get _financial {
+    if (widget.financialAllowed != null) return widget.financialAllowed!;
+    try {
+      return context.read<AuthProvider>().hasPermission('system.financial_settings');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// One posting setting changed alone: its value now and after, what it does,
+  /// and its reason -- then PATCH at the version seen (D12; ADR-102, ADR-103).
+  Future<void> _changePosting(String key, String label, bool now, String effect) async {
+    final reason = await confirmFinancialAction(
+      context,
+      title: 'تغيير «$label»',
+      effect: effect,
+      confirmLabel: 'تأكيد وحفظ',
+      facts: [('الآن', now ? 'مفعّل' : 'معطّل'), ('بعد التأكيد', now ? 'معطّل' : 'مفعّل')],
+      reasonLabel: 'السبب (إلزامي)',
+      destructive: false,
+    );
+    if (reason == null || !mounted) return;
+    try {
+      final result = await _apiService.patchSettings(
+        changes: {key: !now},
+        versions: {key: _postingVersions[key] ?? 0},
+        reason: reason,
+      );
+      if (!mounted) return;
+      final saved = (result['versions'] as Map?) ?? const {};
+      setState(() {
+        switch (key) {
+          case 'auto_post_invoices':
+            _autoPostInvoices = !now;
+          case 'auto_post_entries':
+            _autoPostEntries = !now;
+          case 'allow_unposting':
+            _allowUnposting = !now;
+        }
+        _postingVersions = {..._postingVersions, key: (saved[key] as num?)?.toInt() ?? _postingVersions[key] ?? 0};
+      });
+      _showSuccess('حُفظ: $label');
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      if (e.statusCode == 409) {
+        // Another user changed it since: read it again, said so.
+        await _loadSettings();
+        if (mounted) AppFeedback.warning(context, '«$label»: غيّره مستخدم آخر بعد أن فتحت الصفحة؛ راجعه ثم غيّره إن أردت.');
+      } else {
+        _showError(e.message);
+      }
+    } catch (e) {
+      if (mounted) _showError(AppFeedback.messageOf(e));
+    }
+  }
+
   Future<void> _saveSettings() async {
     try {
-      // 🆕 Save core posting settings to BACKEND
-      try {
-        await _apiService.updateSettings({
-          'auto_post_invoices': _autoPostInvoices,
-          'auto_post_entries': _autoPostEntries,
-          'require_approval_before_post': _requireApproval,
-          'allow_unposting': _allowUnposting,
-        });
-      } catch (e) {
-        debugPrint('⚠️ Failed to save posting settings to backend: $e');
-        _showError('فشل حفظ إعدادات الترحيل على السيرفر: ${e.toString()}');
-        return;
-      }
-
-      // Local-only preferences
+      // The page's own preferences, on this device. The posting settings are
+      // saved one at a time, through their confirmation (_changePosting).
       final prefs = await SharedPreferences.getInstance();
-
-      // Keep local copies as fallback cache
-      await prefs.setBool('posting_auto_invoices', _autoPostInvoices);
-      await prefs.setBool('posting_auto_entries', _autoPostEntries);
-      await prefs.setBool('posting_require_approval', _requireApproval);
-      await prefs.setBool('posting_allow_unpost', _allowUnposting);
       await prefs.setBool('posting_validate_balance', _validateBalance);
       await prefs.setBool('posting_perm_post_invoices', _canPostInvoices);
       await prefs.setBool('posting_perm_post_entries', _canPostEntries);
@@ -2392,6 +2439,12 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
 
           // Automatic Posting Section
           _buildSectionTitle('الترحيل التلقائي'),
+          if (!_financial)
+            Padding(
+              key: const Key('posting-needs-permission'),
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(needsFinancialPermission, style: Theme.of(context).textTheme.bodySmall),
+            ),
           Card(
             child: Column(
               children: [
@@ -2399,10 +2452,10 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                   title: const Text('ترحيل الفواتير تلقائياً'),
                   subtitle: const Text('يتم ترحيل الفواتير فور حفظها'),
                   value: _autoPostInvoices,
-                  onChanged: (value) {
-                    setState(() => _autoPostInvoices = value);
-                    _saveSettings();
-                  },
+                  onChanged: _postingLoaded && _financial
+                      ? (_) => _changePosting('auto_post_invoices', 'ترحيل الفواتير تلقائياً', _autoPostInvoices,
+                          'تُرحَّل الفواتير التي تُحفظ بعد التأكيد فور حفظها، أو تنتظر من يرحّلها؛ ما حُفظ قبله يبقى كما هو.')
+                      : null,
                   activeThumbColor: Theme.of(context).colorScheme.primary,
                   secondary: Icon(
                     Icons.receipt_long,
@@ -2421,11 +2474,9 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                         : 'يغيّره مسؤول النظام وحده',
                   ),
                   value: _autoPostEntries,
-                  onChanged: context.watch<AuthProvider>().isSystemAdmin
-                      ? (value) {
-                          setState(() => _autoPostEntries = value);
-                          _saveSettings();
-                        }
+                  onChanged: _postingLoaded && context.watch<AuthProvider>().isSystemAdmin
+                      ? (_) => _changePosting('auto_post_entries', 'ترحيل القيود تلقائياً', _autoPostEntries,
+                          'القيد اليدوي الذي يُحفظ بعد التأكيد يُرحَّل فور حفظه أيًّا كان منشئه، أو يرحّله غير منشئه (ADR-104).')
                       : null,
                   activeThumbColor: Theme.of(context).colorScheme.primary,
                   secondary: Icon(Icons.book, color: Theme.of(context).colorScheme.primary),
@@ -2440,33 +2491,18 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
           Card(
             child: Column(
               children: [
-                SwitchListTile(
-                  title: const Text('طلب موافقة قبل الترحيل'),
-                  subtitle: const Text(
-                    'يجب الموافقة على الفاتورة/القيد قبل الترحيل',
-                  ),
-                  value: _requireApproval,
-                  onChanged: (value) {
-                    setState(() => _requireApproval = value);
-                    _saveSettings();
-                  },
-                  activeThumbColor: Theme.of(context).colorScheme.primary,
-                  secondary: Icon(
-                    Icons.verified_user,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                ),
-                const Divider(height: 1),
+                // «طلب موافقة قبل الترحيل» was saved and read by nothing (the
+                // owner, 26 Nov 2026: removed; posting_settings_screen_test).
                 SwitchListTile(
                   title: const Text('السماح بإلغاء الترحيل'),
                   subtitle: const Text(
                     'يمكن إلغاء ترحيل الفواتير والقيود المرحلة',
                   ),
                   value: _allowUnposting,
-                  onChanged: (value) {
-                    setState(() => _allowUnposting = value);
-                    _saveSettings();
-                  },
+                  onChanged: _postingLoaded && _financial
+                      ? (_) => _changePosting('allow_unposting', 'السماح بإلغاء الترحيل', _allowUnposting,
+                          'يسري على ما يُطلب إلغاء ترحيله بعد التأكيد؛ ما أُلغي ترحيله قبله يبقى كما هو.')
+                      : null,
                   activeThumbColor: Theme.of(context).colorScheme.primary,
                   secondary: Icon(Icons.undo, color: Theme.of(context).colorScheme.primary),
                 ),
@@ -2936,11 +2972,9 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
             width: double.infinity,
             child: OutlinedButton.icon(
               onPressed: () {
+                // The page's own preferences only: a posting setting is changed
+                // alone, through its confirmation.
                 setState(() {
-                  _autoPostInvoices = false;
-                  _autoPostEntries = false;
-                  _requireApproval = true;
-                  _allowUnposting = true;
                   _validateBalance = true;
                   _canPostInvoices = true;
                   _canPostEntries = true;

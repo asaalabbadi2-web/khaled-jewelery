@@ -114,12 +114,12 @@ def test_only_the_system_admin_turns_the_setting(auth_headers):
     row = _settings(True)
     granted = _granted('system.settings')
     g.pop('current_user', None)
-    refused = flask_app.test_client().put('/api/settings', headers=granted, json={'auto_post_entries': False})
+    refused = flask_app.test_client().put('/api/settings', headers=granted, json={**{'auto_post_entries': False}, 'reason': 'ضبط الاختبار'})
     assert refused.status_code == 403 and refused.get_json()['error'] == 'auto_post_entries_owner_only'
     assert row.auto_post_entries is True
     g.pop('current_user', None)
-    other_setting = flask_app.test_client().put('/api/settings', headers=granted, json={'currency_symbol': 'ر.س'})
+    other_setting = flask_app.test_client().put('/api/settings', headers=granted, json={**{'currency_symbol': 'ر.س'}, 'reason': 'ضبط الاختبار'})
     assert other_setting.status_code == 200, 'the rest of the settings stay the settings permission\'s'
     g.pop('current_user', None)
-    ok = flask_app.test_client().put('/api/settings', headers=auth_headers, json={'auto_post_entries': False})
+    ok = flask_app.test_client().put('/api/settings', headers=auth_headers, json={**{'auto_post_entries': False}, 'reason': 'ضبط الاختبار'})
     assert ok.status_code == 200 and Settings.query.first().auto_post_entries is False

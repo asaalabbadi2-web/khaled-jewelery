@@ -217,8 +217,11 @@ def test_no_code_writes_the_settings_table_by_raw_sql():
     assert not hits, f'raw SQL writes the settings row outside the recorder: {hits}'
 
 
-@pytest.mark.xfail(strict=True, reason='SETTINGS-REASON-001: the old PUT takes a level-3 change without its reason '
-                                       'until the settings center replaces the screen that sends it')
+# SETTINGS-REASON-001 closed: no screen sends a level-3 setting through PUT, which
+# now asks its reason as PATCH does.
 def test_the_old_put_asks_a_level_3_reason_too(auth_headers, row):
     resp = _client_call('put', '/api/settings', auth_headers, {'office_custom_fees_usd': 46})
-    assert resp.status_code == 400
+    assert resp.status_code == 400 and resp.get_json()['error'] == 'reason_required'
+    ok = _client_call('put', '/api/settings', auth_headers, {'office_custom_fees_usd': 46, 'reason': 'رسوم المكتب'})
+    assert ok.status_code == 200, ok.get_data(as_text=True)[:300]
+    assert _changes('office_custom_fees_usd')[-1].reason == 'رسوم المكتب'

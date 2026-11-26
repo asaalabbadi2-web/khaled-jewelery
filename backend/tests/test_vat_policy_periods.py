@@ -88,7 +88,7 @@ def test_the_switch_adds_a_period_from_today_and_the_past_stays(auth_headers, pe
     client = flask_app.test_client()
     today = date.today()
     before = policy_on(today).sales_vat_charged
-    resp = client.put('/api/settings', headers=auth_headers, json={'sales_vat_enabled': not before})
+    resp = client.put('/api/settings', headers=auth_headers, json={**{'sales_vat_enabled': not before}, 'reason': 'ضبط الاختبار'})
     assert resp.status_code == 200, resp.get_json()
     assert policy_on(today) == (True, not before)
     assert VatPolicyPeriod.query.filter_by(effective_from=today).count() == 1

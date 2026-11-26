@@ -740,10 +740,18 @@ def update_settings():
     data = request.get_json(silent=True) or {}
     if not isinstance(data, dict):
         return jsonify({'error': 'invalid_payload'}), 400
+    data = dict(data)
+    reason = str(data.pop('reason', '') or '').strip()
     current = _get_settings_singleton(create_if_missing=True)
-    refused = _owner_only_refusal(current, data) or _financial_refusal(_financial_keys_changed(current, data))
+    changed = _financial_keys_changed(current, data)
+    # A level-3 change wants its reason here too (SETTINGS-REASON-001): no screen
+    # sends one through PUT any more -- the center and the posting page PATCH.
+    refused = (_owner_only_refusal(current, data) or _financial_refusal(changed)
+               or _reason_refusal(changed, reason))
     if refused:
         return refused
+    import settings_audit
+    settings_audit.set_context(reason=reason or None)
     return _apply_settings(data)
 
 

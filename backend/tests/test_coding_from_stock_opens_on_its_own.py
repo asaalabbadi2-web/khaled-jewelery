@@ -49,7 +49,7 @@ def _refusal(**kw):
 
 def _put(headers, body):
     g.pop('current_user', None)
-    return flask_app.test_client().put('/api/settings', headers=headers, json=body)
+    return flask_app.test_client().put('/api/settings', headers=headers, json={**body, 'reason': 'ضبط الاختبار'})
 
 
 def _get(headers):

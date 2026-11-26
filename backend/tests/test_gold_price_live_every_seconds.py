@@ -74,17 +74,17 @@ def test_the_settings_hold_the_interval_in_seconds(app, auth_headers):
     before = settings.gold_price_auto_update_interval_seconds
     try:
         assert client.put('/api/settings', headers=auth_headers,
-                          json={'gold_price_auto_update_interval_seconds': 15}).status_code == 200
+                          json={**{'gold_price_auto_update_interval_seconds': 15}, 'reason': 'ضبط الاختبار'}).status_code == 200
         db.session.expire_all()
         assert Settings.query.first().gold_price_auto_update_interval_seconds == 15
         # An older screen still says minutes: it is the same interval, in seconds.
         assert client.put('/api/settings', headers=auth_headers,
-                          json={'gold_price_auto_update_interval_minutes': 2}).status_code == 200
+                          json={**{'gold_price_auto_update_interval_minutes': 2}, 'reason': 'ضبط الاختبار'}).status_code == 200
         db.session.expire_all()
         assert Settings.query.first().gold_price_auto_update_interval_seconds == 120
         refused = client.put('/api/settings', headers=auth_headers,
-                             json={'gold_price_auto_update_interval_seconds': 5})
+                             json={**{'gold_price_auto_update_interval_seconds': 5}, 'reason': 'ضبط الاختبار'})
         assert refused.status_code == 400 and refused.get_json()['error'] == 'invalid_gold_price_interval'
     finally:
         client.put('/api/settings', headers=auth_headers,
-                   json={'gold_price_auto_update_interval_seconds': before or 60})
+                   json={**{'gold_price_auto_update_interval_seconds': before or 60}, 'reason': 'ضبط الاختبار'})

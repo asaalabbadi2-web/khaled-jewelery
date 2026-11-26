@@ -35,7 +35,7 @@ def test_settings_put_accepts_sales_race_settings_as_json_string(auth_headers):
     }
 
     with app.test_client() as client:
-        response = client.put('/api/settings', headers=auth_headers, json=payload)
+        response = client.put('/api/settings', headers=auth_headers, json={**payload, 'reason': 'ضبط الاختبار'})
         assert response.status_code == 200
         data = response.get_json()
         assert isinstance(data, dict)
@@ -103,7 +103,7 @@ def test_sales_race_full_round_trip(auth_headers):
 
     with app.test_client() as client:
         # PUT (save)
-        put_resp = client.put('/api/settings', headers=auth_headers, json=save_payload)
+        put_resp = client.put('/api/settings', headers=auth_headers, json={**save_payload, 'reason': 'ضبط الاختبار'})
         assert put_resp.status_code == 200
         put_data = put_resp.get_json()
 
@@ -155,18 +155,18 @@ def test_sales_race_partial_update_preserves_other_fields(auth_headers):
 
     with app.test_client() as client:
         # First: set sales race
-        client.put('/api/settings', headers=auth_headers, json={
+        client.put('/api/settings', headers=auth_headers, json={**{
             'sales_race_settings': {
                 'enabled': False,
                 'points_per_gram': 7.0,
             },
             'weekly_sales_target_weight': 500.0,
-        })
+        }, 'reason': 'ضبط الاختبار'})
 
         # Second: update unrelated setting (like from posting_management_screen)
-        client.put('/api/settings', headers=auth_headers, json={
+        client.put('/api/settings', headers=auth_headers, json={**{
             'auto_post_invoices': True,
-        })
+        }, 'reason': 'ضبط الاختبار'})
 
         # Third: GET and verify race settings still intact
         get_resp = client.get('/api/settings', headers=auth_headers)
@@ -185,10 +185,10 @@ def test_settings_rejects_unknown_keys_instead_of_silent_drop(auth_headers):
         _clear_settings_rows()
 
     with app.test_client() as client:
-        resp = client.put('/api/settings', headers=auth_headers, json={
+        resp = client.put('/api/settings', headers=auth_headers, json={**{
             'sales_race_settings': {'enabled': True},
             'unknown_new_toggle': True,
-        })
+        }, 'reason': 'ضبط الاختبار'})
         assert resp.status_code == 400
         body = resp.get_json()
         assert body['error'] == 'unknown_settings_keys'

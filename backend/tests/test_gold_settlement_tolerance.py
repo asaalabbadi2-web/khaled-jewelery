@@ -116,10 +116,10 @@ def test_a_little_over_the_obligation_can_be_attributed_and_pays_it():
 
 def test_the_settings_carry_it_and_refuse_a_negative(auth_headers):
     c = flask_app.test_client()
-    resp = c.put('/api/settings', headers=auth_headers, json={'gold_settlement_tolerance_grams': 0.1})
+    resp = c.put('/api/settings', headers=auth_headers, json={**{'gold_settlement_tolerance_grams': 0.1}, 'reason': 'ضبط الاختبار'})
     assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
     assert c.get('/api/settings', headers=auth_headers).get_json()['gold_settlement_tolerance_grams'] == 0.1
     assert c.put('/api/settings', headers=auth_headers,
-                 json={'gold_settlement_tolerance_pct': 0.2}).status_code == 400   # no percent
+                 json={**{'gold_settlement_tolerance_pct': 0.2}, 'reason': 'ضبط الاختبار'}).status_code == 400   # no percent
     assert c.put('/api/settings', headers=auth_headers,
-                 json={'gold_settlement_tolerance_grams': -1}).status_code == 400
+                 json={**{'gold_settlement_tolerance_grams': -1}, 'reason': 'ضبط الاختبار'}).status_code == 400

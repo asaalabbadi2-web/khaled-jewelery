@@ -205,7 +205,7 @@ def test_a_purchase_posted_later_keeps_the_treatment_it_was_created_under(auth_h
 def test_the_settings_refuse_a_treatment_that_is_neither(auth_headers, books):
     _settings('inventory')
     resp = flask_app.test_client().put('/api/settings', headers=auth_headers,
-                                       json={'manufacturing_wage_mode': 'capitalise'})
+                                       json={**{'manufacturing_wage_mode': 'capitalise'}, 'reason': 'ضبط الاختبار'})
     assert resp.status_code == 400, resp.get_json()
     db.session.expire_all()
     assert Settings.query.first().manufacturing_wage_mode == 'inventory'

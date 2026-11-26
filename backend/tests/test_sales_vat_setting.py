@@ -111,7 +111,7 @@ def test_with_sales_vat_on_a_taxed_sale_is_taken_as_before(auth_headers, world):
 def test_the_setting_is_read_and_saved(auth_headers, world):
     _sales_vat(True)
     resp = flask_app.test_client().put('/api/settings', headers=auth_headers,
-                                       json={'sales_vat_enabled': False})
+                                       json={**{'sales_vat_enabled': False}, 'reason': 'ضبط الاختبار'})
     assert resp.status_code == 200, resp.get_json()
     got = flask_app.test_client().get('/api/settings', headers=auth_headers).get_json()
     assert got['sales_vat_enabled'] is False

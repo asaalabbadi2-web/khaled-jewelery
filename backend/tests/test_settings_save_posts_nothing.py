@@ -53,7 +53,7 @@ def test_a_settings_save_posts_no_entry(auth_headers):
         invoice_ids, voucher_id = [rejected.id, waiting.id], voucher.id
     try:
         resp = flask_app.test_client().put('/api/settings', headers=auth_headers,
-                                           json={'backup_retention_count': 7})
+                                           json={**{'backup_retention_count': 7}, 'reason': 'ضبط الاختبار'})
         assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
         with flask_app.app_context():
             posted = [je.id for je in JournalEntry.query.filter(JournalEntry.id.in_(ids)).all() if je.is_posted]
