@@ -13,9 +13,10 @@ const movedSections = {
   SettingsSection.goldPrices,
   SettingsSection.salesInvoices,
   SettingsSection.tax,
+  SettingsSection.paymentsSafes,
 };
 
-enum EditorKind { text, toggle, percent, choice, currency, karats, number }
+enum EditorKind { text, toggle, percent, choice, currency, karats, number, safe }
 
 class EditorSpec {
   const EditorSpec(this.kind,
@@ -30,7 +31,8 @@ class EditorSpec {
       this.fraction = false,
       this.unit = '',
       this.group,
-      this.unset});
+      this.unset,
+      this.safeType});
 
   final EditorKind kind;
 
@@ -64,6 +66,26 @@ class EditorSpec {
   /// said so -- never its first option (the main karat: main_karat_not_set).
   final String? unset;
 
+  /// A safe's type ('cash', 'gold'): its options are the safes of that type,
+  /// read when the section opens ([withOptions]); none chosen is null.
+  final String? safeType;
+
+  /// This spec with [options] -- a safe's, known once the safes are read.
+  EditorSpec withOptions(List<(Object, String)> options) => EditorSpec(kind,
+      options: options,
+      max: max,
+      step: step,
+      digits: digits,
+      hint: hint,
+      dependsOn: dependsOn,
+      min: min,
+      decimals: decimals,
+      fraction: fraction,
+      unit: unit,
+      group: group,
+      unset: unset,
+      safeType: safeType);
+
   /// The value as the editor holds it, from what the server sent.
   Object? read(Object? raw) => switch (kind) {
         EditorKind.toggle => raw == true || raw == 1 || raw == 'true',
@@ -71,6 +93,7 @@ class EditorSpec {
         EditorKind.choice => _choice(raw),
         EditorKind.karats => _karats(raw),
         EditorKind.number => _written(raw),
+        EditorKind.safe => raw is num && raw != 0 ? raw.toInt() : int.tryParse('${raw ?? ''}'),
         _ => raw?.toString() ?? '',
       };
 
@@ -114,6 +137,8 @@ class EditorSpec {
         EditorKind.karats => [for (final k in (value as List? ?? const [])) 'عيار $k'].join('، '),
         EditorKind.number => _parse(value) == null ? '—' : '${_say(_parse(value)!)}${unit.isEmpty ? '' : ' $unit'}',
         EditorKind.choice when value == null && unset != null => unset!,
+        EditorKind.safe when value == null => 'غير محدد',
+        EditorKind.safe => options.firstWhere((o) => o.$1 == value, orElse: () => (value as Object, 'خزينة رقم $value (غير موجودة حاليًا)')).$2,
         EditorKind.choice => options.firstWhere((o) => o.$1 == value, orElse: () => (value ?? '', '${value ?? '—'}')).$2,
         _ => '${value ?? ''}'.isEmpty ? '—' : '$value',
       };
@@ -223,6 +248,12 @@ final Map<String, EditorSpec> editors = {
   'gold_price_auto_update_interval_seconds': const EditorSpec(EditorKind.number,
       min: 10, max: 7 * 24 * 3600, decimals: 0, unit: 'ثانية', dependsOn: 'gold_price_auto_update_enabled',
       options: [(15, 'كل 15 ثانية'), (60, 'كل دقيقة'), (300, 'كل 5 دقائق')]),
+  // المدفوعات والخزائن -- all five level 3
+  'employee_cash_safes_enabled': const EditorSpec(EditorKind.toggle),
+  'employee_gold_safes_enabled': const EditorSpec(EditorKind.toggle),
+  'main_cash_safe_box_id': const EditorSpec(EditorKind.safe, safeType: 'cash'),
+  'sale_gold_safe_box_id': const EditorSpec(EditorKind.safe, safeType: 'gold'),
+  'main_scrap_gold_safe_box_id': const EditorSpec(EditorKind.safe, safeType: 'gold'),
   // البيع والفواتير
   'allow_discount': const EditorSpec(EditorKind.toggle),
   'default_discount_rate': const EditorSpec(EditorKind.percent, max: 50, dependsOn: 'allow_discount'),

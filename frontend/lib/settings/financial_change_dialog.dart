@@ -24,11 +24,12 @@ Future<bool?> showFinancialChange(
   required FinancialSave save,
   String? title,
   String? description,
+  EditorSpec Function(String key)? specOf,
 }) =>
     showDialog<bool>(
       context: context,
       builder: (_) => FinancialChangeDialog(
-          entries: entries, current: current, save: save, title: title, description: description),
+          entries: entries, current: current, save: save, title: title, description: description, specOf: specOf),
     );
 
 class FinancialChangeDialog extends StatefulWidget {
@@ -39,6 +40,7 @@ class FinancialChangeDialog extends StatefulWidget {
     required this.save,
     this.title,
     this.description,
+    this.specOf,
   });
 
   final List<SettingEntry> entries;
@@ -46,6 +48,9 @@ class FinancialChangeDialog extends StatefulWidget {
   final FinancialSave save;
   final String? title;
   final String? description;
+
+  /// A setting's spec as its section knows it (a safe's options); else its own.
+  final EditorSpec Function(String key)? specOf;
 
   @override
   State<FinancialChangeDialog> createState() => _FinancialChangeDialogState();
@@ -65,7 +70,7 @@ class _FinancialChangeDialogState extends State<FinancialChangeDialog> {
   bool _saving = false;
 
   bool get _single => widget.entries.length == 1;
-  EditorSpec _spec(SettingEntry e) => editors[e.key]!;
+  EditorSpec _spec(SettingEntry e) => widget.specOf?.call(e.key!) ?? editors[e.key]!;
 
   @override
   void dispose() {
@@ -143,6 +148,8 @@ class _FinancialChangeDialogState extends State<FinancialChangeDialog> {
           ),
           onChanged: (v) => _set(key, v),
         );
+      case EditorKind.safe:
+        return SafePicker(key: Key('financial-safe-$key'), spec: spec, value: _values[key], onChanged: (v) => _set(key, v));
       case EditorKind.toggle:
       case EditorKind.text:
       case EditorKind.currency:
@@ -283,5 +290,33 @@ class KaratChips extends StatelessWidget {
                 },
         ),
     ]);
+  }
+}
+
+/// A safe of [spec]'s type, or none: its options, and the one held if it is
+/// no longer among them -- said so, not dropped.
+class SafePicker extends StatelessWidget {
+  const SafePicker({super.key, required this.spec, required this.value, required this.onChanged});
+
+  final EditorSpec spec;
+  final Object? value;
+  final ValueChanged<int?>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final held = value as int?;
+    final known = spec.options.any((o) => o.$1 == held);
+    return DropdownButtonFormField<int?>(
+      initialValue: held,
+      isExpanded: true,
+      decoration: const InputDecoration(isDense: true, border: OutlineInputBorder()),
+      items: [
+        const DropdownMenuItem<int?>(value: null, child: Text('— غير محدد —')),
+        if (held != null && !known) DropdownMenuItem<int?>(value: held, child: Text(spec.display(held))),
+        for (final (id, label) in spec.options)
+          DropdownMenuItem<int?>(value: id as int, child: Text(label, overflow: TextOverflow.ellipsis)),
+      ],
+      onChanged: onChanged,
+    );
   }
 }

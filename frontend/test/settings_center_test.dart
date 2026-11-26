@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/api_service.dart';
+import 'package:frontend/models/safe_box_model.dart';
 import 'package:frontend/screens/settings_center_screen.dart';
 import 'package:frontend/settings/settings_registry.dart';
 import 'package:frontend/theme/app_theme.dart';
@@ -18,6 +19,15 @@ class _Api extends ApiService {
 
   @override
   Future<Map<String, int>> getSettingsVersions() async => {};
+
+  @override
+  Future<List<SafeBoxModel>> getSafeBoxes({
+    String? safeType,
+    bool? isActive,
+    int? karat,
+    bool includeAccount = false,
+    bool includeBalance = false,
+  }) async => const [];
 }
 
 const _sizes = {'wide': Size(1600, 1000), 'tablet': Size(820, 1180), 'phone': Size(390, 860)};
@@ -109,6 +119,11 @@ void main() {
     expect(opened, ['voucher_paper']);
     await tester.tap(find.byKey(const Key('settings-section-paymentsSafes')));
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.byKey(const Key('settings-entry-payment_methods')), 200,
+        scrollable: find.descendant(of: find.byKey(const Key('settings-editor-paymentsSafes')),
+            matching: find.byType(Scrollable)).first);
+    await tester.ensureVisible(find.byKey(const Key('settings-entry-payment_methods')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('settings-entry-payment_methods')));
     await tester.pumpAndSettle();
     expect(opened.last, 'payment_methods');
@@ -146,9 +161,9 @@ void main() {
   testWidgets('a financial setting says its permission to whoever does not hold it', (tester) async {
     await open(tester, _sizes['wide']!);
     // listed, read-only
-    await tester.tap(find.byKey(const Key('settings-section-paymentsSafes')));
+    await tester.tap(find.byKey(const Key('settings-section-accounting')));
     await tester.pumpAndSettle();
-    expect(find.descendant(of: find.byKey(const Key('settings-entry-employee_cash_safes_enabled')),
+    expect(find.descendant(of: find.byKey(const Key('settings-entry-manufacturing_wage_mode')),
         matching: find.textContaining(needsFinancialPermission)), findsOneWidget);
     // edited in the center, alone and as a group
     await tester.tap(find.byKey(const Key('settings-section-tax')));
@@ -158,8 +173,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('settings-needs-permission-main_karat')), findsOneWidget);
     expect(find.byKey(const Key('settings-needs-permission-office_terms')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('settings-section-paymentsSafes')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('settings-needs-permission-main_cash_safe_box_id')), findsOneWidget);
     await open(tester, _sizes['wide']!, financial: true);
-    for (final section in ['paymentsSafes', 'goldPrices', 'tax']) {
+    for (final section in ['accounting', 'paymentsSafes', 'goldPrices', 'tax']) {
       await tester.tap(find.byKey(Key('settings-section-$section')));
       await tester.pumpAndSettle();
       expect(find.textContaining(needsFinancialPermission), findsNothing, reason: section);

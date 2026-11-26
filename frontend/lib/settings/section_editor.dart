@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../api_service.dart';
+import '../models/safe_box_model.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_semantic_colors.dart';
 import '../utils.dart' show NormalizeNumberFormatter;
@@ -60,12 +61,21 @@ class SectionEditorState extends State<SectionEditor> {
   List<Map<String, dynamic>> _conflicts = const [];
   bool _wasDirty = false;
   String _currency = '';
+  // The safes a safe setting chooses among, by type, read with the section.
+  final _safes = <String, List<(Object, String)>>{};
 
   List<SettingEntry> get _entries => editedIn(widget.section);
 
+  /// A setting's spec as this section knows it: a safe's with its safes.
+  EditorSpec _spec(Object? key) {
+    final spec = editors[key]!;
+    final type = spec.safeType;
+    return type == null ? spec : spec.withOptions(_safes[type] ?? const []);
+  }
+
   List<String> get dirtyKeys => [
         for (final e in _entries)
-          if (!editors[e.key]!.same(_initial[e.key], _draft[e.key])) e.key!,
+          if (!_spec(e.key).same(_initial[e.key], _draft[e.key])) e.key!,
       ];
 
   bool get isDirty => dirtyKeys.isNotEmpty;
@@ -88,12 +98,24 @@ class SectionEditorState extends State<SectionEditor> {
     try {
       final settings = await widget.api.getSettings();
       final versions = await widget.api.getSettingsVersions();
+      final types = {for (final e in _entries) ?editors[e.key]!.safeType};
+      final safes = {
+        for (final t in types)
+          t: <(Object, String)>[
+            for (final sb in List.of(await widget.api.getSafeBoxes(safeType: t, includeAccount: true))
+              ..sort((a, b) => a.name.compareTo(b.name)))
+              if (sb.id != null) (sb.id!, _safeLabel(sb)),
+          ],
+      };
       if (!mounted) return;
       setState(() {
+        _safes
+          ..clear()
+          ..addAll(safes);
         _currency = '${settings['currency_symbol'] ?? ''}';
         for (final e in _entries) {
           final key = e.key!;
-          final spec = editors[key]!;
+          final spec = _spec(key);
           final value = spec.read(settings[key]);
           _initial[key] = value;
           _draft[key] = value;
@@ -114,18 +136,24 @@ class SectionEditorState extends State<SectionEditor> {
     }
   }
 
+  // As the old tab said a safe: its name, «غير نشطة» when it is, its account.
+  static String _safeLabel(SafeBoxModel sb) {
+    final account = sb.account?.accountNumber.trim() ?? '';
+    return '${sb.name}${sb.isActive ? '' : ' (غير نشطة)'}${account.isEmpty ? '' : ' • $account'}';
+  }
+
   /// The id of the card a setting is shown on: its own, or its group's first.
   String? _cardOf(String? id) {
     final e = _entries.where((e) => e.id == id).firstOrNull;
-    final group = e == null ? null : editors[e.key]!.group;
+    final group = e == null ? null : _spec(e.key).group;
     if (group == null) return id;
-    return _entries.firstWhere((x) => editors[x.key]!.group == group).id;
+    return _entries.firstWhere((x) => _spec(x.key).group == group).id;
   }
 
-  List<SettingEntry> _groupOf(String group) => [for (final e in _entries) if (editors[e.key]!.group == group) e];
+  List<SettingEntry> _groupOf(String group) => [for (final e in _entries) if (_spec(e.key).group == group) e];
 
   /// A changed number outside its bounds is not saved: it says so in its field.
-  bool get _invalid => dirtyKeys.any((k) => editors[k]!.invalid(_draft[k]) != null);
+  bool get _invalid => dirtyKeys.any((k) => _spec(k).invalid(_draft[k]) != null);
 
   void _set(String key, Object? value) {
     setState(() {
@@ -163,7 +191,7 @@ class SectionEditorState extends State<SectionEditor> {
     setState(() => _saving = true);
     try {
       final result = await widget.api.patchSettings(
-        changes: {for (final k in keys) k: editors[k]!.write(_draft[k])},
+        changes: {for (final k in keys) k: _spec(k).write(_draft[k])},
         versions: {for (final k in keys) k: _versions[k] ?? 0},
       );
       if (!mounted) return;
@@ -210,7 +238,7 @@ class SectionEditorState extends State<SectionEditor> {
   /// longer among this user's changes.
   void acceptTheirs(Map<String, dynamic> c) {
     final key = c['key'] as String;
-    final value = editors[key]!.read(c['current']);
+    final value = _spec(key).read(c['current']);
     setState(() {
       _initial[key] = value;
       _draft[key] = value;
@@ -225,7 +253,7 @@ class SectionEditorState extends State<SectionEditor> {
   void keepMine(Map<String, dynamic> c) {
     final key = c['key'] as String;
     setState(() {
-      _initial[key] = editors[key]!.read(c['current']);
+      _initial[key] = _spec(key).read(c['current']);
       _versions[key] = (c['current_version'] as num).toInt();
       _conflicts = [for (final x in _conflicts) if (x['key'] != key) x];
     });
@@ -237,12 +265,13 @@ class SectionEditorState extends State<SectionEditor> {
     final cs = theme.colorScheme;
     final info = sections[widget.section]!;
     if (_loadError != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text('تعذّر تحميل الإعدادات: ${AppFeedback.messageOf(_loadError!)}',
-              style: TextStyle(color: cs.error)),
-        ),
+      return AppErrorView(
+        title: 'تعذّر تحميل الإعدادات',
+        error: _loadError,
+        onRetry: () {
+          setState(() => _loadError = null);
+          _load();
+        },
       );
     }
     if (!_loaded) return const AppLoadingView(summaryBlocks: 0, rows: 6);
@@ -268,7 +297,7 @@ class SectionEditorState extends State<SectionEditor> {
                 ),
                 const SizedBox(height: 8),
                 for (final e in _entries)
-                  if (editors[e.key]!.group case final String g)
+                  if (_spec(e.key).group case final String g)
                     if (_cardOf(e.id) == e.id) _groupCard(g)
                     else const SizedBox.shrink()
                   else
@@ -300,7 +329,7 @@ class SectionEditorState extends State<SectionEditor> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final key = e.key!;
-    final spec = editors[key]!;
+    final spec = _spec(key);
     final dirty = !spec.same(_initial[key], _draft[key]);
     final enabled = spec.dependsOn == null || _draft[spec.dependsOn] == true;
     final highlighted = widget.highlight == e.id;
@@ -369,6 +398,7 @@ class SectionEditorState extends State<SectionEditor> {
       current: {for (final e in entries) e.key!: _draft[e.key]},
       title: title,
       description: description,
+      specOf: _spec,
       save: (changes, reason) async {
         try {
           final result = await widget.api.patchSettings(
@@ -380,7 +410,7 @@ class SectionEditorState extends State<SectionEditor> {
           final versions = (result['versions'] as Map?) ?? const {};
           setState(() {
             for (final MapEntry(:key, :value) in changes.entries) {
-              _initial[key] = editors[key]!.read(value); // as the server keeps it, read back
+              _initial[key] = _spec(key).read(value); // as the server keeps it, read back
               _draft[key] = _initial[key];
               _text[key]?.text = '${_initial[key] ?? ''}';
               _versions[key] = (versions[key] as num?)?.toInt() ?? _versions[key]!;
@@ -397,7 +427,7 @@ class SectionEditorState extends State<SectionEditor> {
             setState(() {
               for (final c in moved) {
                 final key = c['key'] as String;
-                _initial[key] = editors[key]!.read(c['current']);
+                _initial[key] = _spec(key).read(c['current']);
                 _draft[key] = _initial[key];
                 _text[key]?.text = '${_initial[key] ?? ''}';
                 _versions[key] = (c['current_version'] as num).toInt();
@@ -406,7 +436,7 @@ class SectionEditorState extends State<SectionEditor> {
           }
           final who = moved.map((c) => c['changed_by']).whereType<String>().toSet();
           staleNote = '«$label»: غيّره ${who.isEmpty ? 'مستخدم آخر' : who.join('، ')} بعد أن فتحت الصفحة؛ '
-              'القيمة الآن ${[for (final c in moved) editors[c['key']]!.display(_draft[c['key']])].join('، ')}. '
+              'القيمة الآن ${[for (final c in moved) _spec(c['key']).display(_draft[c['key']])].join('، ')}. '
               'راجعها ثم غيّرها من جديد إن أردت.';
           return (error: staleNote, stale: true);
         } catch (err) {
@@ -465,7 +495,7 @@ class SectionEditorState extends State<SectionEditor> {
               padding: const EdgeInsets.symmetric(vertical: 2),
               child: Row(children: [
                 Expanded(child: Text(partLabel(e), style: theme.textTheme.bodyMedium)),
-                Text(editors[e.key]!.display(_draft[e.key]), key: Key('settings-value-${e.key}'),
+                Text(_spec(e.key).display(_draft[e.key]), key: Key('settings-value-${e.key}'),
                     style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700)),
               ]),
             ),
@@ -585,6 +615,9 @@ class SectionEditorState extends State<SectionEditor> {
             ]),
           ],
         ]);
+      case EditorKind.safe:
+        return SafePicker(key: Key('settings-field-$key'), spec: spec, value: _draft[key],
+            onChanged: enabled ? (v) => _set(key, v) : null);
       case EditorKind.karats:
         return KaratChips(
             keyPrefix: 'settings-field-$key', value: _draft[key], onChanged: enabled ? (v) => _set(key, v) : null);
