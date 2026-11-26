@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../api_service.dart';
 import '../providers/auth_provider.dart';
+import '../screens/about_screen.dart';
 import '../screens/accounting_mapping_screen_enhanced.dart';
 import '../screens/accounts_screen.dart';
 import '../screens/audit_log_screen.dart';
@@ -29,8 +30,7 @@ import '../screens/users_screen.dart';
 import '../screens/weight_closing_settings_screen.dart';
 import 'settings_registry.dart';
 
-/// Opens what an entry is set in: the old settings screen on its tab, or the
-/// screen that owns it -- each opened as everywhere else opens it (spec v2
+/// Opens the screen an entry is set in, or that it links to -- each opened as everywhere else opens it (spec v2
 /// §0: the center links, it owns no screen's logic).
 typedef SettingsOpener = Future<void> Function(BuildContext context, SettingEntry entry);
 
@@ -62,18 +62,12 @@ final Map<String, Widget Function(BuildContext context, ApiService api)> setting
   'backup': (_, _) => const BackupRestoreScreen(isArabic: true),
   'import_excel': (_, _) => const ImportDocumentsScreen(isArabic: true),
   'system_reset': (_, _) => const SystemResetScreen(),
+  'about': (_, _) => const AboutScreen(),
+  // What the center only shows until a decision (heldBack, D2) is set here.
+  'held_settings': (_, _) => const SettingsScreenEnhanced(),
 };
 
-/// The old screen's tab names, said where an entry is set until its section
-/// page replaces them.
-const legacyTabNames = ['عام', 'الشركة والفواتير', 'المدفوعات', 'محاسبة', 'الطباعة', 'النظام'];
-
 Future<void> openSettingEntry(BuildContext context, SettingEntry entry) async {
-  final Widget page;
-  if (entry.screen != null) {
-    page = settingsScreens[entry.screen]!(context, ApiService());
-  } else {
-    page = SettingsScreenEnhanced(initialTabIndex: entry.legacyTab ?? 0);
-  }
+  final page = settingsScreens[entry.screen]!(context, ApiService());
   await Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
 }

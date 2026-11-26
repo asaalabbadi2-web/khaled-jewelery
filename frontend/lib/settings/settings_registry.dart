@@ -65,17 +65,6 @@ const sections = <SettingsSection, SectionInfo>{
       'النسخ الاحتياطي، الاستيراد، حول النظام، إعادة التهيئة'),
 };
 
-/// The old settings screen's tabs, where a center-owned key is set until its
-/// section page replaces them (spec v2, phase 7).
-abstract final class LegacyTab {
-  static const general = 0;
-  static const companyInvoices = 1;
-  static const payments = 2;
-  static const accounting = 3;
-  static const printing = 4;
-  static const system = 5;
-}
-
 /// Said beside a financial (level-3) setting to whoever does not hold its
 /// permission (ADR-103).
 const needsFinancialPermission = 'يحتاج صلاحية «الإعدادات المالية والمحاسبية»';
@@ -93,7 +82,6 @@ class SettingEntry {
     this.level = 1,
     this.effect,
     this.revertRule,
-    this.legacyTab,
     this.screen,
     this.ownerNote,
   });
@@ -116,8 +104,7 @@ class SettingEntry {
   final String? effect;
   final String? revertRule;
 
-  /// Where it is set today: a tab of the old screen, or a screen id.
-  final int? legacyTab;
+  /// The screen it is set in, or the screen a link opens (settingsScreens).
   final String? screen;
 
   /// When another screen owns the key: where it is set (spec v2 §0).
@@ -249,7 +236,7 @@ const settingsRegistry = <SettingEntry>[
   // ── المحاسبة والاعتماد ────────────────────────────────────────────────
   SettingEntry(id: 'voucher_auto_post', key: 'voucher_auto_post', section: SettingsSection.accounting,
       label: 'ترحيل السندات تلقائيًا عند الحفظ', synonyms: ['ترحيل', 'اعتماد', 'السندات'], level: 3,
-      legacyTab: LegacyTab.accounting, description: 'يقرّر اليوم اعتماد سندات مدير النظام عند إنشائها (القرار D2)',
+      screen: 'held_settings', description: 'يقرّر اليوم اعتماد سندات مدير النظام عند إنشائها (القرار D2)',
       effect: _forward, revertRule: 'للمستقبل؛ ما رُحّل يبقى مرحّلًا.'),
   SettingEntry(id: 'accountant_approval_limit_cash', key: 'accountant_approval_limit_cash',
       section: SettingsSection.accounting, label: 'حدّ اعتماد المحاسب نقدًا', synonyms: ['اعتماد', 'المحاسب'],
@@ -334,7 +321,7 @@ const settingsRegistry = <SettingEntry>[
   SettingEntry(id: 'import_excel', kind: SettingKind.link, section: SettingsSection.backupMaintenance,
       label: 'استيراد Excel', synonyms: ['استيراد'], screen: 'import_excel'),
   SettingEntry(id: 'about', kind: SettingKind.link, section: SettingsSection.backupMaintenance, label: 'حول النظام',
-      synonyms: ['الإصدار'], legacyTab: LegacyTab.system),
+      synonyms: ['الإصدار'], screen: 'about'),
   SettingEntry(id: 'system_reset', kind: SettingKind.link, section: SettingsSection.backupMaintenance,
       label: 'إعادة تهيئة النظام', synonyms: ['مسح', 'تصفير'], screen: 'system_reset',
       description: 'منطقة الخطر: لمدير النظام وحده'),

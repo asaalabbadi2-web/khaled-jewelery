@@ -21,10 +21,14 @@ import '../theme/app_semantic_colors.dart';
 /// registry's (lib/settings/settings_registry.dart).
 class SettingsCenterScreen extends StatefulWidget {
   const SettingsCenterScreen(
-      {super.key, this.opener = openSettingEntry, this.financialAllowed, this.api, this.initialSection});
+      {super.key, this.opener = openSettingEntry, this.financialAllowed, this.api, this.initialSection,
+      this.initialSetting});
 
   /// The section it opens on («إعدادات الطابعة» opens «هذا الجهاز»).
   final SettingsSection? initialSection;
+
+  /// The setting it opens on, framed (a screen that sends the user to one).
+  final String? initialSetting;
 
   final SettingsOpener opener;
 
@@ -49,10 +53,13 @@ class _SettingsCenterScreenState extends State<SettingsCenterScreen> {
   @override
   void initState() {
     super.initState();
-    final initial = widget.initialSection;
+    final setting = settingsRegistry.where((e) => e.id == widget.initialSetting).firstOrNull;
+    final initial = setting?.section ?? widget.initialSection;
     if (initial != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _openSection(initial, wide: MediaQuery.sizeOf(context).width >= 1000);
+        if (mounted) {
+          _openSection(initial, wide: MediaQuery.sizeOf(context).width >= 1000, highlight: setting?.id);
+        }
       });
     }
   }
@@ -362,7 +369,6 @@ class SectionEntries extends StatelessWidget {
               if (e.description.isNotEmpty) e.description,
               if (e.effect != null) e.effect!,
               if (e.level == 3 && !financialAllowed) needsFinancialPermission,
-              'يُضبط اليوم في: ${legacyTabNames[e.legacyTab ?? 0]}',
             ].join('\n')),
             trailing: const Icon(Icons.chevron_left),
             onTap: () => opener(context, e),

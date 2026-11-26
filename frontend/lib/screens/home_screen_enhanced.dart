@@ -47,8 +47,8 @@ import 'period_lock_screen.dart';
 import 'general_ledger_screen_v2.dart';
 import 'reports/trial_balance_report_screen.dart';
 import '../settings/settings_registry.dart' show SettingsSection;
+import 'about_screen.dart';
 import 'settings_center_screen.dart';
-import 'settings_screen_enhanced.dart';
 import 'branches_management_screen.dart';
 import 'gold_price_manual_screen_enhanced.dart';
 import 'customize_quick_actions_screen.dart';
@@ -1308,7 +1308,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
 
     // The settings: the center -- each setting is found by its own search (the
     // registry, settings spec v2 §5; here they would crowd the screens out of
-    // the six shown) -- its tabs, and the pages opened from them.
+    // the six shown) -- and the pages opened from it; the old screen's tabs are
+    // gone into it.
     if (auth.isManager) {
       out.add(screen(
         isAr ? 'مركز الإعدادات' : 'Settings Center',
@@ -1317,25 +1318,6 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         () => const SettingsCenterScreen(),
         keywords: const ['الإعدادات', 'ضبط', 'الضريبة', 'الطباعة', 'العيار'],
       ));
-      const tabs = [
-        ('عام', 'General', Icons.tune),
-        ('الشركة والفواتير', 'Company & Invoices', Icons.business),
-        ('المدفوعات', 'Payments', Icons.payments),
-        ('محاسبة', 'Accounting', Icons.account_tree),
-        ('الطباعة', 'Printing', Icons.print),
-        ('النظام', 'System', Icons.settings_applications),
-      ];
-      for (var i = 0; i < tabs.length; i++) {
-        final (ar, en, icon) = tabs[i];
-        out.add(
-          screen(
-            isAr ? 'الإعدادات: $ar' : 'Settings: $en',
-            settingsSection,
-            icon,
-            () => SettingsScreenEnhanced(initialTabIndex: i),
-          ),
-        );
-      }
       out.addAll([
         screen(
           isAr ? 'الربط المحاسبي' : 'Accounting Mapping',
@@ -2360,10 +2342,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           await Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => SettingsScreenEnhanced(
-                initialTabIndex: SettingsScreenEnhanced.systemTabIndex,
-                focusEntry: SettingsEntry.systemReset,
-              ),
+              builder: (_) => const SystemResetScreen(),
             ),
           );
           await _loadAllData();
@@ -2378,10 +2357,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         await Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => SettingsScreenEnhanced(
-              initialTabIndex: SettingsScreenEnhanced.systemTabIndex,
-              focusEntry: SettingsEntry.about,
-            ),
+            builder: (_) => const AboutScreen(),
           ),
         );
       },
@@ -5441,12 +5417,17 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         );
         break;
       case 'printer_settings':
-      case 'about':
         result = await Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => const SettingsScreenEnhanced(),
+            builder: (_) => const SettingsCenterScreen(initialSection: SettingsSection.thisDevice),
           ),
+        );
+        break;
+      case 'about':
+        result = await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const AboutScreen()),
         );
         break;
       case 'barcode_scan':

@@ -29,7 +29,7 @@ import '../widgets/invoice_saved_dialog.dart';
 import 'invoices_list_screen.dart';
 import '../widgets/party_picker_dialog.dart';
 import '../widgets/searchable_picker_field.dart';
-import 'settings_screen_enhanced.dart';
+import 'settings_center_screen.dart';
 import '../utils.dart';
 import '../utils/invoice_draft_autosave.dart';
 import '../utils/arabic_number_formatter.dart';
@@ -1756,7 +1756,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
   Future<void> _showManualItemDialog() async {
     if (!_settingsProvider.allowManualInvoiceItems) {
       _showError(
-        'هذه الميزة معطلة من الإعدادات. فعّل خيار "السماح بإضافة صنف يدوي" أولاً.',
+        'هذه الميزة معطلة من الإعدادات. فعّل «الصنف اليدوي في الفاتورة» أولاً.',
       );
       return;
     }
@@ -2252,7 +2252,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: const [
                   Text(
-                    'لإضافة صنف يدوي يجب تفعيل الخيار من شاشة الإعدادات > الشركة والفواتير.',
+                    'لإضافة صنف يدوي يجب تفعيل «الصنف اليدوي في الفاتورة» من مركز الإعدادات > البيع والفواتير.',
                   ),
                   SizedBox(height: 8),
                   Text(
@@ -2281,7 +2281,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => const SettingsScreenEnhanced(initialTabIndex: 1),
+        builder: (_) => const SettingsCenterScreen(initialSetting: 'allow_manual_invoice_items'),
       ),
     );
   }

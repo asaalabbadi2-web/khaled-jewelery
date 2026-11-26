@@ -24,45 +24,38 @@ Set<String> _pySet(String src, String name) {
 void main() {
   final byKey = {for (final e in settingsRegistry) if (e.key != null) e.key!: e};
 
-  test('every key the settings screen saves to the server is in the registry', () {
+  // What the old screen still saves: the keys held back, and nothing else --
+  // a moved key sent from it would write a stale value over the center's.
+  Set<String> oldScreenSends() {
     final s = _src('lib/screens/settings_screen_enhanced.dart');
-    final save = s.substring(s.indexOf('Future<void> _saveSettings()'), s.indexOf('updateSettings(payload)'));
-    final keys = RegExp(r"'([a-z_0-9]+)':").allMatches(save).map((m) => m.group(1)!).toSet();
-    for (final m in RegExp(r'updateSettings\(\{(.*?)\}\)', dotAll: true).allMatches(s)) {
-      keys.addAll(RegExp(r"'([a-z_0-9]+)':").allMatches(m.group(1)!).map((x) => x.group(1)!));
-    }
-    // Sent with the auto-update switch, always 'interval': not a setting of its own.
-    keys.remove('gold_price_auto_update_mode');
-    expect(keys, isNotEmpty);
-    expect(keys.where((k) => !byKey.containsKey(k)).toList(), isEmpty, reason: 'a saved key no one can find');
+    return {
+      for (final m in RegExp(r'updateSettings\(\{(.*?)\}\)', dotAll: true).allMatches(s))
+        ...RegExp(r"'([a-z_0-9]+)':").allMatches(m.group(1)!).map((x) => x.group(1)!),
+    };
+  }
+
+  test('the old screen saves the held-back settings, and only them', () {
+    expect(oldScreenSends(), heldBack.keys.toSet());
   });
 
-  // A key moved into the center is the center's alone: the old screen neither
-  // holds nor sends it -- its stale value would write over the center's save.
-  test('a moved key is edited in the center and no longer sent by the old screen', () {
-    final s = _src('lib/screens/settings_screen_enhanced.dart');
-    final save = s.substring(s.indexOf('Future<void> _saveSettings()'), s.indexOf('updateSettings(payload)'));
+  test('a moved key is edited in the center', () {
     for (final section in movedSections) {
       for (final e in entriesOf(section).where((e) => e.kind == SettingKind.setting)) {
         expect(editors.containsKey(e.key), isTrue, reason: '${e.key}: moved without its editor');
-        if (heldBack.containsKey(e.key)) continue; // below
-        expect(save.contains("'${e.key}'"), isFalse, reason: '${e.key}: the old screen still sends it');
-        expect(e.legacyTab, isNull, reason: '${e.key}: still pointed at the old tab');
+        if (!heldBack.containsKey(e.key)) expect(e.screen, isNull, reason: '${e.key}: set elsewhere too');
       }
     }
   });
 
-  // A setting held back until a decision (D2) is only shown in the center:
-  // it is set where it was, so the old tab still holds and sends it.
-  test('a held-back setting is still set in its old tab, and only there', () {
-    final s = _src('lib/screens/settings_screen_enhanced.dart');
-    final save = s.substring(s.indexOf('Future<void> _saveSettings()'), s.indexOf('updateSettings(payload)'));
+  // A setting held back until a decision (D2) is only shown in the center: it
+  // is set where it was, on the old screen's page.
+  test('a held-back setting is set on its page, and only there', () {
     expect(heldBack.keys, ['voucher_auto_post'], reason: 'a new held-back setting is a decision: name it here');
     for (final key in heldBack.keys) {
       final e = byKey[key]!;
       expect(movedSections, contains(e.section), reason: key);
-      expect(e.legacyTab, isNotNull, reason: '$key: no place left to set it');
-      expect(save.contains("'$key'"), isTrue, reason: '$key: the old tab no longer sends it');
+      expect(e.screen, 'held_settings', reason: '$key: no place left to set it');
+      expect(settingsScreens.containsKey(e.screen), isTrue);
     }
   });
 
@@ -72,7 +65,6 @@ void main() {
       expect(byKey[k], isNotNull, reason: k);
       expect(byKey[k]!.scope, SettingScope.device, reason: k);
       expect(byKey[k]!.section, SettingsSection.thisDevice, reason: k);
-      expect(byKey[k]!.legacyTab, isNull, reason: '$k: still pointed at the old tab');
       expect(old.contains("'$k'"), isFalse, reason: '$k: the old screen still holds it');
     }
     for (final e in settingsRegistry.where((e) => e.kind == SettingKind.setting && e.scope == SettingScope.device)) {
@@ -112,7 +104,7 @@ void main() {
     }
     for (final e in settingsRegistry) {
       final edited = movedSections.contains(e.section) || (e.scope == SettingScope.device && deviceSettings.containsKey(e.key));
-      expect(e.legacyTab != null || e.screen != null || edited, isTrue, reason: e.id);
+      expect(e.screen != null || edited, isTrue, reason: e.id);
       if (e.kind == SettingKind.setting) expect(e.key, isNotNull, reason: e.id);
       if (e.screen != null) expect(settingsScreens.containsKey(e.screen), isTrue, reason: e.screen);
     }
