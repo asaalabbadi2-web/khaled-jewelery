@@ -852,6 +852,40 @@ def patch_settings():
                     'versions': settings_audit.versions([_version_key(k) for k in written])})
 
 
+_DEFAULT_SAFE_TYPES = {
+    'main_cash_safe_box_id': ('cash', 'الصندوق النقدي الرئيسي خزينة نقدية'),
+    'sale_gold_safe_box_id': ('gold', 'خزينة الذهب المعروض للبيع خزينة ذهب'),
+    'main_scrap_gold_safe_box_id': ('gold', 'خزينة الكسر الرئيسية خزينة ذهب'),
+}
+
+
+def _default_safes_refusal(settings, data):
+    """A default safe sent is none, or a safe of its type -- and active, unless it is the one
+    already set (a safe deactivated after it was set is not refused when sent again)."""
+    from models import SafeBox
+    for key, (safe_type, said) in _DEFAULT_SAFE_TYPES.items():
+        if key not in data:
+            continue
+        raw = data.get(key)
+        if raw in (None, '', 0, '0', False):
+            continue
+        try:
+            safe_id = int(raw)
+        except (TypeError, ValueError):
+            safe_id = None
+        safe = db.session.get(SafeBox, safe_id) if safe_id else None
+        if safe is None:
+            return jsonify({'error': 'invalid_default_safe', 'key': key,
+                            'message': f'لا توجد خزينة بالرقم {raw}'}), 400
+        if (safe.safe_type or '').lower() != safe_type:
+            return jsonify({'error': 'invalid_default_safe', 'key': key,
+                            'message': f'«{safe.name}» ليست من نوعها: {said}'}), 400
+        if not safe.is_active and getattr(settings, key, None) != safe_id:
+            return jsonify({'error': 'invalid_default_safe', 'key': key,
+                            'message': f'«{safe.name}» موقوفة: فعّلها من شاشة الخزائن أو اختر غيرها'}), 400
+    return None
+
+
 def _apply_settings(data):
     """The settings' own law, key by key, then one commit -- shared by PUT and PATCH."""
     import json
@@ -1127,6 +1161,12 @@ def _apply_settings(data):
         settings.employee_cash_safes_enabled = bool(data.get('employee_cash_safes_enabled'))
     if 'employee_gold_safes_enabled' in data:
         settings.employee_gold_safes_enabled = bool(data.get('employee_gold_safes_enabled'))
+
+    # Default safes (the owner, 26 Nov 2026): a safe of its type, active when newly set --
+    # posting skips one that is not, in silence, and takes the next in its order.
+    refused = _default_safes_refusal(settings, data)
+    if refused:
+        return refused
 
     # Default SafeBoxes + Stones Accounts
     for key in (

@@ -159,7 +159,7 @@ void main() {
     await tapKey(tester, 'settings-change-main_cash_safe_box_id');
     await tester.tap(find.byKey(const Key('financial-safe-main_cash_safe_box_id')));
     await tester.pumpAndSettle();
-    expect(find.text('صندوق قديم (غير نشطة)'), findsOneWidget, reason: 'an inactive safe is said so');
+    expect(find.text('صندوق قديم (غير نشطة)'), findsNothing, reason: 'an inactive safe is not newly set');
     final menu = find.byWidgetPredicate((w) => w is DropdownMenuItem<int?>);
     expect(find.descendant(of: menu, matching: find.text('الذهب المعروض')), findsNothing,
         reason: 'a gold safe is no cash safe');
@@ -173,6 +173,12 @@ void main() {
     expect(versions, {'main_cash_safe_box_id': 6});
     expect(reason, 'الفرع الجديد');
     expect(textOf(tester, const Key('settings-value-main_cash_safe_box_id')), 'صندوق الفرع');
+  });
+
+  testWidgets('an inactive safe is offered only while it is the one set, said so', (tester) async {
+    final api = _Api()..settings['main_cash_safe_box_id'] = 41;
+    await open(tester, api: api);
+    expect(textOf(tester, const Key('settings-value-main_cash_safe_box_id')), 'صندوق قديم (غير نشطة)');
   });
 
   testWidgets('none chosen is a choice, saved as none', (tester) async {

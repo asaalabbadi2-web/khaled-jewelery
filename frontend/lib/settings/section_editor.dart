@@ -100,12 +100,15 @@ class SectionEditorState extends State<SectionEditor> {
       final settings = await widget.api.getSettings();
       final versions = await widget.api.getSettingsVersions();
       final types = {for (final e in _entries) ?editors[e.key]!.safeType};
+      // An inactive safe is not newly set (the server refuses it): offered only
+      // while it is the one set, said «غير نشطة».
+      final held = {for (final e in _entries) if (editors[e.key]!.safeType != null) editors[e.key]!.read(settings[e.key])};
       final safes = {
         for (final t in types)
           t: <(Object, String)>[
             for (final sb in List.of(await widget.api.getSafeBoxes(safeType: t, includeAccount: true))
               ..sort((a, b) => a.name.compareTo(b.name)))
-              if (sb.id != null) (sb.id!, _safeLabel(sb)),
+              if (sb.id != null && (sb.isActive || held.contains(sb.id))) (sb.id!, _safeLabel(sb)),
           ],
       };
       if (!mounted) return;
