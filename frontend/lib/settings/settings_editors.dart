@@ -18,6 +18,7 @@ const movedSections = {
   SettingsSection.paymentsSafes,
   SettingsSection.accounting,
   SettingsSection.itemsPieces,
+  SettingsSection.usersSecurity,
 };
 
 /// Settings of a moved section the center only shows, until the owner's
@@ -305,6 +306,10 @@ final Map<String, EditorSpec> editors = {
   ], explain: _wageExplained),
   // الأصناف والقطع
   'coding_on': const EditorSpec(EditorKind.toggle, source: 'coding_from', explain: _codingExplained),
+  // المستخدمون والأمان
+  'idle_timeout_enabled': const EditorSpec(EditorKind.toggle),
+  'idle_timeout_minutes': const EditorSpec(EditorKind.number,
+      min: 1, max: 10080, decimals: 0, unit: 'دقيقة', hint: 'مثلًا 30', dependsOn: 'idle_timeout_enabled'),
   // البيع والفواتير
   'allow_discount': const EditorSpec(EditorKind.toggle),
   'default_discount_rate': const EditorSpec(EditorKind.percent, max: 50, dependsOn: 'allow_discount'),

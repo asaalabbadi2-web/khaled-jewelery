@@ -300,9 +300,11 @@ const settingsRegistry = <SettingEntry>[
 
   // ── المستخدمون والأمان ────────────────────────────────────────────────
   SettingEntry(id: 'idle_timeout_enabled', key: 'idle_timeout_enabled', section: SettingsSection.usersSecurity,
-      label: 'تسجيل الخروج عند عدم النشاط', synonyms: ['الخمول', 'الجلسة'], level: 2, legacyTab: LegacyTab.system),
+      label: 'تسجيل الخروج عند عدم النشاط', synonyms: ['الخمول', 'الجلسة'], level: 2,
+      description: 'معطّلًا لا تنتهي الجلسة تلقائيًا بسبب الخمول'),
   SettingEntry(id: 'idle_timeout_minutes', key: 'idle_timeout_minutes', section: SettingsSection.usersSecurity,
-      label: 'مدة عدم النشاط', synonyms: ['الخمول', 'الجلسة'], level: 2, legacyTab: LegacyTab.system),
+      label: 'مدة عدم النشاط', synonyms: ['الخمول', 'الجلسة'], level: 2,
+      description: 'من دقيقة إلى أسبوع'),
   SettingEntry(id: 'users', kind: SettingKind.link, section: SettingsSection.usersSecurity,
       label: 'المستخدمون والصلاحيات', synonyms: ['صلاحية', 'دخول'], screen: 'users'),
   SettingEntry(id: 'sessions', kind: SettingKind.link, section: SettingsSection.usersSecurity, label: 'الجلسات',
