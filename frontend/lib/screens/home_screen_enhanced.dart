@@ -46,6 +46,7 @@ import 'period_expenses_screen.dart';
 import 'period_lock_screen.dart';
 import 'general_ledger_screen_v2.dart';
 import 'reports/trial_balance_report_screen.dart';
+import '../settings/settings_registry.dart' show SettingsSection;
 import 'settings_center_screen.dart';
 import 'settings_screen_enhanced.dart';
 import 'branches_management_screen.dart';
@@ -2330,9 +2331,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           await Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => const SettingsScreenEnhanced(
-                initialTabIndex: SettingsScreenEnhanced.printingTabIndex,
-              ),
+              builder: (_) => const SettingsCenterScreen(initialSection: SettingsSection.thisDevice),
             ),
           );
         },

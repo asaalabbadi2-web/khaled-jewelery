@@ -1,12 +1,7 @@
-import '../utils/paper_format.dart';
 import 'settings_center_screen.dart';
-import '../widgets/invoice_settings_sheet.dart' show InvoiceUiContext, InvoiceUiSettings;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:printing/printing.dart';
 
 import '../api_service.dart';
 import '../providers/sales_race_refresh_provider.dart';
@@ -97,27 +92,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
 
 
 
-  bool _printerAutoConnect = true;
-  bool _printerShowPreview = false;
-  bool _printerAutoCut = true;
-  String _printerPaperSize = '80 مم';
-  final List<String> _printerPaperOptions = const ['58 مم', '80 مم', 'A4'];
-
-  bool _printInColor = true;
-  String _invoicePaperSize = 'A4';
-  // The invoice paper is the invoice screens' own (its sheet, on this device): B2.
-  final List<String> _invoicePaperOptions = InvoiceUiSettings.supportedPaperSizes;
-
-  static const String _printerAutoConnectKey = 'printer_auto_connect_v1';
-  static const String _printerShowPreviewKey = 'printer_show_preview_v1';
-  static const String _printerAutoCutKey = 'printer_auto_cut_v1';
-  static const String _printerPaperSizeKey = 'printer_paper_size_v1';
-  static const String _printerPreferredNameKey = 'printer_preferred_name_v1';
-  static const String _printInColorKey = 'print_in_color';
-
-  String? _preferredPrinterName;
-  bool _isLoadingPrinters = false;
-  List<Printer> _availablePrinters = const [];
 
   @override
   void initState() {
@@ -176,18 +150,10 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
     });
 
     try {
-      final prefs = await SharedPreferences.getInstance();
       final settings = await _apiService.getSettings();
 
       if (!mounted) return;
 
-      final printerAutoConnect = prefs.getBool(_printerAutoConnectKey) ?? true;
-      final printerShowPreview = prefs.getBool(_printerShowPreviewKey) ?? false;
-      final printerAutoCut = prefs.getBool(_printerAutoCutKey) ?? true;
-      final printerPaperSize = prefs.getString(_printerPaperSizeKey) ?? '80 مم';
-      final preferredPrinterName = prefs.getString(_printerPreferredNameKey);
-      final printInColor = prefs.getBool(_printInColorKey) ?? true;
-      final invoicePaperSize = (await InvoiceUiSettings.load(InvoiceUiContext.saleNew)).paperSize;
 
 
       setState(() {
@@ -206,17 +172,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
         // 🆕 Feature toggles + default safes
 
 
-        _printerAutoConnect = printerAutoConnect;
-        _printerShowPreview = printerShowPreview;
-        _printerAutoCut = printerAutoCut;
-        _printerPaperSize = _printerPaperOptions.contains(printerPaperSize)
-            ? printerPaperSize
-            : '80 مم';
-        _preferredPrinterName = preferredPrinterName;
-        _printInColor = printInColor;
-        _invoicePaperSize = _invoicePaperOptions.contains(invoicePaperSize)
-            ? invoicePaperSize
-            : 'A4';
       });
     } catch (error) {
       if (!mounted) return;
@@ -257,24 +212,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
       );
       await settingsProvider.updateSettings(payload);
 
-      // Persist printer preferences locally (not part of backend settings).
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool(_printerAutoConnectKey, _printerAutoConnect);
-        await prefs.setBool(_printerShowPreviewKey, _printerShowPreview);
-        await prefs.setBool(_printerAutoCutKey, _printerAutoCut);
-        await prefs.setString(_printerPaperSizeKey, _printerPaperSize);
-        final preferred = _preferredPrinterName?.trim();
-        if (preferred == null || preferred.isEmpty) {
-          await prefs.remove(_printerPreferredNameKey);
-        } else {
-          await prefs.setString(_printerPreferredNameKey, preferred);
-        }
-        await prefs.setBool(_printInColorKey, _printInColor);
-        await InvoiceUiSettings.setPaperSize(_invoicePaperSize);
-      } catch (_) {
-        // ignore local persistence failures
-      }
 
       if (!mounted) return;
       // Notify the home screen to re-fetch the leaderboard with the latest
@@ -540,123 +477,7 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
-        _buildSectionCard(
-          icon: Icons.palette_outlined,
-          iconColor: _primaryColor,
-          title: 'نمط الطباعة',
-          children: [
-            SwitchListTile.adaptive(
-              value: _printInColor,
-              onChanged: (value) => setState(() => _printInColor = value),
-              title: const Text('طباعة ملونة'),
-              subtitle: const Text(
-                'استخدم الألوان الكاملة (ذهبي وتدرجات). أوقفه للطباعة بالأسود فقط على الطابعات العادية.',
-              ),
-              thumbColor: _thumbColorFor(_primaryColor),
-              trackColor: _trackColorFor(_primaryColor),
-            ),
-            const SizedBox(height: 12),
-            Text('حجم ورق الفواتير', style: _fieldLabelStyle()),
-            const SizedBox(height: 10),
-            Directionality(
-              textDirection: TextDirection.rtl,
-              child: DropdownMenu<String>(
-                initialSelection: _invoicePaperSize,
-                onSelected: (value) {
-                  if (value == null) return;
-                  setState(() => _invoicePaperSize = value);
-                },
-                leadingIcon: Icon(Icons.straighten, color: _primaryColor),
-                trailingIcon: const Icon(Icons.keyboard_arrow_down),
-                enableSearch: false,
-                textStyle: Theme.of(context).textTheme.bodyLarge,
-                inputDecorationTheme: _dropdownDecoration(
-                  accentColor: _primaryColor,
-                ),
-                dropdownMenuEntries: _invoicePaperOptions
-                    .map(
-                      (option) => DropdownMenuEntry<String>(
-                        value: option,
-                        label: paperLabel(option),
-                      ),
-                    )
-                    .toList(),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        _buildSectionCard(
-          icon: Icons.print_outlined,
-          iconColor: _primaryColor,
-          title: 'إعدادات الطابعة',
-          children: [
-            SwitchListTile.adaptive(
-              value: _printerAutoConnect,
-              onChanged: (value) => setState(() => _printerAutoConnect = value),
-              title: const Text('الاتصال التلقائي عند فتح التطبيق'),
-              subtitle: const Text(
-                'يبحث النظام عن الطابعة المفضلة ويحاول الاتصال مباشرة.',
-              ),
-              thumbColor: _thumbColorFor(_primaryColor),
-              trackColor: _trackColorFor(_primaryColor),
-            ),
-            SwitchListTile.adaptive(
-              value: _printerShowPreview,
-              onChanged: (value) => setState(() => _printerShowPreview = value),
-              title: const Text('عرض معاينة قبل الطباعة'),
-              subtitle: const Text(
-                'يعرض نسخة رقمية قبل تأكيد إرسال أمر الطباعة.',
-              ),
-              thumbColor: _thumbColorFor(_primaryColor),
-              trackColor: _trackColorFor(_primaryColor),
-            ),
-            SwitchListTile.adaptive(
-              value: _printerAutoCut,
-              onChanged: (value) => setState(() => _printerAutoCut = value),
-              title: const Text('تشغيل القطع التلقائي بعد الطباعة'),
-              subtitle: const Text(
-                'يعمل مع الطابعات الحرارية الداعمة لخاصية القطع.',
-              ),
-              thumbColor: _thumbColorFor(_primaryColor),
-              trackColor: _trackColorFor(_primaryColor),
-            ),
-            const SizedBox(height: 12),
-            Text('مقاس ورق السندات', style: _fieldLabelStyle()),
-            const SizedBox(height: 10),
-            Directionality(
-              textDirection: TextDirection.rtl,
-              child: DropdownMenu<String>(
-                initialSelection: _printerPaperSize,
-                onSelected: (value) {
-                  if (value == null) return;
-                  setState(() => _printerPaperSize = value);
-                },
-                leadingIcon: Icon(Icons.straighten, color: _primaryColor),
-                trailingIcon: const Icon(Icons.keyboard_arrow_down),
-                enableSearch: false,
-                textStyle: Theme.of(context).textTheme.bodyLarge,
-                inputDecorationTheme: _dropdownDecoration(
-                  accentColor: _primaryColor,
-                ),
-                dropdownMenuEntries: _printerPaperOptions
-                    .map(
-                      (option) => DropdownMenuEntry<String>(
-                        value: option,
-                        label: paperLabel(option),
-                      ),
-                    )
-                    .toList(),
-              ),
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: _showPrinterSetupSheet,
-              icon: const Icon(Icons.print_rounded),
-              label: const Text('إدارة الطابعات المتاحة'),
-            ),
-          ],
-        ),
+        _buildMovedNote('الطباعة الملونة ومقاسا ورق الفواتير والسندات في «هذا الجهاز»'),
       ],
     );
   }
@@ -690,23 +511,8 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
               label: const Text('تحديث سعر الذهب'),
             ),
             const SizedBox(height: 12),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('إظهار شريط السعر في شاشة تسجيل الدخول'),
-              subtitle: const Text(
-                'يعرض شريط تحديث سعر الذهب قبل تسجيل الدخول (قد لا يتوفر إذا كان السيرفر يتطلب صلاحيات).',
-              ),
-              value: settingsProvider.showGoldPriceTickerOnLogin,
-              onChanged: (val) async {
-                await settingsProvider.setShowGoldPriceTickerOnLogin(val);
-                if (!mounted) return;
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(const SnackBar(content: Text('تم حفظ الإعداد')));
-              },
-            ),
             const SizedBox(height: 12),
-            _buildMovedNote('التحديث التلقائي وفترته في «الذهب والأسعار»'),
+            _buildMovedNote('التحديث التلقائي وفترته في «الذهب والأسعار»، وشريط السعر في شاشة الدخول في «هذا الجهاز»'),
           ],
         ),
         const SizedBox(height: 20),
@@ -907,181 +713,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
     );
   }
 
-  Future<void> _showPrinterSetupSheet() async {
-    Future<void> loadPrinters(StateSetter setSheetState) async {
-      if (kIsWeb) return;
-      setSheetState(() {
-        _isLoadingPrinters = true;
-      });
-      try {
-        final printers = await Printing.listPrinters();
-        setSheetState(() {
-          _availablePrinters = printers;
-        });
-      } catch (_) {
-        setSheetState(() {
-          _availablePrinters = const [];
-        });
-      } finally {
-        setSheetState(() {
-          _isLoadingPrinters = false;
-        });
-      }
-    }
-
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (sheetContext) {
-        return StatefulBuilder(
-          builder: (sheetContext, setSheetState) {
-            // Lazy-load on first open.
-            if (!kIsWeb && _availablePrinters.isEmpty && !_isLoadingPrinters) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                loadPrinters(setSheetState);
-              });
-            }
-
-            return Padding(
-              padding: EdgeInsets.only(
-                left: 20,
-                right: 20,
-                top: 20,
-                bottom: 20 + MediaQuery.of(sheetContext).viewInsets.bottom,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'إدارة الطابعات',
-                          style: Theme.of(sheetContext).textTheme.titleLarge,
-                        ),
-                      ),
-                      if (!kIsWeb)
-                        IconButton(
-                          tooltip: 'تحديث القائمة',
-                          icon: const Icon(Icons.refresh),
-                          onPressed: _isLoadingPrinters
-                              ? null
-                              : () => loadPrinters(setSheetState),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  if (kIsWeb)
-                    _buildInfoBanner(
-                      icon: Icons.info_outline,
-                      color: _primaryColor,
-                      text:
-                          'على نسخة الويب لا يمكن اختيار الطابعة من داخل التطبيق. سيتم استخدام نافذة الطباعة الخاصة بالمتصفح.',
-                    )
-                  else if (_isLoadingPrinters)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 24),
-                      child: Center(child: CircularProgressIndicator()),
-                    )
-                  else if (_availablePrinters.isEmpty)
-                    _buildInfoBanner(
-                      icon: Icons.print_disabled_outlined,
-                      color: _primaryColor,
-                      text:
-                          'لم يتم العثور على طابعات من النظام. تأكد من إضافة الطابعة في إعدادات النظام ثم اضغط تحديث.',
-                    )
-                  else
-                    Flexible(
-                      child: RadioGroup<String>(
-                        groupValue: _preferredPrinterName,
-                        onChanged: (value) async {
-                          final next = value?.trim();
-                          setState(() {
-                            _preferredPrinterName = next;
-                          });
-                          setSheetState(() {
-                            _preferredPrinterName = next;
-                          });
-                          try {
-                            final prefs = await SharedPreferences.getInstance();
-                            if (next == null || next.isEmpty) {
-                              await prefs.remove(_printerPreferredNameKey);
-                            } else {
-                              await prefs.setString(
-                                _printerPreferredNameKey,
-                                next,
-                              );
-                            }
-                          } catch (_) {
-                            // ignore
-                          }
-                        },
-                        child: ListView.separated(
-                          shrinkWrap: true,
-                          itemCount: _availablePrinters.length,
-                          separatorBuilder: (context, index) =>
-                              const Divider(height: 1),
-                          itemBuilder: (context, index) {
-                            final printer = _availablePrinters[index];
-                            final name = printer.name;
-                            final selected =
-                                (_preferredPrinterName ?? '').trim() ==
-                                name.trim();
-                            return RadioListTile<String>(
-                              value: name,
-                              title: Text(name),
-                              subtitle: selected
-                                  ? const Text('الطابعة المفضلة')
-                                  : null,
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () async {
-                            setState(() {
-                              _preferredPrinterName = null;
-                            });
-                            setSheetState(() {
-                              _preferredPrinterName = null;
-                            });
-                            try {
-                              final prefs =
-                                  await SharedPreferences.getInstance();
-                              await prefs.remove(_printerPreferredNameKey);
-                            } catch (_) {
-                              // ignore
-                            }
-                          },
-                          icon: const Icon(Icons.clear),
-                          label: const Text('مسح التفضيل'),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: FilledButton(
-                          onPressed: () => Navigator.pop(sheetContext),
-                          child: const Text('إغلاق'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
   Future<void> _showAboutDialog() async {
     await showDialog<void>(
       context: context,
@@ -1165,58 +796,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
     );
   }
 
-  Widget _buildInfoBanner({
-    required IconData icon,
-    required Color color,
-    required String text,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: _blendOnSurface(color, 0.1),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: color, size: 18),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(text, style: Theme.of(context).textTheme.bodySmall),
-          ),
-        ],
-      ),
-    );
-  }
-
-
-  TextStyle _fieldLabelStyle() {
-    return Theme.of(context).textTheme.titleSmall?.copyWith(
-          fontWeight: FontWeight.w700,
-          color: _strongTextColor,
-        ) ??
-        const TextStyle(fontWeight: FontWeight.w700);
-  }
-
-  InputDecorationTheme _dropdownDecoration({Color? accentColor}) {
-    final Color color = accentColor ?? _primaryColor;
-    return InputDecorationTheme(
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide(color: _withOpacity(color, 0.3)),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide(color: color, width: 2),
-      ),
-      filled: true,
-      fillColor: _blendOnSurface(color, 0.05),
-      prefixIconColor: color,
-      suffixIconColor: _mutedTextColor,
-      helperStyle: TextStyle(color: _mutedTextColor),
-    );
-  }
 
   bool _safeBool(dynamic value, {required bool fallback}) {
     if (value is bool) return value;

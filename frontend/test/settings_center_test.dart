@@ -6,10 +6,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/api_service.dart';
+import 'package:frontend/providers/settings_provider.dart';
 import 'package:frontend/models/safe_box_model.dart';
 import 'package:frontend/screens/settings_center_screen.dart';
 import 'package:frontend/settings/settings_registry.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/dark_text.dart';
 
@@ -46,10 +49,14 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final opened = <String>[];
-    await tester.pumpWidget(MaterialApp(
-      theme: dark ? DarkTheme.theme : LightTheme.theme,
-      builder: (context, child) => Directionality(textDirection: TextDirection.rtl, child: child!),
-      home: SettingsCenterScreen(opener: (_, e) async => opened.add(e.id), financialAllowed: financial, api: _Api()),
+    SharedPreferences.setMockInitialValues({});
+    await tester.pumpWidget(ChangeNotifierProvider<SettingsProvider>(
+      create: (_) => SettingsProvider(fetch: () async => {}),
+      child: MaterialApp(
+        theme: dark ? DarkTheme.theme : LightTheme.theme,
+        builder: (context, child) => Directionality(textDirection: TextDirection.rtl, child: child!),
+        home: SettingsCenterScreen(opener: (_, e) async => opened.add(e.id), financialAllowed: financial, api: _Api()),
+      ),
     ));
     await tester.pumpAndSettle();
     return opened;
@@ -114,9 +121,8 @@ void main() {
     await tester.tap(find.byKey(const Key('settings-section-thisDevice')));
     await tester.pumpAndSettle();
     expect(find.textContaining('يُحفظ في هذا الجهاز وحده'), findsOneWidget);
-    await tester.tap(find.byKey(const Key('settings-entry-voucher_paper')));
-    await tester.pumpAndSettle();
-    expect(opened, ['voucher_paper']);
+    expect(find.byKey(const Key('settings-row-voucher_paper')), findsOneWidget, reason: 'edited here');
+    expect(opened, isEmpty);
     await tester.tap(find.byKey(const Key('settings-section-paymentsSafes')));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(find.byKey(const Key('settings-entry-payment_methods')), 200,

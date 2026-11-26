@@ -7,6 +7,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:frontend/settings/device_section_editor.dart';
 import 'package:frontend/settings/settings_editors.dart';
 import 'package:frontend/settings/settings_opener.dart';
 import 'package:frontend/settings/settings_registry.dart';
@@ -65,14 +66,25 @@ void main() {
     }
   });
 
-  test("every key saved on this device is in the registry, as this device's", () {
-    final s = _src('lib/screens/settings_screen_enhanced.dart');
-    final device = RegExp(r"static const String _\w+Key = '([^']+)';").allMatches(s).map((m) => m.group(1)!).toSet()
-      ..add('ui_show_gold_price_ticker_on_login_v1')
-      ..add('invoice_ui_settings_v1.global.paper_size');
-    for (final k in device) {
+  test("every key saved on this device is in the registry, as this device's, edited in the center alone", () {
+    final old = _src('lib/screens/settings_screen_enhanced.dart');
+    for (final k in deviceSettings.keys) {
       expect(byKey[k], isNotNull, reason: k);
       expect(byKey[k]!.scope, SettingScope.device, reason: k);
+      expect(byKey[k]!.section, SettingsSection.thisDevice, reason: k);
+      expect(byKey[k]!.legacyTab, isNull, reason: '$k: still pointed at the old tab');
+      expect(old.contains("'$k'"), isFalse, reason: '$k: the old screen still holds it');
+    }
+    for (final e in settingsRegistry.where((e) => e.kind == SettingKind.setting && e.scope == SettingScope.device)) {
+      expect(deviceSettings.containsKey(e.key), isTrue, reason: '${e.key}: a device setting with no editor');
+    }
+    expect(old.contains('SharedPreferences'), isFalse, reason: 'the old screen keeps nothing on the device');
+  });
+
+  // The owner, 26 Nov 2026: what nothing reads is not shown.
+  test('the printer settings no print read are gone', () {
+    for (final k in ['printer_auto_connect_v1', 'printer_show_preview_v1', 'printer_auto_cut_v1', 'printer_preferred_name_v1']) {
+      expect(byKey[k], isNull, reason: k);
     }
   });
 
@@ -99,7 +111,8 @@ void main() {
       expect(entriesOf(s), isNotEmpty, reason: s.name);
     }
     for (final e in settingsRegistry) {
-      expect(e.legacyTab != null || e.screen != null || movedSections.contains(e.section), isTrue, reason: e.id);
+      final edited = movedSections.contains(e.section) || (e.scope == SettingScope.device && deviceSettings.containsKey(e.key));
+      expect(e.legacyTab != null || e.screen != null || edited, isTrue, reason: e.id);
       if (e.kind == SettingKind.setting) expect(e.key, isNotNull, reason: e.id);
       if (e.screen != null) expect(settingsScreens.containsKey(e.screen), isTrue, reason: e.screen);
     }

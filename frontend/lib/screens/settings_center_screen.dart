@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../api_service.dart';
 import '../providers/auth_provider.dart';
+import '../settings/device_section_editor.dart';
 import '../settings/section_editor.dart';
 import '../widgets/app_leave_guard.dart';
 import '../settings/settings_editors.dart';
@@ -19,7 +20,11 @@ import '../theme/app_semantic_colors.dart';
 /// section's own page replaces them (phase 7). Every name and place is the
 /// registry's (lib/settings/settings_registry.dart).
 class SettingsCenterScreen extends StatefulWidget {
-  const SettingsCenterScreen({super.key, this.opener = openSettingEntry, this.financialAllowed, this.api});
+  const SettingsCenterScreen(
+      {super.key, this.opener = openSettingEntry, this.financialAllowed, this.api, this.initialSection});
+
+  /// The section it opens on («إعدادات الطابعة» opens «هذا الجهاز»).
+  final SettingsSection? initialSection;
 
   final SettingsOpener opener;
 
@@ -42,6 +47,17 @@ class _SettingsCenterScreenState extends State<SettingsCenterScreen> {
   late final ApiService _api = widget.api ?? ApiService();
 
   @override
+  void initState() {
+    super.initState();
+    final initial = widget.initialSection;
+    if (initial != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _openSection(initial, wide: MediaQuery.sizeOf(context).width >= 1000);
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _query.dispose();
     super.dispose();
@@ -60,7 +76,9 @@ class _SettingsCenterScreenState extends State<SettingsCenterScreen> {
 
   /// A section's page: edited here when it has moved into the center, else
   /// what is set in it and where (phase 6).
-  Widget _sectionBody(SettingsSection s, {String? highlight, Key? key}) => movedSections.contains(s)
+  Widget _sectionBody(SettingsSection s, {String? highlight, Key? key}) => s == SettingsSection.thisDevice
+      ? DeviceSectionEditor(highlight: highlight)
+      : movedSections.contains(s)
       ? SectionEditor(key: key, section: s, api: _api, financialAllowed: _financial, highlight: highlight,
           opener: widget.opener)
       : SectionEntries(section: s, opener: widget.opener, financialAllowed: _financial);
@@ -87,7 +105,7 @@ class _SettingsCenterScreenState extends State<SettingsCenterScreen> {
 
   /// A setting of a moved section opens on its row, here; anything else where it is set.
   void _openEntry(SettingEntry e) {
-    if (e.kind == SettingKind.setting && movedSections.contains(e.section)) {
+    if (e.kind == SettingKind.setting && (movedSections.contains(e.section) || e.section == SettingsSection.thisDevice)) {
       _openSection(e.section, wide: MediaQuery.sizeOf(context).width >= 1000, highlight: e.id);
     } else {
       widget.opener(context, e);

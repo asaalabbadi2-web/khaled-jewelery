@@ -67,18 +67,15 @@ void main() {
   });
 
   test("the settings' invoice paper is the one the invoices print on", () {
-    final s = _src('lib/screens/settings_screen_enhanced.dart');
+    final s = _src('lib/settings/device_section_editor.dart');
     expect(s.contains("'invoice_paper_size'"), isFalse, reason: 'the key no print reads is not written');
     expect(s.contains('InvoiceUiSettings.setPaperSize('), isTrue);
+    expect(_src('lib/screens/settings_screen_enhanced.dart').contains("'invoice_paper_size'"), isFalse);
   });
 
-  test('«إعدادات الطابعة» opens the printing tab', () {
-    final s = _src('lib/screens/settings_screen_enhanced.dart');
-    final tabs = RegExp(r"Tab\(icon: Icon\(Icons\.\w+\), text: '([^']+)'\)").allMatches(s).map((m) => m.group(1)).toList();
-    final index = int.parse(RegExp(r'static const int printingTabIndex = (\d+);').firstMatch(s)!.group(1)!);
-    expect(tabs[index], 'الطباعة');
+  test('«إعدادات الطابعة» opens «هذا الجهاز» in the settings center', () {
     final home = _src('lib/screens/home_screen_enhanced.dart');
     final entry = home.substring(home.indexOf("'إعدادات الطابعة'"), home.indexOf("'إعدادات الطابعة'") + 600);
-    expect(entry.contains('SettingsScreenEnhanced.printingTabIndex'), isTrue);
+    expect(entry.contains('SettingsCenterScreen(initialSection: SettingsSection.thisDevice)'), isTrue);
   });
 }
