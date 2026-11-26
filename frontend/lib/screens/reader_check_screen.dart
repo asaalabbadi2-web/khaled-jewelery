@@ -79,13 +79,13 @@ class _ReaderCheckScreenState extends State<ReaderCheckScreen> {
   Future<void> _ask(String value) async {
     ({bool counted, String words}) said;
     try {
-      final body = value.startsWith('KJ-') ? await _api.lookupPiece(value) : await _api.pieceByTag(value);
+      final body = ReaderCapture.isPrintedCode(value) ? await _api.lookupPiece(value) : await _api.pieceByTag(value);
       final piece = body['piece'] as Map<String, dynamic>;
       final where = (body['location'] as Map?)?['name'];
       said = (
         counted: true,
         words: '${piece['item_code']}${where == null ? '' : ' — $where'}'
-            '${value.startsWith('KJ-') ? ' — الرمز المطبوع' : ' — رقاقة معتمدة'}',
+            '${ReaderCapture.isPrintedCode(value) ? ' — الرمز المطبوع' : ' — رقاقة معتمدة'}',
       );
     } on ApiException catch (e) {
       said = (counted: false, words: e.message);

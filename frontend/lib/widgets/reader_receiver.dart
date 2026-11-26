@@ -1,10 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 
 import '../theme/app_semantic_colors.dart';
 import 'reader_capture.dart';
+import 'reader_door.dart';
 
 /// «استقبال القارئ» (the owner, 21 Nov 2026: «ما فائدة الحقل إذا كان لا يحمل
 /// قيمة؟»): the handheld reader types each tag into the focused text field
@@ -58,37 +58,32 @@ class ReaderReceiver extends StatefulWidget {
   State<ReaderReceiver> createState() => _ReaderReceiverState();
 }
 
-class _ReaderReceiverState extends State<ReaderReceiver> with AutomaticKeepAliveClientMixin {
+class _ReaderReceiverState extends State<ReaderReceiver>
+    with AutomaticKeepAliveClientMixin, ReaderDoorFocus<ReaderReceiver> {
   @override
   bool get wantKeepAlive => true;
+
+  @override
+  FocusNode get doorNode => widget.focusNode;
+
+  @override
+  bool get doorHoldsFocus => true;
 
   /// What the panel shows: heard, unless unheard for [unheardAfter].
   bool _heard = true;
   Timer? _unheard;
 
   @override
-  void initState() {
-    super.initState();
-    widget.focusNode.addListener(_changed);
-    FocusManager.instance.addListener(_anyChanged);
-  }
-
-  @override
   void dispose() {
     _unheard?.cancel();
-    widget.focusNode.removeListener(_changed);
-    FocusManager.instance.removeListener(_anyChanged);
     super.dispose();
   }
-
-  /// How long after losing its focus the panel takes it back.
-  static const back = Duration(milliseconds: 150);
 
   /// How long unheard before it is shown so.
   static const unheardAfter = Duration(seconds: 1);
 
-  void _changed() {
-    if (!mounted) return;
+  @override
+  void doorFocusChanged() {
     if (widget.focusNode.hasFocus) {
       _unheard?.cancel();
       if (!_heard) setState(() => _heard = true);
@@ -98,31 +93,10 @@ class _ReaderReceiverState extends State<ReaderReceiver> with AutomaticKeepAlive
     _unheard = Timer(unheardAfter, () {
       if (mounted && !widget.focusNode.hasFocus) setState(() => _heard = false);
     });
-    _takeBackSoon();
-  }
-
-  /// The focus moved anywhere: to nothing, it is the panel's again.
-  void _anyChanged() {
-    if (!mounted || widget.focusNode.hasFocus) return;
-    _takeBackSoon();
-  }
-
-  void _takeBackSoon() {
-    Future<void>.delayed(back, () {
-      if (!mounted || widget.focusNode.hasFocus) return;
-      if (ModalRoute.of(context)?.isCurrent == false) return; // a dialog over it keeps its own field
-      if (_typingElsewhere()) return; // a field the user chose keeps it
-      widget.focusNode.requestFocus();
-    });
-  }
-
-  static bool _typingElsewhere() {
-    final focused = FocusManager.instance.primaryFocus?.context;
-    return focused != null && focused.findAncestorWidgetOfExactType<EditableText>() != null;
   }
 
   /// The door the reader comes in by: a real field, not seen, its taps the panel's.
-  Widget _door() => _StayPut(
+  Widget _door() => StayPut(
     child: Opacity(
       opacity: 0,
       child: TextField(
@@ -242,22 +216,4 @@ class _ReaderReceiverState extends State<ReaderReceiver> with AutomaticKeepAlive
       ),
     );
   }
-}
-
-/// Its field's «show me» stops here: the panel never scrolls the screen to itself.
-class _StayPut extends SingleChildRenderObjectWidget {
-  const _StayPut({required super.child});
-
-  @override
-  RenderObject createRenderObject(BuildContext context) => _RenderStayPut();
-}
-
-class _RenderStayPut extends RenderProxyBox {
-  @override
-  void showOnScreen({
-    RenderObject? descendant,
-    Rect? rect,
-    Duration duration = Duration.zero,
-    Curve curve = Curves.ease,
-  }) {}
 }

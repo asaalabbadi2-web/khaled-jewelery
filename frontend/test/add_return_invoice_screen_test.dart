@@ -13,6 +13,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/fake_sales_api.dart';
+import 'support/reader_door.dart';
 import 'support/shots.dart';
 
 /// RETURN-LIMIT-1 (the owner, 8 Oct 2026): a return gives back what was sold
@@ -315,8 +316,10 @@ void main() {
       expect((pieceId, body['kind'], body['run']), (43, 'reprint', true));
     });
 
-    // The owner's rehearsal, 23 Nov 2026: the focus where the reader types, no tap between pieces.
-    testWidgets('the reader reads one piece after another: the focus moves itself', (tester) async {
+    // The owner, 26 Nov 2026: the focus moved from row to row opened the keyboard and pulled the screen
+    // each time, and a label read before the last was answered fell into the wrong row. One door for
+    // them all: each label read goes to its own piece's row, in any order, nothing moving.
+    testWidgets('one door for every piece: each label to its row, in any order, nothing moving', (tester) async {
       final api = FakeSalesApi(invoices: {10: original}, returnLines: {
         10: {
           'invoice_id': 10, 'returned_before': false, 'refundable': 1000.0,
@@ -328,19 +331,36 @@ void main() {
           ],
         },
       })
-        ..activeTags = {'4B4A00010000000000000007': 'KJ-000007', '4B4A00010000000000000008': 'KJ-000008'};
+        ..activeTags = {
+          '4B4A00010000000000000007': 'KJ-000007',
+          '4B4A00010000000000000008': 'KJ-000008',
+          '4B4A00010000000000000009': 'KJ-000009',
+        };
       await open(tester, api: api);
-      bool focused(String key) => tester
-          .widget<EditableText>(find.descendant(of: find.byKey(Key(key)), matching: find.byType(EditableText)))
-          .focusNode
-          .hasFocus;
-      expect(focused('return-tag-100'), isTrue, reason: 'the first piece, at once');
-      await tester.enterText(find.byKey(const Key('return-tag-100')), '4B4A00010000000000000008');
+      String row(String id) => tester.widget<Text>(find.byKey(Key('return-tag-$id-state'))).data!;
+      String door() => tester.widget<Text>(find.byKey(const Key('return-labels-scan-state'))).data!;
+      expect(focused(tester, 'return-labels-scan'), isTrue, reason: 'the reader is heard at once');
+      expect(asksNoKeyboard(tester), isTrue, reason: 'no keyboard');
+      await readerTypes(tester, 'return-labels-scan', '4B4A00010000000000000008');   // the second first
+      expect(row('101'), startsWith('رقاقة القطعة — تعود ببطاقتها'));
+      await readerTypes(tester, 'return-labels-scan', '4B4A00010000000000000007');
+      expect(row('100'), startsWith('رقاقة القطعة — تعود ببطاقتها'));
+      expect(focused(tester, 'return-labels-scan'), isTrue, reason: 'the door stays the door');
+      await tester.pump(const Duration(seconds: 1));                     // a second later, the same label again
+      await readerTypes(tester, 'return-labels-scan', '4B4A00010000000000000007');
+      expect(door(), contains('قُرئت بطاقة KJ-000007 من قبل'));
+      await readerTypes(tester, 'return-labels-scan', '4B4A00010000000000000009');
+      expect(door(), contains('KJ-000009 ليست من قطع هذا المرتجع'));
+      await reason(tester);
+      await pay(tester, 1);
+      await tester.tap(reverseButton());
       await tester.pumpAndSettle();
-      expect(focused('return-tag-100'), isTrue, reason: 'not its label: read again here');
-      await tester.enterText(find.byKey(const Key('return-tag-100')), '4B4A00010000000000000007');
+      await tester.tap(find.text('عكس وحفظ'));
       await tester.pumpAndSettle();
-      expect(focused('return-tag-101'), isTrue, reason: 'said: the next piece takes the focus');
+      expect(api.reversed.single['tags'], {
+        '100': {'value': '4B4A00010000000000000007'},
+        '101': {'value': '4B4A00010000000000000008'},
+      });
     });
 
     testWidgets('it asks the server to reverse it, sending no amounts of its '
@@ -657,6 +677,35 @@ void main() {
 
     String said(WidgetTester tester) => tester.widget<Text>(find.byKey(const Key('return-tag-100-state'))).data!;
 
+    testWidgets('in a part returned, a piece not chosen is said, not chosen for the user', (tester) async {
+      final api = FakeSalesApi(invoices: {10: original}, returnLines: {
+        10: {
+          'invoice_id': 10, 'returned_before': false, 'refundable': 1000.0,
+          'lines': [
+            for (final (id, code) in [(100, 'KJ-000007'), (101, 'KJ-000008')])
+              {'id': id, 'name': 'بنجرة', 'karat': 21, 'sold_grams': 1.0, 'remaining_grams': 1.0,
+               'sold_pieces': 1, 'remaining_pieces': 1, 'sold_amount': 500.0, 'remaining_amount': 500.0,
+               'item_id': id - 57, 'item_code': code, 'is_piece': true},
+          ],
+        },
+      })
+        ..activeTags = {'4B4A00010000000000000007': 'KJ-000007', '4B4A00010000000000000008': 'KJ-000008'};
+      await open(tester, api: api);
+      await tester.tap(find.text('إرجاع جزء فقط'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(CheckboxListTile).last);         // KJ-000008 stays sold
+      await tester.pumpAndSettle();
+      expect(asksNoKeyboard(tester), isTrue);
+      await readerTypes(tester, 'return-labels-scan', '4B4A00010000000000000008');
+      expect(tester.widget<Text>(find.byKey(const Key('return-labels-scan-state'))).data,
+          contains('KJ-000008 ليست ضمن المرتجع'));
+      expect(tester.widget<CheckboxListTile>(find.byType(CheckboxListTile).last).value, isFalse,
+          reason: 'what is returned is the user\'s to choose');
+      await readerTypes(tester, 'return-labels-scan', '4B4A00010000000000000007');
+      expect(tester.widget<Text>(find.byKey(const Key('return-tag-100-state'))).data,
+          startsWith('رقاقة القطعة — تعود ببطاقتها'));
+    });
+
     testWidgets('a piece does not come back with its label unsaid', (tester) async {
       final api = await open(tester, api: pieceSold());
       await lineOf(tester);
@@ -674,11 +723,11 @@ void main() {
     testWidgets('its own tag, read by the reader with no Enter: it comes back with its label', (tester) async {
       final api = await open(tester, api: pieceSold());
       await lineOf(tester);
-      await tester.enterText(find.byKey(const Key('return-tag-100')), '4B4A00010000000000000008');
-      await tester.pumpAndSettle();
-      expect(said(tester), contains('KJ-000008'), reason: 'another piece\'s tag is never taken');
-      await tester.enterText(find.byKey(const Key('return-tag-100')), '4B4A00010000000000000007');
-      await tester.pumpAndSettle();
+      await readerTypes(tester, 'return-labels-scan', '4B4A00010000000000000008');
+      expect(tester.widget<Text>(find.byKey(const Key('return-labels-scan-state'))).data, contains('KJ-000008'),
+          reason: 'another piece\'s tag is never taken');
+      expect(said(tester), contains('لم تُقرأ بعد'));
+      await readerTypes(tester, 'return-labels-scan', '4B4A00010000000000000007');
       expect(said(tester), startsWith('رقاقة القطعة — تعود ببطاقتها'));
       expect(said(tester), allOf(contains('12.40'), contains('بنجرة الشمس')), reason: 'what is in the hand');
       await toReview(tester);
@@ -690,8 +739,7 @@ void main() {
     testWidgets('its printed number typed: its tag read by the first count', (tester) async {
       final api = await open(tester, api: pieceSold());
       await lineOf(tester);
-      await tester.enterText(find.byKey(const Key('return-tag-100')), 'KJ-000007');
-      await tester.pumpAndSettle();
+      await typeByHand(tester, 'return-labels-scan', 'KJ-000007');
       expect(said(tester), 'الرقم المطبوع للقطعة — تُقرأ رقاقتها في أول جرد بالمسح');
       await toReview(tester);
       final line = ((await save(tester, api))['items'] as List).single as Map;

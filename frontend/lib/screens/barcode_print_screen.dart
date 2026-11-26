@@ -11,6 +11,7 @@ import 'package:printing/printing.dart';
 import '../utils.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/app_state_views.dart';
+import '../widgets/reader_capture.dart';
 
 /// A barcode label for an item that is NOT a piece -- a PDF sheet of
 /// 50 x 30 mm labels for an ordinary printer.
@@ -34,7 +35,7 @@ class BarcodePrintScreen extends StatefulWidget {
   });
 
   /// A piece's number: its label is the print engine's, not this screen's.
-  static final piece = RegExp(r'^KJ-\d{6,}$');
+  static bool isPiece(String code) => ReaderCapture.isPrintedCode(code);
 
   @override
   State<BarcodePrintScreen> createState() => _BarcodePrintScreenState();
@@ -47,7 +48,7 @@ class _BarcodePrintScreenState extends State<BarcodePrintScreen> {
   bool _showKarat = true;
 
   bool get _isPiece =>
-      BarcodePrintScreen.piece.hasMatch(widget.itemCode) || BarcodePrintScreen.piece.hasMatch(widget.barcode);
+      BarcodePrintScreen.isPiece(widget.itemCode) || BarcodePrintScreen.isPiece(widget.barcode);
 
   @override
   Widget build(BuildContext context) {

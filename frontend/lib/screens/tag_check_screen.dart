@@ -97,7 +97,7 @@ class _TagCheckScreenState extends State<TagCheckScreen> {
     setState(() => _asking++);
     TagCheck check;
     try {
-      final body = value.startsWith('KJ-') ? await _api.lookupPiece(value) : await _api.pieceByTag(value);
+      final body = ReaderCapture.isPrintedCode(value) ? await _api.lookupPiece(value) : await _api.pieceByTag(value);
       check = (
         value: value,
         piece: body['piece'] as Map<String, dynamic>?,
@@ -262,7 +262,7 @@ class _TagCheckScreenState extends State<TagCheckScreen> {
           ],
           if (adopted) ...[
             const SizedBox(height: 4),
-            Text(c.value.startsWith('KJ-') ? 'الرمز المطبوع' : 'رقاقة معتمدة',
+            Text(ReaderCapture.isPrintedCode(c.value) ? 'الرمز المطبوع' : 'رقاقة معتمدة',
                 key: Key('check-tag-${c.value}'), style: muted),
           ],
           if (unsettled) ...[

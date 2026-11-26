@@ -6,6 +6,7 @@ import '../api_service.dart';
 import '../theme/app_semantic_colors.dart';
 import 'app_feedback.dart';
 import 'confirm_financial_action.dart';
+import 'reader_capture.dart';
 
 /// A piece's label, one way everywhere (ADR-097 law 5): the coding station
 /// and «القطع» ask through this -- the first print, «تسجيل فقط», a run of a
@@ -329,12 +330,10 @@ class ResolveLabelDialog extends StatefulWidget {
 class _ResolveLabelDialogState extends State<ResolveLabelDialog> {
   final _read = TextEditingController();
 
-  /// The tag's value as the reader types it: 24 characters, 0-9 and A-F.
-  /// Only its shape is checked here -- the match is the server's, which never
-  /// sends the value it expects to be copied off this screen (the owner,
-  /// 20 Nov 2026).
-  static final _shape = RegExp(r'^[0-9A-F]{24}$');
-
+  /// The tag's value as the reader types it: 24 characters, 0-9 and A-F
+  /// ([ReaderCapture.isTagShaped]). Only its shape is checked here -- the
+  /// match is the server's, which never sends the value it expects to be
+  /// copied off this screen (the owner, 20 Nov 2026).
   String get _value => _read.text.replaceAll(RegExp(r'\s'), '').toUpperCase();
 
   @override
@@ -344,7 +343,7 @@ class _ResolveLabelDialogState extends State<ResolveLabelDialog> {
   }
 
   void _adopt() {
-    if (!_shape.hasMatch(_value)) return;
+    if (!ReaderCapture.isTagShaped(_value)) return;
     Navigator.of(context).pop({'read_value': _value});
   }
 
@@ -377,7 +376,7 @@ class _ResolveLabelDialogState extends State<ResolveLabelDialog> {
   @override
   Widget build(BuildContext context) {
     final value = _value;
-    final ready = _shape.hasMatch(value);
+    final ready = ReaderCapture.isTagShaped(value);
     final wrong = value.isNotEmpty && RegExp(r'[^0-9A-F]').hasMatch(value);
     return Directionality(
       textDirection: TextDirection.rtl,

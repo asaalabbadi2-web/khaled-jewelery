@@ -131,7 +131,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
   void _readerRead(List<ReaderEvent> events) {
     for (final e in events) {
       final value = e.value;
-      if (e.kind == 'read' && value != null && value.startsWith('KJ-')) _scanned(value);
+      if (e.kind == 'read' && value != null && ReaderCapture.isPrintedCode(value)) _scanned(value);
     }
   }
   final _customAmountController = TextEditingController(); // 🆕 للمبلغ المخصص
@@ -1548,11 +1548,6 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
     }
   }
 
-  /// A label's printed code whole, wherever it is in the field (as
-  /// ReaderCapture reads it): the handheld reader types it in and its Enter
-  /// never reaches the field (the owner, 22 Nov 2026) -- so it is taken as it
-  /// comes, the field emptied for the next one.
-  static final pieceCodeScanned = RegExp(r'KJ-\d{6,}', caseSensitive: false);
 
   /// The same code read again this soon is the reader's button held on one
   /// label, not a second sale of it: said nothing.
@@ -1560,8 +1555,12 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2>
   final Stopwatch _sinceScanned = Stopwatch();
   String? _lastScanned;
 
+  /// A label's printed code whole, wherever it is in the field
+  /// ([ReaderCapture.printedCodesIn]): the handheld reader types it in and its
+  /// Enter never reaches the field (the owner, 22 Nov 2026) -- so it is taken
+  /// as it comes, the field emptied for the next one.
   void _smartInputChanged(String value) {
-    final codes = [for (final m in pieceCodeScanned.allMatches(value)) m.group(0)!.toUpperCase()];
+    final codes = ReaderCapture.printedCodesIn(value);
     if (codes.isEmpty) {
       setState(() {});
       return;

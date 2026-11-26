@@ -64,6 +64,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(receiver.hasFocus, isTrue, reason: 'nothing held the focus: the reader\'s door again');
     await tester.enterText(find.byKey(const Key('rx')), 'KJ-000005');
+    await tester.pump(ReaderCapture.quiet);           // a printed number at the end: whole once the reader is quiet
     await tester.pumpAndSettle();
     expect(read, ['KJ-000005']);
   });
@@ -151,6 +152,7 @@ void main() {
             && w.key != const Key('reader-receiver-dot'))), findsNothing, reason: 'no filled circle like the buttons');
     expect(tester.getSize(find.byKey(const Key('reader-receiver'))).width, lessThanOrEqualTo(48), reason: 'one icon');
     await tester.enterText(find.byKey(const Key('rx')), 'KJ-000005');
+    await tester.pump(ReaderCapture.quiet);           // a printed number at the end: whole once the reader is quiet
     await tester.pumpAndSettle();
     expect(read, ['KJ-000005']);
   });

@@ -4,6 +4,8 @@ import '../api_service.dart';
 import '../theme/app_semantic_colors.dart';
 import '../utils/bidi.dart';
 import '../utils/currency_utils.dart' show formatGrams;
+import 'reader_capture.dart';
+import 'scan_field.dart';
 
 /// A returned piece's label, as the return will say it to the server.
 class ReturnLabel {
@@ -12,185 +14,133 @@ class ReturnLabel {
       : value = null,
         missing = true;
 
-  /// Its tag or its printed number, as read or typed.
+  /// Its tag, or its printed number.
   final String? value;
   final bool missing;
 
   Map<String, dynamic> toPayload() => missing ? {'missing': true} : {'value': value};
 }
 
-/// «بطاقة القطعة» in a sale return (ADR-097, the sale return; the owner,
-/// 23 Nov 2026: «الزبون قد يتلف البطاقة»): the reader decides, not a person.
-/// Its tag read (the reader types it here, with no Enter needed) or its
-/// printed number typed is asked of the server at once -- this piece's, and
-/// which: its active tag (it comes back with its label), or its paper alone
-/// (its tag read by the first count). Or «البطاقة مفقودة أو تالفة»: a label
-/// printed again after the return is saved. Anything else, the server's words.
-/// [onSettled] says what the return sends -- null while unsettled.
-class ReturnLabelField extends StatefulWidget {
-  const ReturnLabelField({
-    super.key,
-    required this.api,
-    required this.itemCode,
-    required this.onSettled,
-    required this.keyBase,
-    this.focusNode,
-    this.autofocus = false,
-  });
+/// A piece of the return as the door sees it: its number, whether it is returned, its label so far.
+typedef ReturnLabelTarget = ({String itemCode, bool chosen, ReturnLabel? label});
 
-  /// The screen's: it moves the focus to the next piece once this one is said
-  /// (the owner's rehearsal, 23 Nov 2026: the reader needs no tap between pieces).
-  final FocusNode? focusNode;
-  final bool autofocus;
+/// «بطاقات القطع المرتجعة» -- one door for every piece of a sale return (ADR-097, the sale return; the
+/// owner, 26 Nov 2026). A field a row moved the focus from row to row: the keyboard opened and the
+/// screen was pulled each time, and a label read before the last was answered fell into the wrong
+/// row. Here each label read -- its tag, or its printed number -- is asked of the server and goes to
+/// its own piece's row, in any order, nothing moving ([ScanField]):
+///
+/// - its active tag: it comes back with its label; its paper alone: its tag read by the first count;
+/// - a piece not of this return, one not chosen in a part returned -- not chosen for the user, what
+///   is returned is theirs to choose -- or one already read: said, nothing changed.
+///
+/// «البطاقة مفقودة أو تالفة» is each row's ([ReturnLabelState]).
+class ReturnLabelsScan extends StatelessWidget {
+  const ReturnLabelsScan({super.key, required this.api, required this.targets, required this.onRead});
 
   final ApiService api;
-  final String itemCode;
-  final ValueChanged<ReturnLabel?> onSettled;
-  /// Its parts' keys: the field is [keyBase], its chip `keyBase-missing`, its words `keyBase-state`.
-  final String keyBase;
 
-  /// A whole value as the reader types it: a tag (24 hexadecimal) or a printed number.
-  static final whole = RegExp(r'^([0-9A-Fa-f]{24}|[Kk][Jj]-?[0-9]{6,})$');
+  /// The pieces as they are when a label is read.
+  final List<ReturnLabelTarget> Function() targets;
+
+  /// A piece's label read: its number, its label, what is said on its row.
+  final void Function(String itemCode, ReturnLabel label, String words) onRead;
+
+  Future<ScanSaid> _read(String value, {required bool typed}) async {
+    final tag = ReaderCapture.isTag(value);
+    final Map<String, dynamic> body;
+    try {
+      body = tag ? await api.pieceByTag(value) : await api.lookupPiece(value);
+    } on ApiException catch (e) {
+      return (ok: false, words: isolateLatin(e.message));
+    }
+    final piece = (body['piece'] as Map?) ?? const {};
+    final code = '${piece['item_code'] ?? ''}';
+    final target = targets().where((t) => t.itemCode == code).firstOrNull;
+    if (target == null) return (ok: false, words: 'القطعة $code ليست من قطع هذا المرتجع');
+    if (!target.chosen) {
+      return (ok: false, words: 'القطعة $code ليست ضمن المرتجع — اخترها أولًا إن كانت تُرجَع');
+    }
+    if (target.label != null && !target.label!.missing) {
+      return (ok: false, words: 'قُرئت بطاقة $code من قبل');
+    }
+    // what is in the hand, at a glance: its weight and its model (the owner's rehearsal, 23 Nov 2026)
+    final weight = piece['weight'] as num?;
+    final model = (piece['model'] as Map?)?['name'];
+    final seen = [
+      if (weight != null) '${formatGrams(weight, decimals: 2)} جم',
+      if (model != null) '$model',
+    ].join(' · ');
+    final also = seen.isEmpty ? '' : ' · $seen';
+    final words = tag
+        ? isolateLatin('رقاقة القطعة — تعود ببطاقتها$also')
+        : isolateLatin('الرقم المطبوع للقطعة — تُقرأ رقاقتها في أول جرد بالمسح$also');
+    // a printed number typed as «7» is said to the server as the piece's own number
+    onRead(code, ReturnLabel.read(tag ? value.toUpperCase() : code), words);
+    return (ok: true, words: 'قُرئت بطاقة $code');
+  }
 
   @override
-  State<ReturnLabelField> createState() => _ReturnLabelFieldState();
+  Widget build(BuildContext context) => ScanField(
+        keyBase: 'return-labels-scan',
+        label: 'بطاقات القطع المرتجعة',
+        hint: 'امسح بطاقة كل قطعة بالقارئ، بأي ترتيب',
+        onValue: _read,
+      );
 }
 
-class _ReturnLabelFieldState extends State<ReturnLabelField> {
-  final _field = TextEditingController();
-  bool _missing = false;
-  bool _asking = false;
-  String? _words;
-  bool? _ok;
-  int _asked = 0;
+/// A returned piece's label on its row: unread, read -- and how -- or «البطاقة مفقودة أو تالفة»,
+/// printed again after the return is saved. Its parts' keys: words `keyBase-state`, its chip
+/// `keyBase-missing`.
+class ReturnLabelState extends StatelessWidget {
+  const ReturnLabelState({
+    super.key,
+    required this.keyBase,
+    required this.itemCode,
+    required this.label,
+    required this.words,
+    required this.onMissing,
+  });
 
-  @override
-  void dispose() {
-    _field.dispose();
-    super.dispose();
-  }
+  final String keyBase;
+  final String itemCode;
+  final ReturnLabel? label;
 
-  void _settle(ReturnLabel? label, {required String words, required bool ok}) {
-    setState(() {
-      _words = words;
-      _ok = ok;
-      _asking = false;
-    });
-    widget.onSettled(label);
-  }
-
-  Future<void> _check(String typed) async {
-    final value = typed.trim();
-    if (value.isEmpty) return;
-    final asked = ++_asked;
-    setState(() => _asking = true);
-    widget.onSettled(null);
-    final tag = RegExp(r'^[0-9A-Fa-f]{24}$').hasMatch(value);
-    try {
-      final body = tag ? await widget.api.pieceByTag(value) : await widget.api.lookupPiece(value);
-      if (!mounted || asked != _asked) return;
-      final piece = (body['piece'] as Map?) ?? const {};
-      final code = '${piece['item_code'] ?? ''}';
-      // what is in the hand, at a glance: its weight and its model (the owner's rehearsal, 23 Nov 2026)
-      final weight = piece['weight'] as num?;
-      final model = (piece['model'] as Map?)?['name'];
-      final seen = [
-        if (weight != null) '${formatGrams(weight, decimals: 2)} جم',
-        if (model != null) '$model',
-      ].join(' · ');
-      final also = seen.isEmpty ? '' : ' · $seen';
-      if (code != widget.itemCode) {
-        _settle(null, words: isolateLatin('البطاقة لقطعة أخرى ($code)، لا للقطعة ${widget.itemCode}'), ok: false);
-        _again();
-      } else if (tag) {
-        _settle(ReturnLabel.read(value), words: isolateLatin('رقاقة القطعة — تعود ببطاقتها$also'), ok: true);
-      } else {
-        _settle(ReturnLabel.read(value),
-            words: isolateLatin('الرقم المطبوع للقطعة — تُقرأ رقاقتها في أول جرد بالمسح$also'), ok: true);
-      }
-    } on ApiException catch (e) {
-      if (!mounted || asked != _asked) return;
-      _settle(null, words: isolateLatin(e.message), ok: false);
-      _again();
-    } catch (_) {
-      if (!mounted || asked != _asked) return;
-      _settle(null, words: 'تعذّر التحقق من البطاقة — أعد المسح', ok: false);
-      _again();
-    }
-  }
-
-  /// Not its label: the field emptied and kept, the next press read here.
-  void _again() {
-    _field.clear();
-    widget.focusNode?.requestFocus();
-  }
+  /// What the door said of its label when read.
+  final String? words;
+  final ValueChanged<bool> onMissing;
 
   @override
   Widget build(BuildContext context) {
     final tones = AppSemanticColors.of(context);
     final theme = Theme.of(context);
-    final tone = _missing ? tones.info : (_ok == true ? tones.ready : tones.blocked);
-    final words = _missing ? 'تُطبع للقطعة بطاقة جديدة بعد حفظ المرتجع' : _words;
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Expanded(
-          child: TextField(
-            key: Key(widget.keyBase),
-            controller: _field,
-            focusNode: widget.focusNode,
-            autofocus: widget.autofocus,
-            enabled: !_missing,
-            textDirection: TextDirection.ltr,
-            decoration: InputDecoration(
-              labelText: 'بطاقة القطعة ${ltrIsolate(widget.itemCode)}',
-              hintText: 'امسحها بالقارئ أو اكتب رقمها',
-              prefixIcon: const Icon(Icons.sensors),
-              suffixIcon: _asking
-                  ? const Padding(
-                      padding: EdgeInsets.all(12),
-                      child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
-                    )
-                  : null,
-              border: const OutlineInputBorder(),
-            ),
-            // the reader types a whole value with no Enter reaching the field
-            onChanged: (v) {
-              if (ReturnLabelField.whole.hasMatch(v.trim())) _check(v);
-            },
-            onSubmitted: _check,
-          ),
-        ),
-        const SizedBox(width: 8),
-        FilterChip(
-          key: Key('${widget.keyBase}-missing'),
-          label: const Text('البطاقة مفقودة أو تالفة'),
-          selected: _missing,
-          onSelected: (v) {
-            _asked++;
-            setState(() {
-              _missing = v;
-              _field.clear();
-              _words = null;
-              _ok = null;
-              _asking = false;
-            });
-            widget.onSettled(v ? const ReturnLabel.missing() : null);
-          },
-        ),
-      ]),
-      if (words != null) ...[
-        const SizedBox(height: 6),
-        Row(children: [
-          Icon(_missing ? Icons.print_outlined : (_ok == true ? Icons.verified_outlined : Icons.block),
+    final label = this.label;
+    final missing = label?.missing == true;
+    final read = label != null && !missing;
+    final tone = missing ? tones.info : (read ? tones.ready : tones.warning);
+    final said = missing
+        ? 'تُطبع للقطعة بطاقة جديدة بعد حفظ المرتجع'
+        : (read ? (words ?? 'قُرئت بطاقتها') : isolateLatin('بطاقة القطعة $itemCode لم تُقرأ بعد'));
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 8,
+      runSpacing: 4,
+      children: [
+        Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(missing ? Icons.print_outlined : (read ? Icons.verified_outlined : Icons.sensors),
               size: 18, color: tone.fg),
           const SizedBox(width: 6),
-          Expanded(
-            child: Text(words,
-                key: Key('${widget.keyBase}-state'),
-                style: theme.textTheme.bodySmall?.copyWith(color: tone.fg)),
+          Flexible(
+            child: Text(said, key: Key('$keyBase-state'), style: theme.textTheme.bodySmall?.copyWith(color: tone.fg)),
           ),
         ]),
+        FilterChip(
+          key: Key('$keyBase-missing'),
+          label: const Text('البطاقة مفقودة أو تالفة'),
+          selected: missing,
+          onSelected: onMissing,
+        ),
       ],
-    ]);
+    );
   }
 }

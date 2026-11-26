@@ -41,6 +41,8 @@ import '../utils/currency_utils.dart';
 import '../utils/invoice_saved_facts.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/app_shortcuts.dart';
+import '../widgets/reader_capture.dart';
+import '../widgets/scan_field.dart';
 
 enum _PurchaseSettlementMode { credit, barter, partial }
 
@@ -849,12 +851,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
   /// في المرتجع المسح»): none is on the return until it is scanned -- what goes
   /// back is what was scanned. The server judges each again.
   List<PurchaseInlineItem> _returnablePieces = [];
-  final _returnScan = TextEditingController();
-  final _returnScanFocus = FocusNode();
-  String? _returnScanWords;
-  bool _returnScanOk = false;
-  int _returnScanAsked = 0;
-  static final _wholeScan = RegExp(r'^([0-9A-Fa-f]{24}|[Kk][Jj]-?[0-9]{6,})$');
+  /// Its scan's turn: another original, another scan, its words gone with it.
+  int _returnScanTurn = 0;
 
   double _totalWeight = 0;
   double _goldSubtotal = 0;
@@ -1691,8 +1689,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
 
   @override
   void dispose() {
-    _returnScan.dispose();
-    _returnScanFocus.dispose();
     stopDraftAutosave();
     stopLiveGoldPrices();
     _previewTimer?.cancel();
@@ -3498,7 +3494,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
         _branchError = null;
         _inlineItems = mapped;
         _returnablePieces = returnable;
-        _returnScanWords = null;
+        _returnScanTurn++;
         _applyCombinedTotals(inlineItems: mapped);
       });
 
@@ -4249,81 +4245,43 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen>
 
   /// A piece scanned for the return: its tag or its printed number, asked of
   /// the server, then found among the original's pieces still in the stock.
-  Future<void> _scanReturnPiece(String typed) async {
-    final value = typed.trim();
-    if (value.isEmpty) return;
-    final asked = ++_returnScanAsked;
-    String? code;
-    String? refused;
+  Future<ScanSaid> _scanReturnPiece(String value, {required bool typed}) async {
+    String code;
     try {
-      final tag = RegExp(r'^[0-9A-Fa-f]{24}$').hasMatch(value);
-      final body = tag ? await _api.pieceByTag(value) : await _api.lookupPiece(value);
+      final body = ReaderCapture.isTag(value) ? await _api.pieceByTag(value) : await _api.lookupPiece(value);
       code = '${(body['piece'] as Map?)?['item_code'] ?? ''}';
     } catch (e) {
-      refused = AppFeedback.messageOf(e);
+      ScanFeedback.refused();
+      return (ok: false, words: AppFeedback.messageOf(e));
     }
-    if (!mounted || asked != _returnScanAsked) return;
-    _returnScan.clear();
-    PurchaseInlineItem? piece;
+    if (!mounted) return (ok: false, words: '');
+    if (_inlineItems.any((i) => i.itemCode == code)) {
+      ScanFeedback.refused();
+      return (ok: false, words: 'القطعة $code مضافة في المرتجع');
+    }
+    final piece = _returnablePieces.where((p) => p.itemCode == code).firstOrNull;
+    if (piece == null) {
+      ScanFeedback.refused();
+      return (ok: false, words: 'القطعة $code ليست من قطع هذه الفاتورة الباقية في المخزون');
+    }
     setState(() {
-      if (refused != null) {
-        _returnScanWords = refused;
-      } else if (_inlineItems.any((i) => i.itemCode == code)) {
-        _returnScanWords = 'القطعة $code مضافة في المرتجع';
-      } else {
-        piece = _returnablePieces.where((p) => p.itemCode == code).firstOrNull;
-        _returnScanWords = piece == null
-            ? 'القطعة $code ليست من قطع هذه الفاتورة الباقية في المخزون'
-            : 'أُضيفت $code · ${formatGrams(piece!.weightGrams, decimals: 2)} جم';
-        if (piece != null) {
-          _inlineItems = [..._inlineItems, piece!];
-          _applyCombinedTotals(inlineItems: _inlineItems);
-        }
-      }
-      _returnScanOk = piece != null;
+      _inlineItems = [..._inlineItems, piece];
+      _applyCombinedTotals(inlineItems: _inlineItems);
     });
-    _returnScanOk ? ScanFeedback.added() : ScanFeedback.refused();
-    // the next piece read where the last was (the owner's rehearsal, 23 Nov 2026)
-    if (mounted) _returnScanFocus.requestFocus();
+    ScanFeedback.added();
+    return (ok: true, words: 'أُضيفت $code · ${formatGrams(piece.weightGrams, decimals: 2)} جم');
   }
 
-  Widget _returnPieceScan() {
-    final tones = AppSemanticColors.of(context);
-    final tone = _returnScanOk ? tones.ready : tones.blocked;
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      TextField(
-        key: const Key('return-piece-scan'),
-        controller: _returnScan,
-        focusNode: _returnScanFocus,
-        autofocus: true,
-        textDirection: TextDirection.ltr,
-        decoration: InputDecoration(
-          labelText: 'امسح القطعة المرتجعة',
-          hintText: 'بالقارئ، أو اكتب رقمها — ${_returnablePieces.length} قطعة من هذه الفاتورة في المخزون',
-          prefixIcon: const Icon(Icons.sensors),
-          border: const OutlineInputBorder(),
+  Widget _returnPieceScan() => Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: ScanField(
+          key: ValueKey('return-scan-$_returnScanTurn'),
+          keyBase: 'return-piece-scan',
+          label: 'امسح القطعة المرتجعة',
+          hint: 'بالقارئ — ${_returnablePieces.length} قطعة من هذه الفاتورة في المخزون',
+          onValue: _scanReturnPiece,
         ),
-        // the reader types a whole value with no Enter reaching the field
-        onChanged: (v) {
-          if (_wholeScan.hasMatch(v.trim())) _scanReturnPiece(v);
-        },
-        onSubmitted: _scanReturnPiece,
-      ),
-      if (_returnScanWords != null) ...[
-        const SizedBox(height: 6),
-        Row(children: [
-          Icon(_returnScanOk ? Icons.check_circle_outline : Icons.block, size: 18, color: tone.fg),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(_returnScanWords!,
-                key: const Key('return-piece-scan-state'),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: tone.fg)),
-          ),
-        ]),
-      ],
-      const SizedBox(height: 12),
-    ]);
-  }
+      );
 
   Widget _buildInlineItemsSection() {
     final isDark = Theme.of(context).brightness == Brightness.dark;

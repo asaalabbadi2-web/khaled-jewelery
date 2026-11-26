@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import '../utils/bidi.dart';
@@ -24,6 +26,33 @@ class ReaderCapture {
 
   static final value = RegExp(r'4B4A[0-9A-F]{20}|KJ-\d{6,}');
   static const pressGap = 500;
+
+  // ── what a value is: said here alone (the owner, 26 Nov 2026: «مصدر واحد لاستخراج القيمة الكاملة»;
+  // test/reader_value_one_source_test.dart) ──────────────────────────────────────────────────────
+
+  static final _tag = RegExp(r'^4B4A[0-9A-F]{20}$');
+  static final _tagShaped = RegExp(r'^[0-9A-F]{24}$');
+  static final _printedCode = RegExp(r'^KJ-\d{6,}$');
+  static final _printedCodes = RegExp(r'KJ-\d{6,}', caseSensitive: false);
+
+  /// One of our tags: what the print engine writes, «4B4A» («KJ») first.
+  static bool isTag(String v) => _tag.hasMatch(v.trim().toUpperCase());
+
+  /// A chip's value of any maker -- ours or a blank's: 24 characters, 0-9 and A-F.
+  static bool isTagShaped(String v) => _tagShaped.hasMatch(v.trim().toUpperCase());
+
+  /// A piece's printed number, whole: «KJ-» and its digits.
+  static bool isPrintedCode(String v) => _printedCode.hasMatch(v.trim().toUpperCase());
+
+  /// The printed numbers in [text], as typed -- a field the hand types in too (the sale's).
+  static List<String> printedCodesIn(String text) =>
+      [for (final m in _printedCodes.allMatches(text)) m.group(0)!.toUpperCase()];
+
+  /// How long the reader is quiet before a printed number at the field's end is taken: its digits
+  /// may not have all come -- «KJ-1000005» was taken at «KJ-100000» (the owner, 26 Nov 2026). A tag
+  /// is whole at its 24th character, taken at once.
+  static const quiet = Duration(milliseconds: 120);
+  Timer? _quiet;
 
   final void Function(List<ReaderEvent> events) onEvents;
 
@@ -82,6 +111,7 @@ class ReaderCapture {
   void start() => HardwareKeyboard.instance.addHandler(_key);
 
   void dispose() {
+    _quiet?.cancel();
     HardwareKeyboard.instance.removeHandler(_key);
     field.dispose();
   }
@@ -96,10 +126,21 @@ class ReaderCapture {
     return false;
   }
 
-  /// The field's text as it now is: its new values, each an event.
-  void typed(String text) {
+  /// The field's text as it now is: its new values, each an event. A printed number at its very end
+  /// waits for what follows it, or for [quiet].
+  void typed(String text) => _typed(text, settled: false);
+
+  /// The reader quiet: a printed number left at the field's end is whole.
+  void settle() => _typed(field.text, settled: true);
+
+  void _typed(String text, {required bool settled}) {
+    _quiet?.cancel();
     final upper = text.toUpperCase();
-    final found = value.allMatches(upper).toList();
+    var found = value.allMatches(upper).toList();
+    if (!settled && found.isNotEmpty && found.last.end == upper.length && found.last.group(0)!.startsWith('KJ-')) {
+      found = found.sublist(0, found.length - 1);
+      _quiet = Timer(quiet, settle);
+    }
     if (found.length <= _taken) return;
     final now = _now;
     final press = _pressAt(now);
@@ -126,6 +167,7 @@ class ReaderCapture {
 
   /// From the start again: no press, no time.
   void reset() {
+    _quiet?.cancel();
     field.clear();
     _taken = 0;
     _press = 0;

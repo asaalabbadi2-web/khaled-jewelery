@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -12,6 +13,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/fake_purchase_api.dart';
+import 'support/reader_door.dart';
 
 /// One form for a supplier's return, the purchase screen's (25 Oct 2026).
 /// The general return form -- made for a customer, whose refund is cash --
@@ -198,5 +200,131 @@ void main() {
     }
     final lines = [for (final i in (api.added.single['items'] as List)) (i['item_id'], i['weight'])];
     expect(lines, [(null, 2.22), (40, 44.0), (41, 26.0)]);
+  });
+
+  // The owner, 26 Nov 2026: «هناك خلل في الضغط والتمرير ويظهر خصوصًا في الشاشات الصغيرة» -- the scan
+  // field opened the on-screen keyboard, took the focus back after each answer from wherever the user
+  // was, and pulled the screen to itself. The reader's door, as «استقبال القارئ» is.
+  group('the return\'s scan is the reader\'s door (ScanField)', () {
+    Future<_OriginalApi> openReturn(WidgetTester tester, {Size size = const Size(1440, 2400)}) async {
+      SharedPreferences.setMockInitialValues({});
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final api = _OriginalApi()
+        ..codedLines = {
+          '4922': {
+            'rest': 2.22,
+            'pieces': [
+              {'id': 40, 'item_code': 'KJ-000004', 'weight': 44.0},
+              {'id': 41, 'item_code': 'KJ-1000005', 'weight': 26.0},
+            ],
+          },
+        }
+        ..activeTags = {'4B4A00010000000000000005': 'KJ-1000005'};
+      await tester.pumpWidget(MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => AuthProvider()),
+          ChangeNotifierProvider(create: (_) => SettingsProvider()),
+        ],
+        child: MaterialApp(
+          theme: LightTheme.theme,
+          home: Directionality(
+            textDirection: TextDirection.rtl,
+            child: PurchaseInvoiceScreen(apiService: api, supplierReturnMode: true, originalInvoiceId: 3470),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      return api;
+    }
+
+    String said(WidgetTester tester) => tester.widget<Text>(find.byKey(const Key('return-piece-scan-state'))).data!;
+
+    testWidgets('it asks no on-screen keyboard', (tester) async {
+      await openReturn(tester);
+      expect(focused(tester, 'return-piece-scan'), isTrue, reason: 'the reader types here at once');
+      expect(asksNoKeyboard(tester), isTrue, reason: 'the reader needs none; on a phone it took half the screen');
+    });
+
+    testWidgets('a printed number is read whole, the last of its digits not cut, and once', (tester) async {
+      final api = await openReturn(tester);
+      await readerTypes(tester, 'return-piece-scan', 'KJ-1000005');
+      expect(api.piecesAsked, ['KJ-1000005'], reason: 'not KJ-100000 at its sixth digit, then again');
+      expect(said(tester), contains('أُضيفت KJ-1000005'));
+    });
+
+    testWidgets('a field the user went to keeps its focus when the answer comes', (tester) async {
+      final api = await openReturn(tester)
+        ..gate = Completer<void>();
+      await readerTypes(tester, 'return-piece-scan', '4B4A00010000000000000005');
+      await tester.tap(find.byKey(const ValueKey('weight-0')));    // the rest's weight, while the server thinks
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(focused(tester, 'return-piece-scan'), isFalse);
+      api.gate!.complete();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(said(tester), contains('أُضيفت KJ-1000005'));
+      expect(focused(tester, 'return-piece-scan'), isFalse, reason: 'never taken from the field the user chose');
+    });
+
+    // the owner's reader drops the focus after a read (21 Nov 2026): taken back where the screen is
+    testWidgets('the screen stays where it was scrolled while the reader reads', (tester) async {
+      final api = await openReturn(tester, size: const Size(1440, 700))
+        ..gate = Completer<void>();
+      final door = find.byKey(const Key('return-piece-scan'));
+      final before = tester.getTopLeft(door).dy;
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, -620));
+      await tester.pumpAndSettle();
+      final scrolled = tester.getTopLeft(door).dy;
+      expect(scrolled, lessThan(before), reason: 'the screen was scrolled');
+      await readerTypes(tester, 'return-piece-scan', 'KJ-000004');
+      FocusManager.instance.primaryFocus?.unfocus();                 // the reader's own read lost it
+      api.gate!.complete();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(said(tester), contains('أُضيفت KJ-000004'));
+      expect(focused(tester, 'return-piece-scan'), isTrue, reason: 'taken back');
+      expect(tester.getTopLeft(door).dy, scrolled, reason: 'where the finger left it, not pulled to the field');
+    });
+
+    testWidgets('a character typed does not rebuild the screen', (tester) async {
+      await openReturn(tester);
+      var built = 0;
+      debugOnRebuildDirtyWidget = (element, _) {
+        if (element.widget is PurchaseInvoiceScreen) built++;
+      };
+      addTearDown(() => debugOnRebuildDirtyWidget = null);
+      const tag = '4B4A00010000000000000005';
+      final field = find.byKey(const Key('return-piece-scan'));
+      for (var i = 1; i < tag.length; i++) {
+        await tester.enterText(field, tag.substring(0, i));
+        await tester.pump(const Duration(milliseconds: 3));
+      }
+      expect(built, 0, reason: '23 characters, the screen not built once');
+      await tester.enterText(field, tag);
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pumpAndSettle();
+      expect(said(tester), contains('أُضيفت KJ-1000005'));
+      expect(built, lessThanOrEqualTo(1), reason: 'the value whole: its piece added, once');
+    });
+
+    testWidgets('typed by hand: the keyboard asked, the number taken once, then the reader\'s again', (tester) async {
+      final api = await openReturn(tester);
+      await tester.tap(find.byKey(const Key('return-piece-scan-keyboard')));
+      await tester.pumpAndSettle();
+      expect(focused(tester, 'return-piece-scan'), isTrue);
+      expect(asksNoKeyboard(tester), isFalse, reason: 'its keyboard, to type');
+      await tester.enterText(find.byKey(const Key('return-piece-scan')), 'KJ-000004');
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(api.piecesAsked, isEmpty, reason: 'typed is not taken while it is typed');
+      await tester.tap(find.byKey(const Key('return-piece-scan-take')));
+      await tester.pumpAndSettle();
+      expect(api.piecesAsked, ['KJ-000004'], reason: 'taken once');
+      expect(said(tester), contains('أُضيفت KJ-000004'));
+      expect(focused(tester, 'return-piece-scan'), isTrue);
+      expect(asksNoKeyboard(tester), isTrue, reason: 'the reader\'s door again');
+      expect(doorOf(tester, 'return-piece-scan').controller.text, isEmpty);
+    });
   });
 }

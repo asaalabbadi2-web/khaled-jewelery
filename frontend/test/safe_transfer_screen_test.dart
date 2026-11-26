@@ -14,6 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/dark_text.dart';
 import 'support/payload_witness.dart';
+import 'support/reader_door.dart';
 
 /// The transfer between safes (ADR-050).
 ///
@@ -216,13 +217,9 @@ void main() {
   group('the pieces it names move with it (ADR-087 R3.6)', () {
     testWidgets('a piece of the source is named and sent; one elsewhere is said', (tester) async {
       final sent = await run(tester, 'gold', () async {
-        await type(tester, 'transfer-piece-code', 'kj-000002');
-        await tester.tap(find.byKey(const Key('transfer-piece-add')));
-        await tester.pumpAndSettle();
+        await typeByHand(tester, 'transfer-piece-code', 'kj-000002');
         expect(find.textContaining('ليست في خزينة المصدر بل في «معرض الفرع»'), findsOneWidget);
-        await type(tester, 'transfer-piece-code', 'KJ-000001');
-        await tester.tap(find.byKey(const Key('transfer-piece-add')));
-        await tester.pumpAndSettle();
+        await typeByHand(tester, 'transfer-piece-code', 'KJ-000001');
         expect(find.byKey(const Key('transfer-piece-KJ-000001')), findsOneWidget);
         expect(find.textContaining('وزن القطع عيار 21'), findsOneWidget);
         // its weight on its karat's row by itself (the owner's rehearsal, 23 Nov 2026:
@@ -239,8 +236,7 @@ void main() {
     testWidgets('a piece removed takes its weight back; read by the reader with no Enter, the focus stays', (tester) async {
       await run(tester, 'gold', () async {
         await type(tester, 'transfer-weight-21', '5');
-        await tester.enterText(find.byKey(const Key('transfer-piece-code')), 'KJ-000001');   // no Enter, no button
-        await tester.pumpAndSettle();
+        await readerTypes(tester, 'transfer-piece-code', 'KJ-000001');   // no Enter, no button
         String row21() => tester.widget<EditableText>(find.descendant(
             of: find.byKey(const Key('transfer-weight-21')), matching: find.byType(EditableText),
             matchRoot: true)).controller.text;
@@ -256,15 +252,36 @@ void main() {
 
     testWidgets('its number alone names it, and named twice -- by its number and its code -- it is said once', (tester) async {
       await run(tester, 'gold', () async {
-        await type(tester, 'transfer-piece-code', '1');
-        await tester.tap(find.byKey(const Key('transfer-piece-add')));
-        await tester.pumpAndSettle();
+        await typeByHand(tester, 'transfer-piece-code', '1');
         expect(find.byKey(const Key('transfer-piece-KJ-000001')), findsOneWidget, reason: '«1» is KJ-000001');
-        await type(tester, 'transfer-piece-code', 'KJ-000001');
-        await tester.tap(find.byKey(const Key('transfer-piece-add')));
-        await tester.pumpAndSettle();
+        await typeByHand(tester, 'transfer-piece-code', 'KJ-000001');
         expect(find.text('القطعة KJ-000001 مذكورة'), findsOneWidget);
         expect(find.byKey(const Key('transfer-piece-KJ-000001')), findsOneWidget, reason: 'once in the voucher');
+      });
+    });
+  });
+
+  // The owner, 26 Nov 2026: «خلل في الضغط والتمرير ... في الشاشات الصغيرة» -- the reader's door, no keyboard.
+  group('the pieces\' field is the reader\'s door (ScanField)', () {
+    testWidgets('read by the reader: no on-screen keyboard, the piece added, the door kept', (tester) async {
+      await run(tester, 'gold', () async {
+        await readerTypes(tester, 'transfer-piece-code', 'KJ-000001');
+        expect(find.byKey(const Key('transfer-piece-KJ-000001')), findsOneWidget);
+        expect(focused(tester, 'transfer-piece-code'), isTrue);
+        expect(asksNoKeyboard(tester), isTrue, reason: 'the reader needs none');
+      });
+    });
+
+    testWidgets('typed by hand: the keyboard asked, the number taken once', (tester) async {
+      await run(tester, 'gold', () async {
+        await tester.tap(find.byKey(const Key('transfer-piece-code-keyboard')));
+        await tester.pumpAndSettle();
+        expect(asksNoKeyboard(tester), isFalse, reason: 'its keyboard, to type');
+        await tester.enterText(find.byKey(const Key('transfer-piece-code')), '1');
+        await tester.tap(find.byKey(const Key('transfer-piece-code-take')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('transfer-piece-KJ-000001')), findsOneWidget, reason: '«1» is KJ-000001');
+        expect(asksNoKeyboard(tester), isTrue, reason: 'the reader\'s door again');
       });
     });
   });

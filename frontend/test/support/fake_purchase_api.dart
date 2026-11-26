@@ -37,8 +37,16 @@ class FakePurchaseApi extends ApiService {
   /// The tags the server knows (value -> its piece's number); a number typed is read as itself.
   Map<String, String> activeTags = const {};
 
+  /// What was asked of the server for a piece, in order -- a tag or a number.
+  final piecesAsked = <String>[];
+
+  /// Held until completed: the server slow to answer.
+  Completer<void>? gate;
+
   @override
   Future<Map<String, dynamic>> pieceByTag(String value) async {
+    piecesAsked.add(value);
+    if (gate != null) await gate!.future;
     final code = activeTags[value.toUpperCase()];
     if (code == null) {
       throw ApiException(statusCode: 404, code: 'tag_unknown', message: 'رقاقة غير معروفة $value — لا تُحتسب');
@@ -47,7 +55,11 @@ class FakePurchaseApi extends ApiService {
   }
 
   @override
-  Future<Map<String, dynamic>> lookupPiece(String code) async => {'piece': {'item_code': code.toUpperCase()}};
+  Future<Map<String, dynamic>> lookupPiece(String code) async {
+    piecesAsked.add(code);
+    if (gate != null) await gate!.future;
+    return {'piece': {'item_code': code.toUpperCase()}};
+  }
 
   @override
   Future<List<Map<String, dynamic>>> getBranches({

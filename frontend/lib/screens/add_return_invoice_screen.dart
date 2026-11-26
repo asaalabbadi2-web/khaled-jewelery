@@ -109,6 +109,9 @@ class ReturnItemRow {
   /// A piece's label as a sale return found it (ADR-097): read, or missing.
   ReturnLabel? label;
 
+  /// What the door said of its label when it was read.
+  String? labelWords;
+
   ReturnItemRow({
     this.originalItemId,
     this.itemId,
@@ -216,28 +219,41 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
   /// The new labels of pieces back with theirs missing: printed now, or waiting.
   bool _autoPrintLabels = true;
 
-  /// Each piece's label field, its focus the screen's: once one is said the
-  /// next unsaid takes it -- the reader needs no tap between pieces (the
-  /// owner's rehearsal, 23 Nov 2026).
-  final Map<int?, FocusNode> _labelFocus = {};
-  FocusNode _labelNode(ReturnItemRow row) => _labelFocus.putIfAbsent(row.originalItemId, FocusNode.new);
+  /// The pieces as the labels' door sees them (ADR-097; the owner, 26 Nov 2026): one door for them
+  /// all, each label read going to its own piece's row.
+  List<ReturnLabelTarget> _labelTargets() => [
+        for (final row in _returnItems)
+          if (row.isPiece && row.itemCode != null)
+            (itemCode: row.itemCode!, chosen: !_partial || row.isSelected, label: row.label),
+      ];
 
-  bool _unsaid(ReturnItemRow row) =>
-      row.isPiece && row.label == null && (!_partial || row.isSelected);
-
-  /// The first piece whose label is unsaid takes the focus.
-  bool _firstUnsaid(ReturnItemRow row) => _returnItems.where(_unsaid).firstOrNull == row;
-
-  void _labelSaid(ReturnItemRow row, ReturnLabel? label) {
-    setState(() => row.label = label);
-    if (label == null) return;
-    final next = _returnItems.where(_unsaid).firstOrNull;
-    if (next != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _labelNode(next).requestFocus();
-      });
-    }
+  void _labelRead(String itemCode, ReturnLabel label, String words) {
+    final row = _returnItems.where((r) => r.itemCode == itemCode).firstOrNull;
+    if (row == null) return;
+    setState(() {
+      row.label = label;
+      row.labelWords = words;
+    });
   }
+
+  void _labelMissing(ReturnItemRow row, bool missing) => setState(() {
+        row.label = missing ? const ReturnLabel.missing() : null;
+        row.labelWords = null;
+      });
+
+  Widget _labelsDoor() => Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: ReturnLabelsScan(api: widget.api, targets: _labelTargets, onRead: _labelRead),
+      );
+
+  Widget _labelOf(ReturnItemRow row) => ReturnLabelState(
+        keyBase: 'return-tag-${row.originalItemId}',
+        itemCode: row.itemCode ?? '',
+        label: row.label,
+        words: row.labelWords,
+        onMissing: (v) => _labelMissing(row, v),
+      );
+
   String _uiPaperSize = 'A4';
 
   Future<void> _loadInvoiceUiSettingsFromPrefs() async {
@@ -519,9 +535,6 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
 
   @override
   void dispose() {
-    for (final node in _labelFocus.values) {
-      node.dispose();
-    }
     _returnReasonController.dispose();
     _customAmountController.dispose();
     super.dispose();
@@ -1482,20 +1495,16 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                       ],
                     ),
                   ),
-                // each piece its label, as the partial return asks it (ADR-097)
-                for (final row in _returnItems)
-                  if (_isSaleReturn && row.isPiece) ...[
-                    const SizedBox(height: 8),
-                    ReturnLabelField(
-                      key: ValueKey('whole-return-label-${row.originalItemId}'),
-                      keyBase: 'return-tag-${row.originalItemId}',
-                      api: widget.api,
-                      itemCode: row.itemCode ?? '',
-                      focusNode: _labelNode(row),
-                      autofocus: _firstUnsaid(row),
-                      onSettled: (label) => _labelSaid(row, label),
-                    ),
-                  ],
+                // each piece its label, as the partial return asks it (ADR-097): one door, a row its state
+                if (_isSaleReturn && _returnItems.any((r) => r.isPiece)) ...[
+                  const SizedBox(height: 8),
+                  _labelsDoor(),
+                  for (final row in _returnItems)
+                    if (row.isPiece) ...[
+                      const SizedBox(height: 4),
+                      _labelOf(row),
+                    ],
+                ],
                 if (_isSaleReturn && _returnItems.any((r) => r.isPiece && r.label?.missing == true)) ...[
                   const SizedBox(height: 8),
                   SegmentedButton<bool>(
@@ -1907,15 +1916,7 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                       ),
                       if (_isSaleReturn && item.isPiece) ...[
                         const SizedBox(height: 12),
-                        ReturnLabelField(
-                          key: ValueKey('return-label-${item.originalItemId}'),
-                          keyBase: 'return-tag-${item.originalItemId}',
-                          api: widget.api,
-                          itemCode: item.itemCode ?? '',
-                          focusNode: _labelNode(item),
-                          autofocus: _firstUnsaid(item),
-                          onSettled: (label) => _labelSaid(item, label),
-                        ),
+                        _labelOf(item),
                         if (item.label?.missing == true) ...[
                           const SizedBox(height: 8),
                           SegmentedButton<bool>(
@@ -1950,6 +1951,7 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
           style: Theme.of(context).textTheme.titleLarge,
         ),
         const SizedBox(height: 16),
+        if (_isSaleReturn && _returnItems.any((r) => r.isPiece)) _labelsDoor(),
         content,
       ],
     );
