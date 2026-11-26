@@ -30,7 +30,7 @@
 |---|---|
 | الكتالوج | `backend/permissions.py`، بلا دور يحمل الصلاحية |
 | مصفوفة المالك | `tests/test_permission_catalog.py`، بالقيمة `''` |
-| فحص الإعدادات | `routes/system.py` (`_financial_refusal`، `_financial_keys_changed`) |
+| فحص الإعدادات | `services/financial_settings.py` (`refusal`، `reason_refusal`)، تستعمله `routes/system.py` (مع `_financial_keys_changed`) و`routes/employees.py` (سياسة الرواتب، D15) |
 | المنح والتسجيل | `permissions_routes.py` (`_guard_and_record`) |
 | السجل | `PermissionChange`، والمشغّل `append_only_trigger.py`، وهو التعريف الواحد لكل سجل لا يُعدَّل، ويستعمله `settings_change` أيضًا |
 | الترحيل | `20261126_permission_change` |
@@ -53,7 +53,7 @@
 
 ## ما لا يشمله
 
-- **سياسة الرواتب** (SETTINGS-FINPERM-001، القرار D15): من المستوى 3، ويغيّرها حامل صلاحية «الرواتب»، وهو المدير والمحاسب افتراضيًا. فرض الصلاحية عليها يغيّر من يفعل ماذا، فهو قرار المالك. تغييرها يُسجَّل مع ذلك (ADR-102).
+- **سياسة الرواتب** (SETTINGS-FINPERM-001، القرار D15): كانت خارج هذا القرار. **قرّر المالك في 26 نوفمبر 2026: «الصلاحية المالية والسبب».** فصار `PUT /payroll/policy` يطلب ما يطلبه كل إعداد من المستوى 3، من الوحدة نفسها `services/financial_settings.py`، وأُغلقت الثغرة.
 - **سبب التغيير عبر `PUT`** (SETTINGS-REASON-001): يبقى مفتوحًا لكل إعداد من المستوى 3 إلى أن ينتقل قسمه إلى المركز، ولإعدادات الترحيل الأربعة إلى أن تحفظ شاشتها عبر `PATCH`.
 - **مسؤول النظام** مستثنى من شرط الحمل لأنه يحمل كل شيء بالكود. لكنه يخضع للسبب والتأكيد والسجل في كل مسار يطلبها، وهو اليوم `PATCH`.
 

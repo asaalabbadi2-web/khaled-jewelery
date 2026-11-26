@@ -714,13 +714,27 @@ def get_payroll_policy():
 @employees_bp.route('/payroll/policy', methods=['PUT'])
 @require_permission('employees.payroll')
 def update_payroll_policy():
+    """The policy's items, each checked; a change is a level-3 setting's -- the
+    financial permission and a reason (D15, the owner, 26 Nov 2026; ADR-103).
+    The policy sent back unchanged is not a change."""
+    import settings_audit
+    from services.financial_settings import reason_refusal, refusal
     from services.payroll_laws import PayrollRefused
-    from services.payroll_policy import set_policy
+    from services.payroll_policy import policy, set_policy
+    body = dict(request.get_json() or {})
+    reason = str(body.pop('reason', '') or '').strip()
+    before = policy()
     try:
-        saved = set_policy(request.get_json() or {})
+        saved = set_policy(body)
     except PayrollRefused as refused:
         db.session.rollback()
         return _payroll_refusal(refused)
+    if saved != before:
+        refused = refusal(['payroll_policy']) or reason_refusal(['payroll_policy'], reason)
+        if refused:
+            db.session.rollback()
+            return refused
+        settings_audit.set_context(reason=reason)
     db.session.commit()
     return jsonify({'policy': saved})
 

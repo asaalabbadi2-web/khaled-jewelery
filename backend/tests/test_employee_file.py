@@ -31,7 +31,7 @@ def _call(method, url, headers, body=None):
 
 
 def test_the_file_says_what_is_missing_and_fills_as_the_parts_are_entered(auth_headers):
-    assert _call('put', '/api/payroll/policy', auth_headers, POLICY)[0] == 200
+    assert _call('put', '/api/payroll/policy', auth_headers, {**POLICY, 'reason': 'ضبط الاختبار'})[0] == 200
     code, body = _call('post', '/api/employees', auth_headers,
                        {'name': f'موظف ملف {uuid.uuid4().hex[:6]}', 'is_active': True})
     emp = body['id']

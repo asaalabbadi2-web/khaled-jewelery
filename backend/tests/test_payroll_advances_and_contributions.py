@@ -71,7 +71,7 @@ def mapped():
 @pytest.fixture
 def employee(auth_headers):
     """8,100 a month (6,000 + 1,500 + 600) and 9,000 owed on his advance account."""
-    assert _call('put', '/api/payroll/policy', auth_headers, POLICY)[0] == 200
+    assert _call('put', '/api/payroll/policy', auth_headers, {**POLICY, 'reason': 'ضبط الاختبار'})[0] == 200
     code, body = _call('post', '/api/employees', auth_headers,
                        {'name': f'موظف سلف {uuid.uuid4().hex[:6]}', 'is_active': True})
     assert code in (200, 201), body

@@ -369,9 +369,11 @@ class PayrollService {
           as Map<String, dynamic>?) ??
       const {};
 
-  /// Each key given checked by the server; the refusal said as it is.
-  Future<Map<String, dynamic>> savePolicy(Map<String, dynamic> changes) async =>
-      (_body(await _api.authedPut('/payroll/policy', body: jsonEncode(changes)))
+  /// Each key given checked by the server; the refusal said as it is. A change
+  /// is a financial setting's: the server wants its [reason] (D15, ADR-103).
+  Future<Map<String, dynamic>> savePolicy(Map<String, dynamic> changes, {String? reason}) async =>
+      (_body(await _api.authedPut('/payroll/policy',
+              body: jsonEncode({...changes, if (reason != null) 'reason': reason})))
               as Map<String, dynamic>)['policy']
           as Map<String, dynamic>;
 

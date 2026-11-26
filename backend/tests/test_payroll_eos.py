@@ -56,7 +56,7 @@ def eos_expense():
 
 
 def _employee(headers, hire_date=None):
-    assert _call('put', '/api/payroll/policy', headers, POLICY)[0] == 200
+    assert _call('put', '/api/payroll/policy', headers, {**POLICY, 'reason': 'ضبط الاختبار'})[0] == 200
     code, body = _call('post', '/api/employees', headers,
                        {'name': f'موظف خدمة {uuid.uuid4().hex[:6]}', 'is_active': True, 'hire_date': hire_date})
     assert code in (200, 201), body
@@ -128,8 +128,8 @@ def test_a_cut_in_the_wage_gives_back_what_was_booked_over_it(auth_headers, eos_
 
 
 def test_the_rates_are_the_policy_s_and_an_unmapped_expense_leaves_a_draft(auth_headers):
-    assert _call('put', '/api/payroll/policy', auth_headers, {**POLICY, 'eos_wage_base': 'net'})[0] == 400
-    assert _call('put', '/api/payroll/policy', auth_headers, {**POLICY, 'eos_after_years_months': 13})[0] == 400
+    assert _call('put', '/api/payroll/policy', auth_headers, {**POLICY, 'eos_wage_base': 'net', 'reason': 'ضبط الاختبار'})[0] == 400
+    assert _call('put', '/api/payroll/policy', auth_headers, {**POLICY, 'eos_after_years_months': 13, 'reason': 'ضبط الاختبار'})[0] == 400
     AccountingMapping.query.filter_by(operation_type=DEFAULT_MAPPING_OPERATION_TYPE, account_type='eos_expense').delete()
     db.session.commit()
     emp = _employee(auth_headers, hire_date='2040-05-01')

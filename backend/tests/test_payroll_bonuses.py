@@ -43,7 +43,7 @@ def _call(method, url, headers, body=None):
 
 @pytest.fixture
 def employee(auth_headers):
-    assert _call('put', '/api/payroll/policy', auth_headers, POLICY)[0] == 200
+    assert _call('put', '/api/payroll/policy', auth_headers, {**POLICY, 'reason': 'ضبط الاختبار'})[0] == 200
     code, body = _call('post', '/api/employees', auth_headers,
                        {'name': f'موظف مكافأة {uuid.uuid4().hex[:6]}', 'is_active': True})
     assert code in (200, 201), body

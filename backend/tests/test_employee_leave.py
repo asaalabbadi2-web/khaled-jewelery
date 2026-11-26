@@ -102,7 +102,7 @@ def test_a_leave_does_not_overlap_another_and_a_request_is_approved_or_rejected(
 
 
 def test_an_unpaid_leave_lessens_the_run_and_is_not_recorded_in_an_approved_month(auth_headers):
-    assert _call('put', '/api/payroll/policy', auth_headers, POLICY)[0] == 200
+    assert _call('put', '/api/payroll/policy', auth_headers, {**POLICY, 'reason': 'ضبط الاختبار'})[0] == 200
     emp = _employee(auth_headers)
     _call('post', f'/api/employees/{emp}/salary-structures', auth_headers,
           {'effective_from': '2041-01-01', 'basic': 6000, 'housing': 1500, 'transport': 600})

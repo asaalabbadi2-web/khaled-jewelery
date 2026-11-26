@@ -51,7 +51,7 @@ def staff(auth_headers):
     One with a hire date has his end-of-service provision booked: its expense mapped."""
     from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE
     from models import Account, AccountingMapping
-    assert _call('put', '/api/payroll/policy', auth_headers, POLICY)[0] == 200
+    assert _call('put', '/api/payroll/policy', auth_headers, {**POLICY, 'reason': 'ضبط الاختبار'})[0] == 200
     if not AccountingMapping.query.filter_by(operation_type=DEFAULT_MAPPING_OPERATION_TYPE,
                                              account_type='eos_expense').first():
         expense = Account(account_number=f'98{uuid.uuid4().int % 10**8:08d}', name='مصروف نهاية الخدمة',

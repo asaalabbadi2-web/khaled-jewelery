@@ -1,14 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'package:provider/provider.dart';
+
 import '../api_service.dart';
+import '../providers/auth_provider.dart';
 import '../services/payroll_service.dart';
 import '../theme/app_semantic_colors.dart';
 import '../theme/app_tokens.dart';
 import '../utils.dart' show normalizeNumber;
 import '../utils/arabic_number_formatter.dart';
 import '../utils/currency_utils.dart';
+import '../settings/settings_registry.dart' show needsFinancialPermission;
 import '../widgets/app_feedback.dart';
+import '../widgets/confirm_financial_action.dart';
 import '../widgets/app_state_views.dart';
 
 /// The payroll's policy, the owner's figures (PAYROLL-2..5): every ratio and
@@ -177,9 +182,14 @@ class PayrollPolicyScreen extends StatefulWidget {
     required this.api,
     this.isArabic = true,
     this.service,
+    this.financialAllowed,
   });
   final ApiService api;
   final bool isArabic;
+
+  /// Whether the user may change it -- a financial setting (D15, ADR-103);
+  /// null reads it from the signed-in user.
+  final bool? financialAllowed;
 
   /// For tests: a service that answers without a server.
   final PayrollService? service;
@@ -201,6 +211,29 @@ class _PayrollPolicyScreenState extends State<PayrollPolicyScreen> {
   bool _busy = false;
 
   bool get _isAr => widget.isArabic;
+
+  bool get _financial {
+    if (widget.financialAllowed != null) return widget.financialAllowed!;
+    try {
+      return context.read<AuthProvider>().hasPermission('system.financial_settings');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// A figure as it reads: its percentage, its choice's name, unset said so.
+  String _said(_Field f, Object? v) {
+    if (v == null) return _isAr ? 'غير مضبوط' : 'Not set';
+    return switch (f.kind) {
+      _Kind.percent => '${_plain((v as num) * 100)}%',
+      _Kind.flag => v == true ? (_isAr ? 'مفعّل' : 'On') : (_isAr ? 'معطّل' : 'Off'),
+      _Kind.choice => _isAr ? (_wageBases[v]?.$1 ?? '$v') : (_wageBases[v]?.$2 ?? '$v'),
+      _ => v is num ? _plain(v) : '$v',
+    };
+  }
+
+  static bool _sameFigure(Object? a, Object? b) =>
+      a is num && b is num ? (a - b).abs() < 1e-9 : a == b;
 
   @override
   void initState() {
@@ -280,10 +313,37 @@ class _PayrollPolicyScreenState extends State<PayrollPolicyScreen> {
     return changes;
   }
 
+  /// A change is a financial setting's (D15): each figure it moves, before and
+  /// after, and its reason -- required -- before it is sent.
   Future<void> _save() async {
+    final changes = _changes;
+    final held = _policy ?? const {};
+    final moved = [
+      for (final (_, _, fields) in _sections)
+        for (final f in fields)
+          if (changes.containsKey(f.key) && !_sameFigure(held[f.key], changes[f.key])) f,
+    ];
+    if (moved.isEmpty) {
+      AppFeedback.info(context, _isAr ? 'لا تغيير في سياسة الرواتب' : 'Nothing changed');
+      return;
+    }
+    final reason = await confirmFinancialAction(
+      context,
+      title: _isAr ? 'تغيير سياسة الرواتب' : 'Change the payroll policy',
+      effect: _isAr
+          ? 'تُحسب بها المسيرات التي تُعدّ بعد الحفظ ونهاية الخدمة والسلف؛ كل مسير محفوظ يبقى بسياسته المجمّدة عليه.'
+          : 'Runs drafted after it, end of service and advances are reckoned by it; a saved run keeps its own.',
+      confirmLabel: _isAr ? 'تأكيد وحفظ' : 'Confirm and save',
+      facts: [
+        for (final f in moved) (_isAr ? f.ar : f.en, '${_said(f, held[f.key])} ← ${_said(f, changes[f.key])}'),
+      ],
+      reasonLabel: _isAr ? 'السبب (إلزامي)' : 'Reason (required)',
+      destructive: false,
+    );
+    if (reason == null || !mounted) return;
     setState(() => _busy = true);
     try {
-      final saved = await _service.savePolicy(_changes);
+      final saved = await _service.savePolicy(changes, reason: reason);
       if (!mounted) return;
       setState(() {
         _policy = saved;
@@ -438,11 +498,23 @@ class _PayrollPolicyScreenState extends State<PayrollPolicyScreen> {
           : SafeArea(
               child: Padding(
                 padding: const EdgeInsets.all(AppSpace.md),
-                child: FilledButton.icon(
-                  key: const ValueKey('policy-save'),
-                  onPressed: _busy ? null : _save,
-                  icon: const Icon(Icons.save_outlined),
-                  label: Text(isAr ? 'حفظ' : 'Save'),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (!_financial)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: AppSpace.sm),
+                        child: Text(needsFinancialPermission, key: const ValueKey('policy-needs-permission'),
+                            textAlign: TextAlign.center),
+                      ),
+                    FilledButton.icon(
+                      key: const ValueKey('policy-save'),
+                      onPressed: _busy || !_financial ? null : _save,
+                      icon: const Icon(Icons.save_outlined),
+                      label: Text(isAr ? 'حفظ' : 'Save'),
+                    ),
+                  ],
                 ),
               ),
             ),

@@ -58,7 +58,7 @@ def _entry(employee_id, month, year=2041, status='approved', basic=7000.0):
 
 
 def _policy(headers, **changes):
-    return _call('put', '/api/payroll/policy', headers, {**POLICY, **changes})
+    return _call('put', '/api/payroll/policy', headers, {**POLICY, **changes, 'reason': 'ضبط الاختبار'})
 
 
 # ── the policy is data ─────────────────────────────────────────────────────────
@@ -85,7 +85,7 @@ def test_the_policy_is_checked_as_it_is_edited(auth_headers):
     assert _policy(auth_headers, housing_ratio=1.5)[0] == 400, 'a ratio is 0..1'
     assert _policy(auth_headers, advance_installments=2.5)[0] == 400, 'a count is whole'
     assert _policy(auth_headers, day_divisor=40)[0] == 400
-    assert _call('put', '/api/payroll/policy', auth_headers, {'vat': 0.15})[0] == 400, 'no key of its own'
+    assert _call('put', '/api/payroll/policy', auth_headers, {'vat': 0.15, 'reason': 'ضبط الاختبار'})[0] == 400, 'no key of its own'
     assert _call('get', '/api/payroll/policy', auth_headers)[1]['policy'] == POLICY, 'a refused edit keeps it'
 
 
@@ -199,7 +199,7 @@ def test_no_rate_is_written_in_the_payroll_s_code():
 def test_a_figure_is_unset_again_by_null_not_zeroed(auth_headers):
     """The owner, 1 Nov 2026: a figure set is unset again, its part not reckoned."""
     _policy(auth_headers)
-    code, body = _call('put', '/api/payroll/policy', auth_headers, {'housing_ratio': None, 'transport_ratio': 0})
+    code, body = _call('put', '/api/payroll/policy', auth_headers, {'housing_ratio': None, 'transport_ratio': 0, 'reason': 'ضبط الاختبار'})
     assert code == 200, body
     assert 'housing_ratio' not in body['policy'] and body['policy']['transport_ratio'] == 0.0
     code, body = _call('get', '/api/payroll/structure-suggestion?gross=10000', auth_headers)

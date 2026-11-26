@@ -30,7 +30,7 @@ def _can_manage_permissions(current_user) -> bool:
 
 
 # ── ADR-103: the financial settings permission, and the record of every grant ──
-FINANCIAL_SETTINGS = 'system.financial_settings'
+from services.financial_settings import FINANCIAL_SETTINGS  # noqa: E402 -- one name (ADR-103)
 
 
 def _overrides(perms) -> dict:

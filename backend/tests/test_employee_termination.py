@@ -58,7 +58,7 @@ def eos_expense():
 
 
 def _employee(headers, hire_date, policy=POLICY):
-    assert _call('put', '/api/payroll/policy', headers, policy)[0] == 200
+    assert _call('put', '/api/payroll/policy', headers, {**policy, 'reason': 'ضبط الاختبار'})[0] == 200
     code, body = _call('post', '/api/employees', headers,
                        {'name': f'موظف إنهاء {uuid.uuid4().hex[:6]}', 'is_active': True, 'hire_date': hire_date})
     emp = body['id']
@@ -78,7 +78,7 @@ def test_the_award_is_by_the_reason(auth_headers, eos_expense):
     assert _preview(auth_headers, emp, 'art_80')[1]['eos']['award'] == 0.0
     code, body = _preview(auth_headers, emp, 'resignation')
     assert code == 400 and body['code'] == 'payroll_policy_not_set', 'its shares are the owner\'s'
-    _call('put', '/api/payroll/policy', auth_headers, RESIGNATION)
+    _call('put', '/api/payroll/policy', auth_headers, {**RESIGNATION, 'reason': 'ضبط الاختبار'})
     junior = _employee(auth_headers, '2038-05-01', {**POLICY, **RESIGNATION})   # three years
     assert _preview(auth_headers, junior, 'resignation')[1]['eos']['award'] == round(3 * 0.5 * 8100 * 0.3333, 2)
     assert _preview(auth_headers, _employee(auth_headers, '2040-05-01', {**POLICY, **RESIGNATION}),

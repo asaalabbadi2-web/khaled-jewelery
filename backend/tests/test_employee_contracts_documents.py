@@ -104,9 +104,9 @@ def test_a_contract_s_end_and_probation_by_the_policy_s_days(auth_headers):
     _call('post', f'/api/employees/{emp}/contracts', auth_headers,
           {'kind': 'fixed', 'start_date': str(TODAY - timedelta(days=30)), 'end_date': str(TODAY + timedelta(days=40)),
            'probation_end': str(TODAY + timedelta(days=10))})
-    _call('put', '/api/payroll/policy', auth_headers, {'contract_alert_days': None})
+    _call('put', '/api/payroll/policy', auth_headers, {'contract_alert_days': None, 'reason': 'ضبط الاختبار'})
     assert _ours(emp) == [], 'unset, nothing is said'
-    assert _call('put', '/api/payroll/policy', auth_headers, {'contract_alert_days': 45})[0] == 200
+    assert _call('put', '/api/payroll/policy', auth_headers, {'contract_alert_days': 45, 'reason': 'ضبط الاختبار'})[0] == 200
     assert [(r['kind'], r['days_left']) for r in _ours(emp)] == [('probation', 10), ('contract', 40)]
 
 

@@ -701,12 +701,9 @@ def get_wage_treatment():
     return jsonify({'mode': live_wage_mode(), 'wage_inventory_account': wage_inventory})
 
 
-FINANCIAL_SETTINGS = 'system.financial_settings'
-
-
-def _holds_financial_settings() -> bool:
-    user = getattr(g, 'current_user', None)
-    return bool(user is not None and user.has_permission(FINANCIAL_SETTINGS))
+# Who changes a level-3 setting, and with what (ADR-103): one law, services/financial_settings.
+from services.financial_settings import reason_refusal as _reason_refusal  # noqa: E402
+from services.financial_settings import refusal as _financial_refusal  # noqa: E402
 
 
 def _owner_only_refusal(settings, data):
@@ -722,17 +719,6 @@ def _owner_only_refusal(settings, data):
                 'message': 'ترحيل القيود اليدوية تلقائيًا يغيّره مسؤول النظام وحده',
             }), 403
     return None
-
-
-def _financial_refusal(keys):
-    """403 when *keys* -- level-3 settings a save changes -- are not the
-    user's to change (ADR-103); None otherwise."""
-    keys = sorted(set(keys))
-    if not keys or _holds_financial_settings():
-        return None
-    return jsonify({'error': 'financial_settings_permission',
-                    'message': 'هذه الإعدادات تمسّ الدفاتر: تغييرها لمن يحمل صلاحية «الإعدادات المالية والمحاسبية»',
-                    'keys': keys}), 403
 
 
 def _financial_keys_changed(settings, data) -> list:
@@ -833,11 +819,10 @@ def patch_settings():
         db.session.rollback()
         return refused
     reason = str(body.get('reason') or '').strip()
-    wanting = sorted(k for k in effective if level(_version_key(k)) == 3)
-    if wanting and not reason:
+    refused = _reason_refusal([k for k in effective if level(_version_key(k)) == 3], reason)
+    if refused:
         db.session.rollback()
-        return jsonify({'error': 'reason_required',
-                        'message': 'هذه الإعدادات تمسّ الدفاتر: اكتب سبب التغيير', 'keys': wanting}), 400
+        return refused
     source = body.get('source') if isinstance(body.get('source'), dict) else None
     settings_audit.set_context(reason=reason or None, source=source)
 
