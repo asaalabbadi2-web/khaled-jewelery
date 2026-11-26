@@ -162,6 +162,7 @@ class EditorSpec {
         EditorKind.karats => [for (final k in (value as List? ?? const [])) 'عيار $k'].join('، '),
         EditorKind.number => _parse(value) == null ? '—' : '${_say(_parse(value)!)}${unit.isEmpty ? '' : ' $unit'}',
         EditorKind.choice when value == null && unset != null => unset!,
+        EditorKind.currency => options.firstWhere((o) => o.$1 == value, orElse: () => (value ?? '', '${value ?? '—'}')).$2,
         EditorKind.safe when value == null => 'غير محدد',
         EditorKind.safe => options.firstWhere((o) => o.$1 == value, orElse: () => (value as Object, 'خزينة رقم $value (غير موجودة حاليًا)')).$2,
         EditorKind.choice => options.firstWhere((o) => o.$1 == value, orElse: () => (value ?? '', '${value ?? '—'}')).$2,

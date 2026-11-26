@@ -55,7 +55,7 @@ void main() {
       child: MaterialApp(
         theme: dark ? DarkTheme.theme : LightTheme.theme,
         builder: (context, child) => Directionality(textDirection: TextDirection.rtl, child: child!),
-        home: SettingsCenterScreen(opener: (_, e) async => opened.add(e.id), financialAllowed: financial, api: _Api()),
+        home: SettingsCenterScreen(opener: (_, e) async => opened.add(e.id), financialAllowed: financial, settingsAllowed: true, api: _Api()),
       ),
     ));
     await tester.pumpAndSettle();

@@ -21,8 +21,8 @@ import '../theme/app_semantic_colors.dart';
 /// registry's (lib/settings/settings_registry.dart).
 class SettingsCenterScreen extends StatefulWidget {
   const SettingsCenterScreen(
-      {super.key, this.opener = openSettingEntry, this.financialAllowed, this.api, this.initialSection,
-      this.initialSetting});
+      {super.key, this.opener = openSettingEntry, this.financialAllowed, this.settingsAllowed, this.api,
+      this.initialSection, this.initialSetting});
 
   /// The section it opens on («إعدادات الطابعة» opens «هذا الجهاز»).
   final SettingsSection? initialSection;
@@ -38,6 +38,10 @@ class SettingsCenterScreen extends StatefulWidget {
   /// Whether the user may change a financial (level-3) setting (ADR-103);
   /// null reads it from the signed-in user.
   final bool? financialAllowed;
+
+  /// Whether the user may save the company's settings (system.settings) --
+  /// without it they are read only (B15); null reads it from the signed-in user.
+  final bool? settingsAllowed;
 
   @override
   State<SettingsCenterScreen> createState() => _SettingsCenterScreenState();
@@ -72,6 +76,15 @@ class _SettingsCenterScreenState extends State<SettingsCenterScreen> {
 
   bool get _searching => _query.text.trim().isNotEmpty;
 
+  bool get _settings {
+    if (widget.settingsAllowed != null) return widget.settingsAllowed!;
+    try {
+      return context.read<AuthProvider>().hasPermission('system.settings');
+    } catch (_) {
+      return false;
+    }
+  }
+
   bool get _financial {
     if (widget.financialAllowed != null) return widget.financialAllowed!;
     try {
@@ -86,7 +99,8 @@ class _SettingsCenterScreenState extends State<SettingsCenterScreen> {
   Widget _sectionBody(SettingsSection s, {String? highlight, Key? key}) => s == SettingsSection.thisDevice
       ? DeviceSectionEditor(highlight: highlight)
       : movedSections.contains(s)
-      ? SectionEditor(key: key, section: s, api: _api, financialAllowed: _financial, highlight: highlight,
+      ? SectionEditor(key: key, section: s, api: _api, financialAllowed: _financial, settingsAllowed: _settings,
+          highlight: highlight,
           opener: widget.opener)
       : SectionEntries(section: s, opener: widget.opener, financialAllowed: _financial);
 

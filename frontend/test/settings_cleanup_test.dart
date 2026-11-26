@@ -87,7 +87,7 @@ void main() {
   for (final size in _sizes.values) {
     testWidgets('a screen that sends the user to a setting opens the center on it (${size.width})', (tester) async {
       await open(tester,
-          SettingsCenterScreen(initialSetting: 'allow_manual_invoice_items', financialAllowed: false, api: _Api()),
+          SettingsCenterScreen(initialSetting: 'allow_manual_invoice_items', financialAllowed: false, settingsAllowed: true, api: _Api()),
           size: size);
       expect(find.byKey(const Key('settings-editor-salesInvoices')), findsOneWidget);
       final box = tester.widget<Container>(find.ancestor(

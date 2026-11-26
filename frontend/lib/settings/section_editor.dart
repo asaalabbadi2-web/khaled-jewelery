@@ -25,12 +25,15 @@ import 'settings_registry.dart';
 /// failed save keeps them too. A financial (level-3) setting is changed alone,
 /// through its confirmation: before and after, its effect, how far it is
 /// undone, and its reason (ADR-103). Leaving with changes unsaved asks first.
+/// Whoever does not hold «إعدادات النظام» reads the section, said so, with no
+/// control to change it (B15, the owner, 26 Nov 2026).
 class SectionEditor extends StatefulWidget {
   const SectionEditor({
     super.key,
     required this.section,
     required this.api,
     this.financialAllowed = false,
+    this.settingsAllowed = true,
     this.highlight,
     this.onDirtyChanged,
     this.opener = openSettingEntry,
@@ -40,6 +43,9 @@ class SectionEditor extends StatefulWidget {
   final SettingsOpener opener;
   final ApiService api;
   final bool financialAllowed;
+
+  /// Whether the user holds system.settings -- without it, read only (B15).
+  final bool settingsAllowed;
 
   /// The id of the setting a search opened: framed, and brought into view.
   final String? highlight;
@@ -100,19 +106,27 @@ class SectionEditorState extends State<SectionEditor> {
   Future<void> _load() async {
     try {
       final settings = await widget.api.getSettings();
-      final versions = await widget.api.getSettingsVersions();
+      // What a save names as seen -- asked only of whoever may save (B15).
+      final versions = widget.settingsAllowed ? await widget.api.getSettingsVersions() : const <String, int>{};
       final types = {for (final e in _entries) ?editors[e.key]!.safeType};
       // An inactive safe is not newly set (the server refuses it): offered only
       // while it is the one set, said «غير نشطة».
       final held = {for (final e in _entries) if (editors[e.key]!.safeType != null) editors[e.key]!.read(settings[e.key])};
-      final safes = {
-        for (final t in types)
-          t: <(Object, String)>[
+      final safes = <String, List<(Object, String)>>{};
+      for (final t in types) {
+        try {
+          safes[t] = [
             for (final sb in List.of(await widget.api.getSafeBoxes(safeType: t, includeAccount: true))
               ..sort((a, b) => a.name.compareTo(b.name)))
               if (sb.id != null && (sb.isActive || held.contains(sb.id))) (sb.id!, _safeLabel(sb)),
-          ],
-      };
+          ];
+        } catch (_) {
+          // Read only, the safes may not be the reader's to list: each set one
+          // said by its number -- not «no longer there».
+          if (widget.settingsAllowed) rethrow;
+          safes[t] = [for (final id in held.whereType<int>()) (id, 'خزينة رقم $id')];
+        }
+      }
       if (!mounted) return;
       setState(() {
         _safes
@@ -303,6 +317,15 @@ class SectionEditorState extends State<SectionEditor> {
                   child: Text('للمنشأة كلها: يُحفظ في الخادم ويسري على كل الأجهزة.',
                       style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
                 ),
+                if (!widget.settingsAllowed)
+                  Container(
+                    key: const Key('settings-read-only'),
+                    margin: const EdgeInsets.only(top: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(color: cs.surfaceContainerHigh, borderRadius: BorderRadius.circular(8)),
+                    child: Text('للعرض: تغييرها يحتاج صلاحية «إعدادات النظام».',
+                        style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                  ),
                 const SizedBox(height: 8),
                 for (final e in _entries)
                   if (_spec(e.key).group case final String g)
@@ -341,8 +364,14 @@ class SectionEditorState extends State<SectionEditor> {
     final dirty = !spec.same(_initial[key], _draft[key]);
     final enabled = spec.dependsOn == null || _draft[spec.dependsOn] == true;
     final highlighted = widget.highlight == e.id;
-    final financial = e.level == 3;
-    final control = financial ? _financialControl(e, spec, enabled) : _control(e, spec, enabled);
+    final readOnly = !widget.settingsAllowed;
+    final financial = e.level == 3 && !readOnly;
+    final control = readOnly
+        ? Text(spec.display(_draft[key]), key: Key('settings-value-$key'),
+            style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700))
+        : financial
+        ? _financialControl(e, spec, enabled)
+        : _control(e, spec, enabled);
     return Container(
       key: _rowKeys[e.id],
       margin: const EdgeInsets.symmetric(vertical: 4),
@@ -361,7 +390,7 @@ class SectionEditorState extends State<SectionEditor> {
               child: Text(dirty ? '${e.label} ●' : e.label,
                   style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
             ),
-            if (financial || spec.kind == EditorKind.toggle) control,
+            if (readOnly || financial || spec.kind == EditorKind.toggle) control,
           ]),
           if (e.description.isNotEmpty)
             Text(e.description, style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
@@ -369,7 +398,7 @@ class SectionEditorState extends State<SectionEditor> {
             Text(spec.explain!(_draft[key], _server), key: Key('settings-explain-$key'), style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
           if (e.level >= 2 && e.effect != null)
             Text(e.effect!, style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
-          if (!financial && spec.kind != EditorKind.toggle) ...[const SizedBox(height: 6), control],
+          if (!readOnly && !financial && spec.kind != EditorKind.toggle) ...[const SizedBox(height: 6), control],
           if (financial && !widget.financialAllowed)
             Text(needsFinancialPermission, key: Key('settings-needs-permission-$key'),
                 style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
@@ -492,7 +521,7 @@ class SectionEditorState extends State<SectionEditor> {
     final parts = _groupOf(group);
     final (label, description) = policyGroups[group]!;
     final highlighted = parts.any((e) => e.id == widget.highlight);
-    final financial = parts.first.level == 3;
+    final financial = parts.first.level == 3 && widget.settingsAllowed;
     return Container(
       key: _rowKeys[parts.first.id],
       margin: const EdgeInsets.symmetric(vertical: 4),
@@ -508,7 +537,8 @@ class SectionEditorState extends State<SectionEditor> {
         children: [
           Row(children: [
             Expanded(child: Text(label, style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700))),
-            OutlinedButton(
+            if (widget.settingsAllowed)
+              OutlinedButton(
               key: Key('settings-change-$group'),
               onPressed: !financial || widget.financialAllowed
                   ? () => _changeFinancial(parts, title: label, description: description)
