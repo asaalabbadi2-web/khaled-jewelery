@@ -96,7 +96,9 @@ class PieceScanResult extends StatelessWidget {
               contentPadding: EdgeInsets.zero,
               leading: Icon(_pieceIcon('${p['verdict']}'),
                   color: p['verdict'] == 'missing' ? tones.warning.fg : theme.colorScheme.onSurfaceVariant),
+              // the missing said by what it is, to be looked for (the owner, 27 Nov 2026)
               title: Text('${ltrIsolate('${p['item_code']}')} · '
+                  '${p['piece_name'] == null ? '' : '${p['piece_name']} · '}'
                   '${ltrIsolate(formatGrams((p['weight'] as num? ?? 0).toDouble(), decimals: 2))} جم'),
               subtitle: Text(isolateLatin([
                 '${p['verdict_words']}',

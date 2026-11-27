@@ -569,3 +569,27 @@ def test_the_reads_route_answers_since_what_the_screen_holds(app, auth_headers, 
     held = max(r['id'] for r in first['reads'])
     again = send('k2', held, _tag(shop['a']), _tag(shop['b']))
     assert [r['value'] for r in again['reads']] == [_tag(shop['b'])] and again['found'] == 2
+
+
+# ── what is left to read (the owner, 27 Nov 2026: «اكمل» -- the proposals after the reads kept) ────────
+
+def test_an_open_scan_says_its_expected_pieces_once_with_their_names(shop):
+    """Said when the scan is opened or read again -- the screen takes the found away as it reads; a
+    batch's answer (since) does not carry them again: a vitrine of thousands."""
+    scan = start_scan(safe_box_id=shop['showroom'].id, kind='check', by='t', now=NOW)
+    view = scan_view(scan)
+    pieces = {p['item_code']: p for p in view['expected_pieces']}
+    assert set(pieces) == {shop[k].item_code for k in ('a', 'b', 'c', 'untagged')}
+    a = pieces[shop['a'].item_code]
+    assert a['item_id'] == shop['a'].id and a['weight'] == 10.0 and a['piece_name'].startswith('بنجرة نقل'), \
+        'what it is, in a word: its model\'s name else its category\'s'
+    _read(scan, _tag(shop['a']), press=1)
+    assert 'expected_pieces' not in scan_view(scan, since=0), 'a batch\'s answer: not again'
+
+
+def test_a_finished_scans_missing_pieces_say_what_they_are(shop):
+    scan = start_scan(safe_box_id=shop['showroom'].id, kind='check', by='t', now=NOW)
+    _read(scan, _tag(shop['a']), press=1, button=True)
+    finish_scan(scan.id, by='t', now=NOW, early=True, reason='تجربة')
+    pieces = {p['item_code']: p for p in scan_view(scan)['expected_pieces']}
+    assert pieces[shop['b'].item_code]['piece_name'].startswith('بنجرة نقل')

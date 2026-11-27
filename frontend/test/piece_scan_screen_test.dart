@@ -33,6 +33,11 @@ class _Api extends ApiService {
   int quiet = 0;
   List<Map<String, dynamic>> open = [];
   final settled = <int>[];
+  /// The scan's expected pieces, as the server says them when the scan is read whole.
+  List<Map<String, dynamic>> expectedList = [
+    {'item_id': 101, 'item_code': 'KJ-000101', 'weight': 10.0, 'piece_name': 'بنجرة الشمس'},
+    {'item_id': 103, 'item_code': 'KJ-000103', 'weight': 12.5, 'piece_name': 'خاتم لؤلؤ'},
+  ];
 
   Map<String, dynamic> _view({String status = 'open', int presses = 0, int? since}) {
     final seen = {for (final b in batches) for (final e in b.events) if (e['value'] != null) e['value'] as String};
@@ -50,6 +55,7 @@ class _Api extends ApiService {
           'id': i + 1,
           'value': v,
           'verdict': v == _ring ? 'other_scope' : (v == _b ? 'elsewhere' : 'found'),
+          'item_id': v == _a ? 101 : (v == _b ? 102 : null),
           'weight': v == _a ? 10.0 : null, 'piece_name': v == _a ? 'بنجرة الشمس' : null,
           'verdict_words': v == _ring ? 'من نطاق آخر' : (v == _b ? 'في غير موقعها' : 'موجودة'),
           'words': v == _b
@@ -76,11 +82,14 @@ class _Api extends ApiService {
       'early_reason': finishes.isEmpty ? null : finishes.last['reason'],
       'completeness': {'complete': complete, 'all_found': allFound, 'needs_presses': 3, 'quiet_presses': quiet},
       'reads': said,
+      if (status == 'open' && since == null) 'expected_pieces': expectedList,
       if (status != 'open') ...{
         'expected_counts': {'found': 1, 'missing': 1},
         'expected_pieces': [
-          {'item_id': 101, 'item_code': 'KJ-000101', 'weight': 10.0, 'verdict': 'found', 'verdict_words': 'موجودة'},
-          {'item_id': 103, 'item_code': 'KJ-000103', 'weight': 12.5, 'verdict': 'missing', 'verdict_words': 'ناقصة'},
+          {'item_id': 101, 'item_code': 'KJ-000101', 'weight': 10.0, 'verdict': 'found', 'verdict_words': 'موجودة',
+           'piece_name': 'بنجرة الشمس'},
+          {'item_id': 103, 'item_code': 'KJ-000103', 'weight': 12.5, 'verdict': 'missing', 'verdict_words': 'ناقصة',
+           'piece_name': 'خاتم لؤلؤ'},
         ],
       },
     };
@@ -284,6 +293,45 @@ void main() {
     expect(api.batches[1].events.single['press'], 2, reason: 'a second press, two seconds later');
   });
 
+  // «ما بقي» as the reader goes (the owner, 27 Nov 2026: «اكمل»): the expected pieces the server said
+  // when the scan opened, the found taken away -- each piece while few, by what it is when many.
+  testWidgets('what is left: the expected not yet found, each said, going as they are read', (tester) async {
+    final api = _Api();
+    await _open(tester, api);
+    await _startSection(tester);
+    await tester.tap(find.byKey(const Key('scan-remaining')));
+    await tester.pumpAndSettle();
+    expect(find.text('ما بقي (2)'), findsOneWidget);
+    expect(find.byKey(const Key('scan-left-101')), findsOneWidget);
+    expect(find.descendant(of: find.byKey(const Key('scan-left-103')), matching: find.textContaining('خاتم لؤلؤ')),
+        findsOneWidget, reason: 'what it is');
+    await _read(tester, '$_a\n');
+    await tester.pumpAndSettle();
+    expect(find.text('ما بقي (1)'), findsOneWidget);
+    expect(find.byKey(const Key('scan-left-101')), findsNothing, reason: 'read: gone from what is left');
+    expect(find.byKey(const Key('scan-left-103')), findsOneWidget);
+  });
+
+  testWidgets('what is left of many is said by what it is: how many, and their grams', (tester) async {
+    final api = _Api()
+      ..expectedList = [
+        for (var i = 0; i < 40; i++) {'item_id': 1000 + i, 'item_code': 'KJ-00${1000 + i}', 'weight': 2.5,
+                                       'piece_name': 'بنجرة الشمس'},
+        for (var i = 0; i < 5; i++) {'item_id': 2000 + i, 'item_code': 'KJ-00${2000 + i}', 'weight': 1.0,
+                                      'piece_name': 'خاتم لؤلؤ'},
+      ];
+    await _open(tester, api);
+    await _startSection(tester);
+    await tester.tap(find.byKey(const Key('scan-remaining')));
+    await tester.pumpAndSettle();
+    expect(find.text('ما بقي (45)'), findsOneWidget);
+    expect(find.byKey(const Key('scan-left-1000')), findsNothing, reason: 'not 45 lines');
+    expect(find.text(isolateLatin('بنجرة الشمس: 40 قطعة · 100.00 جم')), findsOneWidget);
+    expect(find.text(isolateLatin('خاتم لؤلؤ: 5 قطع · 5.00 جم')), findsOneWidget);
+    expect(tester.getTopLeft(find.textContaining('بنجرة الشمس:')).dy,
+        lessThan(tester.getTopLeft(find.textContaining('خاتم لؤلؤ:')).dy), reason: 'the most first');
+  });
+
   // More than 500 pieces a location (the owner, 27 Nov 2026): each batch says the last read the screen
   // holds, and its answer carries every alert and the reads after it -- the found held from before.
   testWidgets('a batch says the last read held; the found are held across answers that bring the new only',
@@ -403,6 +451,8 @@ void main() {
     expect(api.finishes.single, isEmpty, reason: 'complete: no early, no reason');
     expect(_said(tester, 'scan-result-state'), 'انتهى الجرد ومسحه مكتمل');
     expect(find.textContaining('KJ-000103'), findsOneWidget);
+    expect(find.descendant(of: find.byKey(const Key('scan-piece-103')), matching: find.textContaining('خاتم لؤلؤ')),
+        findsOneWidget, reason: 'the missing said by what it is');
     expect(find.descendant(of: find.byKey(const Key('scan-piece-103')), matching: find.text('ناقصة')), findsOneWidget);
     expect(_said(tester, 'scan-count-missing'), isolateLatin('1'), reason: 'and counted in its tile');
     expect(find.textContaining('KJ-000101'), findsNothing, reason: 'the found are counted, not listed');

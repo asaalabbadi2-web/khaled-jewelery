@@ -462,12 +462,17 @@ def scan_view(scan: PieceScan, *, with_lists=True, since=None) -> dict:
             view['expected_counts'][row.verdict] = view['expected_counts'].get(row.verdict, 0) + 1
     if with_lists:
         view['reads'] = read_views
-        if not open_:
-            items = {i.id: i for i in Item.query.filter(Item.id.in_(expected))} if expected else {}
+        # its expected pieces, each what it is in a word: once the scan is read whole -- opened, read
+        # again, finished -- not in a batch's answer (the owner, 27 Nov 2026: «ما بقي» as the reader
+        # goes, a vitrine of thousands): the screen takes the found away as it reads
+        if since is None:
+            kinds = _piece_names([pieces[i] for i in expected if i in pieces])
             view['expected_pieces'] = [
-                {'item_id': row.item_id, 'item_code': getattr(items.get(row.item_id), 'item_code', None),
-                 'weight': float(getattr(items.get(row.item_id), 'weight', 0) or 0), 'verdict': row.verdict,
-                 'verdict_words': WORDS.get(row.verdict), 'moved': row.moved}
+                {'item_id': row.item_id, 'item_code': getattr(pieces.get(row.item_id), 'item_code', None),
+                 'weight': float(getattr(pieces.get(row.item_id), 'weight', 0) or 0),
+                 'piece_name': kinds.get(row.item_id),
+                 **({} if open_ else {'verdict': row.verdict, 'verdict_words': WORDS.get(row.verdict),
+                                      'moved': row.moved})}
                 for row in expected_rows]
     return view
 

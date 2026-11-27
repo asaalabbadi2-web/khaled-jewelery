@@ -82,8 +82,14 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
   final Map<int, Map<String, dynamic>> _reads = {};
   int get _lastReadId => _reads.keys.fold(0, max);
 
+  /// The scan's expected pieces, as the server said them when it was read whole (opened, read again):
+  /// what is left to read is these, the found taken away (the owner, 27 Nov 2026: «ما بقي»).
+  List<Map<String, dynamic>> _expected = const [];
+
   /// The scan as the server said it: its reads merged into [_reads] -- replaced when it said them all.
   void _hold(Map<String, dynamic> scan) {
+    final expected = scan['expected_pieces'];
+    if (scan['status'] == 'open' && expected is List) _expected = expected.cast<Map<String, dynamic>>();
     final said = (scan['reads'] as List? ?? const []).whereType<Map<String, dynamic>>();
     if (scan['reads_since'] == null) _reads.clear();
     for (final r in said) {
@@ -324,6 +330,7 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
       _scan = null;
       _capture = null;
       _reads.clear();
+      _expected = const [];
     });
     _loadStart();
   }
@@ -554,6 +561,7 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
           child: Text('من نطاق آخر: $others — خارج حساب هذا الجرد', key: const Key('scan-other-scope'),
               style: theme.textTheme.bodySmall),
         ),
+      if (_expected.isNotEmpty) _leftList(context, found),
       if (found.isNotEmpty)
         ExpansionTile(
           key: const Key('scan-found-list'),
@@ -561,6 +569,58 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
           children: [for (final r in found) _readTile(context, r)],
         ),
     ]);
+  }
+
+  /// «قطعة واحدة», «قطعتان», «5 قطع», «40 قطعة».
+  static String _piecesWord(int n) => switch (n) {
+        1 => 'قطعة واحدة',
+        2 => 'قطعتان',
+        >= 3 && <= 10 => '$n قطع',
+        _ => '$n قطعة',
+      };
+
+  /// What is left to read: the expected pieces not found yet -- each one while they are few, by what
+  /// they are when many (how many, and their grams, the most first): a vitrine of thousands is read by
+  /// its kinds, not a list of numbers.
+  Widget _leftList(BuildContext context, List<Map<String, dynamic>> found) {
+    final foundIds = {for (final r in found) r['item_id']};
+    final left = _expected.where((p) => !foundIds.contains(p['item_id'])).toList();
+    final List<Widget> lines;
+    if (left.length <= 30) {
+      lines = [
+        for (final p in left)
+          ListTile(
+            key: Key('scan-left-${p['item_id']}'),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: Text(isolateLatin('${p['item_code']} · ${p['piece_name'] ?? ''} · '
+                '${formatGrams((p['weight'] as num? ?? 0).toDouble(), decimals: 2)} جم')),
+          ),
+      ];
+    } else {
+      final kinds = <String, ({int n, double grams})>{};
+      for (final p in left) {
+        final name = '${p['piece_name'] ?? 'بلا اسم'}';
+        final was = kinds[name] ?? (n: 0, grams: 0.0);
+        kinds[name] = (n: was.n + 1, grams: was.grams + (p['weight'] as num? ?? 0).toDouble());
+      }
+      final order = kinds.entries.toList()..sort((a, b) => b.value.n.compareTo(a.value.n));
+      lines = [
+        for (final k in order)
+          ListTile(
+            key: Key('scan-left-kind-${k.key}'),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: Text(isolateLatin(
+                '${k.key}: ${_piecesWord(k.value.n)} · ${formatGrams(k.value.grams, decimals: 2)} جم')),
+          ),
+      ];
+    }
+    return ExpansionTile(
+      key: const Key('scan-remaining'),
+      title: Text('ما بقي (${left.length})'),
+      children: lines,
+    );
   }
 
   Widget _readTile(BuildContext context, Map<String, dynamic> r) {
