@@ -12,6 +12,7 @@ import '../widgets/reader_capture.dart';
 import '../widgets/reader_receiver.dart';
 import '../utils/bidi.dart';
 import '../utils/currency_utils.dart' show formatGrams;
+import '../utils/scan_feedback.dart';
 
 /// «جرد بالمسح» on the handheld reader (ADR-085 ت2 ج1; the owner, 21 Nov 2026).
 ///
@@ -85,6 +86,23 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
   /// The scan's expected pieces, as the server said them when it was read whole (opened, read again):
   /// what is left to read is these, the found taken away (the owner, 27 Nov 2026: «ما بقي»).
   List<Map<String, dynamic>> _expected = const [];
+
+  /// The alerts a tone has said, and whether «every piece found» has (the owner, 27 Nov 2026: the
+  /// eyes on the vitrine, the reader's own beep off): each once; a found read says nothing.
+  final Set<Object?> _heard = {};
+  bool _allFoundHeard = false;
+
+  static bool _isAlert(Map<String, dynamic> r) => r['verdict'] != 'found' && r['verdict'] != 'other_scope';
+
+  /// What the server's answer to a batch says aloud: a tone for a read to look at not heard before,
+  /// one when every piece expected is found -- the system's own word ([ScanFeedback]).
+  void _sayAloud(Map<String, dynamic> scan) {
+    final alerts = (scan['reads'] as List? ?? const []).whereType<Map<String, dynamic>>().where(_isAlert);
+    if (alerts.map((r) => r['id']).where(_heard.add).toList().isNotEmpty) ScanFeedback.refused();
+    final allFound = (scan['completeness'] as Map?)?['all_found'] == true;
+    if (allFound && !_allFoundHeard) ScanFeedback.added();
+    _allFoundHeard = allFound;
+  }
 
   /// The scan as the server said it: its reads merged into [_reads] -- replaced when it said them all.
   void _hold(Map<String, dynamic> scan) {
@@ -193,6 +211,10 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
       pressesBefore: (scan['presses'] as num?)?.toInt() ?? 0,
       clearAfterRead: true,
     )..start();
+    _heard
+      ..clear()
+      ..addAll([for (final r in (scan['reads'] as List? ?? const []).whereType<Map<String, dynamic>>()) if (_isAlert(r)) r['id']]);
+    _allFoundHeard = (scan['completeness'] as Map?)?['all_found'] == true;
     setState(() {
       _hold(scan);
       _capture = capture;
@@ -233,6 +255,7 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
         final words = r['words'] ?? r['verdict_words'];
         if (r['value'] != null && words != null) _capture?.describe('${r['value']}', '$words');
       }
+      _sayAloud(body['scan'] as Map<String, dynamic>);
       setState(() {
         _hold(body['scan'] as Map<String, dynamic>);
         _sending = null;

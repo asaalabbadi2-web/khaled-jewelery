@@ -11,6 +11,7 @@ import 'package:frontend/utils/bidi.dart';
 import 'package:frontend/api_service.dart';
 import 'package:frontend/screens/piece_scan_screen.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/utils/scan_feedback.dart';
 
 const _a = '4B4A00000000000000000101';
 const _b = '4B4A00000000000000000102';
@@ -291,6 +292,34 @@ void main() {
     expect(api.batches, hasLength(2));
     expect(api.batches[1].key, isNot(api.batches[0].key));
     expect(api.batches[1].events.single['press'], 2, reason: 'a second press, two seconds later');
+  });
+
+  // The system's tones on a count (the owner, 27 Nov 2026: «اكمل»; the reader's own beep is off): the
+  // eyes on the vitrine, not on the screen -- a tone when a read needs looking at, once for each, and
+  // one when every piece expected is found; a found read says nothing (hundreds a second).
+  testWidgets('a read to look at sounds once; a found one says nothing; every piece found sounds', (tester) async {
+    final said = <bool>[];
+    final before = ScanFeedback.say;
+    ScanFeedback.say = said.add;
+    addTearDown(() => ScanFeedback.say = before);
+    final api = _Api();
+    await _open(tester, api);
+    await _startSection(tester);
+    await _read(tester, '$_a\n');
+    expect(said, isEmpty, reason: 'found: no tone');
+    _ms = 1000;
+    await _read(tester, '$_b\n');
+    expect(said, [false], reason: 'in another place: looked at');
+    _ms = 2000;
+    await _read(tester, '$_b\n$_a\n');
+    expect(said, [false], reason: 'the same alert again: not again');
+    api.allFound = true;
+    _ms = 3000;
+    await _read(tester, '$_a\n');
+    expect(said, [false, true], reason: 'every piece expected found: said once');
+    _ms = 4000;
+    await _read(tester, '$_a\n');
+    expect(said, [false, true]);
   });
 
   // «ما بقي» as the reader goes (the owner, 27 Nov 2026: «اكمل»): the expected pieces the server said
