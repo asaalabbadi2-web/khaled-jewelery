@@ -484,3 +484,88 @@ def test_the_log_route_reads_its_location_and_period(shop, auth_headers):
     refused = get('?period=decade')
     assert refused.status_code == 400 and refused.get_json()['error'] == 'scan_period_invalid'
 
+
+
+# ── a vitrine of hundreds (the owner, 27 Nov 2026: more than 500 pieces a location) ──────────────────
+# Measured on a copy of the 27 Nov backup: every 400 ms batch judged each read alone, twice -- about
+# two queries a read -- and answered every read again: 600 pieces 0.4 s and 214 KB a batch.
+
+def _queries(fn):
+    from sqlalchemy import event
+    count = [0]
+
+    def seen(*_):
+        count[0] += 1
+    event.listen(db.engine, 'before_cursor_execute', seen)
+    try:
+        result = fn()
+    finally:
+        event.remove(db.engine, 'before_cursor_execute', seen)
+    return result, count[0]
+
+
+def test_all_reads_judged_at_once_say_what_each_alone_says(shop):
+    from services.piece_scan import judge_all
+    job, attempt = _unsettled(shop['untagged'])
+    _sold(shop['showroom'], shop['c'])
+    scan = start_scan(safe_box_id=shop['showroom'].id, kind='check', by='t', now=NOW)
+    replace_tag(shop['b'], reason='تلفت', value=epc_of(shop['b'].item_code, 1), by='t', now=NOW)
+    values = [_tag(shop['a']), _tag(shop['far']), _tag(shop['c']), epc_of(shop['b'].item_code),
+              epc_of(shop['b'].item_code, 1), shop['b'].item_code, 'KJ-999999', attempt.epc,
+              '4B4A00000000000000999999', 'E2003412012345678901ABCD']
+    alone = {v: judge(scan, v) for v in values}
+    assert {s['verdict'] for s in alone.values()} >= {'found', 'elsewhere', 'out', 'stopped', 'unconfirmed',
+                                                      'unknown'}, 'every kind of read'
+    assert judge_all(scan, values) == alone
+
+
+def test_a_batchs_queries_do_not_grow_with_the_pieces_read():
+    showroom = _safe('showroom')
+    pieces = _pieces(showroom, _bangles(), *([1.0] * 30))
+    for piece in pieces:
+        mount_tag(piece, by='t', now=NOW)
+    few = start_scan(safe_box_id=showroom.id, kind='check', by='t', now=NOW)
+    _read(few, *[_tag(p) for p in pieces[:5]], press=1)
+    many = start_scan(safe_box_id=showroom.id, kind='check', by='t', now=NOW + timedelta(seconds=1))
+    _read(many, *[_tag(p) for p in pieces], press=1)
+    (_, q_few), (_, q_many) = _queries(lambda: scan_view(few)), _queries(lambda: scan_view(many))
+    assert q_many <= q_few + 2, f'5 reads {q_few} queries, 30 reads {q_many}: not a query or two a read'
+    (_, q_few), (_, q_many) = (_queries(lambda: finish_scan(few.id, by='t', now=NOW, early=True, reason='x')),
+                               _queries(lambda: finish_scan(many.id, by='t', now=NOW)))
+    assert q_many <= q_few + 8, f'the finish: 5 reads {q_few} queries, 30 reads {q_many}'
+
+
+def test_a_batchs_answer_carries_every_alert_and_the_reads_since_what_the_screen_holds(shop):
+    scan = start_scan(safe_box_id=shop['showroom'].id, kind='check', by='t', now=NOW)
+    _read(scan, _tag(shop['a']), _tag(shop['far']), press=1)
+    held = max(r['id'] for r in scan_view(scan)['reads'])
+    _read(scan, _tag(shop['a']), _tag(shop['b']), press=2)
+    view = scan_view(scan, since=held)
+    assert {r['value'] for r in view['reads']} == {_tag(shop['far']), _tag(shop['b'])}, \
+        'the alert again, the new read -- not the found one the screen already holds'
+    assert view['reads_since'] == held
+    assert (view['found'], view['alerts'], view['counts']) == (2, 1, {'found': 2, 'elsewhere': 1}), \
+        'its figures of every read'
+    assert {r['value'] for r in scan_view(scan)['reads']} == {_tag(shop['a']), _tag(shop['far']), _tag(shop['b'])}
+    assert 'reads_since' not in scan_view(scan), 'asked without it: every read'
+
+
+def test_the_reads_route_answers_since_what_the_screen_holds(app, auth_headers, shop):
+    from flask import g
+    from tests.test_wage_treatment_follows_the_setting import flask_app
+    client = flask_app.test_client()
+    g.pop('current_user', None)
+    scan_id = client.post('/api/piece-scans', headers=auth_headers,
+                          json={'safe_box_id': shop['showroom'].id, 'kind': 'check'}).get_json()['scan']['id']
+
+    def send(key, since, *values):
+        g.pop('current_user', None)
+        r = client.post(f'/api/piece-scans/{scan_id}/reads', headers=auth_headers, json={
+            'batch_key': key, 'since': since,
+            'events': [{'kind': 'read', 'value': v, 'press': 1, 'ms': 1000} for v in values]})
+        assert r.status_code == 200, r.get_data(as_text=True)
+        return r.get_json()['scan']
+    first = send('k1', 0, _tag(shop['a']))
+    held = max(r['id'] for r in first['reads'])
+    again = send('k2', held, _tag(shop['a']), _tag(shop['b']))
+    assert [r['value'] for r in again['reads']] == [_tag(shop['b'])] and again['found'] == 2

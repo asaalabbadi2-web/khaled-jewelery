@@ -1097,7 +1097,13 @@ def tag_state(value: str) -> dict:
                 # its end still unknown: the reader that read it may settle it (ADR-085 ت2)
                 'attempt_id': attempt.id, 'unsettled': job.status == 'needs_attention' and attempt.finished_at is None}
     return {'state': TAG_UNKNOWN, 'counted': False, 'item_id': None, 'item_code': code,
-            'generation': generation, 'message': f'رقاقة غير معروفة {value} — لا تُحتسب'}
+            'generation': generation, 'message': unknown_tag_words(value)}
+
+
+def unknown_tag_words(value: str) -> str:
+    """What a value no tag and no attempt ever had is said -- by [tag_state], and by a count's reads
+    judged at once (services/piece_scan.judge_all)."""
+    return f'رقاقة غير معروفة {value} — لا تُحتسب'
 
 
 def _valid_epc96(value: str) -> bool:

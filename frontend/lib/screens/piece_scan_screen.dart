@@ -19,9 +19,19 @@ import '../utils/currency_utils.dart' show formatGrams;
 /// then the reader passed over every place the pieces are shown, its button
 /// held or pressed. What the reader sends ([ReaderCapture]) goes to the server
 /// in batches, each once by its key; every verdict and every figure is the
-/// server's. Nothing finishes by itself: «إنهاء الجرد» waits for the server's
-/// «complete» -- no new tag in the last presses -- and before it only an early
-/// finish with its reason, said so in the scan's log.
+/// server's. A batch the server did not take for a passing reason -- no
+/// answer, restarted, failed inside, the session ended -- is kept in this page
+/// and sent again under its key (the key makes a second sending harmless), and
+/// the screen says where its reads are: in this page alone, not on the reader;
+/// only a refusal that would come again drops it. Nothing finishes by itself:
+/// «إنهاء الجرد» waits for the server's «complete» -- no new tag in the last
+/// presses -- and for every read sent; before it only an early finish with its
+/// reason, said so in the scan's log.
+///
+/// A location holds more than 500 pieces (the owner, 27 Nov 2026): a batch's
+/// answer carries every alert and only the reads after the last one this screen
+/// holds ([_reads], merged by id); its figures -- found, alerts, other scope --
+/// are the server's of every read.
 class PieceScanScreen extends StatefulWidget {
   const PieceScanScreen({super.key, this.api, this.elapsed, this.sendEvery = const Duration(milliseconds: 400)});
   final ApiService? api;
@@ -31,6 +41,11 @@ class PieceScanScreen extends StatefulWidget {
 
   /// How often what the reader sent goes to the server.
   final Duration sendEvery;
+
+  /// The most reads a batch carries: the server takes 2000 at most (services/piece_scan.EVENTS_A_BATCH)
+  /// and refuses a longer one for good -- what waited while it was out of reach goes in batches of
+  /// this many, none refused.
+  static const batchMost = 1000;
 
   @override
   State<PieceScanScreen> createState() => _PieceScanScreenState();
@@ -59,8 +74,34 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
   final List<Map<String, dynamic>> _waiting = [];
   ({String key, List<Map<String, dynamic>> events})? _sending;
   Timer? _sendTimer;
-  bool _offline = false;
+  /// Why the last batch is waiting to be sent again, or null: [_noServer] or [_sessionEnded].
+  String? _unsent;
   bool _finishing = false;
+
+  /// Every read the server has said, by its id -- an answer brings the reads after the last held.
+  final Map<int, Map<String, dynamic>> _reads = {};
+  int get _lastReadId => _reads.keys.fold(0, max);
+
+  /// The scan as the server said it: its reads merged into [_reads] -- replaced when it said them all.
+  void _hold(Map<String, dynamic> scan) {
+    final said = (scan['reads'] as List? ?? const []).whereType<Map<String, dynamic>>();
+    if (scan['reads_since'] == null) _reads.clear();
+    for (final r in said) {
+      if (r['id'] is int) _reads[r['id'] as int] = r;
+    }
+    _scan = scan;
+  }
+
+  static const _noServer =
+      'لا يصل الخادم: قراءات لم تُرسل بعد، وهي في هذه الصفحة وحدها — لا تغلقها ولا تُعِد تحميلها حتى تُرسل';
+  static const _sessionEnded =
+      'انتهت الجلسة: سجّل الدخول من جديد في نافذة أخرى — القراءات في هذه الصفحة تُرسل بعده، فلا تغلقها';
+
+  /// A batch not taken for a passing reason, sent again under its key: no answer (not an
+  /// [ApiException]), the server restarted or failed inside (5xx), the session ended (401), too
+  /// many or too slow (429, 408). Any other refusal would come again: the batch is dropped, said.
+  static bool _passing(ApiException e) =>
+      e.statusCode >= 500 || const {401, 408, 429}.contains(e.statusCode);
 
   static const kinds = {'opening': 'جرد فتح', 'closing': 'جرد إغلاق', 'check': 'تحقّق'};
 
@@ -147,7 +188,7 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
       clearAfterRead: true,
     )..start();
     setState(() {
-      _scan = scan;
+      _hold(scan);
       _capture = capture;
       _waiting.clear();
       _sending = null;
@@ -173,12 +214,13 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
     if (scan == null || scan['status'] != 'open') return;
     if (_sending == null) {
       if (_waiting.isEmpty) return;
-      _sending = (key: _newKey(), events: List.of(_waiting));
-      _waiting.clear();
+      final take = min(_waiting.length, PieceScanScreen.batchMost);
+      _sending = (key: _newKey(), events: List.of(_waiting.take(take)));
+      _waiting.removeRange(0, take);
     }
     final batch = _sending!;
     try {
-      final body = await _api.pieceScanReads(scan['id'] as int, batch.key, batch.events);
+      final body = await _api.pieceScanReads(scan['id'] as int, batch.key, batch.events, since: _lastReadId);
       if (!mounted) return;
       // the panel says each value as the server judged it, not the tag's raw value
       for (final r in ((body['scan'] as Map?)?['reads'] as List? ?? const []).whereType<Map>()) {
@@ -186,19 +228,30 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
         if (r['value'] != null && words != null) _capture?.describe('${r['value']}', '$words');
       }
       setState(() {
-        _scan = body['scan'] as Map<String, dynamic>;
+        _hold(body['scan'] as Map<String, dynamic>);
         _sending = null;
-        _offline = false;
+        _unsent = null;
       });
     } on ApiException catch (e) {
-      // refused (the scan closed elsewhere, a batch not understood): said, not sent again
       if (!mounted) return;
-      setState(() => _sending = null);
+      if (_passing(e)) {
+        final why = e.statusCode == 401 ? _sessionEnded : _noServer;
+        if (_unsent != why) setState(() => _unsent = why);
+        return;
+      }
+      // refused for good (the scan closed elsewhere, a batch not understood): said, not sent again
+      setState(() {
+        _sending = null;
+        _unsent = null;
+      });
       AppFeedback.error(context, e);
     } catch (_) {
-      if (mounted && !_offline) setState(() => _offline = true);
+      if (mounted && _unsent != _noServer) setState(() => _unsent = _noServer);
     }
   }
+
+  /// Reads the reader sent that the server has not taken yet.
+  bool get _readsUnsent => _sending != null || _waiting.isNotEmpty;
 
   Future<void> _finish({bool early = false}) async {
     final scan = _scan;
@@ -210,11 +263,18 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
     }
     setState(() => _finishing = true);
     await _send();
+    if (!mounted) return;
+    if (_readsUnsent) {
+      // judged without them, a piece read only in them would be said missing
+      setState(() => _finishing = false);
+      AppFeedback.warning(context, 'قراءات لم تصل الخادم بعد: لا يُنهى الجرد حتى تُرسل');
+      return;
+    }
     try {
       final body = await _api.finishPieceScan(scan['id'] as int, early: early, reason: reason);
       if (!mounted) return;
       _sendTimer?.cancel();
-      setState(() => _scan = body['scan'] as Map<String, dynamic>);
+      setState(() => _hold(body['scan'] as Map<String, dynamic>));
     } catch (e) {
       if (mounted) AppFeedback.error(context, e);
     } finally {
@@ -251,7 +311,7 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
       final body = await _api.abandonPieceScan(scan['id'] as int);
       if (!mounted) return;
       _sendTimer?.cancel();
-      setState(() => _scan = body['scan'] as Map<String, dynamic>);
+      setState(() => _hold(body['scan'] as Map<String, dynamic>));
     } catch (e) {
       if (mounted) AppFeedback.error(context, e);
     }
@@ -263,6 +323,7 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
     setState(() {
       _scan = null;
       _capture = null;
+      _reads.clear();
     });
     _loadStart();
   }
@@ -397,10 +458,15 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
     final quiet = ((scan['completeness'] as Map?)?['quiet_presses'] as num? ?? 0).toInt();
     final expected = (scan['expected'] as num? ?? 0).toInt();
     final foundCount = (scan['found'] as num? ?? 0).toInt();
-    final reads = (scan['reads'] as List? ?? []).cast<Map<String, dynamic>>();
-    final alerts = reads.where((r) => r['verdict'] != 'found' && r['verdict'] != 'other_scope').toList();
-    final found = reads.where((r) => r['verdict'] == 'found').toList();
-    final others = reads.where((r) => r['verdict'] == 'other_scope').length;
+    // every alert in each answer; the found as merged from the answers; the counts the server's
+    final alerts = (scan['reads'] as List? ?? [])
+        .cast<Map<String, dynamic>>()
+        .where((r) => r['verdict'] != 'found' && r['verdict'] != 'other_scope')
+        .toList();
+    final alertIds = {for (final r in alerts) r['id']};
+    final found = _reads.values.where((r) => r['verdict'] == 'found' && !alertIds.contains(r['id'])).toList();
+    final counts = (scan['counts'] as Map?) ?? const {};
+    final others = (counts['other_scope'] as num? ?? 0).toInt();
     return ListView(padding: const EdgeInsets.all(16), children: [
       Text('${scan['safe_name']} — ${scan['kind_words']} — ${scan['scope_words']}',
           key: const Key('scan-title'), style: theme.textTheme.titleSmall),
@@ -453,11 +519,10 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
           ),
         ),
       ]),
-      if (_offline)
+      if (_unsent != null)
         Padding(
           padding: const EdgeInsets.only(top: 8),
-          child: Text('لا اتصال بالخادم: القراءات محفوظة على القارئ وتُرسل حين يعود',
-              key: const Key('scan-offline'), style: TextStyle(color: tones.blocked.fg)),
+          child: Text(_unsent!, key: const Key('scan-offline'), style: TextStyle(color: tones.blocked.fg)),
         ),
       const SizedBox(height: 8),
       ReaderReceiver(capture: _capture!, focusNode: _focus, fieldKey: const Key('scan-field')),
@@ -492,7 +557,7 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
       if (found.isNotEmpty)
         ExpansionTile(
           key: const Key('scan-found-list'),
-          title: Text('الموجودة (${found.length})'),
+          title: Text('الموجودة (${(counts['found'] as num?)?.toInt() ?? found.length})'),
           children: [for (final r in found) _readTile(context, r)],
         ),
     ]);
@@ -549,7 +614,7 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
     if (sure != true || !mounted) return;
     try {
       final body = await _api.settlePieceScanRead(scan['id'] as int, read['id'] as int);
-      if (mounted) setState(() => _scan = body['scan'] as Map<String, dynamic>);
+      if (mounted) setState(() => _hold(body['scan'] as Map<String, dynamic>));
     } catch (e) {
       if (mounted) AppFeedback.error(context, e);
     }

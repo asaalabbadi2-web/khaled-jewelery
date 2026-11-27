@@ -22,13 +22,19 @@ class _Api extends ApiService {
   final batches = <({String key, List<Map<String, dynamic>> events})>[];
   final finishes = <Map<String, dynamic>>[];
   int loseNext = 0;
+  /// The server's answers to the next batches, before any is taken: a 502, a 500, a 401, a refusal.
+  final refusals = <ApiException>[];
+  /// Each batch's key as it was sent, taken or not.
+  final tried = <String>[];
+  /// What each batch said the screen holds: the last read's id.
+  final sinces = <int?>[];
   bool complete = false;
   bool allFound = false;
   int quiet = 0;
   List<Map<String, dynamic>> open = [];
   final settled = <int>[];
 
-  Map<String, dynamic> _view({String status = 'open', int presses = 0}) {
+  Map<String, dynamic> _view({String status = 'open', int presses = 0, int? since}) {
     final seen = {for (final b in batches) for (final e in b.events) if (e['value'] != null) e['value'] as String};
     final reads = [
       for (final (i, v) in seen.indexed)
@@ -52,14 +58,24 @@ class _Api extends ApiService {
           'moved': null,
         },
     ];
+    final counts = <String, int>{};
+    for (final r in reads) {
+      counts['${r['verdict']}'] = (counts['${r['verdict']}'] ?? 0) + 1;
+    }
+    // as the server answers a batch: every alert, and the reads after the last the screen holds
+    final said = since == null
+        ? reads
+        : [for (final r in reads) if ((r['id'] as int) > since || !{'found', 'other_scope'}.contains(r['verdict'])) r];
     return {
+      if (since != null) 'reads_since': since,
+      'counts': counts,
       'id': 7, 'safe_name': 'الذهب المعروض', 'kind_words': 'جرد إغلاق', 'scope_words': 'قسم بناجر',
       'status': status, 'presses': presses, 'expected': 2, 'found': seen.contains(_a) ? 1 : 0,
       'expected_grams': 22.5, 'found_grams': seen.contains(_a) ? 10.0 : 0.0,
       'alerts': seen.contains(_b) ? 1 : 0, 'complete': status == 'open' ? null : !finishes.last.containsKey('early'),
       'early_reason': finishes.isEmpty ? null : finishes.last['reason'],
       'completeness': {'complete': complete, 'all_found': allFound, 'needs_presses': 3, 'quiet_presses': quiet},
-      'reads': reads,
+      'reads': said,
       if (status != 'open') ...{
         'expected_counts': {'found': 1, 'missing': 1},
         'expected_pieces': [
@@ -99,13 +115,20 @@ class _Api extends ApiService {
   Future<Map<String, dynamic>> pieceScan(int scanId) async => {'scan': _view(presses: 5)};
 
   @override
-  Future<Map<String, dynamic>> pieceScanReads(int scanId, String batchKey, List<Map<String, dynamic>> events) async {
+  Future<Map<String, dynamic>> pieceScanReads(int scanId, String batchKey, List<Map<String, dynamic>> events,
+      {int? since}) async {
+    tried.add(batchKey);
+    sinces.add(since);
+    if (refusals.isNotEmpty) throw refusals.removeAt(0);
+    if (events.length > 2000) {                       // as the server refuses it (EVENTS_A_BATCH), for good
+      throw const ApiException(statusCode: 400, code: 'scan_events_invalid', message: 'الدفعة قائمة من 2000 قراءة على الأكثر');
+    }
     if (loseNext > 0) {
       loseNext--;
       throw Exception('connection lost');
     }
     if (!batches.any((b) => b.key == batchKey)) batches.add((key: batchKey, events: events));
-    return {'scan': _view()};
+    return {'scan': _view(since: since)};
   }
 
   @override
@@ -259,6 +282,108 @@ void main() {
     expect(api.batches, hasLength(2));
     expect(api.batches[1].key, isNot(api.batches[0].key));
     expect(api.batches[1].events.single['press'], 2, reason: 'a second press, two seconds later');
+  });
+
+  // More than 500 pieces a location (the owner, 27 Nov 2026): each batch says the last read the screen
+  // holds, and its answer carries every alert and the reads after it -- the found held from before.
+  testWidgets('a batch says the last read held; the found are held across answers that bring the new only',
+      (tester) async {
+    final api = _Api();
+    await _open(tester, api);
+    await _startSection(tester);
+    await _read(tester, '$_a\n$_ring\n');
+    expect(api.sinces.single, 0, reason: 'none held yet');
+    _ms = 2000;
+    await _read(tester, '$_a\n$_b\n');
+    expect(api.sinces.last, 2, reason: 'the last read held: the second');
+    await tester.tap(find.byKey(const Key('scan-found-list')));
+    await tester.pumpAndSettle();
+    expect(find.descendant(of: find.byKey(const Key('scan-found-list')), matching: find.byKey(const Key('scan-read-$_a'))),
+        findsOneWidget, reason: 'held from the first answer, not sent again');
+    expect(find.text('الموجودة (1)'), findsOneWidget);
+    expect(find.text('في غير موقعها'), findsOneWidget, reason: 'the alert, in the answer that brought it');
+    expect(find.text('من نطاق آخر: 1 — خارج حساب هذا الجرد'), findsOneWidget, reason: 'the server\'s count');
+  });
+
+  // The server takes a batch of 2000 reads at most (EVENTS_A_BATCH) and refuses a longer one for good:
+  // what the reader sent while the server was out of reach -- a vitrine of more than 1000 pieces (the
+  // owner, 27 Nov 2026) -- goes in batches the server takes, none refused and dropped.
+  testWidgets('what waited while the server was out of reach goes in batches the server takes', (tester) async {
+    final api = _Api();
+    await _open(tester, api);
+    await _startSection(tester);
+    api.loseNext = 3;
+    final many = [for (var i = 0; i < 2500; i++) '4B4A0000000000000${(500000 + i).toString().padLeft(7, '0')}'];
+    await _read(tester, '${many.join('\n')}\n');
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(api.batches.every((b) => b.events.length <= PieceScanScreen.batchMost), isTrue,
+        reason: 'each within what the server takes');
+    expect(PieceScanScreen.batchMost, lessThanOrEqualTo(2000));
+    expect({for (final b in api.batches) for (final e in b.events) e['value']}, many.toSet(), reason: 'none lost');
+  });
+
+  // A batch the server did not take for a passing reason -- restarted (502), failed inside (500), the
+  // session ended (401) -- is kept and sent again under its key: its reads are not lost, a piece read
+  // only in it is not said missing at the finish. The key makes a second sending harmless.
+  for (final (status, said) in [
+    (502, 'لا يصل الخادم: قراءات لم تُرسل بعد، وهي في هذه الصفحة وحدها — لا تغلقها ولا تُعِد تحميلها حتى تُرسل'),
+    (500, 'لا يصل الخادم: قراءات لم تُرسل بعد، وهي في هذه الصفحة وحدها — لا تغلقها ولا تُعِد تحميلها حتى تُرسل'),
+    (401, 'انتهت الجلسة: سجّل الدخول من جديد في نافذة أخرى — القراءات في هذه الصفحة تُرسل بعده، فلا تغلقها'),
+  ]) {
+    testWidgets('a batch the server answered $status is kept, said, and sent again under its key', (tester) async {
+      final api = _Api();
+      await _open(tester, api);
+      await _startSection(tester);
+      api.refusals.addAll([
+        ApiException(statusCode: status, code: 'http_error', message: 'x'),
+        ApiException(statusCode: status, code: 'http_error', message: 'x'),
+      ]);
+      await _read(tester, '$_a\n');
+      expect(api.batches, isEmpty);
+      expect(_said(tester, 'scan-offline'), said, reason: 'where its reads are, truly: this page alone');
+      for (var i = 0; i < 5; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(api.batches.single.events.single['value'], _a, reason: 'sent again, then taken');
+      expect(api.tried, hasLength(3), reason: 'refused twice, taken the third time');
+      expect(api.tried.toSet(), {api.batches.single.key}, reason: 'every sending under its one key');
+      expect(find.byKey(const Key('scan-offline')), findsNothing);
+    });
+  }
+
+  testWidgets('a batch refused for good -- the scan closed elsewhere -- is dropped, said, not sent again',
+      (tester) async {
+    final api = _Api();
+    await _open(tester, api);
+    await _startSection(tester);
+    api.refusals.add(const ApiException(
+        statusCode: 409, code: 'scan_not_open', message: 'جلسة الجرد منتهية أو متروكة: لا تُقرأ فيها رقاقات'));
+    await _read(tester, '$_a\n');
+    await tester.pump(const Duration(milliseconds: 150));
+    await tester.pump();
+    expect(api.tried, hasLength(1), reason: 'the same answer would come again');
+    expect(find.text('جلسة الجرد منتهية أو متروكة: لا تُقرأ فيها رقاقات'), findsOneWidget);
+  });
+
+  testWidgets('the finish waits for the reads not yet sent: none judged without them', (tester) async {
+    final api = _Api()..complete = true;
+    await _open(tester, api);
+    await _startSection(tester);
+    api.loseNext = 99;
+    await _read(tester, '$_a\n');
+    await tester.tap(find.byKey(const Key('scan-finish')));
+    await tester.pumpAndSettle();
+    expect(api.finishes, isEmpty, reason: 'a piece in an unsent batch would be said missing');
+    expect(find.text('قراءات لم تصل الخادم بعد: لا يُنهى الجرد حتى تُرسل'), findsOneWidget);
+    api.loseNext = 0;
+    await tester.pump(const Duration(milliseconds: 150));
+    await tester.pump();
+    expect(api.batches, hasLength(1));
+    await tester.tap(find.byKey(const Key('scan-finish')));
+    await tester.pumpAndSettle();
+    expect(api.finishes, hasLength(1), reason: 'sent: then finished');
   });
 
   testWidgets('«إنهاء الجرد» waits for the server\'s complete; then the result, the missing named', (tester) async {

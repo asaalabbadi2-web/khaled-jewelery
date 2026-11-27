@@ -5914,8 +5914,12 @@ class ApiService {
       _postJson('/piece-scans', body, fallback: 'تعذّر بدء الجرد');
 
   /// A batch of what the reader sent, once by its key: `{scan}` as it stands.
-  Future<Map<String, dynamic>> pieceScanReads(int scanId, String batchKey, List<Map<String, dynamic>> events) =>
-      _postJson('/piece-scans/$scanId/reads', {'batch_key': batchKey, 'events': events},
+  /// [since]: the last read the screen holds -- the answer's reads are then every alert and the reads
+  /// after it, its figures of every read (the owner, 27 Nov 2026: more than 500 pieces a location).
+  Future<Map<String, dynamic>> pieceScanReads(int scanId, String batchKey, List<Map<String, dynamic>> events,
+          {int? since}) =>
+      _postJson('/piece-scans/$scanId/reads',
+          {'batch_key': batchKey, 'events': events, if (since != null) 'since': since},
           fallback: 'تعذّر إرسال القراءات');
 
   /// Its verdicts frozen -- early with its reason when not complete: `{scan}`.

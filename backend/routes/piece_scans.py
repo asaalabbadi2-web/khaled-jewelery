@@ -72,11 +72,16 @@ def piece_scan_start():
 def piece_scan_reads(scan_id: int):
     data = request.get_json(silent=True) or {}
     try:
+        since = None if data.get('since') is None else int(data['since'])
+    except (TypeError, ValueError):
+        return _refused(ScanRefused('scan_since_invalid', 'آخر قراءة لدى الشاشة رقم'))
+    try:
         scan = take_reads(scan_id, batch_key=data.get('batch_key'), events=data.get('events'), now=datetime.now())
     except ScanRefused as refused:
         return _refused(refused)
     db.session.commit()
-    return jsonify({'scan': scan_view(scan)}), 200
+    # what the screen does not hold yet, when it says what it holds (the owner, 27 Nov 2026: 500+ a location)
+    return jsonify({'scan': scan_view(scan, since=since)}), 200
 
 
 @piece_scans_bp.route('/piece-scans/<int:scan_id>/reads/<int:read_id>/settle', methods=['POST'])

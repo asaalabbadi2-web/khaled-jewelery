@@ -31,7 +31,8 @@ import re
 
 from models import (Category, Item, ItemSection, PieceScan, PieceScanEvent, PieceScanExpected, PieceScanRead,
                     SafeBox, Settings, db)
-from services.pieces import (EXITS, _last_exits, active_tag, out_of_stock, stock_pieces, tag_state)
+from services.pieces import (EXITS, _last_exits, active_tag, out_of_stock, stock_pieces, tag_state,
+                             unknown_tag_words)
 
 KINDS = {'opening': 'جرد فتح', 'closing': 'جرد إغلاق', 'check': 'تحقّق'}
 NOT_A_SCAN_LOCATION = ('deposit',)          # an office's deposit is not the shop's stock (ADR-052)
@@ -163,6 +164,42 @@ def judge(scan: PieceScan, value: str, *, expected: set | None = None) -> dict:
     return {**said, 'words': state['message']}
 
 
+def judge_all(scan: PieceScan, values, *, expected: set | None = None) -> dict:
+    """{value: what [judge] says of it} for every value at once (the owner, 27 Nov 2026: more than 500
+    pieces a location) -- the same words, read in a few queries for all, not a few for each: the active
+    tags and their pieces, the printed codes' pieces, and whether a value is any tag or attempt at all.
+    A value that is neither an active tag nor a printed code -- stopped, an attempt's, unknown -- is
+    rare in a count and judged as [judge] does, alone; one known nowhere is said unknown here."""
+    from models import PieceTag, PrintAttempt
+    values = list(dict.fromkeys(str(v or '').strip().upper() for v in values))
+    expected = _expected_ids(scan) if expected is None else expected
+    printed = [v for v in values if PRINTED.match(v)]
+    others = [v for v in values if not PRINTED.match(v)]
+    active = {t.value: t for t in PieceTag.query.filter(PieceTag.value.in_(others), PieceTag.stopped_at.is_(None))} \
+        if others else {}
+    rest = [v for v in others if v not in active]
+    known = ({t.value for t in PieceTag.query.filter(PieceTag.value.in_(rest))}
+             | {a.epc for a in PrintAttempt.query.filter(PrintAttempt.epc.in_(rest))}) if rest else set()
+    by_code = {i.item_code: i for i in Item.query.filter(Item.item_code.in_(printed))} if printed else {}
+    ids = {t.item_id for t in active.values()}
+    by_id = {i.id: i for i in Item.query.filter(Item.id.in_(ids))} if ids else {}
+    said = {}
+    for value in values:
+        if PRINTED.match(value):
+            piece = by_code.get(value)
+            said[value] = (_placed(scan, piece, expected, how='بالرمز المطبوع') if piece is not None else
+                           {'verdict': UNKNOWN, 'item_id': None, 'words': f'رمز مطبوع لا قطعة له {value}',
+                            'attempt_id': None, 'unsettled': False})
+        elif value in active:
+            said[value] = _placed(scan, by_id[active[value].item_id], expected, how=None)
+        elif value in known:
+            said[value] = judge(scan, value, expected=expected)
+        else:                                   # tag_state's own words for a value known nowhere
+            said[value] = {'verdict': UNKNOWN, 'item_id': None, 'attempt_id': None, 'unsettled': False,
+                           'words': unknown_tag_words(value)}
+    return said
+
+
 def _placed(scan, piece, expected, *, how) -> dict:
     said = {'item_id': piece.id, 'attempt_id': None, 'unsettled': False}
     suffix = f' ({how})' if how else ''
@@ -225,12 +262,13 @@ def take_reads(scan_id, *, batch_key, events, now) -> PieceScan:
     return scan
 
 
-def completeness(scan: PieceScan) -> dict:
+def completeness(scan: PieceScan, *, found: set | None = None) -> dict:
     """{complete, quiet_presses, quiet_seconds, all_found}: how long since the
     last new value -- in presses, and in the time the button was held: a pause
     between two presses is not counted -- or every piece expected found: then
     none is left to wait for (the owner's rehearsal, 23 Nov 2026: «تظهر جميع
-    القطع من أول مسحة وزر إنهاء الجرد لا زال غير مفعّل»)."""
+    القطع من أول مسحة وزر إنهاء الجرد لا زال غير مفعّل»). *found*: the pieces found, when the
+    caller has judged the reads already -- not judged twice."""
     settings = Settings.query.first()
     want_presses = int(getattr(settings, 'scan_quiet_presses', None) or 3)
     want_seconds = float(getattr(settings, 'scan_quiet_seconds', None) or 3.0)
@@ -240,12 +278,11 @@ def completeness(scan: PieceScan) -> dict:
                 'needs_presses': want_presses, 'needs_seconds': want_seconds}
     # judged as the screen sees them: an open scan's verdicts are not kept until its finish
     expected = _expected_ids(scan)
-    if scan.status == 'open':
-        found = set()
-        for r in reads:
-            said = judge(scan, r.value, expected=expected)
-            if said['verdict'] == FOUND:
-                found.add(said['item_id'])
+    if found is not None:
+        pass
+    elif scan.status == 'open':
+        found = {s['item_id'] for s in judge_all(scan, [r.value for r in reads], expected=expected).values()
+                 if s['verdict'] == FOUND}
     else:
         found = {r.item_id for r in reads if r.verdict == FOUND}
     all_found = bool(expected) and expected <= found
@@ -283,18 +320,19 @@ def finish_scan(scan_id, *, by: str, now, early=False, reason=None) -> PieceScan
     moved since the start. Refused before complete, unless finished early
     with its reason, said so."""
     scan = _open_scan(scan_id)
-    complete = completeness(scan)['complete']
+    expected = _expected_ids(scan)
+    reads = PieceScanRead.query.filter_by(scan_id=scan.id).all()
+    judged = judge_all(scan, [r.value for r in reads], expected=expected)
+    complete = completeness(scan, found={s['item_id'] for s in judged.values() if s['verdict'] == FOUND})['complete']
     if not complete and not early:
         raise ScanRefused('scan_not_complete',
                           'لم يكتمل المسح: تابع الضغط حتى لا تظهر رقاقة جديدة، أو أنهِه قبل اكتماله بسبب')
     if not complete and not str(reason or '').strip():
         raise ScanRefused('scan_early_reason', 'إنهاء الجرد قبل اكتمال المسح يحتاج سببه')
-    expected = _expected_ids(scan)
     now_places, exits = _places_now(), {}
     involved = set(expected)
-    reads = PieceScanRead.query.filter_by(scan_id=scan.id).all()
     for read in reads:
-        said = judge(scan, read.value, expected=expected)
+        said = judged[read.value]
         read.verdict, read.item_id, read.words = said['verdict'], said['item_id'], said['words']
         if read.item_id is not None and said['verdict'] in (FOUND, ELSEWHERE, OUT):
             involved.add(read.item_id)
@@ -304,13 +342,17 @@ def finish_scan(scan_id, *, by: str, now, early=False, reason=None) -> PieceScan
         if read.verdict in (FOUND, ELSEWHERE, OUT):
             then = scan.safe_box_id if read.item_id in expected else (scan.places or {}).get(str(read.item_id), 'out')
             read.moved = _moved(read.item_id, then, now_places, exits)
-    for row in PieceScanExpected.query.filter_by(scan_id=scan.id):
+    from models import PieceTag
+    rows = PieceScanExpected.query.filter_by(scan_id=scan.id).all()
+    tagged = {t.item_id for t in PieceTag.query.filter(PieceTag.item_id.in_([r.item_id for r in rows]),
+                                                       PieceTag.stopped_at.is_(None))} if rows else set()
+    for row in rows:
         row.moved = _moved(row.item_id, scan.safe_box_id, now_places, exits)
         if row.item_id in found:
             row.verdict = FOUND
         elif row.moved:
             row.verdict = MOVED
-        elif active_tag(db.session.get(Item, row.item_id)) is None:
+        elif row.item_id not in tagged:
             row.verdict = UNTAGGED
         else:
             row.verdict = MISSING if complete else UNREAD
@@ -353,10 +395,13 @@ def abandon_scan(scan_id, *, by: str, now) -> PieceScan:
 
 # ── what the screens read ────────────────────────────────────────────────────
 
-def scan_view(scan: PieceScan, *, with_lists=True) -> dict:
+def scan_view(scan: PieceScan, *, with_lists=True, since=None) -> dict:
     """A scan as its screens show it: its facts, its completeness, its counts
     by verdict; with its reads -- judged live while open, as frozen after --
-    and, finished, its expected pieces' verdicts."""
+    and, finished, its expected pieces' verdicts. *since*: the last read the
+    screen holds -- then its reads are every alert and the reads after it
+    only, its figures still of every read (the owner, 27 Nov 2026: more than
+    500 pieces a location -- a batch's answer was every read again)."""
     safe = db.session.get(SafeBox, scan.safe_box_id)
     expected_rows = PieceScanExpected.query.filter_by(scan_id=scan.id).order_by(PieceScanExpected.id).all()
     expected = {e.item_id for e in expected_rows}
@@ -365,9 +410,10 @@ def scan_view(scan: PieceScan, *, with_lists=True) -> dict:
     presses_of = dict(db.session.query(PieceScanEvent.value, db.func.count(db.distinct(PieceScanEvent.press)))
                       .filter(PieceScanEvent.scan_id == scan.id, PieceScanEvent.kind == 'read')
                       .group_by(PieceScanEvent.value).all())
+    judged = judge_all(scan, [r.value for r in reads], expected=expected) if open_ else {}
     read_views = []
     for read in reads:
-        said = judge(scan, read.value, expected=expected) if open_ else {
+        said = judged[read.value] if open_ else {
             'verdict': read.verdict, 'item_id': read.item_id, 'words': read.words, 'attempt_id': None,
             'unsettled': False}
         read_views.append({'id': read.id, 'value': read.value, 'first_press': read.first_press,
@@ -380,11 +426,14 @@ def scan_view(scan: PieceScan, *, with_lists=True) -> dict:
     for r in read_views:
         counts[r['verdict']] = counts.get(r['verdict'], 0) + 1
     found = {r['item_id'] for r in read_views if r['verdict'] == FOUND}
+    alerts = sum(1 for r in read_views if r['verdict'] not in (FOUND, OTHER_SCOPE))
+    if since is not None:                     # what the screen does not hold: every alert, the reads after it
+        read_views = [r for r in read_views if r['id'] > int(since) or r['verdict'] not in (FOUND, OTHER_SCOPE)]
     # each piece read with its weight and what it is, and the grams found against the grams
     # expected (the owner's rehearsal, 23 Nov 2026: «عرض لبيانات مثل الوزن الممسوح»)
-    ids = {r['item_id'] for r in read_views if r['item_id']} | set(expected)
+    ids = {r['item_id'] for r in read_views if r['item_id']} | set(expected) | found
     pieces = {i.id: i for i in Item.query.filter(Item.id.in_(ids))} if ids else {}
-    names = _piece_names(pieces.values())
+    names = _piece_names([pieces[r['item_id']] for r in read_views if r['item_id'] in pieces])
     for r in read_views:
         piece = pieces.get(r['item_id'])
         r.update(item_code=getattr(piece, 'item_code', None),
@@ -402,9 +451,11 @@ def scan_view(scan: PieceScan, *, with_lists=True) -> dict:
             'expected': len(expected_rows), 'found': len(found & expected),
             'expected_grams': grams_expected, 'found_grams': grams_found,
             'section_id': scan.section_id, 'category_id': scan.category_id, 'scope_words': _scope_words(scan),
-            'alerts': sum(1 for r in read_views if r['verdict'] not in (FOUND, OTHER_SCOPE)), 'counts': counts}
+            'alerts': alerts, 'counts': counts}
+    if since is not None:
+        view['reads_since'] = int(since)
     if open_:
-        view['completeness'] = completeness(scan)
+        view['completeness'] = completeness(scan, found=found)
     else:
         view['expected_counts'] = {}
         for row in expected_rows:
