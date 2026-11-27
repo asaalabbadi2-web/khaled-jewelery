@@ -4,6 +4,7 @@
 
 import 'dart:convert';
 
+import 'package:barcode_widget/barcode_widget.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/api_service.dart';
@@ -22,7 +23,9 @@ const _faces = {
   'number': 'KJ-000124',
   'facts': '21K · 12.40g',
   'name': 'طقم ذهب إيطالي مرصع…',
-  'marks': 'St 0.35g · Sz 18',
+  'code_type': 'datamatrix',
+  'stones': 'St 0.35g',
+  'size': 'Sz 18',
 };
 
 class _Api extends ApiService {
@@ -50,8 +53,8 @@ class _Api extends ApiService {
       };
 
   @override
-  Future<Map<String, dynamic>> labelPrinterAction(int printerId, String action) async {
-    actions.add(action);
+  Future<Map<String, dynamic>> labelPrinterAction(int printerId, String action, {bool frame = false}) async {
+    actions.add(frame ? '$action+frame' : action);
     return {'message': action == 'install-font' ? 'الخط في ذاكرة الطابعة' : 'طُبعت بطاقة تجربة بلا رقاقة'};
   }
 
@@ -104,15 +107,33 @@ void main() {
         );
     await tester.pumpWidget(tree(300));
     await tester.pumpAndSettle();
-    for (final said in ['KJ-000124', '21K · 12.40g', 'طقم ذهب إيطالي مرصع…', 'St 0.35g · Sz 18']) {
-      expect(find.text(said), findsOneWidget, reason: said);
+    Finder on(String face, String said) => find.descendant(of: find.byKey(Key(face)), matching: find.text(said));
+    for (final said in ['KJ-000124', '21K · 12.40g', 'St 0.35g']) {
+      expect(on('label-preview-first', said), findsOneWidget, reason: '$said on the code\'s face');
     }
-    expect(find.byKey(const Key('label-preview-first')), findsOneWidget);
-    expect(find.byKey(const Key('label-preview-second')), findsOneWidget);
+    for (final said in ['طقم ذهب إيطالي مرصع…', 'Sz 18']) {
+      expect(on('label-preview-second', said), findsOneWidget, reason: '$said on the chip\'s face');
+    }
     await tester.pumpWidget(tree(320));                 // the same piece, rebuilt
     await tester.pumpAndSettle();
     expect(api.previews, 1, reason: 'not asked again at each rebuild');
   });
+
+  // The owner, 27 Nov 2026: «اعداد لتحديد اي رمز يطبع QR, DM, BC وغيرها» -- the preview draws the code the
+  // label prints, its kind the server's.
+  for (final kind in ['datamatrix', 'qr', 'aztec', 'code128']) {
+    testWidgets('the preview draws its code in the kind the labels print: $kind', (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        theme: LightTheme.theme,
+        home: Scaffold(body: Center(child: LabelPreview(faces: {..._faces, 'code_type': kind}))),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.descendant(of: find.byKey(const Key('label-preview-first')),
+          matching: find.byKey(Key('label-preview-code-$kind'))), findsOneWidget);
+      expect(find.byType(BarcodeWidget), findsOneWidget, reason: 'one code, not two');
+      expect(tester.takeException(), isNull, reason: 'nothing overflows');
+    });
+  }
 
   testWidgets('the printers: their state said, the font, a test label, on or off, one added', (tester) async {
     final api = _Api();
@@ -125,6 +146,9 @@ void main() {
     await tester.tap(find.text('بطاقة تجربة'));
     await tester.pumpAndSettle();
     expect(api.actions.last, 'test-label');
+    await tester.tap(find.byKey(const Key('printer-test-frame-1')));
+    await tester.pumpAndSettle();
+    expect(api.actions.last, 'test-label+frame', reason: 'the faces and the chip\'s bump drawn');
     await tester.tap(find.byKey(const Key('printer-active-1')));
     await tester.pumpAndSettle();
     expect(api.updates.single, {'is_active': false});

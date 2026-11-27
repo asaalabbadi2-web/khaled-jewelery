@@ -3208,6 +3208,10 @@ class Settings(db.Model):
     # count's shortage up to this (the owner, 25 Nov 2026: «ابنه»); beyond it,
     # a count's. Policy.
     coding_rest_tolerance = db.Column(db.Float, nullable=False, default=0.05, server_default=db.text('0.05'))
+    # The code a piece's label prints its number in (the owner, 27 Nov 2026: «اعداد لتحديد اي رمز يطبع
+    # QR, DM, BC وغيرها»): one of services.piece_label.CODE_KINDS, read at each print. Policy.
+    piece_label_code = db.Column(db.String(16), nullable=False, default='datamatrix',
+                                 server_default=db.text("'datamatrix'"))
     # ترحيل القيود تلقائياً فور الحفظ
     auto_post_entries = db.Column(db.Boolean, default=True)
     # طلب موافقة قبل الترحيل (يؤثر على بوابات الاعتماد - below_cost/large_discount)
@@ -3438,6 +3442,7 @@ class Settings(db.Model):
             'backup_auto_interval_minutes': int(getattr(self, 'backup_auto_interval_minutes', 1440) or 1440),
             'backup_retention_count': int(getattr(self, 'backup_retention_count', 7) or 7),
             'password_policy': policy,
+            'piece_label_code': getattr(self, 'piece_label_code', None) or 'datamatrix',
         }
 
 

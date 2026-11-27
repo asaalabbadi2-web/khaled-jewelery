@@ -4,10 +4,12 @@ import 'package:flutter/material.dart';
 import '../api_service.dart';
 
 /// A piece's label, both faces, as they read once folded (ADR-097 ط5): the
-/// first its DataMatrix, its number, its karat and weight; the second its
-/// name (cut as the label cuts it) and its stones and size. The faces' words
-/// are the server's -- the printed label's own source -- never put together
-/// here. Each face 25 x 13 mm, drawn to that ratio.
+/// first its code -- of the kind the labels print in (the owner, 27 Nov 2026):
+/// a square beside the words, or Code 128 a bar over them -- its number, its
+/// karat and weight, and its stones; the second its name (cut as the label
+/// cuts it) and its size under it, clear of the chip's bump. The faces' words
+/// and the code's kind are the server's -- the printed label's own source --
+/// never put together here. Each face 25 x 13 mm, drawn to that ratio.
 class LabelPreview extends StatelessWidget {
   const LabelPreview({super.key, required this.faces, this.width = 300});
 
@@ -37,6 +39,29 @@ class LabelPreview extends StatelessWidget {
         );
     final code = '${faces['code'] ?? ''}';
     final number = '${faces['number'] ?? ''}';
+    final kind = '${faces['code_type'] ?? 'datamatrix'}';
+    final words = [
+      if (number.isNotEmpty) FittedBox(child: Text(number, style: const TextStyle(fontWeight: FontWeight.w700))),
+      if (faces['facts'] != null) FittedBox(child: Text('${faces['facts']}')),
+      if (faces['stones'] != null) FittedBox(child: Text('${faces['stones']}')),
+    ];
+    final bar = kind == 'code128';
+    final symbol = code.isEmpty
+        ? null
+        : BarcodeWidget(
+            key: Key('label-preview-code-$kind'),
+            barcode: switch (kind) {
+              'qr' => Barcode.qrCode(),
+              'aztec' => Barcode.aztec(),
+              'code128' => Barcode.code128(),
+              _ => Barcode.dataMatrix(),
+            },
+            data: code,
+            width: bar ? faceWidth * 0.75 : faceHeight * 0.7,
+            height: bar ? faceHeight * 0.26 : faceHeight * 0.7,
+            drawText: false,
+            color: ink,
+          );
     return Directionality(
       textDirection: TextDirection.ltr,
       child: Row(
@@ -44,43 +69,32 @@ class LabelPreview extends StatelessWidget {
         children: [
           face(
             'label-preview-first',
-            Row(children: [
-              if (code.isNotEmpty)
-                BarcodeWidget(
-                  barcode: Barcode.dataMatrix(),
-                  data: code,
-                  width: faceHeight * 0.7,
-                  height: faceHeight * 0.7,
-                  drawText: false,
-                  color: ink,
-                ),
-              SizedBox(width: faceHeight * 0.1),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    FittedBox(child: Text(number, style: const TextStyle(fontWeight: FontWeight.w700))),
-                    if (faces['facts'] != null) FittedBox(child: Text('${faces['facts']}')),
-                  ],
-                ),
-              ),
-            ]),
+            bar
+                ? Column(mainAxisAlignment: MainAxisAlignment.center, children: [?symbol, ...words])
+                : Row(children: [
+                    ?symbol,
+                    SizedBox(width: faceHeight * 0.1),
+                    Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: words)),
+                  ]),
           ),
           const SizedBox(width: 8),
           face(
             'label-preview-second',
+            // upright, starting from the tail as Arabic does: the name above the chip's bump, the size
+            // at the face's foot under it (the owner's prints, 27 Nov 2026)
             Column(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                // read upright once folded: the name at its edge, the marks by the fold
-                if (faces['name'] != null)
-                  FittedBox(
-                    child: Text('${faces['name']}', textDirection: TextDirection.rtl,
-                        style: const TextStyle(fontWeight: FontWeight.w700)),
-                  )
-                else
-                  const SizedBox.shrink(),
-                if (faces['marks'] != null) FittedBox(child: Text('${faces['marks']}')) else const SizedBox.shrink(),
+                Padding(
+                  padding: EdgeInsets.only(top: faceHeight * 0.18),
+                  child: faces['name'] != null
+                      ? FittedBox(
+                          child: Text('${faces['name']}', textDirection: TextDirection.rtl,
+                              style: const TextStyle(fontWeight: FontWeight.w700)),
+                        )
+                      : const SizedBox.shrink(),
+                ),
+                if (faces['size'] != null) FittedBox(child: Text('${faces['size']}')) else const SizedBox.shrink(),
               ],
             ),
           ),

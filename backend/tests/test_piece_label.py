@@ -5,8 +5,11 @@ the code across the fold -- the scanner read nothing; the printer's own fonts
 drew Arabic reversed and broken; two long lines overprinted each other. Here:
 - the DataMatrix whole inside the first face (the owner, 20 Nov: it reads bent and at an angle
   better than QR), the number, karat and weight beside it;
-- the second face turned over, the chip in its middle clear: the name in
-  Arabic at its edge, the stones and size in Latin symbols by the fold;
+- the second face upright, starting from the tail as Arabic starts (the owner, 27 Nov 2026): the name
+  in Arabic and the size under it, in the middle of what is
+  clear of the chip's bump; the stones on the first face, under the weight (the owner, 27 Nov 2026:
+  a bump a millimetre wide in line with the tail's upper edge took the dot of «ذهب»);
+- its code of the kind the setting says -- DataMatrix, QR, Aztec or Code 128 -- each within its face;
 - Arabic joined and laid right to left here, the printer's shaping off;
 - no line wider than its face: it shrinks, then is cut with «…»;
 - no price, no wage.
@@ -44,32 +47,118 @@ def test_the_tag_is_written_and_read_back():
     assert '^RFR,H' in zpl and '^HV1,24,EPC=' in zpl, 'read back to the host'
 
 
-def test_the_first_face_its_code_number_karat_and_weight():
-    zpl = _zpl()
+def test_the_first_face_its_code_number_karat_weight_and_stones():
+    zpl = _zpl(stones=0.35)
     assert '^BXN,6,200,14,14^FDKJ-000124^FS' in zpl, 'the DataMatrix of its number, 14 x 14 cells'
     assert '^BQN' not in zpl, 'not a QR'
     x, y, _ = _field(zpl, '^BXN')
     assert L.TOP + L.MARGIN <= y and y + L.CODE_SIDE <= L.TOP + L.FACE_H - L.MARGIN, 'not across the fold'
     assert L.MARGIN <= x and x + L.CODE_SIDE <= L.FACE_W - L.MARGIN
     assert '^FDKJ-000124^FS' in zpl and '^FD21K · 12.40g^FS' in zpl
+    stones = re.search(r'\^FO\d+,(\d+)\^A0N,(\d+),\d+\^FB\d+,1,0,C\^FDSt 0\.35g\^FS', zpl)
+    assert stones, 'the stones on the first face, in Latin symbols'
+    y, h = int(stones.group(1)), int(stones.group(2))
+    assert y + h <= L.TOP + L.FACE_H - L.MARGIN, 'within the first face'
 
 
-def test_the_second_face_turned_over_its_chip_clear():
-    zpl = _zpl(name='بنجرة مخرمة', stones=0.35, size='18')
-    second, chip = L.TOP + L.FACE_H, L.TOP + L.FACE_H + L.FACE_H // 2
-    name = re.search(r'\^FO\d+,(\d+)\^A@I,(\d+),\d+,E:CAIRO\.TTF\^FB\d+,1,0,C\^FD([^\^]*)\^FS', zpl)
-    y, h = int(name.group(1)), int(name.group(2))
-    assert y - chip >= L.MARGIN and y + h <= second + L.FACE_H - L.MARGIN, 'the name at its edge, off the chip'
-    marks = re.search(r'\^FO\d+,(\d+)\^A@I,(\d+),\d+,E:CAIRO\.TTF\^FB\d+,1,0,C\^FDSt 0\.35g · Sz 18\^FS', zpl)
-    assert marks, 'the stones and size in Latin symbols'
-    y, h = int(marks.group(1)), int(marks.group(2))
-    assert y >= second + L.MARGIN and chip - (y + h) >= L.MARGIN, 'by the fold, off the chip'
+def _second_face_fields(zpl):
+    """(y, h, text) of each line drawn in Cairo -- the second face's."""
+    return [(int(y), int(h), t) for y, h, t in
+            re.findall(r'\^FO\d+,(\d+)\^A@N,(\d+),\d+,E:CAIRO\.TTF\^FB\d+,1,0,C\^FD([^\^]*)\^FS', zpl)]
+
+
+def test_the_second_face_upright_the_name_above_the_chips_bump_the_size_at_its_foot():
+    """The owner's prints of 27 Nov 2026: the name 3 mm lower than first printed, the size 1 mm above
+    the face's bottom edge -- the bump, a millimetre wide, between them."""
+    second = L.TOP + L.FACE_H
+    bump_top, bump_bottom = second + L.BUMP_Y - L.BUMP_R, second + L.BUMP_Y + L.BUMP_R
+    for facts in ({'name': 'بناجر ذهب 21', 'size': '18'}, {'name': 'بناجر ذهب 21'}, {'size': '18'},
+                  {'name': 'طقم ذهب إيطالي مرصع بفصوص زركون ملونة كبير', 'size': '18', 'stones': 0.35}):
+        fields = {t: (y, h) for y, h, t in _second_face_fields(_zpl(**facts))}
+        names = [(y, h) for t, (y, h) in fields.items() if not t.startswith('Sz')]
+        for y, h in names:
+            assert y == second + L.NAME_Y, f'the name 3 mm lower than first printed: {facts}'
+            assert y + h <= bump_top - L.BUMP_CLEAR, f'the name above the bump, a margin kept: {facts}'
+        if 'size' in facts:
+            y, h = fields['Sz 18']
+            assert y + h == second + L.FACE_H - L.SIZE_FOOT, 'the size 1 mm above the bottom edge'
+            assert y >= second + L.BUMP_Y, 'its letters under the bump: its line\'s top is Cairo\'s empty ascent'
+            assert all(ny + nh <= y for ny, nh in names), 'the size under the name'
+    assert '^A@I' not in _zpl(name='بناجر ذهب 21', size='18'), 'upright, from the tail: not turned over'
+    assert 'St ' not in ''.join(t for *_, t in _second_face_fields(_zpl(name='x', stones=0.35, size='18'))), \
+        'the stones are the first face\'s'
 
 
 def test_each_mark_only_when_the_piece_has_it():
     assert 'St ' not in _zpl(stones=0.0) and 'Sz ' not in _zpl(size='')
     assert '^FDSz 18^FS' in _zpl(size='18') and '^FDSt 1.20g^FS' in _zpl(stones=1.2)
-    assert '^A@' not in _zpl(), 'no name, no marks: nothing on the second face but the facts'
+    assert '^A@' not in _zpl(), 'no name, no size: nothing on the second face'
+
+
+@pytest.mark.parametrize('kind, command', [('datamatrix', '^BXN,6,200,14,14^FDKJ-000124^FS'),
+                                           ('qr', '^BQN,2,4^FDMA,KJ-000124^FS'),
+                                           ('aztec', '^BON,4,N,102,N,1^FDKJ-000124^FS'),
+                                           ('code128', '^BCN,40,N,N,N,A^FDKJ-000124^FS')])
+def test_its_code_in_the_kind_the_setting_says_holding_its_number(kind, command):
+    """The owner, 27 Nov 2026: «اعداد لتحديد اي رمز يطبع QR, DM, BC وغيرها» -- one code a label, of its kind."""
+    zpl = _zpl(code_type=kind, stones=0.35)
+    assert command in zpl
+    others = {'^BXN', '^BQN', '^BON', '^BCN'} - {command[:4]}
+    assert not any(o in zpl for o in others), 'one code, not two'
+    assert zpl.count('^FDKJ-000124^FS') + zpl.count('^FDMA,KJ-000124^FS') == 2, 'the code and the number'
+
+
+@pytest.mark.parametrize('kind', ['datamatrix', 'qr', 'aztec'])
+def test_a_square_code_within_its_face_its_words_beside_it(kind):
+    zpl = _zpl(code_type=kind, stones=0.35)
+    side = L.SQUARE_SIDE[kind]
+    code = re.search(r'\^FO(\d+),(\d+)\^B[XQO]N', zpl)
+    x, y = int(code.group(1)), int(code.group(2))
+    drawn = y + (L.QR_DROP if kind == 'qr' else 0)               # where the printer draws it
+    assert L.MARGIN <= x and x + side <= L.FACE_W - L.MARGIN
+    assert L.TOP + L.MARGIN <= drawn and drawn + side <= L.TOP + L.FACE_H - L.MARGIN, 'not across the fold'
+    for wx, wy, wh in re.findall(r'\^FO(\d+),(\d+)\^A0N,(\d+)', zpl):
+        assert int(wx) >= x + side + L.MARGIN, 'the words beside the code, not over it'
+        assert int(wy) + int(wh) <= L.TOP + L.FACE_H - L.MARGIN
+    assert drawn == L.TOP + (L.FACE_H - side) // 2, \
+        'in the middle of its face -- a QR placed higher, the printer drawing it lower (the owner, 27 Nov)'
+    assert y >= 0, 'its origin on the label'
+
+
+def test_code_128_a_bar_across_the_face_its_words_under_it():
+    zpl = _zpl(code_type='code128', stones=0.35)
+    assert '^BY2,3,40' in zpl, 'its narrowest bar two dots, 40 high'
+    x, y = map(int, re.search(r'\^FO(\d+),(\d+)\^BCN', zpl).groups())
+    bars = L.bar_width('KJ-000124') - 2 * L.BAR_QUIET
+    assert x - L.BAR_QUIET >= 0 and x + bars + L.BAR_QUIET <= L.FACE_W, 'its quiet zones within the face'
+    assert y == L.TOP + L.MARGIN + L.BAR_DROP, 'the bar as low as its words let it (the owner, 27 Nov)'
+    words = [(int(wy), int(wh)) for wy, wh in re.findall(r'\^FO\d+,(\d+)\^A0N,(\d+)', zpl)]
+    assert len(words) == 3 and all(wy >= y + L.BAR_H for wy, _ in words), 'the number, facts and stones under it'
+    assert '^FDSt 0.35g^FS' in zpl, 'the stones under the weight, a line of their own'
+    assert max(wy + wh for wy, wh in words) == L.TOP + L.FACE_H - L.MARGIN, 'down to the face\'s lower margin'
+
+
+def test_code_128_takes_the_numbers_the_face_holds_and_refuses_a_longer():
+    assert L.bar_width('KJ-000001') == 264 and L.bar_width('KJ-10000005') <= L.FACE_W
+    assert '^BCN' in L.label_zpl('KJ-10000005', code_type='code128')
+    with pytest.raises(ValueError, match='Code 128'):
+        L.label_zpl('KJ-100000005', code_type='code128')
+    assert '^BXN' in L.label_zpl('KJ-100000005'), 'a square code holds it'
+
+
+def test_no_code_kind_but_the_four():
+    assert L.code_kind(None) == L.code_kind('') == 'datamatrix', 'nothing set: what was printed before'
+    assert L.code_kind(' QR ') == 'qr'
+    for kind in ('code39', 'ean13', 'pdf417'):
+        with pytest.raises(ValueError):
+            L.label_zpl('KJ-000124', code_type=kind)
+
+
+def test_a_framed_test_label_draws_the_chips_bump():
+    zpl = L.label_zpl('KJ-999999', write_tag=False, frame=True)
+    second = L.TOP + L.FACE_H
+    assert f'^FO0,{second + L.BUMP_Y - L.BUMP_R}^GB{L.FACE_W},{2 * L.BUMP_R},1^FS' in zpl
+    assert '^RFW' not in zpl, 'no tag written'
 
 
 def test_arabic_is_joined_and_laid_right_to_left_here():

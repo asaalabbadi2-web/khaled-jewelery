@@ -92,12 +92,12 @@ def _client(auth_headers):
 def test_the_preview_says_what_the_label_prints():
     long_name = 'طقم ذهب إيطالي مرصع بفصوص زركون ملونة كبير'
     faces = L.label_faces('KJ-000124', karat='21', weight=12.4, name=long_name, stones=0.35, size='18')
-    assert (faces['code'], faces['number'], faces['facts'], faces['marks']) == \
-        ('KJ-000124', 'KJ-000124', '21K · 12.40g', 'St 0.35g · Sz 18')
+    assert (faces['code'], faces['code_type'], faces['number'], faces['facts'], faces['stones'], faces['size']) == \
+        ('KJ-000124', 'datamatrix', 'KJ-000124', '21K · 12.40g', 'St 0.35g', 'Sz 18')
     assert faces['name'].endswith('…') and len(faces['name']) < len(long_name), 'cut as the label cuts it'
     zpl = L.label_zpl('KJ-000124', karat='21', weight=12.4, name=long_name, stones=0.35, size='18')
     assert f'^FD{L.shaped(faces["name"])}^FS' in zpl, 'the preview\'s name is the printed one'
-    for said in (faces['facts'], faces['marks'], faces['number']):
+    for said in (faces['facts'], faces['stones'], faces['size'], faces['number']):
         assert f'^FD{said}^FS' in zpl
 
 
@@ -209,5 +209,60 @@ def test_a_font_not_in_the_listing_is_not_recorded(auth_headers):
         r = _client(auth_headers).post(f'/api/label-printers/{printer.id}/install-font', headers=auth_headers)
         assert 'لم يظهر' in r.get_json()['message']
         assert db.session.get(LabelPrinter, printer.id).font_installed_at is None, 'not recorded on its word alone'
+    finally:
+        device.close()
+
+
+# ── the code's kind (the owner, 27 Nov 2026: «اعداد لتحديد اي رمز يطبع QR, DM, BC وغيرها») ─────────────
+
+def _patch_settings(auth_headers, changes):
+    client = _client(auth_headers)
+    seen = client.get('/api/settings/versions', headers=auth_headers).get_json()['versions']
+    from flask import g
+    g.pop('current_user', None)
+    return client.patch('/api/settings', headers=auth_headers, json={
+        'changes': changes, 'versions': {k: seen.get(k, 0) for k in changes}, 'reason': 'نوع رمز البطاقة'})
+
+
+def test_the_labels_code_is_the_settings_read_at_each_print(auth_headers):
+    from services.label_printing import _label, label_facts
+    [piece] = _pieces(10.0)
+    assert label_facts(piece)['code_type'] == 'datamatrix', 'nothing chosen: what was printed before'
+    assert '^BXN' in _label(piece, L.epc_of(piece.item_code))
+    Settings.query.first().piece_label_code = 'qr'
+    db.session.flush()
+    printed = _label(piece, L.epc_of(piece.item_code))
+    assert '^BQN,2,4^FDMA,' in printed and '^BXN' not in printed, 'read at the print, not kept from before'
+    faces = _client(auth_headers).get(f'/api/pieces/{piece.id}/label-preview', headers=auth_headers).get_json()['faces']
+    assert faces['code_type'] == 'qr', 'the preview draws the code the label prints'
+
+
+def test_the_code_is_chosen_among_the_four_through_the_settings(auth_headers):
+    from services.settings_policy import level
+    assert level('piece_label_code') == 2, 'it changes how a document is made'
+    assert _client(auth_headers).get('/api/settings', headers=auth_headers).get_json()['piece_label_code'] \
+        == Settings.query.first().piece_label_code
+    saved = _patch_settings(auth_headers, {'piece_label_code': 'code128'})
+    assert saved.status_code == 200, saved.get_data(as_text=True)
+    assert Settings.query.first().piece_label_code == 'code128'
+    for wrong in ('code39', '', None):
+        refused = _patch_settings(auth_headers, {'piece_label_code': wrong})
+        assert refused.status_code == 400 and refused.get_json()['error'] == 'invalid_piece_label_code', wrong
+    assert Settings.query.first().piece_label_code == 'code128', 'nothing changed by a refusal'
+
+
+def test_a_test_label_in_the_code_chosen_framed_with_the_chips_bump(auth_headers):
+    printer = _printer()
+    device = Printer()
+    try:
+        printer.host, printer.port = '127.0.0.1', device.port
+        Settings.query.first().piece_label_code = 'code128'
+        db.session.flush()
+        r = _client(auth_headers).post(f'/api/label-printers/{printer.id}/test-label', headers=auth_headers,
+                                       json={'frame': True})
+        assert r.status_code == 200, r.get_data(as_text=True)
+        sent = [t for t in device.received if '^BCN' in t]
+        assert sent and '^RFW' not in sent[-1], 'its faces only, in Code 128'
+        assert f'^GB{L.FACE_W},{2 * L.BUMP_R},1^FS' in sent[-1], 'the bump drawn, to be checked on the tag'
     finally:
         device.close()

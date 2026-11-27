@@ -51,10 +51,10 @@ class _LabelPrintersScreenState extends State<LabelPrintersScreen> {
     } catch (_) {}
   }
 
-  Future<void> _act(int id, String action) async {
+  Future<void> _act(int id, String action, {bool frame = false}) async {
     setState(() => _busy.add(id));
     try {
-      final done = await _api.labelPrinterAction(id, action);
+      final done = await _api.labelPrinterAction(id, action, frame: frame);
       if (mounted) AppFeedback.success(context, '${done['message']}');
       await _load();
     } catch (e) {
@@ -186,6 +186,13 @@ class _LabelPrintersScreenState extends State<LabelPrintersScreen> {
               action('font', 'تحميل الخط', Icons.font_download_outlined, 'install-font'),
               action('calibrate', 'معايرة', Icons.straighten, 'calibrate'),
               action('test', 'بطاقة تجربة', Icons.print, 'test-label'),
+              // the faces and the chip's bump drawn, to be checked on the tag (the owner, 27 Nov 2026)
+              OutlinedButton.icon(
+                key: Key('printer-test-frame-$id'),
+                onPressed: busy ? null : () => _act(id, 'test-label', frame: true),
+                icon: const Icon(Icons.crop_free),
+                label: const Text('بطاقة بإطار'),
+              ),
               TextButton.icon(
                 key: Key('printer-edit-$id'),
                 onPressed: () => _edit(p),

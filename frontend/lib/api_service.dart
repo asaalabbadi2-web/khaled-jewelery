@@ -5894,9 +5894,11 @@ class ApiService {
         'تعذّر حفظ الطابعة',
       );
 
-  /// The font installed, a calibration, a test label: `{printer, message}`.
-  Future<Map<String, dynamic>> labelPrinterAction(int printerId, String action) =>
-      _postJson('/label-printers/$printerId/$action', const {}, fallback: 'تعذّر الوصول إلى الطابعة');
+  /// The font installed, a calibration, a test label -- framed when [frame], its faces and the chip's
+  /// bump drawn to be checked on the tag: `{printer, message}`.
+  Future<Map<String, dynamic>> labelPrinterAction(int printerId, String action, {bool frame = false}) =>
+      _postJson('/label-printers/$printerId/$action', frame ? const {'frame': true} : const {},
+          fallback: 'تعذّر الوصول إلى الطابعة');
 
   // ── «جرد بالمسح» (ADR-085 ت2) ─────────────────────────────────────────
 

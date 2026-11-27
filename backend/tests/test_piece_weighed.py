@@ -78,8 +78,8 @@ def test_the_label_carries_what_is_sold_as_gold_and_marks_stones_out_of_it(line_
     out = label_facts(register_piece(line_of(20.0, priced=True), weight=12.40, stones_weight=0.35, by='t', now=NOW))
     assert (out['weight'], out['stones'], out['stones_out']) == (12.05, 0.35, True)
     within.pop('number'), out.pop('number')
-    assert label_faces('KJ-000001', **within)['marks'] == 'St 0.35g'
-    assert label_faces('KJ-000002', **out)['marks'] == '+St 0.35g'
+    assert label_faces('KJ-000001', **within)['stones'] == 'St 0.35g'
+    assert label_faces('KJ-000002', **out)['stones'] == '+St 0.35g'
 
 
 def test_a_priced_piece_heavier_than_the_rest_is_said_by_its_gold(line_of):

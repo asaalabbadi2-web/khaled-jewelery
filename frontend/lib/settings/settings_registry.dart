@@ -270,6 +270,12 @@ const settingsRegistry = <SettingEntry>[
   // ── الأصناف والقطع ────────────────────────────────────────────────────
   SettingEntry(id: 'coding_on', key: 'coding_on', section: SettingsSection.itemsPieces,
       label: 'ترميز المخزون الموجود قطعًا', synonyms: ['الترميز', 'القطع', 'الجرد'], level: 2),
+  SettingEntry(id: 'piece_label_code', key: 'piece_label_code', section: SettingsSection.itemsPieces,
+      label: 'نوع رمز بطاقة القطعة',
+      synonyms: ['الرمز', 'باركود', 'QR', 'DataMatrix', 'DM', 'BC', 'Code 128', 'Aztec', 'البطاقة', 'الملصق'],
+      level: 2,
+      effect: 'يُطبع به ما يُطبع بعد الحفظ؛ البطاقات المطبوعة قبله تبقى برمزها وتُقرأ كما هي.',
+      revertRule: 'يُعاد في أي وقت؛ لا يغيّر بطاقة مطبوعة.'),
   SettingEntry(id: 'categories', kind: SettingKind.link, section: SettingsSection.itemsPieces, label: 'التصنيفات',
       synonyms: ['الأصناف'], screen: 'categories'),
   SettingEntry(id: 'item_sections', kind: SettingKind.link, section: SettingsSection.itemsPieces, label: 'الأقسام',

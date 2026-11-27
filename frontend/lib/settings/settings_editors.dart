@@ -252,6 +252,13 @@ String _codingExplained(Object? on, Map<String, dynamic> server) => on == true &
     : 'عند التفعيل يُفتح «ترميز من المخزون الموجود» في محطة ترميز القطع من اليوم، '
         'لتُرمَّز قطع المخزون قبل جرد 31 ديسمبر. الاستلام من المورد يبقى كما هو.';
 
+/// What the label's code is (the owner, 27 Nov 2026): it holds the piece's number whatever its kind,
+/// so the reader types the same; the reader must have the kind turned on; a test label first.
+String _labelCodeExplained(Object? kind, Map<String, dynamic> server) =>
+    '${kind == 'code128' ? 'شريط بعرض الوجه والكلام تحته؛ يتّسع لرقم حتى ثماني خانات. ' : 'مربع بجانب الرقم والعيار والوزن. '}'
+    'أيًّا كان نوعه يحمل رقم القطعة نفسه، فيكتبه القارئ كما هو في البيع والمرتجع والجرد. '
+    'فعّل النوع في إعدادات القارئ، واطبع «بطاقة تجربة» من «طابعات الملصقات» قبل الاعتماد.';
+
 /// A group's name and what it says, as one setting is named (its parts keep
 /// their own labels).
 const policyGroups = {
@@ -310,6 +317,12 @@ final Map<String, EditorSpec> editors = {
   ], explain: _wageExplained),
   // الأصناف والقطع
   'coding_on': const EditorSpec(EditorKind.toggle, source: 'coding_from', explain: _codingExplained),
+  'piece_label_code': const EditorSpec(EditorKind.choice, options: [
+    ('datamatrix', 'DataMatrix (DM)'),
+    ('qr', 'QR'),
+    ('aztec', 'Aztec'),
+    ('code128', 'Code 128 (BC)'),
+  ], explain: _labelCodeExplained),
   // المستخدمون والأمان
   'idle_timeout_enabled': const EditorSpec(EditorKind.toggle),
   'idle_timeout_minutes': const EditorSpec(EditorKind.number,

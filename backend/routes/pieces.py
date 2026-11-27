@@ -569,15 +569,18 @@ def label_printer_calibrate(printer_id: int):
 @pieces_bp.route('/label-printers/<int:printer_id>/test-label', methods=['POST'])
 @require_permission('system.settings')
 def label_printer_test_label(printer_id: int):
-    """One label of the design, its faces only -- no tag written, recorded nowhere."""
+    """One label of the design, its faces only -- no tag written, recorded nowhere -- in the code the
+    labels print in now, framed when asked (the faces and the chip's bump, to be checked on the tag)."""
+    from services.label_printing import label_code
     from services.piece_label import label_zpl
+    frame = bool((request.get_json(silent=True) or {}).get('frame'))
 
     def test(link, printer):
         state = link.status()
         if not state['ready']:
             return state['message']
         link.exchange(label_zpl('KJ-999999', karat='21', weight=12.4, name='بطاقة تجربة', stones=0.35, size='18',
-                                write_tag=False), wait=3.0)
+                                write_tag=False, code_type=label_code(), frame=frame), wait=3.0)
         return 'طُبعت بطاقة تجربة بلا رقاقة: أتلفها بعد النظر فيها'
     return _printer_call(printer_id, test)
 

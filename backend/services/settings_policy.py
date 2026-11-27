@@ -39,7 +39,7 @@ LEVEL_2 = frozenset({
     'backup_auto_enabled', 'backup_auto_mode', 'backup_auto_time', 'backup_auto_interval_minutes',
     'backup_retention_count', 'password_policy',
     'weekly_sales_target_weight', 'monthly_sales_target_weight', 'sales_race_settings',
-    'coding_on',
+    'coding_on', 'piece_label_code',
 })
 
 MONEY = frozenset({'office_main_fees_usd', 'office_custom_fees_usd', 'office_discount_21', 'office_discount_18',

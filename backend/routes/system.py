@@ -960,6 +960,7 @@ def _apply_settings(data):
         'backup_auto_interval_minutes',
         'backup_retention_count',
         'coding_on',
+        'piece_label_code',
     }
     unknown_keys = sorted(set(data.keys()) - allowed_keys)
     if unknown_keys:
@@ -979,6 +980,17 @@ def _apply_settings(data):
             settings.coding_from = settings.coding_from or datetime.now().date()
         else:
             settings.coding_from = None
+
+    # The code a piece's label prints its number in (the owner, 27 Nov 2026): one of the kinds the
+    # label's face holds -- anything else refused, not printed as the default.
+    if 'piece_label_code' in data:
+        from services.piece_label import CODE_KINDS, code_kind
+        try:
+            settings.piece_label_code = code_kind(data['piece_label_code'] or 'x')
+        except ValueError:
+            return jsonify({'error': 'invalid_piece_label_code',
+                            'message': 'نوع رمز البطاقة: DataMatrix أو QR أو Aztec أو Code 128',
+                            'allowed': list(CODE_KINDS)}), 400
 
     # هامش فرق سداد الذهب (services/settlement_tolerance.py): غرامات، غير سالب، ومعقول
     for _key, _limit in (('gold_settlement_tolerance_grams', 5.0),):
