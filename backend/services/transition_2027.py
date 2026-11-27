@@ -108,7 +108,12 @@ WIDTH = {2: 1, 3: 1, 4: 2, 5: 3}          # the digits a level adds (CHART-002)
 # The tables carried, parents first; each one's columns that name an account,
 # a 2026 account number, or a safe (whose ids are kept).
 MASTER = (
-    ('branch', {}), ('payment_type', {}), ('category', {}), ('item', {}),
+    # what a category and a piece name (the owner, 27 Nov 2026): its section, its size system and its
+    # sizes, its model with the photos it shows, and a piece held its chips -- carried, or 2027's first
+    # foreign key refuses the categories and the pieces open without their chips
+    ('item_section', {}), ('size_system', {}), ('size_system_size', {}), ('attachment', {}),
+    ('branch', {}), ('payment_type', {}), ('category', {}), ('piece_model', {}), ('piece_model_size', {}),
+    ('item', {}), ('piece_tag', {}),
     ('safe_box', {'account_id': 'account'}),       # a supplier names its safe (an office's deposit)
     ('customer', {'account_id': 'account', 'account_category_id': 'account'}),
     ('supplier', {'account_id': 'account', 'account_category_id': 'account', 'default_safe_box_id': 'safe'}),
@@ -117,7 +122,7 @@ MASTER = (
     ('employee', {'account_id': 'account', 'gold_safe_box_id': 'safe', 'cash_safe_box_id': 'safe'}),
     ('employee_account', {'account_id': 'account'}),
     ('payment_method', {'default_safe_box_id': 'safe', 'settlement_bank_safe_box_id': 'safe',
-                        'fee_expense_account_id': 'account'}),
+                        'fee_expense_account_id': 'account', 'commission_vat_pending_account_id': 'account'}),
     ('leave_type', {}), ('employee_document_type', {}), ('salary_structure', {}), ('bonus_rule', {}),
     ('dimension_definition', {}), ('dimension_value', {}), ('dimension_set', {}), ('dimension_set_item', {}),
     ('inventory_costing_config', {}), ('vat_policy_period', {}),
@@ -128,6 +133,12 @@ MASTER = (
                   'stones_pending_account_id': 'account', 'bonus_expense_account_number': 'number',
                   'bonus_payable_account_number': 'number'}),
 )
+
+
+# A carried row's references to 2026's documents, which stay in its archive: cleared in 2027 (the owner,
+# 27 Nov 2026) -- a piece's receipt line, its coding batch, the split it came of; a chip's print attempt.
+CLEARED = frozenset({('item', 'receipt_item_id'), ('item', 'coding_id'), ('item', 'split_part_id'),
+                     ('piece_tag', 'attempt_id')})
 
 
 def child_number(parent_number: str, siblings, *, weight: bool) -> str:
@@ -237,7 +248,10 @@ def _excluded(conn) -> dict:
     for name, *amounts in held:
         if any(abs(float(a or 0)) > 0.0005 for a in amounts):
             raise TransitionRefused(f'عهدة «{name}» لموظف موقوف فيها رصيد: يُحسم قبل الإقفال')
-    return {'employees': employees, 'safes': safes, 'customers': duplicates, 'items': _items_held(conn)}
+    # the photos the models show go with them; every other attachment is a 2026 document's
+    attachments = {a for r in conn.execute(text('SELECT photo_id, thumbnail_id FROM piece_model')) for a in r if a}
+    return {'employees': employees, 'safes': safes, 'customers': duplicates, 'items': _items_held(conn),
+            'attachments': attachments}
 
 
 def _items_held(conn) -> set:
@@ -275,6 +289,10 @@ def _skip(table, row, ex) -> bool:
         return row['id'] in ex['safes']
     if table == 'item':
         return row['id'] not in ex['items']
+    if table == 'piece_tag':                  # a piece's chips go with it: a piece held, its tags
+        return row['item_id'] not in ex['items']
+    if table == 'attachment':
+        return row['id'] not in ex['attachments']
     return False
 
 
@@ -322,6 +340,9 @@ def carry_master_data(source_engine, *, opens_on, accounts: '_Accounts | None' =
                     elif kind == 'number':
                         row[column] = new.get(str(value))
                     elif kind == 'safe' and value in ex['safes']:
+                        row[column] = None
+                for cleared_table, column in CLEARED:
+                    if cleared_table == table and column in row:
                         row[column] = None
                 if table == 'settings':
                     row = opening_settings(row, opens_on=opens_on)
