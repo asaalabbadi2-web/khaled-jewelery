@@ -6578,10 +6578,18 @@ class StockCoding(db.Model):
     safe_box_id = db.Column(db.Integer, db.ForeignKey('safe_box.id', ondelete='RESTRICT'), nullable=False, index=True)
     category_id = db.Column(db.Integer, db.ForeignKey('category.id', ondelete='RESTRICT'), nullable=False)
     karat = db.Column(db.Integer, nullable=False)
-    weight = db.Column(db.Float, nullable=False)
+    # Empty: a batch with no weight declared, coded piece by piece from the place's unclassified grams
+    # of its karat (the owner, 27 Nov 2026: «اعتمده»; migration 20261127_open_coding).
+    weight = db.Column(db.Float, nullable=True)
     note = db.Column(db.String(200), nullable=True)
     created_at = db.Column(db.DateTime, nullable=False)
     created_by = db.Column(db.String(100), nullable=True)
+    # What its opening brought from the unclassified to its category -- the category's sales since the
+    # allocation began, below nothing in its place -- written on it.
+    settled_grams = db.Column(db.Float, nullable=True)
+    # Ended at the station: it takes no piece after; nothing written.
+    ended_at = db.Column(db.DateTime, nullable=True)
+    ended_by = db.Column(db.String(100), nullable=True)
 
 
 PIECE_SCAN_KINDS = ('opening', 'closing', 'check')

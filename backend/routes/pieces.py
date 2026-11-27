@@ -34,13 +34,17 @@ POST /api/pieces/<id>/print-jobs  -- its label printed and its tag written,
 GET  /api/pieces/by-tag/<value>   -- the piece a reader read, and «out» as
      the lookup's: «ليست في المخزون — بيعت <day>».
 GET  /api/stock-codings/free      -- what a location holds of a category not
-     yet pieced nor promised to an open batch (safe_box_id, category_id).
+     yet pieced nor promised to an open batch (safe_box_id, category_id); and
+     its unclassified grams of the category's karat and the category's balance
+     there -- below nothing, what a batch with no weight settles on opening.
 GET  /api/wage-pools/cost         -- a category's wage cost a gram now, its
      pool's average (ADR-096 ت2): category_id, karat; what the sale screen
      shows, locked -- the sale's posting computes its own.
 POST /api/stock-codings           -- «ترميز من المخزون الموجود»: a batch --
      safe_box_id, category_id, weight, note; no wage: each of its pieces is
-     sent with its own (wage, wage_whole; ADR-096 §4).
+     sent with its own (wage, wage_whole; ADR-096 §4). No weight: coded piece
+     by piece from the place's unclassified grams (the owner, 27 Nov 2026).
+POST /api/stock-codings/<id>/end  -- a batch ended: it takes no piece after.
 POST /api/pieces/<id>/split/check -- a split read before it is made (ADR-099):
      parts [{category_id, weight, stones_weight, wage?}] -- each part's wage
      (written, or its share by weight), the total, the difference allowed --
@@ -301,7 +305,10 @@ def stock_coding_free():
     # From 2027's opening each piece takes its pool's average, not a wage written (ADR-096 ت3).
     from services.wage_ledger import pool_average, wage_pools_on
     from_pool = wage_pools_on(datetime.now())
+    from services.stock_ledger import category_held, unclassified_grams
     return jsonify({'free': free, 'reserved': reserved, 'room': round(max(free - reserved, 0.0), 3),
+                    'unclassified': unclassified_grams(safe, karat),
+                    'category_net': category_held(safe, karat, category.id),
                     'karat': karat, 'wage_from_pool': from_pool,
                     'pool_wage_per_gram': pool_average(karat, category.id)['per_gram'] if from_pool else None}), 200
 
@@ -321,6 +328,23 @@ def stock_coding_open():
         return jsonify({'error': refused.code, 'message': refused.message}), 400
     db.session.commit()
     return jsonify({'line': coding_view(batch), 'pieces': []}), 201
+
+
+@pieces_bp.route('/stock-codings/<int:coding_id>/end', methods=['POST'])
+@require_permission('items.create')
+def stock_coding_end(coding_id: int):
+    """A batch ended at the station: it takes no piece after; nothing written but its end."""
+    from services.pieces import end_coding
+    batch = db.session.get(StockCoding, coding_id)
+    if batch is None:
+        return jsonify({'error': 'not_found', 'message': 'الدفعة غير موجودة'}), 404
+    try:
+        batch = end_coding(batch, by=_by(), now=datetime.now())
+    except PieceRefused as refused:
+        db.session.rollback()
+        return jsonify({'error': refused.code, 'message': refused.message}), 400
+    db.session.commit()
+    return jsonify({'line': coding_view(batch)}), 200
 
 
 # ── a piece's label: print jobs (ADR-097 ط2) ─────────────────────────────────

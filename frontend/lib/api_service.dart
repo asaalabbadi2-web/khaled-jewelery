@@ -6007,6 +6007,10 @@ class ApiService {
   Future<Map<String, dynamic>> openStockCoding(Map<String, dynamic> body) =>
       _postJson('/stock-codings', body, fallback: 'تعذّر فتح دفعة الترميز');
 
+  /// A batch ended at the station: it takes no piece after (the owner, 27 Nov 2026): `{line}`.
+  Future<Map<String, dynamic>> endStockCoding(int codingId) =>
+      _postJson('/stock-codings/$codingId/end', const {}, fallback: 'تعذّر إنهاء الدفعة');
+
   /// A piece under a line (line_id) or a batch (coding_id): weight,
   /// stones_weight, request_key -- the same key, the same piece.
   /// `{piece: {...}, line: {...}}`.

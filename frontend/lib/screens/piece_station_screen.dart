@@ -558,7 +558,27 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
     if (body == null || !mounted) return;
     try {
       final opened = await _api.openStockCoding(body);
-      if (mounted) _show(opened);
+      if (!mounted) return;
+      _show(opened);
+      // the category's sales since the allocation began, brought from the unclassified (the owner, 27 Nov 2026)
+      final line = opened['line'] as Map<String, dynamic>? ?? const {};
+      final settled = (line['settled_grams'] as num?)?.toDouble() ?? 0;
+      if (settled > 0) {
+        AppFeedback.success(context,
+            'نُقل ${_g(settled)} جم من «بلا تصنيف» إلى «${line['category_name']}»: مبيعاته منذ بدء التوزيع');
+      }
+    } catch (e) {
+      if (mounted) AppFeedback.error(context, e);
+    }
+  }
+
+  /// A batch with no weight ended: it takes no piece after; nothing written but its end.
+  Future<void> _endBatch(Map<String, dynamic> line) async {
+    try {
+      await _api.endStockCoding(line['coding_id'] as int);
+      if (!mounted) return;
+      AppFeedback.success(context, 'انتهت الدفعة: ${line['pieces']} قطعة، ${_g(line['pieces_weight'])} جم');
+      await _close();
     } catch (e) {
       if (mounted) AppFeedback.error(context, e);
     }
@@ -795,8 +815,9 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
   /// A receipt line's supplier, or a batch's location.
   static String _whence(Map<String, dynamic> l) => '${(_isBatch(l) ? l['safe_name'] : l['supplier_name']) ?? '-'}';
 
-  String _counter(Map<String, dynamic> l) =>
-      'الوزن ${_g(l['weight'])} جم · رُمّز ${l['pieces']} قطعة · الباقي ${_g(l['rest'])} جم';
+  String _counter(Map<String, dynamic> l) => l['open_batch'] == true
+      ? 'قطعة قطعة · رُمّز ${l['pieces']} قطعة (${_g(l['pieces_weight'])} جم)'
+      : 'الوزن ${_g(l['weight'])} جم · رُمّز ${l['pieces']} قطعة · الباقي ${_g(l['rest'])} جم';
 
   static String _g(Object? v) => formatGrams((v as num? ?? 0).toDouble(), decimals: 2);
 
@@ -1136,20 +1157,40 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
               ),
             ],
             const SizedBox(height: 12),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                key: const Key('station-progress'),
-                value: weight > 0 ? (coded / weight).clamp(0.0, 1.0) : 0,
-                minHeight: 8,
+            // a batch with no weight declared has nothing to reach: what is coded, and what the place
+            // still holds to code (the owner, 27 Nov 2026)
+            if (line['open_batch'] == true) ...[
+              Text(
+                'قطعة قطعة · رُمّز ${_g(coded)} جم · ${line['pieces']} قطعة · المتاح في الموقع ${_g(line['rest'])} جم',
+                key: const Key('station-counter'),
+                style: theme.textTheme.titleSmall,
               ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'رُمّز ${_g(coded)} من ${_g(weight)} جم · ${line['pieces']} قطعة · الباقي ${_g(line['rest'])} جم',
-              key: const Key('station-counter'),
-              style: theme.textTheme.titleSmall,
-            ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: OutlinedButton.icon(
+                  key: const Key('station-end-batch'),
+                  icon: const Icon(Icons.flag_outlined),
+                  label: const Text('إنهاء الدفعة'),
+                  onPressed: () => _endBatch(line),
+                ),
+              ),
+            ] else ...[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  key: const Key('station-progress'),
+                  value: weight > 0 ? (coded / weight).clamp(0.0, 1.0) : 0,
+                  minHeight: 8,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'رُمّز ${_g(coded)} من ${_g(weight)} جم · ${line['pieces']} قطعة · الباقي ${_g(line['rest'])} جم',
+                key: const Key('station-counter'),
+                style: theme.textTheme.titleSmall,
+              ),
+            ],
             // the scale's drift left after its pieces, written off within the tolerance
             // (the owner, 25 Nov 2026: «إقفال الباقي»); beyond it, a count's
             if (line['rest_closable'] == true) ...[
@@ -1438,6 +1479,9 @@ class _FromStockDialogState extends State<_FromStockDialog> {
   int? _safeId;
   int? _categoryId;
   double? _room;
+  double? _unclassified;
+  double _categoryNet = 0;
+  int? _karat;
   bool _wageFromPool = false;
   String? _problem;
 
@@ -1485,6 +1529,9 @@ class _FromStockDialogState extends State<_FromStockDialog> {
       if (mounted) {
         setState(() {
           _room = (room['room'] as num?)?.toDouble();
+          _unclassified = (room['unclassified'] as num?)?.toDouble();
+          _categoryNet = (room['category_net'] as num?)?.toDouble() ?? 0;
+          _karat = (room['karat'] as num?)?.toInt();
           _wageFromPool = room['wage_from_pool'] == true;
         });
       }
@@ -1493,17 +1540,20 @@ class _FromStockDialogState extends State<_FromStockDialog> {
     }
   }
 
+  /// The weight is optional: empty, the batch is coded piece by piece from the place's unclassified grams
+  /// (the owner, 27 Nov 2026); typed, it is declared and bounded by the category's grams, as before.
   void _submit() {
-    final weight = readTypedNumber(_weight.text) ?? 0;
+    final typed = _weight.text.trim();
+    final weight = readTypedNumber(typed) ?? 0;
     if (_safeId == null || _categoryId == null) {
       setState(() => _problem = 'اختر الموقع والتصنيف');
-    } else if (weight <= 0) {
-      setState(() => _problem = 'أدخل وزن الدفعة');
+    } else if (typed.isNotEmpty && weight <= 0) {
+      setState(() => _problem = 'وزن الدفعة أكبر من صفر، أو اتركه فارغًا');
     } else {
       Navigator.of(context).pop(<String, dynamic>{
         'safe_box_id': _safeId,
         'category_id': _categoryId,
-        'weight': weight,
+        if (typed.isNotEmpty) 'weight': weight,
         if (_note.text.trim().isNotEmpty) 'note': _note.text.trim(),
       });
     }
@@ -1556,13 +1606,30 @@ class _FromStockDialogState extends State<_FromStockDialog> {
                       const SizedBox(height: 8),
                       Text('المتاح للترميز: ${formatGrams(_room!, decimals: 2)} جم', key: const Key('coding-room')),
                     ],
+                    if (_unclassified != null) ...[
+                      const SizedBox(height: 4),
+                      Text('في الموقع عيار ${_karat ?? ''} بلا تصنيف: ${formatGrams(_unclassified!, decimals: 2)} جم',
+                          key: const Key('coding-unclassified')),
+                    ],
+                    if (_categoryNet < -0.0005) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'بلا وزن: يُنقل ${formatGrams(-_categoryNet, decimals: 2)} جم من «بلا تصنيف» إلى التصنيف '
+                        'عند الفتح — مبيعاته منذ بدء التوزيع',
+                        key: const Key('coding-settle'),
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     TextField(
                       key: const Key('coding-weight'),
                       controller: _weight,
                       textDirection: TextDirection.ltr,
                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      decoration: const InputDecoration(labelText: 'وزن الدفعة (جم)'),
+                      decoration: const InputDecoration(
+                        labelText: 'وزن الدفعة (جم) — اختياري',
+                        helperText: 'اتركه فارغًا للترميز قطعة قطعة من غير المصنّف',
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Text(

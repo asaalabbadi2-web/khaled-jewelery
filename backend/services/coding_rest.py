@@ -45,6 +45,8 @@ def close_rest(source, *, reason, by: str, now) -> CodingRestClose:
     if not reason:
         raise PieceRefused('rest_reason_required', 'اكتب سبب إقفال الباقي')
     source, what = _locked(source)
+    if isinstance(source, StockCoding) and source.weight is None:
+        raise PieceRefused('rest_nothing', 'الدفعة بلا وزن معلن: لا باقي لها يُقفل')
     rest = batch_rest(source) if isinstance(source, StockCoding) else line_rest(source)
     if abs(closed_rest(source)) > GRAM:
         raise PieceRefused('rest_closed_already', f'باقي {what} أُقفل من قبل')

@@ -148,8 +148,25 @@ def stones_kind(source) -> str:
     return STONES_AS_GOLD
 
 
+def open_batch(source) -> bool:
+    """A batch with no weight declared: coded piece by piece from its place's unclassified grams of its
+    karat (the owner, 27 Nov 2026: «اعتمده»)."""
+    return isinstance(source, StockCoding) and source.weight is None
+
+
+def open_room(batch) -> float:
+    """What an open batch's next piece may take: its category's free grams in its place (above
+    nothing) and the place's unclassified grams of its karat."""
+    from services.stock_ledger import unclassified_grams
+    safe = db.session.get(SafeBox, batch.safe_box_id)
+    free = max(free_grams(safe, int(batch.karat), batch.category_id), 0.0)
+    return round(free + max(unclassified_grams(safe, int(batch.karat)), 0.0), 3)
+
+
 def batch_rest(batch) -> float:
-    """What of a batch is not coded nor closed."""
+    """What of a batch is not coded nor closed -- an open batch's, what its place still holds to code."""
+    if open_batch(batch):
+        return open_room(batch)
     return round(float(batch.weight or 0.0) - pieces_weight(batch) - closed_rest(batch), 3)
 
 
@@ -185,6 +202,17 @@ def weigh(source, *, weight, stones_weight=0.0, over_rest_ok: bool = False) -> d
     net = round(standing - stones, 3)
     grams = net if kind == STONES_PRICED else standing
     batch = isinstance(source, StockCoding)
+    if open_batch(source):
+        # never more than the books hold there: the category's free grams and the unclassified
+        room = open_room(source)
+        if grams > room + GRAM:
+            safe = db.session.get(SafeBox, source.safe_box_id)
+            category = db.session.get(Category, source.category_id)
+            raise PieceRefused('piece_more_than_held',
+                               f'القطعة ({grams:.2f} جم) أثقل مما يحمله الدفتر في «{safe.name}» من عيار {source.karat}: '
+                               f'غير مصنّف ومن «{category.name}» {room:.2f} جم فقط')
+        return {'standing_weight': standing, 'stones_weight': stones, 'stones_kind': kind, 'grams': grams,
+                'net_weight': net, 'rest': room, 'rest_after': round(room - grams, 3), 'over_rest': 0.0}
     rest = _rest_of(source)
     over = 0.0
     if grams > rest + GRAM:
@@ -291,6 +319,8 @@ def register_piece(source, *, weight, stones_weight=0.0, model_id=None, size_id=
     source, category, karat = _source_of(source)
     batch = isinstance(source, StockCoding)
     part = isinstance(source, PieceSplitPart)
+    if batch and source.ended_at is not None:
+        raise PieceRefused('coding_ended', 'الدفعة منتهية: لا تُسجَّل فيها قطع')
     if category is None or (category.tracking or 'weight') != 'piece':
         raise PieceRefused('piece_category_by_weight', 'تصنيف السطر يُتابَع بالوزن: لا تُسجَّل فيه قطع')
     model, size = model_and_size(category, model_id, size_id)
@@ -334,6 +364,18 @@ def register_piece(source, *, weight, stones_weight=0.0, model_id=None, size_id=
         safe = db.session.get(SafeBox, source.safe_box_id)
         rows = (_free_allocations(safe, karat, category.id).filter(StockLineAllocation.grams > GRAM)
                 .order_by(StockLineAllocation.id).all())
+        if open_batch(source):
+            # its category's free grams up to their net -- a purchase's row its sales have spent is not
+            # taken twice -- the rest from the unclassified, below
+            cap = max(free_grams(safe, karat, category.id), 0.0)
+            kept, total = [], 0.0
+            for row in rows:
+                if total >= cap - GRAM:
+                    break
+                kept.append(row)
+                total += float(row.grams)
+            rows = kept
+            from_category = round(min(weight, cap), 6)
     else:
         rows = list(_receipt_stock_allocations(source, karat))
     if over_entry is not None and not batch:
@@ -357,7 +399,8 @@ def register_piece(source, *, weight, stones_weight=0.0, model_id=None, size_id=
     db.session.flush()
 
     # Its share of the category's allocation, under its number.
-    left = weight
+    left = round(min(weight, from_category), 6) if batch and open_batch(source) else weight
+    unclassified_part = round(weight - left, 6) if batch and open_batch(source) else 0.0
     for row in rows:
         if left <= GRAM:
             break
@@ -373,6 +416,14 @@ def register_piece(source, *, weight, stones_weight=0.0, model_id=None, size_id=
     if left > GRAM:
         raise PieceRefused('piece_line_not_allocated',
                            'ذهب السطر غير موزَّع على تصنيفه في خزينة مخزون: لا يُسجَّل تحته قطع')
+    if unclassified_part > GRAM:
+        # the rest of its weight from the place's unclassified grams of its karat (the owner, 27 Nov 2026)
+        from services.stock_ledger import StockAllocationError, classify
+        try:
+            classify(db.session.get(SafeBox, source.safe_box_id), karat, category.id, unclassified_part,
+                     item_id=piece.id, now=now, by=by)
+        except StockAllocationError as short:
+            raise PieceRefused('piece_more_than_held', str(short)) from None
     db.session.flush()
     if from_pool and not part:      # a part's wage is laid by its split's entry (services/piece_split)
         _wage_to_the_piece(piece, source, batch, karat, category, now=now, by=by)
@@ -815,7 +866,8 @@ def pending_lines() -> list[dict]:
                     Category.tracking == 'piece')
             .order_by(Invoice.date, InvoiceItem.id).all())
     views = [line_view(line) for line in rows]
-    views += [coding_view(c) for c in StockCoding.query.order_by(StockCoding.id).all()]
+    views += [coding_view(c) for c in StockCoding.query.filter(StockCoding.ended_at.is_(None))
+              .order_by(StockCoding.id).all()]
     return [v for v in views if v['rest'] > GRAM]
 
 
@@ -837,18 +889,23 @@ def coding_view(batch: StockCoding) -> dict:
             'date': batch.created_at.isoformat() if batch.created_at else None,
             'supplier_name': None, 'safe_box_id': batch.safe_box_id, 'safe_name': getattr(safe, 'name', None),
             'category_id': batch.category_id, 'category_name': getattr(category, 'name', None),
-            'karat': int(batch.karat), 'weight': round(float(batch.weight), 3),
+            'karat': int(batch.karat),
+            'weight': coded if open_batch(batch) else round(float(batch.weight), 3),
+            'open_batch': open_batch(batch), 'settled_grams': batch.settled_grams,
+            'ended_at': batch.ended_at.isoformat() if batch.ended_at else None,
             'size_system_id': getattr(category, 'size_system_id', None),
             'wage_per_gram': None, 'wage_by_piece': not from_pool, 'wage_from_pool': from_pool,
             'pool_wage_per_gram': pool_per_gram, 'note': batch.note, 'stones_kind': stones_kind(batch),
             'pieces': len(pieces), 'pieces_weight': coded, 'rest': batch_rest(batch),
-            **_rest_closing(batch, batch_rest(batch))}
+            **(_rest_closing(batch, batch_rest(batch)) if not open_batch(batch) else
+               {'rest_tolerance': coding_rest_tolerance(), 'rest_closed': 0.0, 'rest_closable': False})}
 
 
 def reserved_grams(safe_box_id: int, karat: int, category_id: int) -> float:
     """What the open batches of a location's category have yet to code."""
     batches = StockCoding.query.filter_by(safe_box_id=safe_box_id, karat=karat, category_id=category_id).all()
-    return round(sum(max(batch_rest(b), 0.0) for b in batches), 3)
+    # an open batch declares nothing: it reserves nothing
+    return round(sum(max(batch_rest(b), 0.0) for b in batches if not open_batch(b)), 3)
 
 
 def open_coding(*, safe_box_id, category_id, weight, note=None, by: str, now) -> StockCoding:
@@ -869,13 +926,15 @@ def open_coding(*, safe_box_id, category_id, weight, note=None, by: str, now) ->
         raise PieceRefused('coding_location_invalid', 'اختر خزينة مخزون')
     if category is None or category.is_active is False or (category.tracking or 'weight') != 'piece':
         raise PieceRefused('piece_category_by_weight', 'التصنيف غير موجود أو موقوف أو يُتابَع بالوزن')
+    karat = int(round(float(category.karat or 0)))
+    if weight is None or weight == '':
+        return _open_piece_by_piece(safe, category, karat, note=note, by=by, now=now)
     try:
         weight = round(float(weight), 3)
     except (TypeError, ValueError):
         raise PieceRefused('coding_figures_invalid', 'وزن الدفعة مطلوب') from None
     if weight <= GRAM:
         raise PieceRefused('coding_figures_invalid', 'وزن الدفعة أكبر من صفر')
-    karat = int(round(float(category.karat or 0)))
     room = round(free_grams(safe, karat, category.id) - reserved_grams(safe.id, karat, category.id), 3)
     if weight > room + GRAM:
         raise PieceRefused('coding_more_than_held',
@@ -885,6 +944,43 @@ def open_coding(*, safe_box_id, category_id, weight, note=None, by: str, now) ->
                         note=(str(note).strip()[:200] or None) if note else None,
                         created_at=now, created_by=by)
     db.session.add(batch)
+    db.session.flush()
+    return batch
+
+
+def _open_piece_by_piece(safe, category, karat: int, *, note, by: str, now) -> StockCoding:
+    """A batch with no weight (the owner, 27 Nov 2026: «اعتمده»): its category's balance in its place
+    below nothing -- its sales since the allocation began, out of the unclassified stock -- brought to
+    nothing from the place's unclassified grams of its karat, written on it as settled_grams."""
+    from services.stock_ledger import StockAllocationError, category_held, classify, unclassified_grams
+    net = category_held(safe, karat, category.id)
+    settled = None
+    if net < -GRAM:
+        need = round(-net, 3)
+        held = unclassified_grams(safe, karat)
+        if need > held + GRAM:
+            raise PieceRefused('coding_unclassified_short',
+                               f'مبيعات «{category.name}» في «{safe.name}» منذ بدء التوزيع {need:.2f} جم، '
+                               f'وغير المصنّف من عيار {karat} فيها {max(held, 0.0):.2f} جم فقط: يعالجه الجرد')
+        try:
+            classify(safe, karat, category.id, need, now=now, by=by)
+        except StockAllocationError as short:
+            raise PieceRefused('coding_unclassified_short', str(short)) from None
+        settled = need
+    batch = StockCoding(safe_box_id=safe.id, category_id=category.id, karat=karat, weight=None,
+                        settled_grams=settled, note=(str(note).strip()[:200] or None) if note else None,
+                        created_at=now, created_by=by)
+    db.session.add(batch)
+    db.session.flush()
+    return batch
+
+
+def end_coding(batch: StockCoding, *, by: str, now) -> StockCoding:
+    """A batch ended at the station: it takes no piece after; nothing written but its end."""
+    batch = StockCoding.query.with_for_update().get(batch.id)
+    if batch.ended_at is not None:
+        raise PieceRefused('coding_ended', 'الدفعة منتهية من قبل')
+    batch.ended_at, batch.ended_by = now, by
     db.session.flush()
     return batch
 

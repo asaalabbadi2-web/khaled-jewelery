@@ -23,6 +23,16 @@ Map<String, dynamic> _batch({int pieces = 0, double coded = 0, bool fromPool = f
   'rest': double.parse((50.0 - coded).toStringAsFixed(3)),
 };
 
+/// A batch with no weight declared, coded piece by piece from the unclassified (the owner, 27 Nov 2026).
+Map<String, dynamic> _openBatch({int pieces = 0, double coded = 0, double settled = 0, String? ended}) => {
+  'kind': 'stock', 'line_id': null, 'coding_id': 6, 'invoice_number': 'ترميز مخزون #6',
+  'safe_name': 'المعرض', 'category_name': 'بنجرة ذهب 21', 'karat': 21, 'weight': coded,
+  'open_batch': true, 'settled_grams': settled > 0 ? settled : null, 'ended_at': ended,
+  'wage_per_gram': null, 'wage_by_piece': true, 'wage_from_pool': false, 'pool_wage_per_gram': null,
+  'pieces': pieces, 'pieces_weight': coded, 'rest': double.parse((14490.0 - coded).toStringAsFixed(3)),
+  'rest_closable': false,
+};
+
 Map<String, dynamic> _line({int pieces = 0, double coded = 0}) => {
   'line_id': 7, 'invoice_id': 900, 'invoice_number': 'PUR-2027-00001', 'stage': 'received',
   'supplier_name': 'مفيد الحبيشي', 'category_id': 28, 'category_name': 'بنجرة ذهب 21',
@@ -55,15 +65,28 @@ class _Api extends ApiService {
   /// From 2027's opening: the pool's average, not a wage written (ADR-096 ت3).
   bool fromPool = false;
 
+  /// The category's balance in the place: below nothing, its sales since the allocation began.
+  double categoryNet = 0;
+  final ended = <int>[];
+
   @override
   Future<Map<String, dynamic>> stockCodingRoom(int safeBoxId, int categoryId) async =>
       {'free': 120.0, 'reserved': 0.0, 'room': 120.0, 'karat': 21, 'wage_from_pool': fromPool,
-       'pool_wage_per_gram': fromPool ? 20.0 : null};
+       'pool_wage_per_gram': fromPool ? 20.0 : null, 'unclassified': 14490.0, 'category_net': categoryNet};
 
   @override
   Future<Map<String, dynamic>> openStockCoding(Map<String, dynamic> body) async {
     opened.add(body);
+    if (!body.containsKey('weight')) {
+      return {'line': _openBatch(settled: categoryNet < 0 ? -categoryNet : 0), 'pieces': []};
+    }
     return {'line': _batch(fromPool: fromPool), 'pieces': []};
+  }
+
+  @override
+  Future<Map<String, dynamic>> endStockCoding(int codingId) async {
+    ended.add(codingId);
+    return {'line': _openBatch(ended: '2026-11-27T12:00:00')};
   }
 
   ApiException? refuseNext;
@@ -356,6 +379,43 @@ void main() {
     await tester.tap(find.byKey(const Key('piece-register')));
     await tester.pumpAndSettle();
     expect((api.sent.last['wage'], api.sent.last['wage_whole']), (300.0, true));
+  });
+
+  // Coding from the unclassified, piece by piece (the owner, 27 Nov 2026: «اعتمده»): no weight declared --
+  // the category's sales since the allocation began settled on opening, said; the batch ended at the end.
+  testWidgets('a batch with no weight: what is unclassified, the settling said, coded, then ended', (tester) async {
+    final api = _Api()..categoryNet = -85.4;
+    SharedPreferences.setMockInitialValues({'jwt_token': 't'});
+    tester.view.physicalSize = const Size(1400, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(theme: LightTheme.theme, home: PieceStationScreen(api: api)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('station-from-stock')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('coding-safe')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('المعرض').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('coding-category')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('بنجرة ذهب 21').last);
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(find.byKey(const Key('coding-unclassified'))).data,
+        'في الموقع عيار 21 بلا تصنيف: 14,490.00 جم');
+    expect(tester.widget<Text>(find.byKey(const Key('coding-settle'))).data,
+        'بلا وزن: يُنقل 85.40 جم من «بلا تصنيف» إلى التصنيف عند الفتح — مبيعاته منذ بدء التوزيع');
+    await tester.tap(find.byKey(const Key('coding-open')));
+    await tester.pumpAndSettle();
+    expect(api.opened.single, {'safe_box_id': 3, 'category_id': 28}, reason: 'no weight sent');
+    expect(find.textContaining('نُقل 85.40 جم من «بلا تصنيف» إلى «بنجرة ذهب 21»'), findsOneWidget);
+    expect(tester.widget<Text>(find.byKey(const Key('station-counter'))).data,
+        'قطعة قطعة · رُمّز 0.00 جم · 0 قطعة · المتاح في الموقع 14,490.00 جم');
+    expect(find.byKey(const Key('station-progress')), findsNothing, reason: 'no weight declared: nothing to reach');
+    expect(find.byKey(const Key('station-close-rest')), findsNothing);
+    await tester.tap(find.byKey(const Key('station-end-batch')));
+    await tester.pumpAndSettle();
+    expect(api.ended, [6]);
   });
 
   testWidgets('from 2027 a batch\'s piece takes its pool\'s average: shown, not asked', (tester) async {

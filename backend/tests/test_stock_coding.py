@@ -144,7 +144,9 @@ def test_the_batch_laws(app, world, roles, showroom, bangles, receiving):
     base = dict(safe_box_id=showroom.id, category_id=bangles.id, weight=10.0, by='t', now=NOW)
     assert _code({**base, 'category_id': weights.id}) == 'piece_category_by_weight'
     assert _code({**base, 'weight': 0}) == 'coding_figures_invalid'
-    assert _code({**base, 'weight': None}) == 'coding_figures_invalid'
+    # no weight: a batch coded piece by piece from the unclassified (the owner, 27 Nov 2026: «اعتمده» --
+    # tests/test_coding_open_batch.py); a weight of nothing is still no weight to declare
+    assert not isinstance(_code({**base, 'weight': None}), str)
     assert _code({**base, 'safe_box_id': 999999}) == 'coding_location_invalid'
     assert not isinstance(_code(base), str)
 

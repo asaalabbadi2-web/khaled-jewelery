@@ -164,6 +164,59 @@ def stock_balances() -> list:
     return rows
 
 
+def unclassified_grams(safe_box, karat: int) -> float:
+    """A stock place's grams of a karat under no category -- its balance less what is allocated: the
+    rest stock_balances() reads under category None (2026's stock before the allocation began)."""
+    from accounting.balances import counted_line_filters
+    from services.live_balances import live_balances_by_account_ids
+    balance = float(live_balances_by_account_ids([safe_box.account_id]).get(safe_box.account_id, {})
+                    .get(f'{int(karat)}k') or 0.0)
+    allocated = float(db.session.query(func.coalesce(func.sum(StockLineAllocation.grams), 0.0))
+                      .join(JournalEntryLine, JournalEntryLine.id == StockLineAllocation.journal_entry_line_id)
+                      .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+                      .filter(JournalEntryLine.account_id == safe_box.account_id,
+                              StockLineAllocation.karat == int(karat), *counted_line_filters()).scalar() or 0.0)
+    return round(balance - allocated, 3)
+
+
+def classify(safe_box, karat: int, category_id: int, grams: float, *, now, item_id=None, by=None) -> list:
+    """*grams* of a place's unclassified stock of a karat given a category -- and a piece, with
+    *item_id* -- on the posted lines into it that hold room, the oldest first, each within its own
+    weight ([allocate]'s law): no entry, the place's grams as they were (the owner, 27 Nov 2026:
+    «اعتمده»). Refused, nothing written, past what the place holds unclassified."""
+    from accounting.balances import counted_line_filters
+    grams = round(float(grams), 3)
+    if grams <= TOLERANCE:
+        return []
+    held = unclassified_grams(safe_box, karat)
+    if grams > held + TOLERANCE:
+        raise StockAllocationError(f'في «{safe_box.name}» عيار {karat} بلا تصنيف {max(held, 0.0):.2f} جم فقط')
+    column_in, column_out = getattr(JournalEntryLine, f'debit_{int(karat)}k'), getattr(JournalEntryLine, f'credit_{int(karat)}k')
+    taken = (db.session.query(StockLineAllocation.journal_entry_line_id,
+                              func.sum(StockLineAllocation.grams).label('grams'))
+             .filter(StockLineAllocation.karat == int(karat))
+             .group_by(StockLineAllocation.journal_entry_line_id).subquery())
+    lines = (db.session.query(JournalEntryLine, func.coalesce(taken.c.grams, 0.0))
+             .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+             .outerjoin(taken, taken.c.journal_entry_line_id == JournalEntryLine.id)
+             .filter(JournalEntryLine.account_id == safe_box.account_id,
+                     func.coalesce(column_in, 0.0) - func.coalesce(column_out, 0.0) > TOLERANCE, *counted_line_filters())
+             .order_by(JournalEntry.date, JournalEntryLine.id).all())
+    rows, left = [], grams
+    for line, allocated in lines:
+        if left <= TOLERANCE:
+            break
+        room = round(line_grams(line, int(karat)) - float(allocated or 0.0), 6)
+        if room <= TOLERANCE:
+            continue
+        take = round(min(left, room), 6)
+        rows.append(allocate(line, int(karat), int(category_id), take, item_id=item_id, now=now, by=by))
+        left = round(left - take, 6)
+    if left > TOLERANCE:
+        raise StockAllocationError(f'أسطر «{safe_box.name}» عيار {karat} لا تتسع لـ {left:.3f} جم بلا تصنيف')
+    return rows
+
+
 def category_held(safe_box, karat: int, category_id: int) -> float:
     """Grams a stock safe holds of one category in one karat -- the reader
     stock_balances() reads, for one (safe, karat, category)."""
