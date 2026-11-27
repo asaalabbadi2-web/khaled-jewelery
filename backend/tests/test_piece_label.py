@@ -4,14 +4,16 @@ The owner's prints of 20 Nov: the first cut the number at the top and laid
 the code across the fold -- the scanner read nothing; the printer's own fonts
 drew Arabic reversed and broken; two long lines overprinted each other. Here:
 - the DataMatrix whole inside the first face (the owner, 20 Nov: it reads bent and at an angle
-  better than QR), the number, karat and weight beside it;
-- the second face upright, starting from the tail as Arabic starts (the owner, 27 Nov 2026): the name
-  in Arabic and the size under it, in the middle of what is
-  clear of the chip's bump; the stones on the first face, under the weight (the owner, 27 Nov 2026:
-  a bump a millimetre wide in line with the tail's upper edge took the dot of «ذهب»);
+  better than QR); beside it the weight, the largest line of the label, the karat reversed in a
+  black box with the stones beside it, and the number small (the owner, 27 Nov 2026: «اعتمد هذا
+  التصميم» -- the trial he printed);
+- the second face upright, starting from the tail as Arabic starts (the owner, 27 Nov 2026): the
+  shop's name small at its top -- the settings' company name, no word fixed here («ليس بقيم ثابتة
+  بل ديناميكيه مثل اسم المحل») -- the name in Arabic and the size under it, clear of the chip's bump
+  (a millimetre wide in line with the tail's upper edge: it took the dot of «ذهب»);
 - its code of the kind the setting says -- DataMatrix, QR, Aztec or Code 128 -- each within its face;
 - Arabic joined and laid right to left here, the printer's shaping off;
-- no line wider than its face: it shrinks, then is cut with «…»;
+- no line wider than its face: it shrinks, then is cut with «…» -- a weight shrinks, never cut;
 - no price, no wage.
 
 Run:
@@ -35,6 +37,37 @@ def _field(zpl, command):
     return int(x), int(y), int(h)
 
 
+def _typeset(zpl):
+    """(x, baseline, h, reversed, text) of each line set on its baseline in Cairo -- the first face's."""
+    return [(int(x), int(b), int(h), bool(r), t) for x, b, h, r, t in
+            re.findall(r'\^FT(\d+),(\d+)\^A@N,(\d+),\d+,E:CAIRO\.TTF(\^FR)?\^FD([^\^]*)\^FS', zpl)]
+
+
+def _on(fields, text):
+    [field] = [f for f in fields if f[4] == text]
+    return field
+
+
+def _box(zpl):
+    """(x, y, w, h) of the karat's filled box."""
+    x, y, w, h, t = map(int, re.search(r'\^FO(\d+),(\d+)\^GB(\d+),(\d+),(\d+)\^FS', zpl).groups())
+    assert t == h, 'filled: its line as thick as the box is high'
+    return x, y, w, h
+
+
+def _within_the_first_face(fields, left):
+    assert fields, 'its words set on the first face'
+    for x, b, h, _, text in fields:
+        assert x >= left and x + L.width(text, h) <= L.FACE_W - L.MARGIN, f'{text} within its column'
+        assert b - L.cap(h) >= L.TOP + L.MARGIN and b <= L.TOP + L.FACE_H - L.MARGIN, f'{text} within the face'
+
+
+def _second_face_fields(zpl):
+    """(y, h, text) of each line drawn in Cairo in a centred block -- the second face's."""
+    return [(int(y), int(h), t) for y, h, t in
+            re.findall(r'\^FO\d+,(\d+)\^A@N,(\d+),\d+,E:CAIRO\.TTF\^FB\d+,1,0,C\^FD([^\^]*)\^FS', zpl)]
+
+
 @pytest.mark.parametrize('number', ['KJ-000001', 'KJ-000124', 'KJ-1234567'])
 def test_its_tag_value_is_the_systems(number):
     assert L.EPC_PREFIX == EPC_PREFIX and L.epc_of(number) == system_epc(number)
@@ -47,35 +80,57 @@ def test_the_tag_is_written_and_read_back():
     assert '^RFR,H' in zpl and '^HV1,24,EPC=' in zpl, 'read back to the host'
 
 
-def test_the_first_face_its_code_number_karat_weight_and_stones():
-    zpl = _zpl(stones=0.35)
+def test_the_first_face_its_code_the_weight_largest_the_karat_reversed_the_number_small():
+    """The owner's approved trial (27 Nov 2026): the weight what is read first, the karat told at a glance."""
+    zpl = _zpl(stones=0.35, name='بنجرة حب الرمان', size='18', brand='مجوهرات خالد')
     assert '^BXN,6,200,14,14^FDKJ-000124^FS' in zpl, 'the DataMatrix of its number, 14 x 14 cells'
     assert '^BQN' not in zpl, 'not a QR'
     x, y, _ = _field(zpl, '^BXN')
     assert L.TOP + L.MARGIN <= y and y + L.CODE_SIDE <= L.TOP + L.FACE_H - L.MARGIN, 'not across the fold'
     assert L.MARGIN <= x and x + L.CODE_SIDE <= L.FACE_W - L.MARGIN
-    assert '^FDKJ-000124^FS' in zpl and '^FD21K · 12.40g^FS' in zpl
-    stones = re.search(r'\^FO\d+,(\d+)\^A0N,(\d+),\d+\^FB\d+,1,0,C\^FDSt 0\.35g\^FS', zpl)
-    assert stones, 'the stones on the first face, in Latin symbols'
-    y, h = int(stones.group(1)), int(stones.group(2))
-    assert y + h <= L.TOP + L.FACE_H - L.MARGIN, 'within the first face'
+    fields = _typeset(zpl)
+    assert {f[4] for f in fields} == {'12.40', 'g', '21K', 'St 0.35g', 'KJ-000124'}
+    weight, unit = _on(fields, '12.40'), _on(fields, 'g')
+    heights = [int(h) for h in re.findall(r'\^A@N,(\d+),', zpl)]
+    assert weight[2] == L.WEIGHT_H == max(heights), 'the weight the largest line on the label'
+    assert unit[1] == weight[1] and unit[2] == weight[2] // 2, 'its «g» half as high, on its baseline'
+    assert unit[0] >= weight[0] + L.width('12.40', weight[2]), 'after it'
+    karat, stones, number = _on(fields, '21K'), _on(fields, 'St 0.35g'), _on(fields, 'KJ-000124')
+    bx, by, bw, bh = _box(zpl)
+    assert karat[3] and not stones[3] and not number[3], 'the karat alone reversed, white on black'
+    assert bx < karat[0] and karat[0] + L.width('21K', karat[2]) < bx + bw, 'within its box'
+    assert by < karat[1] - L.cap(karat[2]) and karat[1] < by + bh
+    assert stones[0] >= bx + bw and by < stones[1] < by + bh, 'the stones beside the karat, on its row'
+    assert weight[1] < by and number[1] - L.cap(number[2]) > by + bh, 'the weight, the row, then the number'
+    assert number[2] < karat[2] < weight[2]
+    _within_the_first_face(fields, x + L.CODE_SIDE + L.MARGIN)
 
 
-def _second_face_fields(zpl):
-    """(y, h, text) of each line drawn in Cairo -- the second face's."""
-    return [(int(y), int(h), t) for y, h, t in
-            re.findall(r'\^FO\d+,(\d+)\^A@N,(\d+),\d+,E:CAIRO\.TTF\^FB\d+,1,0,C\^FD([^\^]*)\^FS', zpl)]
+def test_a_heavy_piece_its_weight_shrunk_never_cut():
+    zpl = L.label_zpl('KJ-000124', karat='21', weight=1234.56, stones=0.35)
+    weight = _on(_typeset(zpl), '1234.56')
+    assert weight[2] < L.WEIGHT_H, 'shrunk to its column'
+    _within_the_first_face(_typeset(zpl), L.MARGIN + L.CODE_SIDE + L.MARGIN)
 
 
-def test_the_second_face_upright_the_name_above_the_chips_bump_the_size_at_its_foot():
+def test_stones_out_of_its_weight_marked_within_the_row():
+    zpl = _zpl(stones=12.35, stones_out=True)
+    stones = _on(_typeset(zpl), '+St 12.35g')
+    assert stones[2] <= L.ROW_H
+    _within_the_first_face(_typeset(zpl), L.MARGIN + L.CODE_SIDE + L.MARGIN)
+
+
+def test_the_second_face_upright_the_shop_the_name_above_the_chips_bump_the_size_at_its_foot():
     """The owner's prints of 27 Nov 2026: the name 3 mm lower than first printed, the size 1 mm above
-    the face's bottom edge -- the bump, a millimetre wide, between them."""
+    the face's bottom edge -- the bump, a millimetre wide, between them; the shop's name above the name."""
     second = L.TOP + L.FACE_H
-    bump_top, bump_bottom = second + L.BUMP_Y - L.BUMP_R, second + L.BUMP_Y + L.BUMP_R
+    bump_top = second + L.BUMP_Y - L.BUMP_R
+    brand = L.shaped('مجوهرات خالد')
     for facts in ({'name': 'بناجر ذهب 21', 'size': '18'}, {'name': 'بناجر ذهب 21'}, {'size': '18'},
-                  {'name': 'طقم ذهب إيطالي مرصع بفصوص زركون ملونة كبير', 'size': '18', 'stones': 0.35}):
+                  {'name': 'طقم ذهب إيطالي مرصع بفصوص زركون ملونة كبير', 'size': '18', 'stones': 0.35},
+                  {'name': 'بناجر ذهب 21', 'size': '18', 'brand': 'مجوهرات خالد'}):
         fields = {t: (y, h) for y, h, t in _second_face_fields(_zpl(**facts))}
-        names = [(y, h) for t, (y, h) in fields.items() if not t.startswith('Sz')]
+        names = [(y, h) for t, (y, h) in fields.items() if not t.startswith('Sz') and t != brand]
         for y, h in names:
             assert y == second + L.NAME_Y, f'the name 3 mm lower than first printed: {facts}'
             assert y + h <= bump_top - L.BUMP_CLEAR, f'the name above the bump, a margin kept: {facts}'
@@ -84,15 +139,33 @@ def test_the_second_face_upright_the_name_above_the_chips_bump_the_size_at_its_f
             assert y + h == second + L.FACE_H - L.SIZE_FOOT, 'the size 1 mm above the bottom edge'
             assert y >= second + L.BUMP_Y, 'its letters under the bump: its line\'s top is Cairo\'s empty ascent'
             assert all(ny + nh <= y for ny, nh in names), 'the size under the name'
+        if 'brand' in facts:
+            y, h = fields[brand]
+            assert y == second + L.BRAND_Y and h == L.BRAND_H, 'the shop\'s name at the face\'s top'
+            assert all(y + h <= ny for ny, _ in names), 'above the name'
+        else:
+            assert brand not in fields, 'no shop\'s name given: none printed'
     assert '^A@I' not in _zpl(name='بناجر ذهب 21', size='18'), 'upright, from the tail: not turned over'
     assert 'St ' not in ''.join(t for *_, t in _second_face_fields(_zpl(name='x', stones=0.35, size='18'))), \
         'the stones are the first face\'s'
 
 
+def test_the_shops_name_is_what_it_is_given_fitted_to_the_face():
+    """No word fixed in the design: whatever the settings say, shrunk then cut with «…» as a name is."""
+    second = L.TOP + L.FACE_H
+    for brand in ('محل الذهب', 'مجوهرات خالد للذهب والألماس والساعات الفاخرة في المملكة'):
+        [(y, h, drawn)] = [f for f in _second_face_fields(_zpl(brand=brand)) if f[0] == second + L.BRAND_Y]
+        assert L.BRAND_LEAST <= h <= L.BRAND_H and L.width(drawn, h) <= L.ROOM, brand
+    assert L.label_faces('KJ-000124', brand='محل الذهب')['brand'] == 'محل الذهب'
+    assert L.label_faces('KJ-000124', brand='  ')['brand'] is None, 'blank: nothing'
+
+
 def test_each_mark_only_when_the_piece_has_it():
     assert 'St ' not in _zpl(stones=0.0) and 'Sz ' not in _zpl(size='')
     assert '^FDSz 18^FS' in _zpl(size='18') and '^FDSt 1.20g^FS' in _zpl(stones=1.2)
-    assert '^A@' not in _zpl(), 'no name, no size: nothing on the second face'
+    assert not _second_face_fields(_zpl()), 'no shop, no name, no size: nothing on the second face'
+    bare = L.label_zpl('KJ-000124')
+    assert {f[4] for f in _typeset(bare)} == {'KJ-000124'} and '^GB' not in bare, 'no karat, no weight: none'
 
 
 @pytest.mark.parametrize('kind, command', [('datamatrix', '^BXN,6,200,14,14^FDKJ-000124^FS'),
@@ -117,9 +190,7 @@ def test_a_square_code_within_its_face_its_words_beside_it(kind):
     drawn = y + (L.QR_DROP if kind == 'qr' else 0)               # where the printer draws it
     assert L.MARGIN <= x and x + side <= L.FACE_W - L.MARGIN
     assert L.TOP + L.MARGIN <= drawn and drawn + side <= L.TOP + L.FACE_H - L.MARGIN, 'not across the fold'
-    for wx, wy, wh in re.findall(r'\^FO(\d+),(\d+)\^A0N,(\d+)', zpl):
-        assert int(wx) >= x + side + L.MARGIN, 'the words beside the code, not over it'
-        assert int(wy) + int(wh) <= L.TOP + L.FACE_H - L.MARGIN
+    _within_the_first_face(_typeset(zpl), x + side + L.MARGIN)   # the words beside the code, not over it
     assert drawn == L.TOP + (L.FACE_H - side) // 2, \
         'in the middle of its face -- a QR placed higher, the printer drawing it lower (the owner, 27 Nov)'
     assert y >= 0, 'its origin on the label'
@@ -131,11 +202,14 @@ def test_code_128_a_bar_across_the_face_its_words_under_it():
     x, y = map(int, re.search(r'\^FO(\d+),(\d+)\^BCN', zpl).groups())
     bars = L.bar_width('KJ-000124') - 2 * L.BAR_QUIET
     assert x - L.BAR_QUIET >= 0 and x + bars + L.BAR_QUIET <= L.FACE_W, 'its quiet zones within the face'
-    assert y == L.TOP + L.MARGIN + L.BAR_DROP, 'the bar as low as its words let it (the owner, 27 Nov)'
-    words = [(int(wy), int(wh)) for wy, wh in re.findall(r'\^FO\d+,(\d+)\^A0N,(\d+)', zpl)]
-    assert len(words) == 3 and all(wy >= y + L.BAR_H for wy, _ in words), 'the number, facts and stones under it'
-    assert '^FDSt 0.35g^FS' in zpl, 'the stones under the weight, a line of their own'
-    assert max(wy + wh for wy, wh in words) == L.TOP + L.FACE_H - L.MARGIN, 'down to the face\'s lower margin'
+    assert y == L.TOP + L.MARGIN + L.BAR_DROP, 'the bar where the owner set it (27 Nov)'
+    fields = _typeset(zpl)
+    assert {f[4] for f in fields} == {'12.40', 'g', '21K', 'St 0.35g', 'KJ-000124'}
+    assert all(b - L.cap(h) > y + L.BAR_H for _, b, h, _, _ in fields), 'the words under the bar'
+    _within_the_first_face(fields, L.MARGIN)
+    weight, karat, number = _on(fields, '12.40'), _on(fields, '21K'), _on(fields, 'KJ-000124')
+    assert weight[2] > karat[2] > number[2] and karat[3], 'the weight largest, the karat reversed'
+    assert weight[1] < karat[1] < number[1]
 
 
 def test_code_128_takes_the_numbers_the_face_holds_and_refuses_a_longer():
@@ -175,7 +249,8 @@ def test_arabic_is_joined_and_laid_right_to_left_here():
 def test_every_letter_drawn_is_in_the_font():
     from fontTools.ttLib import TTFont
     cmap = TTFont(L.FONT_FILE).getBestCmap()
-    for name in ('بنجرة مخرمة', 'خاتم سوليتير لؤلؤ', 'طقم إيطالي', 'سلسلة لا تُصدأ', 'St 0.35g · Sz 18'):
+    for name in ('بنجرة مخرمة', 'خاتم سوليتير لؤلؤ', 'طقم إيطالي', 'سلسلة لا تُصدأ', 'مجوهرات خالد',
+                 '+St 0.35g · Sz 18', '1234567890.g 18K 21K 22K 24K KJ-'):
         assert all(ord(c) in cmap for c in L.shaped(name)), name
 
 

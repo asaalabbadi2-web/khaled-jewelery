@@ -199,7 +199,8 @@ def label_facts(piece: Item) -> dict:
     grams in the books, what is sold as gold: its standing weight when its
     stones count as gold, its net when they are priced apart, then marked
     «+St» (the owner, 20 Nov 2026) -- its model's name else its category's,
-    its stones and its size, and the code it prints in: the printed label's and its preview's."""
+    its stones and its size, the code it prints in, and the shop's name: the printed label's and its
+    preview's."""
     from models import Category, PieceModel, SizeSystemSize
     from services.pieces import STONES_PRICED, piece_weights
     model = db.session.get(PieceModel, piece.model_id) if piece.model_id else None
@@ -209,7 +210,7 @@ def label_facts(piece: Item) -> dict:
             'name': model.name if model else getattr(category, 'name', None),
             'stones': piece.stones_weight, 'size': getattr(size, 'label', None),
             'stones_out': piece_weights(piece)['stones_kind'] == STONES_PRICED,
-            'code_type': label_code()}
+            'code_type': label_code(), 'brand': label_brand()}
 
 
 def label_code() -> str:
@@ -217,6 +218,14 @@ def label_code() -> str:
     printed keeps the code it was printed in."""
     from models import Settings
     return getattr(Settings.query.first(), 'piece_label_code', None) or 'datamatrix'
+
+
+def label_brand():
+    """The shop's name the labels print now -- the company's name in the settings, read at each print
+    (live, §13), as the code's kind is (the owner, 27 Nov 2026: «ليس بقيم ثابتة بل ديناميكيه مثل اسم
+    المحل»): a label printed keeps the name it was printed with; none set, none printed."""
+    from models import Settings
+    return (getattr(Settings.query.first(), 'company_name', None) or '').strip() or None
 
 
 def _label(piece: Item, epc: str) -> str:

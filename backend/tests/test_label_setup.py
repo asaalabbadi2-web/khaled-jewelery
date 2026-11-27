@@ -91,14 +91,20 @@ def _client(auth_headers):
 
 def test_the_preview_says_what_the_label_prints():
     long_name = 'طقم ذهب إيطالي مرصع بفصوص زركون ملونة كبير'
-    faces = L.label_faces('KJ-000124', karat='21', weight=12.4, name=long_name, stones=0.35, size='18')
-    assert (faces['code'], faces['code_type'], faces['number'], faces['facts'], faces['stones'], faces['size']) == \
-        ('KJ-000124', 'datamatrix', 'KJ-000124', '21K · 12.40g', 'St 0.35g', 'Sz 18')
+    long_brand = 'مجوهرات خالد للذهب والألماس والساعات الفاخرة في المملكة'
+    facts = dict(karat='21', weight=12.4, name=long_name, stones=0.35, size='18', brand=long_brand)
+    faces = L.label_faces('KJ-000124', **facts)
+    assert (faces['code'], faces['code_type'], faces['number'], faces['weight'], faces['karat'], faces['stones'],
+            faces['size']) == ('KJ-000124', 'datamatrix', 'KJ-000124', '12.40g', '21K', 'St 0.35g', 'Sz 18')
+    assert 'facts' not in faces, 'the weight and the karat each a line of its own'
     assert faces['name'].endswith('…') and len(faces['name']) < len(long_name), 'cut as the label cuts it'
-    zpl = L.label_zpl('KJ-000124', karat='21', weight=12.4, name=long_name, stones=0.35, size='18')
-    assert f'^FD{L.shaped(faces["name"])}^FS' in zpl, 'the preview\'s name is the printed one'
-    for said in (faces['facts'], faces['stones'], faces['size'], faces['number']):
+    assert faces['brand'].endswith('…'), 'the shop\'s name cut as the label cuts it'
+    zpl = L.label_zpl('KJ-000124', **facts)
+    for said in (faces['name'], faces['brand']):
+        assert f'^FD{L.shaped(said)}^FS' in zpl, 'the preview\'s words are the printed ones'
+    for said in (faces['karat'], faces['stones'], faces['size'], faces['number']):
         assert f'^FD{said}^FS' in zpl
+    assert '^FD12.40^FS' in zpl and '^FDg^FS' in zpl, 'the weight, its «g» smaller after it'
 
 
 def test_a_pieces_preview_names_its_model_else_its_category(auth_headers):
@@ -235,6 +241,42 @@ def test_the_labels_code_is_the_settings_read_at_each_print(auth_headers):
     assert '^BQN,2,4^FDMA,' in printed and '^BXN' not in printed, 'read at the print, not kept from before'
     faces = _client(auth_headers).get(f'/api/pieces/{piece.id}/label-preview', headers=auth_headers).get_json()['faces']
     assert faces['code_type'] == 'qr', 'the preview draws the code the label prints'
+
+
+def test_the_shops_name_is_the_settings_read_at_each_print(auth_headers):
+    """The owner, 27 Nov 2026: «ليس بقيم ثابتة بل ديناميكيه مثل اسم المحل» -- the company's name in the
+    settings, read at each print (live, §13) as the code's kind is; a label printed keeps its own."""
+    from services.label_printing import _label, label_facts
+    [piece] = _pieces(10.0)
+    settings = Settings.query.first()
+    settings.company_name = 'مجوهرات الاختبار'
+    db.session.flush()
+    assert label_facts(piece)['brand'] == 'مجوهرات الاختبار'
+    assert f'^FD{L.shaped("مجوهرات الاختبار")}^FS' in _label(piece, L.epc_of(piece.item_code))
+    settings.company_name = 'ذهب الشمال'
+    db.session.flush()
+    assert f'^FD{L.shaped("ذهب الشمال")}^FS' in _label(piece, L.epc_of(piece.item_code)), 'read at the print'
+    faces = _client(auth_headers).get(f'/api/pieces/{piece.id}/label-preview', headers=auth_headers).get_json()['faces']
+    assert faces['brand'] == 'ذهب الشمال', 'the preview says the name the label prints'
+    settings.company_name = ''
+    db.session.flush()
+    assert label_facts(piece)['brand'] is None
+    assert L.shaped('ذهب الشمال') not in _label(piece, L.epc_of(piece.item_code)), 'none set: no line'
+
+
+def test_a_test_label_carries_the_shops_name(auth_headers):
+    printer = _printer()
+    device = Printer()
+    try:
+        printer.host, printer.port = '127.0.0.1', device.port
+        Settings.query.first().company_name = 'ذهب الشمال'
+        db.session.flush()
+        r = _client(auth_headers).post(f'/api/label-printers/{printer.id}/test-label', headers=auth_headers)
+        assert r.status_code == 200, r.get_data(as_text=True)
+        sent = [t.encode('latin-1').decode('utf-8') for t in device.received if '^BXN' in t]
+        assert sent and f'^FD{L.shaped("ذهب الشمال")}^FS' in sent[-1], 'as a piece\'s label prints it'
+    finally:
+        device.close()
 
 
 def test_the_code_is_chosen_among_the_four_through_the_settings(auth_headers):

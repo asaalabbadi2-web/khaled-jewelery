@@ -106,7 +106,7 @@ class _FakeApi extends ApiService {
 
   @override
   Future<Map<String, dynamic>> labelPreview(int pieceId) async => {
-        'faces': {'code': 'KJ-000$pieceId', 'number': 'KJ-000$pieceId', 'facts': '21K · 10.00g',
+        'faces': {'code': 'KJ-000$pieceId', 'number': 'KJ-000$pieceId', 'weight': '10.00g', 'karat': '21K',
                   'name': 'بنجرة أ', 'marks': null},
       };
 

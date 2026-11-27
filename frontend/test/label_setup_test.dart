@@ -21,8 +21,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 const _faces = {
   'code': 'KJ-000124',
   'number': 'KJ-000124',
-  'facts': '21K · 12.40g',
+  'weight': '12.40g',
+  'karat': '21K',
   'name': 'طقم ذهب إيطالي مرصع…',
+  'brand': 'مجوهرات خالد',
   'code_type': 'datamatrix',
   'stones': 'St 0.35g',
   'size': 'Sz 18',
@@ -108,12 +110,23 @@ void main() {
     await tester.pumpWidget(tree(300));
     await tester.pumpAndSettle();
     Finder on(String face, String said) => find.descendant(of: find.byKey(Key(face)), matching: find.text(said));
-    for (final said in ['KJ-000124', '21K · 12.40g', 'St 0.35g']) {
+    for (final said in ['KJ-000124', '12.40', 'g', '21K', 'St 0.35g']) {
       expect(on('label-preview-first', said), findsOneWidget, reason: '$said on the code\'s face');
     }
-    for (final said in ['طقم ذهب إيطالي مرصع…', 'Sz 18']) {
+    for (final said in ['مجوهرات خالد', 'طقم ذهب إيطالي مرصع…', 'Sz 18']) {
       expect(on('label-preview-second', said), findsOneWidget, reason: '$said on the chip\'s face');
     }
+    // the owner's approved design (27 Nov 2026): the weight the largest line, the karat reversed
+    final sizes = {
+      for (final t in tester.widgetList<Text>(find.descendant(of: find.byType(LabelPreview), matching: find.byType(Text))))
+        t.data: tester.getSize(find.byWidget(t)).height,
+    };
+    expect(sizes['12.40'], greaterThan(sizes.entries.where((e) => e.key != '12.40').map((e) => e.value).reduce(
+        (a, b) => a > b ? a : b)), reason: 'the weight the largest line on the label');
+    final box = tester.widget<Container>(find.byKey(const Key('label-preview-karat')));
+    final ink = Theme.of(tester.element(find.byType(LabelPreview))).colorScheme.onSurface;
+    expect((box.decoration as BoxDecoration).color, ink, reason: 'the karat in a box of ink');
+    expect(find.descendant(of: find.byKey(const Key('label-preview-karat')), matching: find.text('21K')), findsOneWidget);
     await tester.pumpWidget(tree(320));                 // the same piece, rebuilt
     await tester.pumpAndSettle();
     expect(api.previews, 1, reason: 'not asked again at each rebuild');

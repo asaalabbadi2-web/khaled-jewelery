@@ -3,16 +3,16 @@
 The Zebra ZD621R on the network (ADR-085: ZPL on port 9100, the tag written
 with ^RFW). This tool talks to it alone: it writes no row and reads no
 database. Its label is the system's one design (services/piece_label): the
-number's DataMatrix, the number, karat and weight on the first face; the model's
-or category's name in Arabic (Cairo), the stones and size in Latin symbols on
-the second -- run from backend/ with the server's libraries.
+number's DataMatrix, the weight, the karat reversed, the stones and the number on
+the first face; the shop's name and the model's or category's in Arabic (Cairo)
+and the size on the second -- run from backend/ with the server's libraries.
 
     python tools/hardware/zebra_probe.py --host 192.168.1.50 --dry-run
     python tools/hardware/zebra_probe.py --host 192.168.1.50 --status
     python tools/hardware/zebra_probe.py --host 192.168.1.50 --install-font
     python tools/hardware/zebra_probe.py --host 192.168.1.50 --calibrate
     python tools/hardware/zebra_probe.py --host 192.168.1.50 --number KJ-999905 \\
-        --karat 21 --weight 12.40 --name 'بنجرة مخرمة' --stones 0.35 --size 18
+        --karat 21 --weight 12.40 --name 'بنجرة مخرمة' --stones 0.35 --size 18 --brand 'مجوهرات خالد'
 
 A tag is never taken as written on the printer's word alone: the value it
 reads back (^RFR, ^HV) must be the value sent. A new printer takes the font
@@ -49,6 +49,7 @@ def main(argv=None) -> int:
     p.add_argument('--name', help='اسم الموديل أو التصنيف (بالعربية)')
     p.add_argument('--stones', type=float, help='وزن الأحجار بالجرام')
     p.add_argument('--size', help='المقاس')
+    p.add_argument('--brand', help='اسم المحل كما في الإعدادات (لا يُطبع إن لم يُعطَ)')
     p.add_argument('--frame', action='store_true', help='ارسم حدود الوجهين كما قيست، للتحقق على البطاقة')
     what = p.add_mutually_exclusive_group()
     what.add_argument('--dry-run', action='store_true', help='اطبع الأوامر هنا ولا ترسلها')
@@ -71,7 +72,7 @@ def main(argv=None) -> int:
         print(f'{"✓" if ok else "✗"} الخط {FONT_ON_PRINTER} {"في ذاكرة الطابعة" if ok else "لم يظهر في ذاكرة الطابعة"}')
         return 0 if ok else 1
     zpl = label_zpl(a.number, karat=a.karat, weight=a.weight, name=a.name, stones=a.stones, size=a.size,
-                    frame=a.frame)
+                    brand=a.brand, frame=a.frame)
     if a.dry_run:
         print(zpl)
         return 0

@@ -3,13 +3,15 @@ import 'package:flutter/material.dart';
 
 import '../api_service.dart';
 
-/// A piece's label, both faces, as they read once folded (ADR-097 ط5): the
-/// first its code -- of the kind the labels print in (the owner, 27 Nov 2026):
-/// a square beside the words, or Code 128 a bar over them -- its number, its
-/// karat and weight, and its stones; the second its name (cut as the label
-/// cuts it) and its size under it, clear of the chip's bump. The faces' words
-/// and the code's kind are the server's -- the printed label's own source --
-/// never put together here. Each face 25 x 13 mm, drawn to that ratio.
+/// A piece's label, both faces, as they read once folded (ADR-097 ط5; the
+/// design the owner approved from its trial print, 27 Nov 2026): the first its
+/// code -- of the kind the labels print in: a square beside the words, or
+/// Code 128 a bar over them -- its weight the largest line, its karat reversed
+/// in a box of ink with its stones beside it, and its number small; the second
+/// the shop's name small at its top, the piece's name (both cut as the label
+/// cuts them) and its size, clear of the chip's bump. The faces' words and the
+/// code's kind are the server's -- the printed label's own source -- never put
+/// together here. Each face 25 x 13 mm, drawn to that ratio.
 class LabelPreview extends StatelessWidget {
   const LabelPreview({super.key, required this.faces, this.width = 300});
 
@@ -40,10 +42,39 @@ class LabelPreview extends StatelessWidget {
     final code = '${faces['code'] ?? ''}';
     final number = '${faces['number'] ?? ''}';
     final kind = '${faces['code_type'] ?? 'datamatrix'}';
+    final weight = faces['weight'] == null ? '' : '${faces['weight']}';
+    final karat = faces['karat'] == null ? null : '${faces['karat']}';
+    final stones = faces['stones'] == null ? null : '${faces['stones']}';
+    final big = faceHeight * 0.3;
     final words = [
-      if (number.isNotEmpty) FittedBox(child: Text(number, style: const TextStyle(fontWeight: FontWeight.w700))),
-      if (faces['facts'] != null) FittedBox(child: Text('${faces['facts']}')),
-      if (faces['stones'] != null) FittedBox(child: Text('${faces['stones']}')),
+      if (weight.isNotEmpty)
+        FittedBox(
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(weight.substring(0, weight.length - 1),
+                  style: TextStyle(fontSize: big, fontWeight: FontWeight.w700, height: 1)),
+              Text(weight.substring(weight.length - 1), style: TextStyle(fontSize: big / 2, height: 1)),
+            ],
+          ),
+        ),
+      if (karat != null || stones != null)
+        FittedBox(
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            if (karat != null)
+              Container(
+                key: const Key('label-preview-karat'),
+                padding: EdgeInsets.symmetric(horizontal: faceHeight * 0.04),
+                decoration: BoxDecoration(color: ink, borderRadius: BorderRadius.circular(2)),
+                child: Text(karat, style: TextStyle(color: paper, fontWeight: FontWeight.w700)),
+              ),
+            if (karat != null && stones != null) SizedBox(width: faceHeight * 0.05),
+            if (stones != null) Text(stones),
+          ]),
+        ),
+      if (number.isNotEmpty) FittedBox(child: Text(number, style: TextStyle(fontSize: faceHeight * 0.12))),
     ];
     final bar = kind == 'code128';
     final symbol = code.isEmpty
@@ -70,7 +101,12 @@ class LabelPreview extends StatelessWidget {
           face(
             'label-preview-first',
             bar
-                ? Column(mainAxisAlignment: MainAxisAlignment.center, children: [?symbol, ...words])
+                ? Center(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [?symbol, ...words]),
+                    ),
+                  )
                 : Row(children: [
                     ?symbol,
                     SizedBox(width: faceHeight * 0.1),
@@ -80,13 +116,20 @@ class LabelPreview extends StatelessWidget {
           const SizedBox(width: 8),
           face(
             'label-preview-second',
-            // upright, starting from the tail as Arabic does: the name above the chip's bump, the size
-            // at the face's foot under it (the owner's prints, 27 Nov 2026)
+            // upright, starting from the tail as Arabic does: the shop's name at its top, the piece's name
+            // above the chip's bump, the size at the face's foot under it (the owner's prints, 27 Nov 2026)
             Column(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
+                if (faces['brand'] != null)
+                  FittedBox(
+                    child: Text('${faces['brand']}', textDirection: TextDirection.rtl,
+                        style: TextStyle(fontSize: faceHeight * 0.12, color: theme.colorScheme.onSurfaceVariant)),
+                  )
+                else
+                  const SizedBox.shrink(),
                 Padding(
-                  padding: EdgeInsets.only(top: faceHeight * 0.18),
+                  padding: EdgeInsets.only(top: faces['brand'] != null ? 0 : faceHeight * 0.18),
                   child: faces['name'] != null
                       ? FittedBox(
                           child: Text('${faces['name']}', textDirection: TextDirection.rtl,

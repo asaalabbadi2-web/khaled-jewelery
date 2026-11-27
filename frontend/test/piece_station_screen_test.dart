@@ -95,7 +95,7 @@ class _Api extends ApiService {
 
   @override
   Future<Map<String, dynamic>> labelPreview(int pieceId) async => {
-    'faces': {'code': 'KJ-000121', 'number': 'KJ-000121', 'facts': '21K · 14.37g', 'name': 'بنجرة ذهب 21',
+    'faces': {'code': 'KJ-000121', 'number': 'KJ-000121', 'weight': '14.37g', 'karat': '21K', 'name': 'بنجرة ذهب 21',
               'marks': null},
   };
 
@@ -415,7 +415,7 @@ void main() {
     await _open(tester, api);
     await register(tester);
     expect(find.byKey(const Key('label-preview-first')), findsOneWidget);
-    expect(find.descendant(of: find.byKey(const Key('label-preview-first')), matching: find.text('21K · 14.37g')),
+    expect(find.descendant(of: find.byKey(const Key('label-preview-first')), matching: find.text('14.37')),
         findsOneWidget);
   });
 
