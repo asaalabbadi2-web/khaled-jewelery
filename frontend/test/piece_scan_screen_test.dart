@@ -389,6 +389,10 @@ void main() {
     final before = ScanFeedback.say;
     ScanFeedback.say = said.add;
     addTearDown(() => ScanFeedback.say = before);
+    var completes = 0;
+    final beforeComplete = ScanFeedback.sayComplete;
+    ScanFeedback.sayComplete = () => completes++;
+    addTearDown(() => ScanFeedback.sayComplete = beforeComplete);
     final api = _Api();
     await _open(tester, api);
     await _startSection(tester);
@@ -403,10 +407,100 @@ void main() {
     api.allFound = true;
     _ms = 3000;
     await _read(tester, '$_a\n');
-    expect(said, [false, true], reason: 'every piece expected found: said once');
+    expect(said, [false]);
+    expect(completes, 1, reason: 'every piece expected found: its own tone, once');
     _ms = 4000;
     await _read(tester, '$_a\n');
-    expect(said, [false, true]);
+    expect(said, [false]);
+    expect(completes, 1);
+  });
+
+  // The owner's trial on the reader (27 Nov 2026): «لا يسمع الا صوت الخطأ ولا يسمع صوت اكتمال القطع» --
+  // every piece and two alerts were read in one press, one answer: both tones at the same instant, the
+  // alert's two low notes and buzz over the found one's short beep. The completion now its own tone,
+  // after the alert's when both come together.
+  testWidgets('an alert and every piece found in one answer: the alert, then the completion after it', (tester) async {
+    final said = <bool>[];
+    final before = ScanFeedback.say;
+    ScanFeedback.say = said.add;
+    addTearDown(() => ScanFeedback.say = before);
+    var completes = 0;
+    final beforeComplete = ScanFeedback.sayComplete;
+    ScanFeedback.sayComplete = () => completes++;
+    addTearDown(() => ScanFeedback.sayComplete = beforeComplete);
+    final api = _Api();
+    await _open(tester, api);
+    await _startSection(tester);
+    api.allFound = true;                              // the answer to this press: every piece found
+    await _read(tester, '$_a\n$_b\n');
+    expect(said, [false]);
+    expect(completes, 0, reason: 'the alert first, alone');
+    await tester.pump(const Duration(milliseconds: 700));
+    expect(said, [false]);
+    expect(completes, 1, reason: 'then the completion, heard');
+  });
+
+  // The third tone (the owner, 27 Nov 2026: «في حال كان هناك نقص هل يجب ان يكون له صوت خاص» --
+  // «ابنها»): the scan complete -- no new tag in the last presses -- and pieces expected still not read:
+  // two falling notes, once as it becomes so; again only after a new read and another quiet. Not at
+  // the finish: the screen is before the eyes then.
+  testWidgets('complete with pieces still unread sounds once; read on and quiet again, once more', (tester) async {
+    final said = <bool>[];
+    final before = ScanFeedback.say;
+    ScanFeedback.say = said.add;
+    addTearDown(() => ScanFeedback.say = before);
+    var stalls = 0, completes = 0;
+    final beforeStall = ScanFeedback.sayStalled, beforeComplete = ScanFeedback.sayComplete;
+    ScanFeedback.sayStalled = () => stalls++;
+    ScanFeedback.sayComplete = () => completes++;
+    addTearDown(() {
+      ScanFeedback.sayStalled = beforeStall;
+      ScanFeedback.sayComplete = beforeComplete;
+    });
+    final api = _Api();
+    await _open(tester, api);
+    await _startSection(tester);
+    await _read(tester, '$_a\n');
+    expect(stalls, 0, reason: 'still reading');
+    api.complete = true;
+    _ms = 1000;
+    await _read(tester, '$_a\n');
+    expect(stalls, 1, reason: 'quiet, and a piece expected not read');
+    _ms = 2000;
+    await _read(tester, '$_a\n');
+    expect(stalls, 1, reason: 'still so: not again');
+    api.complete = false;
+    _ms = 3000;
+    await _read(tester, '$_a\n');
+    api.complete = true;
+    _ms = 4000;
+    await _read(tester, '$_a\n');
+    expect(stalls, 2, reason: 'read on, then quiet again');
+    api.allFound = true;
+    _ms = 5000;
+    await _read(tester, '$_a\n');
+    expect((stalls, completes), (2, 1), reason: 'every piece found: the completion, not the stall');
+    expect(said, isEmpty);
+  });
+
+  testWidgets('an alert and the stall in one answer: the alert, then the stall after it', (tester) async {
+    final said = <bool>[];
+    final before = ScanFeedback.say;
+    ScanFeedback.say = said.add;
+    addTearDown(() => ScanFeedback.say = before);
+    var stalls = 0;
+    final beforeStall = ScanFeedback.sayStalled;
+    ScanFeedback.sayStalled = () => stalls++;
+    addTearDown(() => ScanFeedback.sayStalled = beforeStall);
+    final api = _Api();
+    await _open(tester, api);
+    await _startSection(tester);
+    api.complete = true;
+    await _read(tester, '$_a\n$_b\n');
+    expect(said, [false]);
+    expect(stalls, 0, reason: 'the alert first, alone');
+    await tester.pump(const Duration(milliseconds: 700));
+    expect(stalls, 1);
   });
 
   // «ما بقي» as the reader goes (the owner, 27 Nov 2026: «اكمل»): the expected pieces the server said

@@ -16,4 +16,17 @@ class ScanFeedback {
 
   static void added() => say(true);
   static void refused() => say(false);
+
+  /// What plays a count's completion -- every piece expected found: three rising notes, its own,
+  /// not one piece's beep (the owner's trial, 27 Nov 2026: «لا يسمع صوت اكتمال القطع»).
+  static void Function() sayComplete = tone.playComplete;
+
+  static void complete() => sayComplete();
+
+  /// What plays a count gone quiet with pieces still unread -- no new tag in its last presses, some
+  /// expected not read: two falling notes, no buzz (the owner, 27 Nov 2026: «في حال كان هناك نقص هل
+  /// يجب ان يكون له صوت خاص» -- «ابنها»). Three tones in all, told apart by ear.
+  static void Function() sayStalled = tone.playStalled;
+
+  static void stalled() => sayStalled();
 }

@@ -23,6 +23,35 @@ void play(bool added) {
   }
 }
 
+/// A count's completion: three rising notes and a short buzz -- unlike a piece's one beep, heard
+/// across a showroom.
+void playComplete() {
+  try {
+    final ctx = _context ??= web.AudioContext();
+    if (ctx.state == 'suspended') ctx.resume();
+    final now = ctx.currentTime;
+    _beep(ctx, now, hz: 880, seconds: 0.13);
+    _beep(ctx, now + 0.15, hz: 1175, seconds: 0.13);
+    _beep(ctx, now + 0.30, hz: 1568, seconds: 0.22);
+    web.window.navigator.vibrate([90].map((ms) => ms.toJS).toList().toJS);
+  } catch (_) {
+    // no audio here: the screen still says it in words
+  }
+}
+
+/// A count gone quiet with pieces still unread: two falling notes, softer than an alert, no buzz.
+void playStalled() {
+  try {
+    final ctx = _context ??= web.AudioContext();
+    if (ctx.state == 'suspended') ctx.resume();
+    final now = ctx.currentTime;
+    _beep(ctx, now, hz: 784, seconds: 0.16);
+    _beep(ctx, now + 0.2, hz: 587, seconds: 0.22);
+  } catch (_) {
+    // no audio here: the screen still says it in words
+  }
+}
+
 void _beep(web.AudioContext ctx, double at, {required double hz, required double seconds}) {
   final osc = ctx.createOscillator()
     ..type = 'sine'

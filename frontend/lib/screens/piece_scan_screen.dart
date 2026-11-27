@@ -94,17 +94,37 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
   final Set<Object?> _heard = {};
   bool _allFoundHeard = false;
 
+  /// Whether «quiet, pieces still unread» has been said for the quiet now -- said again only after
+  /// a new read and another quiet.
+  bool _stalledHeard = false;
+
+  static bool _stalledIn(Map<String, dynamic> scan) {
+    final c = scan['completeness'] as Map?;
+    return c?['complete'] == true && c?['all_found'] != true;
+  }
+
   static bool _isAlert(Map<String, dynamic> r) => r['verdict'] != 'found' && r['verdict'] != 'other_scope';
 
   /// What the server's answer to a batch says aloud: a tone for a read to look at not heard before,
-  /// one when every piece expected is found -- the system's own word ([ScanFeedback]).
+  /// the completion's own when every piece expected is found -- the system's own word ([ScanFeedback]).
+  /// Both in one answer -- every piece and an alert read in one press (the owner's trial, 27 Nov
+  /// 2026): the completion after the alert's tone, not under it.
   void _sayAloud(Map<String, dynamic> scan) {
     final alerts = (scan['reads'] as List? ?? const []).whereType<Map<String, dynamic>>().where(_isAlert);
-    if (alerts.map((r) => r['id']).where(_heard.add).toList().isNotEmpty) ScanFeedback.refused();
+    final alerted = alerts.map((r) => r['id']).where(_heard.add).toList().isNotEmpty;
+    if (alerted) ScanFeedback.refused();
     final allFound = (scan['completeness'] as Map?)?['all_found'] == true;
-    if (allFound && !_allFoundHeard) ScanFeedback.added();
+    void after(void Function() say) => alerted ? Timer(_afterAlert, say) : say();
+    if (allFound && !_allFoundHeard) after(ScanFeedback.complete);
     _allFoundHeard = allFound;
+    // quiet with pieces still unread: once as it becomes so
+    final stalled = _stalledIn(scan);
+    if (stalled && !_stalledHeard) after(ScanFeedback.stalled);
+    _stalledHeard = stalled;
   }
+
+  /// The alert's tone is over by then: two notes and a buzz in under half a second.
+  static const _afterAlert = Duration(milliseconds: 600);
 
   /// The scan as the server said it: its reads merged into [_reads] -- replaced when it said them all.
   void _hold(Map<String, dynamic> scan) {
@@ -217,6 +237,7 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
       ..clear()
       ..addAll([for (final r in (scan['reads'] as List? ?? const []).whereType<Map<String, dynamic>>()) if (_isAlert(r)) r['id']]);
     _allFoundHeard = (scan['completeness'] as Map?)?['all_found'] == true;
+    _stalledHeard = _stalledIn(scan);
     setState(() {
       _hold(scan);
       _capture = capture;
