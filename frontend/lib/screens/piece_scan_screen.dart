@@ -523,23 +523,26 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
       Text('${scan['safe_name']} — ${scan['kind_words']} — ${scan['scope_words']}',
           key: const Key('scan-title'), style: theme.textTheme.titleSmall),
       const SizedBox(height: 12),
+      // two tiles on a reader -- the count large, its total small under it; the alerts (the shots of
+      // 27 Nov 2026: three tiles broke «95 من 122» on two lines and the grams on three)
       Row(children: [
-        Expanded(child: ScanFigure(figureKey: 'scan-found', name: 'موجودة',
-            value: '${scan['found']} من ${scan['expected']}', tone: tones.ready)),
-        if (scan['expected_grams'] != null) ...[
-          const SizedBox(width: 12),
-          // the grams found against the grams expected -- the scale's figure beside the count's
-          // (the owner's rehearsal, 23 Nov 2026: «عرض لبيانات مثل الوزن الممسوح»)
-          Expanded(child: ScanFigure(figureKey: 'scan-grams', name: 'الوزن الموجود',
-              value: ltrIsolate('${formatGrams(scan['found_grams'] as num? ?? 0, decimals: 2)} / '
-                  '${formatGrams(scan['expected_grams'] as num, decimals: 2)} جم'),
-              tone: tones.ready)),
-        ],
+        Expanded(child: ScanFigure(figureKey: 'scan-found', name: 'موجودة', value: '${scan['found']}',
+            of: 'من ${scan['expected']}', tone: tones.ready)),
         const SizedBox(width: 12),
         Expanded(child: ScanFigure(figureKey: 'scan-alerts', name: 'تنبيهات', value: '${scan['alerts']}',
             tone: (scan['alerts'] as num? ?? 0) > 0 ? tones.warning : null)),
       ]),
-      // the grams by karat while scanning, when there is more than one karat (the server's figures)
+      // the grams found against the grams expected, a line (the owner's rehearsal, 23 Nov 2026: «عرض
+      // لبيانات مثل الوزن الممسوح»), and each karat's under it when there is more than one
+      if (scan['expected_grams'] != null) ...[
+        const SizedBox(height: 8),
+        Text(
+          isolateLatin('الوزن الموجود: ${formatGrams(scan['found_grams'] as num? ?? 0, decimals: 2)} من '
+              '${formatGrams(scan['expected_grams'] as num, decimals: 2)} جم'),
+          key: const Key('scan-grams'),
+          style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+        ),
+      ],
       if (((scan['by_karat'] as List?)?.length ?? 0) > 1) ...[
         const SizedBox(height: 8),
         ScanKaratGrams(scan: scan),

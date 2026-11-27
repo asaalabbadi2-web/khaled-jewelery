@@ -81,7 +81,7 @@ class PieceScanResult extends StatelessWidget {
         const SizedBox(height: 12),
         Row(children: [
           Expanded(child: ScanFigure(figureKey: 'scan-count-found', name: verdicts['found']!,
-              value: '${counts['found'] ?? 0}', tone: tones.ready)),
+              value: '${counts['found'] ?? 0}', of: 'من ${scan['expected']}', tone: tones.ready)),
           const SizedBox(width: 12),
           Expanded(child: ScanFigure(figureKey: 'scan-count-missing', name: verdicts['missing']!,
               value: '${counts['missing'] ?? 0}', tone: (counts['missing'] as num? ?? 0) > 0 ? tones.warning : null)),
@@ -125,7 +125,11 @@ class PieceScanResult extends StatelessWidget {
         if (alerts.isNotEmpty) ...[
           const SizedBox(height: 12),
           Text('تنبيهات القراءة (${alerts.length})', style: theme.textTheme.titleSmall),
-          for (final r in alerts)
+          // the pieces elsewhere first, the voucher that corrects them right under them (the shots, 27 Nov)
+          for (final r in [
+            ...alerts.where((r) => r['verdict'] == 'elsewhere'),
+            ...alerts.where((r) => r['verdict'] != 'elsewhere'),
+          ]) ...[
             ListTile(
               key: Key('scan-read-${r['value']}'),
               dense: true,
@@ -134,13 +138,19 @@ class PieceScanResult extends StatelessWidget {
                   style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
               subtitle: Text(isolateLatin([
                 '${r['words'] ?? r['value']}',
+                // what it is and its weight, as on the scanning screen
+                if (r['weight'] != null)
+                  '${r['piece_name'] ?? ''} ${formatGrams((r['weight'] as num).toDouble(), decimals: 2)} جم'.trim(),
                 if (r['moved'] != null) '${r['moved']}',
                 if (r['resolved_by'] != null) 'اعتمدها ${r['resolved_by_name'] ?? r['resolved_by']}',
               ].join(' — '))),
             ),
+            if (identical(r, alerts.lastWhere((a) => a['verdict'] == 'elsewhere', orElse: () => const {})))
+              ..._vouchers(alerts),
+          ],
         ],
       ],
-      ..._nextSteps(context, alerts, abandoned),
+      ..._again(abandoned),
       if (trailing != null) ...[const SizedBox(height: 24), trailing!],
     ]);
   }
@@ -148,8 +158,8 @@ class PieceScanResult extends StatelessWidget {
 
 extension on PieceScanResult {
   /// The pieces read here that the books hold elsewhere, by where they hold them now: a voucher each.
-  List<Widget> _nextSteps(BuildContext context, List<Map<String, dynamic>> alerts, bool abandoned) {
-    if (abandoned || scan['status'] == 'open') return const [];
+  List<Widget> _vouchers(List<Map<String, dynamic>> alerts) {
+    if (onTransfer == null || scan['status'] == 'open') return const [];
     final from = <int, ({String name, List<String> codes})>{};
     for (final r in alerts) {
       final place = r['place_now'] as Map?;
@@ -159,15 +169,23 @@ extension on PieceScanResult {
       from[place['id'] as int] = at;
     }
     return [
-      if (onTransfer != null && from.isNotEmpty) const SizedBox(height: 16),
-      if (onTransfer != null)
-        for (final e in from.entries)
-          OutlinedButton.icon(
+      for (final e in from.entries)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: OutlinedButton.icon(
             key: Key('scan-transfer-${e.key}'),
             onPressed: () => onTransfer!(e.key, e.value.codes),
             icon: const Icon(Icons.swap_horiz),
             label: Text(isolateLatin('سند نقل من «${e.value.name}» إلى هنا (${piecesWord(e.value.codes.length)})')),
           ),
+        ),
+    ];
+  }
+
+  /// Another check of the same place and scope, once finished.
+  List<Widget> _again(bool abandoned) {
+    if (abandoned || scan['status'] == 'open') return const [];
+    return [
       if (onCheckAgain != null) ...[
         const SizedBox(height: 8),
         OutlinedButton.icon(
@@ -209,10 +227,14 @@ class ScanKaratGrams extends StatelessWidget {
 /// A count's figure -- its name and its number in a tile, coloured by its
 /// tone: the scanning screen's and the result's alike (one tile).
 class ScanFigure extends StatelessWidget {
-  const ScanFigure({super.key, required this.figureKey, required this.name, required this.value, this.tone});
+  const ScanFigure(
+      {super.key, required this.figureKey, required this.name, required this.value, this.of, this.tone});
   final String figureKey;
   final String name;
   final String value;
+
+  /// What the value is of, small under it -- «من 122»: the figure on one line on a reader.
+  final String? of;
   final SemanticTone? tone;
 
   @override
@@ -228,6 +250,9 @@ class ScanFigure extends StatelessWidget {
         Text(name, style: theme.textTheme.bodySmall?.copyWith(color: tone?.onContainer)),
         Text(isolateLatin(value), key: Key(figureKey),
             style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800, color: tone?.onContainer)),
+        if (of != null)
+          Text(isolateLatin(of!), key: Key('$figureKey-of'),
+              style: theme.textTheme.bodySmall?.copyWith(color: tone?.onContainer)),
       ]),
     );
   }

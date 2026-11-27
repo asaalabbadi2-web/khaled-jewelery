@@ -11,6 +11,7 @@ import 'package:frontend/utils/bidi.dart';
 import 'package:frontend/api_service.dart';
 import 'package:frontend/screens/piece_scan_screen.dart';
 import 'package:frontend/screens/safe_transfer_screen.dart';
+import 'package:frontend/widgets/piece_scan_result.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/scan_feedback.dart';
 
@@ -65,7 +66,8 @@ class _Api extends ApiService {
           'item_id': v == _a ? 101 : (v == _b ? 102 : null),
           if (v == _b) 'item_code': 'KJ-000102',
           if (v == _b && status != 'open') 'place_now': {'id': 31, 'name': 'العرض الخارجي'},
-          'weight': v == _a ? 10.0 : null, 'piece_name': v == _a ? 'بنجرة الشمس' : null,
+          'weight': v == _a ? 10.0 : (v == _b ? 11.0 : null),
+          'piece_name': v == _a ? 'بنجرة الشمس' : (v == _b ? 'خاتم لؤلؤ' : null),
           'verdict_words': v == _ring ? 'من نطاق آخر' : (v == _b ? 'في غير موقعها' : 'موجودة'),
           'words': v == _b
               ? 'KJ-000102 — مكانها في الدفاتر «العرض الخارجي»'
@@ -239,7 +241,9 @@ void main() {
         reason: 'a long count never grows its field');
     expect(find.text(isolateLatin('آخر قراءة: KJ-000201 — ليست من نطاق هذا الجرد · الضغطة 1')), findsOneWidget,
         reason: 'the field emptied, what was read said -- in the server\'s words, not the tag\'s raw value');
-    expect((_said(tester, 'scan-found'), _said(tester, 'scan-alerts')), (isolateLatin('1 من 2'), isolateLatin('1')));
+    expect((_said(tester, 'scan-found'), _said(tester, 'scan-found-of'), _said(tester, 'scan-alerts')),
+        (isolateLatin('1'), isolateLatin('من 2'), isolateLatin('1')),
+        reason: 'the count large, its total small under it: one line each on a reader (the shots, 27 Nov 2026)');
     expect(find.text('في غير موقعها'), findsOneWidget);
     expect(find.textContaining('العرض الخارجي'), findsOneWidget);
     expect(find.text('من نطاق آخر: 1 — خارج حساب هذا الجرد'), findsOneWidget, reason: 'not an alert');
@@ -269,8 +273,9 @@ void main() {
     await _open(tester, _Api());
     await _startSection(tester);
     await _read(tester, '$_a\n');
-    final grams = tester.widget<Text>(find.byKey(const Key('scan-grams'))).data!;
-    expect((grams.contains('10.00'), grams.contains('22.50')), (true, true), reason: grams);
+    expect(_said(tester, 'scan-grams'), isolateLatin('الوزن الموجود: 10.00 من 22.50 جم'),
+        reason: 'a line, not a tile: «756.65 / 974.00 جم» broke on three lines in a tile (the shots, 27 Nov 2026)');
+    expect(find.byType(ScanFigure), findsNWidgets(2), reason: 'two tiles while scanning: found, and the alerts');
     await tester.tap(find.byKey(const Key('scan-found-list')));
     await tester.pumpAndSettle();
     final line = tester.widget<Text>(find.descendant(of: find.byKey(const Key('scan-read-$_a')),
@@ -319,6 +324,13 @@ void main() {
     await tester.tap(find.byKey(const Key('scan-finish')));
     await tester.pumpAndSettle();
     expect(find.text(isolateLatin('سند نقل من «العرض الخارجي» إلى هنا (قطعة واحدة)')), findsOneWidget);
+    // the result's alerts as the scanning screen's -- what it is and its weight -- and the voucher right
+    // under the pieces it corrects, not after every list (the shots, 27 Nov 2026)
+    expect(find.descendant(of: find.byKey(Key('scan-read-$_b')), matching: find.textContaining(isolateLatin('خاتم لؤلؤ 11.00 جم'))),
+        findsOneWidget);
+    final alert = tester.getBottomLeft(find.byKey(Key('scan-read-$_b'))).dy;
+    final voucher = tester.getTopLeft(find.byKey(const Key('scan-transfer-31'))).dy;
+    expect(voucher - alert, lessThan(40), reason: 'right under its alert');
     await tester.tap(find.byKey(const Key('scan-check-again')));
     await tester.pumpAndSettle();
     expect(api.started.last, {'safe_box_id': 30, 'kind': 'check', 'section_id': 4},
@@ -559,6 +571,7 @@ void main() {
         findsOneWidget, reason: 'the missing said by what it is');
     expect(find.descendant(of: find.byKey(const Key('scan-piece-103')), matching: find.text('ناقصة')), findsOneWidget);
     expect(_said(tester, 'scan-count-missing'), isolateLatin('1'), reason: 'and counted in its tile');
+    expect(_said(tester, 'scan-count-found-of'), isolateLatin('من 2'), reason: 'found of how many, as while scanning');
     expect(find.textContaining('KJ-000101'), findsNothing, reason: 'the found are counted, not listed');
   });
 
