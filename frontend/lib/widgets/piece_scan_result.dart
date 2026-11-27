@@ -10,12 +10,26 @@ import '../utils/bidi.dart';
 /// it ended (complete, early with its reason, left), who began and ended it
 /// and when, its counts by verdict, each piece not found with its weight and
 /// verdict and what moved, and the reads that are alerts -- all the server's.
+/// «قطعة واحدة», «قطعتان», «5 قطع», «40 قطعة».
+String piecesWord(int n) => switch (n) {
+      1 => 'قطعة واحدة',
+      2 => 'قطعتان',
+      >= 3 && <= 10 => '$n قطع',
+      _ => '$n قطعة',
+    };
+
 class PieceScanResult extends StatelessWidget {
-  const PieceScanResult({super.key, required this.scan, this.trailing});
+  const PieceScanResult({super.key, required this.scan, this.trailing, this.onTransfer, this.onCheckAgain});
   final Map<String, dynamic> scan;
 
   /// What follows it on its screen («جرد جديد» on the reader).
   final Widget? trailing;
+
+  /// What follows its alerts on the reader (the owner, 27 Nov 2026: «اكمل») -- none in the log: the
+  /// transfer voucher from where the books hold pieces read here (its source's id, and the pieces), and
+  /// another check of the same place and scope. The count itself moves nothing.
+  final void Function(int fromId, List<String> pieces)? onTransfer;
+  final VoidCallback? onCheckAgain;
 
   static const verdicts = {
     'found': 'موجودة', 'missing': 'ناقصة', 'unread': 'لم تُقرأ', 'untagged': 'بلا رقاقة معتمدة',
@@ -126,8 +140,44 @@ class PieceScanResult extends StatelessWidget {
             ),
         ],
       ],
+      ..._nextSteps(context, alerts, abandoned),
       if (trailing != null) ...[const SizedBox(height: 24), trailing!],
     ]);
+  }
+}
+
+extension on PieceScanResult {
+  /// The pieces read here that the books hold elsewhere, by where they hold them now: a voucher each.
+  List<Widget> _nextSteps(BuildContext context, List<Map<String, dynamic>> alerts, bool abandoned) {
+    if (abandoned || scan['status'] == 'open') return const [];
+    final from = <int, ({String name, List<String> codes})>{};
+    for (final r in alerts) {
+      final place = r['place_now'] as Map?;
+      if (r['verdict'] != 'elsewhere' || place == null || r['item_code'] == null) continue;
+      final at = from[place['id'] as int] ?? (name: '${place['name']}', codes: <String>[]);
+      at.codes.add('${r['item_code']}');
+      from[place['id'] as int] = at;
+    }
+    return [
+      if (onTransfer != null && from.isNotEmpty) const SizedBox(height: 16),
+      if (onTransfer != null)
+        for (final e in from.entries)
+          OutlinedButton.icon(
+            key: Key('scan-transfer-${e.key}'),
+            onPressed: () => onTransfer!(e.key, e.value.codes),
+            icon: const Icon(Icons.swap_horiz),
+            label: Text(isolateLatin('سند نقل من «${e.value.name}» إلى هنا (${piecesWord(e.value.codes.length)})')),
+          ),
+      if (onCheckAgain != null) ...[
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          key: const Key('scan-check-again'),
+          onPressed: onCheckAgain,
+          icon: const Icon(Icons.manage_search),
+          label: const Text('جرد تحقّق آخر لنفس النطاق'),
+        ),
+      ],
+    ];
   }
 }
 

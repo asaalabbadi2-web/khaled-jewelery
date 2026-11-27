@@ -26,6 +26,11 @@ class SafeTransferScreen extends StatefulWidget {
   final String? initialNotes;
   final bool popOnSuccess;
 
+  /// The pieces it opens naming -- a count by scan's piece the books hold elsewhere (the owner, 27 Nov
+  /// 2026: «اكمل»): each named as if scanned, found by the server where the books hold it, its weight
+  /// on its row; one not in the source is said. The employee looks and sends, as any voucher.
+  final List<String> initialPieces;
+
   const SafeTransferScreen({
     super.key,
     required this.api,
@@ -35,6 +40,7 @@ class SafeTransferScreen extends StatefulWidget {
     this.initialToSafeId,
     this.initialNotes,
     this.popOnSuccess = false,
+    this.initialPieces = const [],
   });
 
   @override
@@ -264,6 +270,7 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
         _isLoadingSafes = false;
         _loadedOnce = true;
       });
+      await _nameInitialPieces();
     } catch (e) {
       if (!mounted) return;
       setState(() => _isLoadingSafes = false);
@@ -1233,6 +1240,20 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
 
   /// A piece read or typed: its number as typed -- «5» or «KJ-000005» -- read by the server (the owner,
   /// 21 Nov 2026); or its tag, as the reader sends it.
+  bool _initialPiecesNamed = false;
+
+  /// [SafeTransferScreen.initialPieces], once the source is set: each as if scanned; what was not taken said.
+  Future<void> _nameInitialPieces() async {
+    if (_initialPiecesNamed || widget.initialPieces.isEmpty || _fromSafeId == null) return;
+    _initialPiecesNamed = true;
+    final refused = <String>[];
+    for (final code in widget.initialPieces) {
+      final said = await _addPiece(code, typed: true);
+      if (!said.ok && said.words.isNotEmpty) refused.add(said.words);
+    }
+    if (refused.isNotEmpty && mounted) AppFeedback.warning(context, refused.join('\n'));
+  }
+
   Future<ScanSaid> _addPiece(String value, {required bool typed}) async {
     final Map<String, dynamic> found;
     try {

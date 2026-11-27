@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/utils/bidi.dart';
 import 'package:frontend/api_service.dart';
 import 'package:frontend/screens/piece_scan_screen.dart';
+import 'package:frontend/screens/safe_transfer_screen.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/scan_feedback.dart';
 
@@ -62,6 +63,8 @@ class _Api extends ApiService {
           'value': v,
           'verdict': v == _ring ? 'other_scope' : (v == _b ? 'elsewhere' : 'found'),
           'item_id': v == _a ? 101 : (v == _b ? 102 : null),
+          if (v == _b) 'item_code': 'KJ-000102',
+          if (v == _b && status != 'open') 'place_now': {'id': 31, 'name': 'العرض الخارجي'},
           'weight': v == _a ? 10.0 : null, 'piece_name': v == _a ? 'بنجرة الشمس' : null,
           'verdict_words': v == _ring ? 'من نطاق آخر' : (v == _b ? 'في غير موقعها' : 'موجودة'),
           'words': v == _b
@@ -81,7 +84,8 @@ class _Api extends ApiService {
     return {
       if (since != null) 'reads_since': since,
       'counts': counts,
-      'id': 7, 'safe_name': 'الذهب المعروض', 'kind_words': 'جرد إغلاق', 'scope_words': 'قسم بناجر',
+      'id': 7, 'safe_box_id': 30, 'kind': 'closing', 'section_id': 4, 'category_id': null,
+      'safe_name': 'الذهب المعروض', 'kind_words': 'جرد إغلاق', 'scope_words': 'قسم بناجر',
       'status': status, 'presses': presses, 'expected': 2, 'found': seen.contains(_a) ? 1 : 0,
       'expected_grams': 22.5, 'found_grams': seen.contains(_a) ? 10.0 : 0.0,
       'by_karat': [
@@ -302,6 +306,39 @@ void main() {
     expect(api.batches, hasLength(2));
     expect(api.batches[1].key, isNot(api.batches[0].key));
     expect(api.batches[1].events.single['press'], 2, reason: 'a second press, two seconds later');
+  });
+
+  // What follows an alert (the owner, 27 Nov 2026: «اكمل»): a piece here that the books hold elsewhere
+  // -- the transfer voucher that corrects it, its source, target and pieces filled in, to be looked at
+  // and sent by the employee; the count itself moves nothing. Another check of the same place and scope.
+  testWidgets('after the finish: a voucher from where the books hold the pieces, and another check', (tester) async {
+    final api = _Api()..complete = true;
+    await _open(tester, api);
+    await _startSection(tester);
+    await _read(tester, '$_a\n$_b\n');
+    await tester.tap(find.byKey(const Key('scan-finish')));
+    await tester.pumpAndSettle();
+    expect(find.text(isolateLatin('سند نقل من «العرض الخارجي» إلى هنا (قطعة واحدة)')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('scan-check-again')));
+    await tester.pumpAndSettle();
+    expect(api.started.last, {'safe_box_id': 30, 'kind': 'check', 'section_id': 4},
+        reason: 'the same place and scope, a check');
+  });
+
+  testWidgets('the voucher opens on its source, the place counted and its pieces', (tester) async {
+    final api = _Api()..complete = true;
+    await _open(tester, api);
+    await _startSection(tester);
+    await _read(tester, '$_a\n$_b\n');
+    await tester.tap(find.byKey(const Key('scan-finish')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('scan-transfer-31')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    final voucher = tester.widget<SafeTransferScreen>(find.byType(SafeTransferScreen));
+    expect((voucher.initialMode, voucher.initialFromSafeId, voucher.initialToSafeId), ('gold', 31, 30));
+    expect(voucher.initialPieces, ['KJ-000102']);
+    expect(voucher.initialNotes, contains('جرد بالمسح'));
   });
 
   // The start says when the place was last counted, and what it found (the owner, 27 Nov 2026: «اكمل»).

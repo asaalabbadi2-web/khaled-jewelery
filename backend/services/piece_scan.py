@@ -439,6 +439,12 @@ def scan_view(scan: PieceScan, *, with_lists=True, since=None) -> dict:
         r.update(item_code=getattr(piece, 'item_code', None),
                  weight=round(float(piece.weight or 0), 3) if piece is not None else None,
                  piece_name=names.get(r['item_id']))
+        # finished, a piece here that the books hold elsewhere: where they hold it now -- the transfer
+        # voucher that corrects it is from there (the owner, 27 Nov 2026: «اكمل»); the count moves nothing
+        if not open_ and r['verdict'] == ELSEWHERE and piece is not None:
+            from services.pieces import piece_location
+            place = piece_location(piece)
+            r['place_now'] = {'id': place.id, 'name': place.name} if place is not None else None
     grams_expected = round(sum(float(pieces[i].weight or 0) for i in expected if i in pieces), 3)
     grams_found = round(sum(float(pieces[i].weight or 0) for i in found & expected if i in pieces), 3)
     # the same grams by karat (the owner, 27 Nov 2026: «اكمل»): each karat's expected, found and not

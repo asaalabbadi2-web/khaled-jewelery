@@ -636,3 +636,17 @@ def test_each_place_says_its_last_count(app, auth_headers, shop):
     assert (said['kind_words'], said['found'], said['expected'], said['complete'], said['missing']) == \
         ('جرد إغلاق', 2, 4, False, 0), 'finished early: the unread are not missing'
     assert said['finished_at'] == (NOW + timedelta(minutes=5)).isoformat() and said['finished_by_name']
+
+
+# ── what follows an alert (the owner, 27 Nov 2026: «اكمل») ──────────────────────────────────────────
+
+def test_a_finished_scans_piece_elsewhere_says_where_the_books_hold_it_now(shop):
+    """For the voucher that corrects it -- from where the books hold it now to the place counted; the
+    count itself moves nothing."""
+    scan = start_scan(safe_box_id=shop['showroom'].id, kind='check', by='t', now=NOW)
+    _read(scan, _tag(shop['a']), _tag(shop['far']), press=1, button=True)
+    finish_scan(scan.id, by='t', now=NOW, early=True, reason='تجربة')
+    reads = {r['value']: r for r in scan_view(scan)['reads']}
+    assert reads[_tag(shop['far'])]['place_now'] == {'id': shop['branch'].id, 'name': shop['branch'].name}
+    assert reads[_tag(shop['far'])]['item_code'] == shop['far'].item_code
+    assert 'place_now' not in reads[_tag(shop['a'])], 'found: nothing to correct'

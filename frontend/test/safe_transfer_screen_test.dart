@@ -93,6 +93,7 @@ void main() {
     ThemeData? theme,
     Size size = const Size(1200, 2000),
     List<Map<String, dynamic>>? goldSafes,
+    List<String> pieces = const [],
   }) async {
     SharedPreferences.setMockInitialValues({
       'jwt_token': 'token',
@@ -129,6 +130,7 @@ void main() {
                     _ => null,
                   },
                   initialNotes: 'ملاحظة',
+                  initialPieces: pieces,
                 ),
               ),
             ),
@@ -230,6 +232,19 @@ void main() {
         expect(row21(), '14.37');
         await submitAndConfirm(tester);
       });
+      expect((sent.single['body'] as Map)['pieces'], ['KJ-000001']);
+    });
+
+    // Opened from a count by scan's alert (the owner, 27 Nov 2026: «اكمل»): the pieces it names come in
+    // as if scanned -- each found by the server where the books hold it, its weight on its row --
+    // and the employee looks and sends, as any voucher.
+    testWidgets('the pieces it is opened with are named as if scanned; one elsewhere is said', (tester) async {
+      final sent = await run(tester, 'gold', () async {
+        expect(find.byKey(const Key('transfer-piece-KJ-000001')), findsOneWidget);
+        expect(find.byKey(const Key('transfer-piece-KJ-000002')), findsNothing);
+        expect(find.textContaining('ليست في خزينة المصدر بل في «معرض الفرع»'), findsOneWidget);
+        await submitAndConfirm(tester);
+      }, pieces: ['KJ-000001', 'KJ-000002']);
       expect((sent.single['body'] as Map)['pieces'], ['KJ-000001']);
     });
 

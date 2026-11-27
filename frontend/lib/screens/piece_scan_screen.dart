@@ -10,6 +10,7 @@ import '../widgets/app_state_views.dart';
 import '../widgets/piece_scan_result.dart';
 import '../widgets/reader_capture.dart';
 import '../widgets/reader_receiver.dart';
+import 'safe_transfer_screen.dart';
 import '../utils/bidi.dart';
 import '../utils/currency_utils.dart' show formatGrams;
 import '../utils/display_date.dart';
@@ -620,14 +621,6 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
     ]);
   }
 
-  /// «قطعة واحدة», «قطعتان», «5 قطع», «40 قطعة».
-  static String _piecesWord(int n) => switch (n) {
-        1 => 'قطعة واحدة',
-        2 => 'قطعتان',
-        >= 3 && <= 10 => '$n قطع',
-        _ => '$n قطعة',
-      };
-
   /// What is left to read: the expected pieces not found yet -- each one while they are few, by what
   /// they are when many (how many, and their grams, the most first): a vitrine of thousands is read by
   /// its kinds, not a list of numbers.
@@ -661,7 +654,7 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
             dense: true,
             contentPadding: EdgeInsets.zero,
             title: Text(isolateLatin(
-                '${k.key}: ${_piecesWord(k.value.n)} · ${formatGrams(k.value.grams, decimals: 2)} جم')),
+                '${k.key}: ${piecesWord(k.value.n)} · ${formatGrams(k.value.grams, decimals: 2)} جم')),
           ),
       ];
     }
@@ -731,8 +724,38 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
 
   // ── the result: one view with the computer's log ──
 
+  /// The voucher that corrects pieces read here that the books hold elsewhere: from there to here, its
+  /// pieces named -- looked at and sent by the employee, as any voucher (the owner, 27 Nov 2026).
+  void _transfer(Map<String, dynamic> scan, int fromId, List<String> pieces) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => SafeTransferScreen(
+        api: _api,
+        initialMode: 'gold',
+        initialFromSafeId: fromId,
+        initialToSafeId: scan['safe_box_id'] as int?,
+        initialPieces: pieces,
+        initialNotes: 'تصحيح موقع بعد جرد بالمسح رقم ${scan['id']}',
+        popOnSuccess: true,
+      ),
+    ));
+  }
+
+  /// Another check of the same place and scope: the missing are in «ما بقي» as the reader goes.
+  void _checkAgain(Map<String, dynamic> scan) {
+    setState(() {
+      _locationId = scan['safe_box_id'] as int?;
+      _kind = 'check';
+      _sectionId = scan['section_id'] as int?;
+      _categoryId = scan['category_id'] as int?;
+      _scopeKind = _sectionId != null ? 'section' : (_categoryId != null ? 'category' : 'all');
+    });
+    _start();
+  }
+
   Widget _resultView(BuildContext context, Map<String, dynamic> scan) => PieceScanResult(
         scan: scan,
+        onTransfer: (fromId, pieces) => _transfer(scan, fromId, pieces),
+        onCheckAgain: () => _checkAgain(scan),
         trailing: OutlinedButton.icon(
           key: const Key('scan-again'),
           onPressed: _again,
