@@ -35,6 +35,11 @@ class _Api extends ApiService {
   List<Map<String, dynamic>> open = [];
   final settled = <int>[];
   /// The scan's expected pieces, as the server says them when the scan is read whole.
+  /// The place's last finished count, as the server says it with the places -- none: never counted.
+  Map<String, dynamic>? lastScan = {
+    'id': 3, 'kind_words': 'جرد إغلاق', 'finished_at': '2026-11-26T21:05:00', 'finished_by_name': 'سارة',
+    'found': 120, 'expected': 122, 'complete': true, 'missing': 2,
+  };
   List<Map<String, dynamic>> expectedList = [
     {'item_id': 101, 'item_code': 'KJ-000101', 'weight': 10.0, 'piece_name': 'بنجرة الشمس'},
     {'item_id': 103, 'item_code': 'KJ-000103', 'weight': 12.5, 'piece_name': 'خاتم لؤلؤ'},
@@ -79,6 +84,11 @@ class _Api extends ApiService {
       'id': 7, 'safe_name': 'الذهب المعروض', 'kind_words': 'جرد إغلاق', 'scope_words': 'قسم بناجر',
       'status': status, 'presses': presses, 'expected': 2, 'found': seen.contains(_a) ? 1 : 0,
       'expected_grams': 22.5, 'found_grams': seen.contains(_a) ? 10.0 : 0.0,
+      'by_karat': [
+        {'karat': '18', 'expected_grams': 12.5, 'found_grams': 0.0, 'not_found_grams': 12.5},
+        {'karat': '21', 'expected_grams': 10.0, 'found_grams': seen.contains(_a) ? 10.0 : 0.0,
+         'not_found_grams': seen.contains(_a) ? 0.0 : 10.0},
+      ],
       'alerts': seen.contains(_b) ? 1 : 0, 'complete': status == 'open' ? null : !finishes.last.containsKey('early'),
       'early_reason': finishes.isEmpty ? null : finishes.last['reason'],
       'completeness': {'complete': complete, 'all_found': allFound, 'needs_presses': 3, 'quiet_presses': quiet},
@@ -98,7 +108,7 @@ class _Api extends ApiService {
 
   @override
   Future<Map<String, dynamic>> pieceScanLocations() async => {
-    'locations': [{'id': 30, 'name': 'الذهب المعروض', 'stock_location': 'showroom'}],
+    'locations': [{'id': 30, 'name': 'الذهب المعروض', 'stock_location': 'showroom', 'last_scan': lastScan}],
   };
 
   @override
@@ -292,6 +302,34 @@ void main() {
     expect(api.batches, hasLength(2));
     expect(api.batches[1].key, isNot(api.batches[0].key));
     expect(api.batches[1].events.single['press'], 2, reason: 'a second press, two seconds later');
+  });
+
+  // The start says when the place was last counted, and what it found (the owner, 27 Nov 2026: «اكمل»).
+  testWidgets('the start says the place\'s last count, or that it was never counted', (tester) async {
+    final api = _Api();
+    await _open(tester, api);
+    final said = _said(tester, 'scan-last');
+    for (final part in ['آخر جرد: جرد إغلاق', 'سارة', 'موجودة 120 من 122', 'ناقصة 2']) {
+      expect(said, contains(isolateLatin(part)));
+    }
+  });
+
+  testWidgets('a place never counted is said so on the start', (tester) async {
+    await _open(tester, _Api()..lastScan = null);
+    expect(_said(tester, 'scan-last'), 'لم يُجرد هذا الموقع بالمسح بعد');
+  });
+
+  // The grams by karat, the server's figures: while scanning when more than one karat, and at the end.
+  testWidgets('the grams by karat: found of expected, and what is not found yet, then at the end', (tester) async {
+    final api = _Api()..complete = true;
+    await _open(tester, api);
+    await _startSection(tester);
+    await _read(tester, '$_a\n');
+    expect(_said(tester, 'scan-karat-18'), isolateLatin('18K · موجود 0.00 من 12.50 جم · بقي 12.50 جم'));
+    expect(_said(tester, 'scan-karat-21'), isolateLatin('21K · موجود 10.00 من 10.00 جم'));
+    await tester.tap(find.byKey(const Key('scan-finish')));
+    await tester.pumpAndSettle();
+    expect(_said(tester, 'scan-karat-18'), isolateLatin('18K · موجود 0.00 من 12.50 جم · لم يوجد 12.50 جم'));
   });
 
   // The system's tones on a count (the owner, 27 Nov 2026: «اكمل»; the reader's own beep is off): the

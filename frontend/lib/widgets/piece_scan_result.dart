@@ -78,6 +78,8 @@ class PieceScanResult extends StatelessWidget {
             if (e.key != 'found' && e.key != 'missing' && (counts[e.key] as num? ?? 0) > 0)
               Text('${e.value}: ${counts[e.key]}', key: Key('scan-count-${e.key}'), style: theme.textTheme.titleSmall),
         ]),
+        const SizedBox(height: 8),
+        ScanKaratGrams(scan: scan),
         if (notFound.isNotEmpty) ...[
           const SizedBox(height: 16),
           // what a count is for: the missing first, then the rest not found
@@ -125,6 +127,31 @@ class PieceScanResult extends StatelessWidget {
         ],
       ],
       if (trailing != null) ...[const SizedBox(height: 24), trailing!],
+    ]);
+  }
+}
+
+/// A count's grams by karat, the server's figures (the owner, 27 Nov 2026: «اكمل»): each karat's grams
+/// found of expected, and what is not found -- «بقي» while scanning, «لم يوجد» once finished.
+class ScanKaratGrams extends StatelessWidget {
+  const ScanKaratGrams({super.key, required this.scan});
+
+  final Map<String, dynamic> scan;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final open = scan['status'] == 'open';
+    final rows = (scan['by_karat'] as List? ?? const []).whereType<Map>();
+    String g(Object? v) => formatGrams((v as num? ?? 0).toDouble(), decimals: 2);
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      for (final k in rows)
+        Text(
+          isolateLatin('${k['karat']}K · موجود ${g(k['found_grams'])} من ${g(k['expected_grams'])} جم'
+              '${(k['not_found_grams'] as num? ?? 0) > 0 ? ' · ${open ? 'بقي' : 'لم يوجد'} ${g(k['not_found_grams'])} جم' : ''}'),
+          key: Key('scan-karat-${k['karat']}'),
+          style: theme.textTheme.bodyMedium,
+        ),
     ]);
   }
 }

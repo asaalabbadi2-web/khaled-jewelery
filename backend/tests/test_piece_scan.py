@@ -593,3 +593,46 @@ def test_a_finished_scans_missing_pieces_say_what_they_are(shop):
     finish_scan(scan.id, by='t', now=NOW, early=True, reason='تجربة')
     pieces = {p['item_code']: p for p in scan_view(scan)['expected_pieces']}
     assert pieces[shop['b'].item_code]['piece_name'].startswith('بنجرة نقل')
+
+
+# ── the last count of a place, and the grams by karat (the owner, 27 Nov 2026: «اكمل») ───────────────
+
+def test_a_scans_grams_by_karat_expected_found_and_not_found(shop):
+    """The server's figures, not the screen's sums: each karat's grams expected, found, not found."""
+    shop['c'].karat = '18'
+    db.session.flush()
+    scan = start_scan(safe_box_id=shop['showroom'].id, kind='check', by='t', now=NOW)
+    _read(scan, _tag(shop['a']), _tag(shop['far']), press=1)
+    expected = [{'karat': '18', 'expected_grams': 12.0, 'found_grams': 0.0, 'not_found_grams': 12.0},
+                {'karat': '21', 'expected_grams': 34.0, 'found_grams': 10.0, 'not_found_grams': 24.0}]
+    assert scan_view(scan)['by_karat'] == expected, 'a piece elsewhere is not this place\'s grams'
+    assert scan_view(scan, since=0)['by_karat'] == expected, 'in a batch\'s answer too'
+    finish_scan(scan.id, by='t', now=NOW, early=True, reason='تجربة')
+    assert scan_view(scan)['by_karat'] == expected, 'frozen with the finish'
+
+
+def test_each_place_says_its_last_count(app, auth_headers, shop):
+    """On the start: when the place was last counted, by whom, and what it found -- a finished count
+    only; read by whoever counts (inventory.count), as the places are."""
+    from flask import g
+
+    from services.piece_scan import abandon_scan
+    from tests.test_wage_treatment_follows_the_setting import flask_app
+
+    def last():
+        g.pop('current_user', None)
+        r = flask_app.test_client().get('/api/piece-scans/locations', headers=auth_headers)
+        assert r.status_code == 200, r.get_data(as_text=True)
+        return {l['id']: l['last_scan'] for l in r.get_json()['locations']}[shop['showroom'].id]
+    assert last() is None, 'never counted'
+    done = start_scan(safe_box_id=shop['showroom'].id, kind='closing', by='t', now=NOW)
+    _read(done, _tag(shop['a']), _tag(shop['b']), press=1, button=True)
+    finish_scan(done.id, by='t', now=NOW + timedelta(minutes=5), early=True, reason='تجربة')
+    abandon_scan(start_scan(safe_box_id=shop['showroom'].id, kind='check', by='t',
+                            now=NOW + timedelta(hours=1)).id, by='t', now=NOW + timedelta(hours=1))
+    start_scan(safe_box_id=shop['showroom'].id, kind='check', by='t', now=NOW + timedelta(hours=2))
+    said = last()
+    assert said['id'] == done.id, 'the last finished -- not one left, not one open'
+    assert (said['kind_words'], said['found'], said['expected'], said['complete'], said['missing']) == \
+        ('جرد إغلاق', 2, 4, False, 0), 'finished early: the unread are not missing'
+    assert said['finished_at'] == (NOW + timedelta(minutes=5)).isoformat() and said['finished_by_name']

@@ -43,8 +43,12 @@ def _refused(refused: ScanRefused):
 @piece_scans_bp.route('/piece-scans/locations', methods=['GET'])
 @require_permission('inventory.count')
 def piece_scan_locations():
-    return jsonify({'locations': [{'id': s.id, 'name': s.name, 'stock_location': s.stock_location}
-                                  for s in scan_locations()]}), 200
+    """The places a count is of, each with its last finished count (services/piece_scan.last_scans)."""
+    from services.piece_scan import last_scans
+    places = scan_locations()
+    last = last_scans([s.id for s in places])
+    return jsonify({'locations': [{'id': s.id, 'name': s.name, 'stock_location': s.stock_location,
+                                   'last_scan': last[s.id]} for s in places]}), 200
 
 
 @piece_scans_bp.route('/piece-scans/open', methods=['GET'])

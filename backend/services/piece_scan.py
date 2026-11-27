@@ -441,6 +441,19 @@ def scan_view(scan: PieceScan, *, with_lists=True, since=None) -> dict:
                  piece_name=names.get(r['item_id']))
     grams_expected = round(sum(float(pieces[i].weight or 0) for i in expected if i in pieces), 3)
     grams_found = round(sum(float(pieces[i].weight or 0) for i in found & expected if i in pieces), 3)
+    # the same grams by karat (the owner, 27 Nov 2026: «اكمل»): each karat's expected, found and not
+    # found -- the place's pieces only, a piece read from elsewhere not its grams
+    karats: dict = {}
+    for i in expected:
+        piece = pieces.get(i)
+        if piece is None:
+            continue
+        row = karats.setdefault(str(piece.karat or '—'), [0.0, 0.0])
+        row[0] += float(piece.weight or 0)
+        if i in found:
+            row[1] += float(piece.weight or 0)
+    by_karat = [{'karat': k, 'expected_grams': round(e, 3), 'found_grams': round(f, 3),
+                 'not_found_grams': round(e - f, 3)} for k, (e, f) in sorted(karats.items())]
     view = {'id': scan.id, 'safe_box_id': scan.safe_box_id, 'safe_name': getattr(safe, 'name', None),
             'kind': scan.kind, 'kind_words': KINDS.get(scan.kind), 'status': scan.status,
             'started_by': scan.started_by, 'started_at': scan.started_at.isoformat(),
@@ -449,7 +462,7 @@ def scan_view(scan: PieceScan, *, with_lists=True, since=None) -> dict:
             'finished_at': scan.finished_at.isoformat() if scan.finished_at else None,
             'complete': scan.complete, 'early_reason': scan.early_reason, 'presses': scan.presses or 0,
             'expected': len(expected_rows), 'found': len(found & expected),
-            'expected_grams': grams_expected, 'found_grams': grams_found,
+            'expected_grams': grams_expected, 'found_grams': grams_found, 'by_karat': by_karat,
             'section_id': scan.section_id, 'category_id': scan.category_id, 'scope_words': _scope_words(scan),
             'alerts': alerts, 'counts': counts}
     if since is not None:
@@ -475,6 +488,26 @@ def scan_view(scan: PieceScan, *, with_lists=True, since=None) -> dict:
                                       'moved': row.moved})}
                 for row in expected_rows]
     return view
+
+
+def last_scans(safe_ids) -> dict:
+    """{place's id: its last finished count, in short -- its kind, when and by whom it finished, found
+    of expected, missing, complete -- or None}: what the start says of a place (the owner, 27 Nov
+    2026: «اكمل»); a count left or still open is not one."""
+    latest = dict(db.session.query(PieceScan.safe_box_id, db.func.max(PieceScan.id))
+                  .filter(PieceScan.safe_box_id.in_(list(safe_ids)), PieceScan.status == 'finished')
+                  .group_by(PieceScan.safe_box_id).all()) if safe_ids else {}
+    out = {}
+    for safe_id in safe_ids:
+        scan = db.session.get(PieceScan, latest[safe_id]) if safe_id in latest else None
+        if scan is None:
+            out[safe_id] = None
+            continue
+        view = scan_view(scan, with_lists=False)
+        out[safe_id] = {key: view[key] for key in ('id', 'kind_words', 'finished_at', 'finished_by_name', 'found',
+                                                   'expected', 'complete')}
+        out[safe_id]['missing'] = int(view['expected_counts'].get(MISSING, 0))
+    return out
 
 
 def _piece_names(pieces) -> dict:

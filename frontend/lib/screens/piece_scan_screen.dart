@@ -12,6 +12,7 @@ import '../widgets/reader_capture.dart';
 import '../widgets/reader_receiver.dart';
 import '../utils/bidi.dart';
 import '../utils/currency_utils.dart' show formatGrams;
+import '../utils/display_date.dart';
 import '../utils/scan_feedback.dart';
 
 /// «جرد بالمسح» on the handheld reader (ADR-085 ت2 ج1; the owner, 21 Nov 2026).
@@ -418,6 +419,8 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
         items: [for (final l in locations) DropdownMenuItem(value: l['id'] as int, child: Text('${l['name']}'))],
         onChanged: (v) => setState(() => _locationId = v),
       ),
+      const SizedBox(height: 6),
+      _lastScan(context, locations),
       const SizedBox(height: 16),
       Text('النوع', style: theme.textTheme.titleSmall),
       const SizedBox(height: 8),
@@ -466,6 +469,24 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
         label: const Text('ابدأ الجرد'),
       ),
     ]);
+  }
+
+  /// The chosen place's last finished count, as the server says it with the places.
+  Widget _lastScan(BuildContext context, List<Map<String, dynamic>> locations) {
+    final theme = Theme.of(context);
+    final place = locations.where((l) => l['id'] == _locationId).firstOrNull;
+    final last = place?['last_scan'] as Map?;
+    final missing = (last?['missing'] as num? ?? 0).toInt();
+    return Text(
+      last == null
+          ? 'لم يُجرد هذا الموقع بالمسح بعد'
+          : isolateLatin('آخر جرد: ${last['kind_words']} · ${displayDateTime(last['finished_at'])} · '
+              '${last['finished_by_name'] ?? ''} — موجودة ${last['found']} من ${last['expected']}'
+              '${missing > 0 ? ' · ناقصة $missing' : ''}'
+              '${last['complete'] == false ? ' · أُنهي قبل اكتمال المسح' : ''}'),
+      key: const Key('scan-last'),
+      style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+    );
   }
 
   // ── the scan ──
@@ -517,6 +538,11 @@ class _PieceScanScreenState extends State<PieceScanScreen> {
         Expanded(child: ScanFigure(figureKey: 'scan-alerts', name: 'تنبيهات', value: '${scan['alerts']}',
             tone: (scan['alerts'] as num? ?? 0) > 0 ? tones.warning : null)),
       ]),
+      // the grams by karat while scanning, when there is more than one karat (the server's figures)
+      if (((scan['by_karat'] as List?)?.length ?? 0) > 1) ...[
+        const SizedBox(height: 8),
+        ScanKaratGrams(scan: scan),
+      ],
       if (expected > 0) ...[
         const SizedBox(height: 8),
         Semantics(
