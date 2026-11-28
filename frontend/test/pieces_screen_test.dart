@@ -25,8 +25,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 Map<String, dynamic> _piece(String code, String name, double weight,
         {String state = 'in_stock', double? wage, String? tag, double stones = 0, String? place = 'المعرض',
-        Map<String, dynamic>? model, Map<String, dynamic>? size}) =>
+        Map<String, dynamic>? model, Map<String, dynamic>? size, int? codingId}) =>
     {
+      'coding_id': codingId,
       'id': int.parse(code.substring(3)),
       'item_code': code,
       'barcode': code,
@@ -62,6 +63,13 @@ class _FakeApi extends ApiService {
   final bool fail;
   final asked = <Map<String, Object?>>[];
   final edits = <Map<String, dynamic>>[];
+  final uncoded = <(int, String)>[];
+
+  @override
+  Future<Map<String, dynamic>> uncodePiece(int pieceId, String reason) async {
+    uncoded.add((pieceId, reason));
+    return {'piece': {'id': pieceId, 'uncoded_at': '2026-11-28T09:00:00'}};
+  }
 
   @override
   Future<Map<String, dynamic>> getPieces({
@@ -181,12 +189,14 @@ class _FakeApi extends ApiService {
   Future<List<dynamic>> getItems({bool? inStockOnly, int? categoryId, int? excludeCategoryId}) async => [];
 }
 
-Future<void> _mount(WidgetTester tester, Widget screen, {Size size = const Size(1280, 900), bool receiving = true}) async {
+Future<void> _mount(WidgetTester tester, Widget screen,
+    {Size size = const Size(1280, 900), bool receiving = true,
+    List<String> permissions = const ['items.view', 'items.edit']}) async {
   SharedPreferences.setMockInitialValues({
     'jwt_token': 'token',
     'auth_current_user': jsonEncode(AppUserModel.fromJson({
       'id': 3, 'username': 'manager', 'full_name': 'المدير', 'role': 'manager', 'is_active': true,
-      'is_admin': false, 'employee_id': 15, 'effective_permissions': ['items.view', 'items.edit'],
+      'is_admin': false, 'employee_id': 15, 'effective_permissions': permissions,
       'permissions': null, 'must_change_password': false,
     }).toStorageMap()),
     'app_settings': jsonEncode({'main_karat': 21, 'receiving_active': receiving}),
@@ -320,6 +330,38 @@ void main() {
   testWidgets('no pieces yet: it says where a piece is born', (tester) async {
     await _mount(tester, PiecesScreen(api: _FakeApi(pieces: const [])));
     expect(find.text('القطعة تولد عند الاستلام، في «محطة ترميز القطع».'), findsOneWidget);
+  });
+
+  // A piece's coding undone (the owner, 28 Nov 2026): the manager's (items.delete), a held piece of a
+  // stock batch, with its reason -- its grams back to its category, its chip stopped, by the server.
+  testWidgets('the manager undoes a stock piece\'s coding with its reason', (tester) async {
+    final api = _FakeApi(pieces: [_piece('KJ-000250', 'بنجرة ذهب 21', 20.0, wage: 800, codingId: 6)]);
+    await _mount(tester, PiecesScreen(api: api), permissions: const ['items.view', 'items.edit', 'items.delete']);
+    await tester.tap(find.byKey(const Key('piece-actions-KJ-000250')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('إلغاء الترميز'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('piece-uncode-reason')), 'رُمّزت بالخطأ');
+    await tester.tap(find.byKey(const Key('piece-uncode-sure')));
+    await tester.pumpAndSettle();
+    expect(api.uncoded, [(250, 'رُمّزت بالخطأ')]);
+  });
+
+  testWidgets('no undoing a coding but the manager\'s, and a stock batch\'s piece', (tester) async {
+    final api = _FakeApi(pieces: [
+      _piece('KJ-000250', 'بنجرة ذهب 21', 20.0, wage: 800, codingId: 6),
+      _piece('KJ-000251', 'بنجرة استلام', 20.0, wage: 800),
+    ]);
+    await _mount(tester, PiecesScreen(api: api));
+    await tester.tap(find.byKey(const Key('piece-actions-KJ-000250')));
+    await tester.pumpAndSettle();
+    expect(find.text('إلغاء الترميز'), findsNothing, reason: 'not the manager');
+    await tester.tapAt(Offset.zero);
+    await tester.pumpAndSettle();
+    await _mount(tester, PiecesScreen(api: api), permissions: const ['items.view', 'items.delete']);
+    await tester.tap(find.byKey(const Key('piece-actions-KJ-000251')));
+    await tester.pumpAndSettle();
+    expect(find.text('إلغاء الترميز'), findsNothing, reason: 'a receipt\'s piece');
   });
 
   testWidgets('a first load that fails says so, and tries again', (tester) async {

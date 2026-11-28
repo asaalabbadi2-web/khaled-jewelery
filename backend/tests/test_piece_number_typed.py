@@ -54,6 +54,11 @@ def test_a_transfer_s_number_is_the_piece_s_never_an_id():
     box, other = _safe('showroom'), _safe('showroom', 'معرض الفرع')
     db.session.execute(PIECE_NUMBER.next_value())                 # a number used: numbers and ids part
     a, = _pieces(box, _bangles(), 10.0)
+    if str(a.id) == _number(a):
+        # the run's other tests left ids one behind the numbers, and the number used above made them
+        # meet: one more used, the next piece's parts again -- whatever ran before
+        db.session.execute(PIECE_NUMBER.next_value())
+        a, = _pieces(box, _bangles(), 10.0)
     assert str(a.id) != _number(a), 'the test needs a piece whose id is not its number'
     assert [p.id for p in refuse_piece_transfer(box, other, [_number(a)], {21: 10.0})] == [a.id], \
         'its number names it; read as an id it named another item or none'

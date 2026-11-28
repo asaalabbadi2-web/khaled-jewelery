@@ -60,7 +60,10 @@ def born_a_piece():
 def _source_filter(source):
     if isinstance(source, PieceSplitPart):
         return Item.split_part_id == source.id
-    return (Item.coding_id == source.id) if isinstance(source, StockCoding) else (Item.receipt_item_id == source.id)
+    if isinstance(source, StockCoding):
+        # a piece whose coding was undone is no longer its batch's: its grams are to code again
+        return (Item.coding_id == source.id) & Item.uncoded_at.is_(None)
+    return Item.receipt_item_id == source.id
 
 
 def pieces_weight(source) -> float:
@@ -484,6 +487,8 @@ def refuse_piece_sales(invoice_type, items) -> None:
         piece = db.session.get(Item, int(item_id))
         if not is_piece(piece):
             continue                                    # not a piece: the catalogue's own rules
+        if piece.uncoded_at is not None:
+            raise PieceRefused('piece_uncoded', f'السطر {n}: القطعة {piece.item_code} أُلغي ترميزها: لا تُباع برقمها')
         if piece_held(piece.id) <= GRAM:
             raise PieceRefused('piece_sold', f'السطر {n}: القطعة {piece.item_code} ليست في المخزون: لا تُباع مرتين')
         if piece_wage(piece) is None:
@@ -800,7 +805,9 @@ def piece_view(piece: Item) -> dict:
     tag = active_tag(piece)
     model = db.session.get(PieceModel, piece.model_id) if getattr(piece, 'model_id', None) else None
     size = db.session.get(SizeSystemSize, piece.size_id) if getattr(piece, 'size_id', None) else None
-    return {'id': piece.id, 'item_code': piece.item_code, 'barcode': piece.barcode, 'name': piece.name,
+    return {'uncoded_at': piece.uncoded_at.isoformat() if getattr(piece, 'uncoded_at', None) else None,
+            'uncoded_by': getattr(piece, 'uncoded_by', None), 'uncode_reason': getattr(piece, 'uncode_reason', None),
+            'id': piece.id, 'item_code': piece.item_code, 'barcode': piece.barcode, 'name': piece.name,
             'model': {'id': model.id, 'name': model.name} if model else None,
             'size': {'id': size.id, 'label': size.label} if size else None,
             'karat': piece.karat, 'weight': round(float(piece.weight or 0.0), 3),
@@ -983,6 +990,61 @@ def end_coding(batch: StockCoding, *, by: str, now) -> StockCoding:
     batch.ended_at, batch.ended_by = now, by
     db.session.flush()
     return batch
+
+
+def uncode_piece(piece: Item, *, reason, by: str, now) -> Item:
+    """A held piece of a stock batch, its coding undone (the owner, 28 Nov 2026) -- or PieceRefused,
+    nothing written: its grams back to its category in its place under no number (no entry, the
+    place's grams as they were), its adopted chip stopped, its number kept, said uncoded. Not a sold
+    piece, not a receipt's nor a split's, not one whose wage its pool gave it (ADR-096: an entry
+    moved it)."""
+    from models import AuditLog, PieceTag, WageAllocation
+    reason = str(reason or '').strip()
+    if not reason:
+        raise PieceRefused('uncode_reason_required', 'اكتب سبب إلغاء الترميز')
+    piece = Item.query.with_for_update().get(piece.id)
+    if piece is None or not is_piece(piece):
+        raise PieceRefused('piece_unknown', 'ليست قطعة مرمَّزة')
+    if piece.uncoded_at is not None:
+        raise PieceRefused('piece_uncoded', f'القطعة {piece.item_code} أُلغي ترميزها من قبل')
+    if piece.coding_id is None:
+        raise PieceRefused('piece_uncode_batch_only',
+                           f'القطعة {piece.item_code} من استلام أو تفكيك: يُلغى ترميز قطع المخزون الموجود وحدها')
+    if piece_held(piece.id) <= GRAM:
+        raise PieceRefused('piece_not_in_stock', f'القطعة {piece.item_code} ليست في المخزون')
+    if WageAllocation.query.filter_by(item_id=piece.id).first() is not None:
+        raise PieceRefused('piece_uncode_wage_moved',
+                           f'أجرة القطعة {piece.item_code} نُقلت إليها من متوسط تصنيفها بقيد: لا يُلغى ترميزها')
+    for row in StockLineAllocation.query.filter_by(item_id=piece.id).all():
+        row.item_id = None                              # its category's, under no number
+    tag = PieceTag.query.filter_by(item_id=piece.id, stopped_at=None).first()
+    if tag is not None:
+        tag.stopped_at, tag.stopped_by, tag.stop_reason = now, by, f'أُلغي ترميز القطعة: {reason}'[:200]
+    piece.uncoded_at, piece.uncoded_by, piece.uncode_reason = now, by, reason[:200]
+    db.session.flush()
+    AuditLog.log_action(user_name=by, action='piece_uncoded', entity_type='Item', entity_id=piece.id,
+                        entity_number=piece.item_code,
+                        details=json.dumps({'reason': reason, 'coding_id': piece.coding_id,
+                                            'weight': float(piece.weight or 0), 'at': now.isoformat()},
+                                           ensure_ascii=False))
+    return piece
+
+
+def uncode_batch(batch: StockCoding, *, reason, by: str, now) -> list:
+    """A batch undone (the owner, 28 Nov 2026): each of its pieces still held uncoded (uncode_piece),
+    the batch ended. A piece sold stays its sale's. Returns the pieces undone."""
+    reason = str(reason or '').strip()
+    if not reason:
+        raise PieceRefused('uncode_reason_required', 'اكتب سبب إلغاء الدفعة')
+    batch = StockCoding.query.with_for_update().get(batch.id)
+    undone = []
+    for piece in Item.query.filter(Item.coding_id == batch.id, Item.uncoded_at.is_(None)).order_by(Item.id).all():
+        if piece_held(piece.id) > GRAM:
+            undone.append(uncode_piece(piece, reason=reason, by=by, now=now))
+    if batch.ended_at is None:
+        batch.ended_at, batch.ended_by = now, by
+    db.session.flush()
+    return undone
 
 
 # ── a piece moves with the voucher that names it (R3.6) ─────────────────────
@@ -1255,7 +1317,7 @@ def replace_tag(piece: Item, *, reason, value=None, by: str, now) -> PieceTag:
 
 # ── the pieces' list (the owner, 16 Nov 2026) ───────────────────────────────
 
-PIECE_STATES = ('in_stock', 'sold', 'returned_to_supplier', 'split', 'out')
+PIECE_STATES = ('in_stock', 'sold', 'returned_to_supplier', 'split', 'uncoded', 'out')
 PIECE_SORTS = {'number': Item.item_code, 'weight': Item.weight, 'name': Item.name}
 PIECES_PER_PAGE_MAX = 100
 
@@ -1335,6 +1397,9 @@ def out_of_stock(piece: Item) -> dict | None:
     21 Nov 2026)."""
     if piece_held(piece.id) > GRAM:
         return None
+    if getattr(piece, 'uncoded_at', None) is not None:
+        day = f'{piece.uncoded_at:%Y-%m-%d}'
+        return {'state': 'uncoded', 'date': day, 'words': f'ليست قطعة في المخزون — أُلغي ترميزها {day}'}
     exit_ = _last_exits([piece.id]).get(piece.id)
     if exit_ is None:
         return {'state': 'out', 'date': None, 'words': 'ليست في المخزون'}
@@ -1422,7 +1487,11 @@ def pieces_list(*, q=None, category_id=None, karat=None, safe_box_id=None, model
     account_of_safe = {s.account_id: s for s in SafeBox.query.filter(SafeBox.account_id.isnot(None))}
 
     def state_of(piece):
-        return 'in_stock' if piece.id in in_stock else exits.get(piece.id, (None, 'out'))[1]
+        if piece.id in in_stock:
+            return 'in_stock'
+        if getattr(piece, 'uncoded_at', None) is not None:      # its coding undone (the owner, 28 Nov 2026)
+            return 'uncoded'
+        return exits.get(piece.id, (None, 'out'))[1]
 
     def place_of(piece):
         if piece.id not in in_stock:
@@ -1446,6 +1515,8 @@ def pieces_list(*, q=None, category_id=None, karat=None, safe_box_id=None, model
         view = piece_view(piece)
         where = place_of(piece)
         left = exits.get(piece.id) if piece.id not in in_stock else None
+        if piece.id not in in_stock and getattr(piece, 'uncoded_at', None) is not None:
+            left = (piece.uncoded_at, 'uncoded')
         category = db.session.get(Category, piece.category_id) if piece.category_id else None
         view.update({'state': state_of(piece), 'in_stock': piece.id in in_stock,
                      'location': {'id': where.id, 'name': where.name} if where is not None else None,

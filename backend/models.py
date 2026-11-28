@@ -1213,6 +1213,12 @@ class Item(db.Model):
     # once, at its coding, by register_piece -- never at a sale. A receipt's
     # piece has none: its wage is its invoice's line (ADR-087 §6).
     coded_wage = db.Column(db.Float, nullable=True)
+    # A held piece of a stock batch whose coding the manager undid, with a reason (the owner, 28 Nov
+    # 2026): its grams back to its category, its chip stopped, its number kept and never used again
+    # (services/pieces.uncode_piece; migration 20261128_piece_uncode).
+    uncoded_at = db.Column(db.DateTime, nullable=True)
+    uncoded_by = db.Column(db.String(100), nullable=True)
+    uncode_reason = db.Column(db.String(200), nullable=True)
     # A piece's size (ADR-093 §3): one of its category's size system's, or none.
     size_id = db.Column(db.Integer, db.ForeignKey('size_system_size.id', ondelete='RESTRICT'), nullable=True,
                         index=True)

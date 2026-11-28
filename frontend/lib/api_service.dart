@@ -6007,6 +6007,14 @@ class ApiService {
   Future<Map<String, dynamic>> openStockCoding(Map<String, dynamic> body) =>
       _postJson('/stock-codings', body, fallback: 'تعذّر فتح دفعة الترميز');
 
+  /// A held piece of a stock batch, its coding undone by the manager with its reason (28 Nov 2026).
+  Future<Map<String, dynamic>> uncodePiece(int pieceId, String reason) =>
+      _postJson('/pieces/$pieceId/uncode', {'reason': reason}, fallback: 'تعذّر إلغاء الترميز');
+
+  /// A batch undone: each of its pieces still held, its coding undone; the batch ended: `{undone, line}`.
+  Future<Map<String, dynamic>> uncodeStockCoding(int codingId, String reason) =>
+      _postJson('/stock-codings/$codingId/uncode', {'reason': reason}, fallback: 'تعذّر إلغاء الدفعة');
+
   /// A batch ended at the station: it takes no piece after (the owner, 27 Nov 2026): `{line}`.
   Future<Map<String, dynamic>> endStockCoding(int codingId) =>
       _postJson('/stock-codings/$codingId/end', const {}, fallback: 'تعذّر إنهاء الدفعة');

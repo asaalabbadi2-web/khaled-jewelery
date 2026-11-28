@@ -572,6 +572,30 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
     }
   }
 
+  /// A batch undone by the manager: each of its pieces still held, its coding undone; the batch ended.
+  Future<void> _uncodeBatch(Map<String, dynamic> line) async {
+    final why = await showDialog<String>(
+      context: context,
+      builder: (_) => _CloseRestDialog(
+        title: 'إلغاء الدفعة؟',
+        body: 'يُلغى ترميز كل قطعها التي في المخزون: يعود ذهبها إلى تصنيفها وتُلغى رقاقاتها، وتنتهي الدفعة. '
+            'انزع بطاقاتها. بعدها يمكن إرجاع التصنيف إلى «بالوزن».',
+        reason: '',
+        action: 'ألغِ الدفعة',
+      ),
+    );
+    final reason = why?.trim() ?? '';
+    if (reason.isEmpty || !mounted) return;
+    try {
+      final body = await _api.uncodeStockCoding(line['coding_id'] as int, reason);
+      if (!mounted) return;
+      AppFeedback.success(context, 'أُلغيت الدفعة: أُلغي ترميز ${body['undone']} قطعة');
+      await _close();
+    } catch (e) {
+      if (mounted) AppFeedback.error(context, e);
+    }
+  }
+
   /// A batch with no weight ended: it takes no piece after; nothing written but its end.
   Future<void> _endBatch(Map<String, dynamic> line) async {
     try {
@@ -1166,15 +1190,23 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
                 style: theme.textTheme.titleSmall,
               ),
               const SizedBox(height: 8),
-              Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: OutlinedButton.icon(
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                OutlinedButton.icon(
                   key: const Key('station-end-batch'),
                   icon: const Icon(Icons.flag_outlined),
                   label: const Text('إنهاء الدفعة'),
                   onPressed: () => _endBatch(line),
                 ),
-              ),
+                // not finished before the shop opens: its pieces' coding undone, the category free to go
+                // back to weight -- the manager's (the owner, 28 Nov 2026)
+                if (Provider.of<AuthProvider?>(context, listen: false)?.hasPermission('items.delete') == true)
+                  TextButton.icon(
+                    key: const Key('station-uncode-batch'),
+                    icon: const Icon(Icons.undo),
+                    label: const Text('إلغاء الدفعة'),
+                    onPressed: () => _uncodeBatch(line),
+                  ),
+              ]),
             ] else ...[
               ClipRRect(
                 borderRadius: BorderRadius.circular(4),

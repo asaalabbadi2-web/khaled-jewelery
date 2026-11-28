@@ -6,13 +6,18 @@
 // batch of the stock on hand takes no wage: each of its pieces is sent with
 // its own, per gram or whole (ADR-096 §4; the owner, 19 Nov 2026).
 
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/api_service.dart';
+import 'package:frontend/models/app_user_model.dart';
 import 'package:frontend/models/safe_box_model.dart';
+import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/screens/piece_station_screen.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/widgets/piece_label_actions.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 Map<String, dynamic> _batch({int pieces = 0, double coded = 0, bool fromPool = false}) => {
@@ -81,6 +86,14 @@ class _Api extends ApiService {
       return {'line': _openBatch(settled: categoryNet < 0 ? -categoryNet : 0), 'pieces': []};
     }
     return {'line': _batch(fromPool: fromPool), 'pieces': []};
+  }
+
+  final undone = <(int, String)>[];
+
+  @override
+  Future<Map<String, dynamic>> uncodeStockCoding(int codingId, String reason) async {
+    undone.add((codingId, reason));
+    return {'undone': 0, 'line': _openBatch(ended: '2026-11-28T09:00:00')};
   }
 
   @override
@@ -416,6 +429,48 @@ void main() {
     await tester.tap(find.byKey(const Key('station-end-batch')));
     await tester.pumpAndSettle();
     expect(api.ended, [6]);
+  });
+
+  // A batch undone (the owner, 28 Nov 2026): not finished before the shop opens, its pieces' coding undone
+  // and the batch ended -- the category may go back to weight; the manager's (items.delete).
+  testWidgets('the manager undoes an open batch with its reason', (tester) async {
+    final api = _Api();
+    SharedPreferences.setMockInitialValues({
+      'jwt_token': 't',
+      'auth_current_user': jsonEncode(AppUserModel.fromJson({
+        'id': 3, 'username': 'manager', 'full_name': 'المدير', 'role': 'manager', 'is_active': true,
+        'is_admin': false, 'employee_id': 15, 'effective_permissions': ['items.view', 'items.create', 'items.delete'],
+        'permissions': null, 'must_change_password': false,
+      }).toStorageMap()),
+    });
+    tester.view.physicalSize = const Size(1400, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final auth = AuthProvider();
+    await auth.init();
+    await tester.pumpWidget(ChangeNotifierProvider<AuthProvider>.value(
+      value: auth,
+      child: MaterialApp(theme: LightTheme.theme, home: PieceStationScreen(api: api)),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('station-from-stock')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('coding-safe')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('المعرض').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('coding-category')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('بنجرة ذهب 21').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('coding-open')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('station-uncode-batch')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('station-close-rest-reason')), 'لم يكتمل قبل الفتح');
+    await tester.tap(find.byKey(const Key('station-close-rest-sure')));
+    await tester.pumpAndSettle();
+    expect(api.undone, [(6, 'لم يكتمل قبل الفتح')]);
   });
 
   testWidgets('from 2027 a batch\'s piece takes its pool\'s average: shown, not asked', (tester) async {

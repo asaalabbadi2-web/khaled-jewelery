@@ -27,6 +27,7 @@ const pieceStateLabels = <String, String>{
   'sold': 'بيعت',
   'returned_to_supplier': 'رُدّت إلى المورد',
   'split': 'فُكِّكت',
+  'uncoded': 'أُلغي ترميزها',
   'out': 'خرجت من المخزون',
 };
 
@@ -547,6 +548,23 @@ class _PiecesScreenState extends State<PiecesScreen> {
     _load();
   }
 
+  /// «إلغاء الترميز» (the owner, 28 Nov 2026): the manager's -- a held piece of a stock batch.
+  bool _canUncode(Map<String, dynamic> p) =>
+      p['state'] == 'in_stock' && p['coding_id'] != null && context.read<AuthProvider>().hasPermission('items.delete');
+
+  Future<void> _uncode(Map<String, dynamic> p) async {
+    final reason = await showDialog<String>(context: context, builder: (_) => _UncodeDialog(code: '${p['item_code']}'));
+    if (reason == null || reason.trim().isEmpty || !mounted) return;
+    try {
+      await widget.api.uncodePiece(p['id'] as int, reason.trim());
+      if (!mounted) return;
+      AppFeedback.success(context, 'أُلغي ترميز ${p['item_code']}: ذهبها لتصنيفها، ورقاقتها أُلغيت');
+      _load();
+    } catch (e) {
+      if (mounted) AppFeedback.error(context, e, title: 'لم يُلغَ الترميز');
+    }
+  }
+
   Widget _actions(Map<String, dynamic> p) => PopupMenuButton<String>(
     key: Key('piece-actions-${p['item_code']}'),
     tooltip: 'إجراءات القطعة ${p['item_code']}',
@@ -554,12 +572,14 @@ class _PiecesScreenState extends State<PiecesScreen> {
     onSelected: (choice) => switch (choice) {
       'print' => _print(p),
       'split' => _split(p),
+      'uncode' => _uncode(p),
       _ => _editText(p),
     },
     itemBuilder: (_) => [
       const PopupMenuItem(value: 'print', child: Text('طباعة البطاقة')),
       if (_canEdit) const PopupMenuItem(value: 'edit', child: Text('تعديل الوصف والموديل والمقاس')),
       if (_canSplit(p)) const PopupMenuItem(value: 'split', child: Text('تفكيك القطعة')),
+      if (_canUncode(p)) const PopupMenuItem(value: 'uncode', child: Text('إلغاء الترميز')),
     ],
   );
 
@@ -1196,4 +1216,48 @@ class _PieceCard extends StatelessWidget {
       ),
     );
   }
+}
+
+
+/// «إلغاء الترميز»'s question (the owner, 28 Nov 2026): what it does, and its reason.
+class _UncodeDialog extends StatefulWidget {
+  const _UncodeDialog({required this.code});
+  final String code;
+
+  @override
+  State<_UncodeDialog> createState() => _UncodeDialogState();
+}
+
+class _UncodeDialogState extends State<_UncodeDialog> {
+  final _reason = TextEditingController();
+
+  @override
+  void dispose() {
+    _reason.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: Text('إلغاء ترميز ${widget.code}؟'),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('يعود ذهبها إلى تصنيفها بلا رقم، وتُلغى رقاقتها، ويبقى رقمها في السجلّ ولا يُستعمل ثانية. '
+              'انزع بطاقتها. لا قيد ولا حركة في الأرصدة.'),
+          const SizedBox(height: 12),
+          TextField(
+            key: const Key('piece-uncode-reason'),
+            controller: _reason,
+            maxLength: 200,
+            decoration: const InputDecoration(labelText: 'السبب'),
+          ),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('رجوع')),
+          FilledButton(
+            key: const Key('piece-uncode-sure'),
+            onPressed: () => Navigator.of(context).pop(_reason.text),
+            child: const Text('ألغِ الترميز'),
+          ),
+        ],
+      );
 }

@@ -45,6 +45,9 @@ POST /api/stock-codings           -- «ترميز من المخزون الموج
      sent with its own (wage, wage_whole; ADR-096 §4). No weight: coded piece
      by piece from the place's unclassified grams (the owner, 27 Nov 2026).
 POST /api/stock-codings/<id>/end  -- a batch ended: it takes no piece after.
+POST /api/pieces/<id>/uncode      -- a held piece of a stock batch, its coding undone -- reason; the
+     manager's (items.delete): its grams back to its category, its chip stopped (28 Nov 2026).
+POST /api/stock-codings/<id>/uncode -- a batch undone: each of its pieces still held, the batch ended.
 POST /api/pieces/<id>/split/check -- a split read before it is made (ADR-099):
      parts [{category_id, weight, stones_weight, wage?}] -- each part's wage
      (written, or its share by weight), the total, the difference allowed --
@@ -328,6 +331,42 @@ def stock_coding_open():
         return jsonify({'error': refused.code, 'message': refused.message}), 400
     db.session.commit()
     return jsonify({'line': coding_view(batch), 'pieces': []}), 201
+
+
+@pieces_bp.route('/pieces/<int:piece_id>/uncode', methods=['POST'])
+@require_permission('items.delete')
+def piece_uncode(piece_id: int):
+    """A held piece of a stock batch, its coding undone by the manager, with its reason."""
+    from services.pieces import uncode_piece
+    piece = db.session.get(Item, piece_id)
+    if piece is None:
+        return jsonify({'error': 'not_found', 'message': 'القطعة غير موجودة'}), 404
+    try:
+        piece = uncode_piece(piece, reason=(request.get_json(silent=True) or {}).get('reason'), by=_by(),
+                             now=datetime.now())
+    except PieceRefused as refused:
+        db.session.rollback()
+        return jsonify({'error': refused.code, 'message': refused.message}), 400
+    db.session.commit()
+    return jsonify({'piece': piece_view(piece)}), 200
+
+
+@pieces_bp.route('/stock-codings/<int:coding_id>/uncode', methods=['POST'])
+@require_permission('items.delete')
+def stock_coding_uncode(coding_id: int):
+    """A batch undone by the manager: each of its pieces still held, its coding undone; the batch ended."""
+    from services.pieces import uncode_batch
+    batch = db.session.get(StockCoding, coding_id)
+    if batch is None:
+        return jsonify({'error': 'not_found', 'message': 'الدفعة غير موجودة'}), 404
+    try:
+        undone = uncode_batch(batch, reason=(request.get_json(silent=True) or {}).get('reason'), by=_by(),
+                              now=datetime.now())
+    except PieceRefused as refused:
+        db.session.rollback()
+        return jsonify({'error': refused.code, 'message': refused.message}), 400
+    db.session.commit()
+    return jsonify({'undone': len(undone), 'line': coding_view(db.session.get(StockCoding, coding_id))}), 200
 
 
 @pieces_bp.route('/stock-codings/<int:coding_id>/end', methods=['POST'])
