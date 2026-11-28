@@ -47,11 +47,13 @@ class _FakeApi extends ApiService {
   final created = <Map<String, dynamic>>[];
   final updated = <Map<String, dynamic>>[];
   final sent = <String>[];
+  final sentBytes = <List<int>>[];
 
   @override
   Future<Map<String, dynamic>> uploadAttachment(List<int> bytes,
       {String role = 'scrap_gold_photo', String filename = 'photo.jpg'}) async {
     sent.add(role);
+    sentBytes.add(bytes);
     return {'id': 60 + sent.length};
   }
 
@@ -115,7 +117,10 @@ void main() {
     final photo = img.decodeImage(pair.photo)!;
     final thumb = img.decodeImage(pair.thumbnail)!;
     expect((photo.width, photo.height), (photoSide, 600));
-    expect((thumb.width, thumb.height), (thumbnailSide, 120));
+    expect((thumb.width, thumb.height), (thumbnailSide, 240));
+    // the owner, 27 Nov 2026: «صور الموديلات تبدو متدنية الدقه» -- a list's box of 140 points is 280 to
+    // 420 pixels on a phone, a reader or a Mac: a thumbnail of 240 was stretched
+    expect(thumbnailSide, greaterThanOrEqualTo(480));
     expect(modelPhotoPair(Uint8List.fromList([1, 2, 3])), isNull);
   });
 
@@ -142,6 +147,8 @@ void main() {
     await tester.tap(find.byKey(const Key('model-size-12')));
     await tester.tap(find.byKey(const Key('model-size-13')));
     await tester.tap(find.byKey(const Key('model-photo')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('crop-skip')));           // the cut offered first (27 Nov 2026)
     await tester.pumpAndSettle();
     expect(find.text('تغيير الصورة'), findsOneWidget);
     await tester.tap(find.byKey(const Key('model-save')));
@@ -170,6 +177,53 @@ void main() {
     await tester.tap(find.byKey(const Key('model-save')));
     await tester.pumpAndSettle();
     expect(api.updated.single.containsKey('photo_id'), isFalse, reason: 'an unchanged photo is not sent again');
+  });
+
+  // Cut to the piece when chosen (the owner, 27 Nov 2026): a square the piece fills, its frame moved and
+  // zoomed -- or the photo as it is.
+  test('the square cut is what the frame shows, in the photo\'s pixels', () {
+    const side = 300.0;
+    final cover = side / 800;                                // a 1200 x 800 photo covering the square
+    final centred = Matrix4.identity()..translateByDouble((side - 1200 * cover) / 2, 0, 0, 1);
+    expect(cropRectOf(const Size(1200, 800), side, centred), const Rect.fromLTWH(200, 0, 800, 800));
+    final zoomed = Matrix4.identity()
+      ..translateByDouble(-side / 2 + (side - 1200 * cover), -side / 2, 0, 1)
+      ..scaleByDouble(2, 2, 1, 1);
+    final cut = cropRectOf(const Size(1200, 800), side, zoomed);
+    expect((cut.width, cut.height), (400, 400), reason: 'twice as close: half the side');
+  });
+
+  for (final (button, size) in [('crop-use', (200, 200)), ('crop-skip', (300, 200))]) {
+    testWidgets('a photo chosen is cut to its square, or kept whole: $button', (tester) async {
+      final api = _FakeApi();
+      await _pump(tester, PieceModelFormScreen(api: api, categoryId: 3, pickPhoto: (_) async => _png(300, 200)));
+      await tester.tap(find.byKey(const Key('model-photo')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('crop-frame')), findsOneWidget, reason: 'the frame to cut it in, first');
+      await tester.tap(find.byKey(Key(button)));
+      await tester.pumpAndSettle();
+      final photo = img.decodeImage(Uint8List.fromList(api.sentBytes.first))!;
+      expect((photo.width, photo.height), size);
+      expect(api.sent, ['model_photo', 'model_thumbnail']);
+    });
+  }
+
+  // Tapped in a list, a model's photo opens whole (the owner, 27 Nov 2026): its engraving is what tells
+  // one model from another, and a list's box is too small for it.
+  testWidgets('a model\'s photo in a list opens whole on a tap', (tester) async {
+    ModelImage.forgetRead();
+    final api = _FakeApi();
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: SizedBox(height: 56, width: 56,
+          child: ModelImage(api: api, attachmentId: 62, fullId: 61))),
+    ));
+    await tester.pumpAndSettle();
+    expect(api.read, [62]);
+    await tester.tap(find.byType(ModelImage));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('model-photo-full')), findsOneWidget);
+    expect(api.read, [62, 61], reason: 'the photo itself, not its thumbnail');
+    expect(find.byType(InteractiveViewer), findsOneWidget, reason: 'pinched to look closer');
   });
 
   testWidgets('a model\'s photo is read through the server, once however often it is shown', (tester) async {

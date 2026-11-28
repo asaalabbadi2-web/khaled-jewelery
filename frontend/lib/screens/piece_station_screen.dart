@@ -242,7 +242,7 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
                   height: 56,
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: ModelImage(api: _api, attachmentId: m['thumbnail_id'] as int?),
+                    child: ModelImage(api: _api, attachmentId: m['thumbnail_id'] as int?, fullId: m['photo_id'] as int?),
                   ),
                 ),
                 title: Text('${m['name']}'),
@@ -845,7 +845,7 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
                     height: 32,
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(6),
-                      child: ModelImage(api: _api, attachmentId: model?['thumbnail_id'] as int?),
+                      child: ModelImage(api: _api, attachmentId: model?['thumbnail_id'] as int?, fullId: model?['photo_id'] as int?),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -876,7 +876,7 @@ class _PieceStationScreenState extends State<PieceStationScreen> {
                 height: 56,
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
-                  child: ModelImage(api: _api, attachmentId: model?['thumbnail_id'] as int?),
+                  child: ModelImage(api: _api, attachmentId: model?['thumbnail_id'] as int?, fullId: model?['photo_id'] as int?),
                 ),
               ),
               title: Text(model == null ? 'بلا موديل' : '${model['name']}'),

@@ -383,7 +383,7 @@ class _ModelCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            ModelImage(api: api, attachmentId: model['thumbnail_id'] as int?, height: 140),
+            ModelImage(api: api, attachmentId: model['thumbnail_id'] as int?, fullId: model['photo_id'] as int?, height: 140),
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.all(AppSpace.md),
