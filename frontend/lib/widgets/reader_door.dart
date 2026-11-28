@@ -2,43 +2,56 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 
-/// The rule a reader's door keeps the focus by -- «استقبال القارئ»'s (the owner, 21-22 Nov 2026), now
-/// one rule for [ReaderReceiver] and [ScanField] alike (the owner, 26 Nov 2026: «لا نبني منطق تركيز
-/// جديدًا»):
+/// The rule a reader's door keeps the focus by -- «استقبال القارئ»'s (the owner, 21-22 Nov 2026), one
+/// rule for [ReaderReceiver] and [ScanField] alike (26 Nov 2026: «لا نبني منطق تركيز جديدًا»):
 ///
-/// - the handheld reader types into the focused field and nowhere else, so a door that loses the
-///   focus takes it back by itself a moment after ([back]) -- on the owner's reader it lost it
-///   after each value (21 Nov 2026: «يقرأ رمز ثم يفقد التركيز»);
-/// - only when nothing holds it: never from a field the user is typing in (22 Nov 2026: in the sale
-///   invoice «بمجرد لمس الشاشة وضياع التركيز ... صوت قراءة ولا يوجد قراءة»), and never from a dialog
-///   opened over its screen;
-/// - one door a screen takes it back -- two would take it from each other with no rule as to which
-///   ends with it; said at once in a debug build, where the tests run.
+/// - the handheld reader types into the focused field and nowhere else, so the door takes the focus
+///   when **nothing holds it** -- after a value, when the reader's own Enter left it (21 Nov 2026:
+///   «يقرأ رمز ثم يفقد التركيز»); after a touch on the screen's blank (22 Nov 2026: «بمجرد لمس الشاشة
+///   وضياع التركيز ... صوت قراءة ولا يوجد قراءة»); when a dialog or a page over it closes and nothing
+///   took the focus back;
+/// - **it never takes it from what holds it** (the owner, 28 Nov 2026: «لا تقبل نقل التركيز الى مكان
+///   اخر» -- the door took it back 150 ms after it left, from anything but a text field: Tab could not
+///   pass it, a box or a dropdown lost it): a text field, a button, a box, a dropdown, a menu's item --
+///   whatever the user or the keyboard gave it to. Then the door says it is not heard
+///   ([ReaderReceiver]: «اضغط هنا ليستقبل القارئ») and a touch on it is the way back;
+/// - what holds the focus ([holdsFocus]): a node, not a scope -- a screen's shortcuts wrapper
+///   (AppDocumentShortcuts) is a scope, and a scope alone is nothing held -- that may be focused and
+///   is in the traversal; nothing, the root, or a scope with nothing in it, holds it not;
+/// - read once the move is over -- at the end of its frame -- never as a leave to take: one look a
+///   frame, whatever the moves within it; none while the screen is under a dialog or a page;
+/// - one door a screen holds it -- two would take it from each other; said at once in a debug build,
+///   where the tests run.
 ///
 /// The door that does not hold the focus ([doorHoldsFocus] false) still hears the reader while it
-/// is focused; it takes nothing back.
+/// is focused; it takes nothing.
 mixin ReaderDoorFocus<T extends StatefulWidget> on State<T> {
   /// The door's own node.
   FocusNode get doorNode;
 
-  /// Whether this door takes the focus back.
+  /// Whether this door takes the focus when nothing holds it.
   bool get doorHoldsFocus;
 
   /// The door's focus came or went -- what a door shows of it.
   void doorFocusChanged() {}
 
-  /// How long after losing its focus the door takes it back.
-  static const back = Duration(milliseconds: 150);
-
   static final Map<ModalRoute<dynamic>, Set<State>> _holders = {};
   static final Set<ModalRoute<dynamic>> _checking = {};
   ModalRoute<dynamic>? _route;
+
+  /// One look at the end of a frame, however many moves came in it.
+  bool _looking = false;
+
+  /// Whether [node] holds the focus: a node the user or the keyboard may be on -- not a scope (a
+  /// screen's shortcuts wrapper is one), focusable, in the traversal.
+  static bool holdsFocus(FocusNode? node) =>
+      node != null && node is! FocusScopeNode && node.canRequestFocus && !node.skipTraversal && node.context != null;
 
   @override
   void initState() {
     super.initState();
     doorNode.addListener(_changed);
-    FocusManager.instance.addListener(_anyChanged);
+    FocusManager.instance.addListener(_lookSoon);
   }
 
   @override
@@ -80,7 +93,7 @@ mixin ReaderDoorFocus<T extends StatefulWidget> on State<T> {
   @override
   void dispose() {
     doorNode.removeListener(_changed);
-    FocusManager.instance.removeListener(_anyChanged);
+    FocusManager.instance.removeListener(_lookSoon);
     final holders = _holders[_route];
     holders?.remove(this);
     if (holders != null && holders.isEmpty) _holders.remove(_route);
@@ -90,28 +103,25 @@ mixin ReaderDoorFocus<T extends StatefulWidget> on State<T> {
   void _changed() {
     if (!mounted) return;
     doorFocusChanged();
-    if (!doorNode.hasFocus) _takeBackSoon();
   }
 
-  /// The focus moved anywhere: to nothing, it is the door's again.
-  void _anyChanged() {
-    if (!mounted || doorNode.hasFocus) return;
-    _takeBackSoon();
-  }
-
-  void _takeBackSoon() {
-    if (!doorHoldsFocus) return;
-    Future<void>.delayed(back, () {
-      if (!mounted || !doorHoldsFocus || doorNode.hasFocus) return;
-      if (ModalRoute.of(context)?.isCurrent == false) return; // a dialog over it keeps its own field
-      if (_typingElsewhere()) return; // a field the user chose keeps it
-      doorNode.requestFocus();
+  /// The focus moved: looked at once it is over -- at the end of the frame, one look a frame.
+  void _lookSoon() {
+    if (_looking || !mounted || !doorHoldsFocus || doorNode.hasFocus) return;
+    _looking = true;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      _looking = false;
+      _look();
     });
+    SchedulerBinding.instance.ensureVisualUpdate();
   }
 
-  static bool _typingElsewhere() {
-    final focused = FocusManager.instance.primaryFocus?.context;
-    return focused != null && focused.findAncestorWidgetOfExactType<EditableText>() != null;
+  /// The door takes the focus only when nothing holds it, its screen the one shown.
+  void _look() {
+    if (!mounted || !doorHoldsFocus || doorNode.hasFocus) return;
+    if (ModalRoute.of(context)?.isCurrent == false) return; // a dialog or a page over it: theirs
+    if (holdsFocus(FocusManager.instance.primaryFocus)) return; // given to something: kept there
+    doorNode.requestFocus();
   }
 }
 
