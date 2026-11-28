@@ -661,17 +661,17 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
                             )
                           else if (pm != null)
                             _infoTag('تسوية يدوية', _tone.info),
-                          if (pm != null)
-                            _infoTag(
-                              'عمولة: ${ltrIsolate('${(pm['commission_rate'] as num?)?.toDouble() ?? 0.0}%')}',
-                              _tone.info,
-                            ),
+                          if (pm != null) _infoTag(_commissionSaid(pm), _tone.info),
                           _infoTag(
                             'رصيد الخزينة: ${_formatAmount(sb.cashBalance)} $_currency',
                             _tone.info,
                           ),
                         ],
                       ),
+                      if (_methodActions(sb, pm) case final Widget actions) ...[
+                        const SizedBox(height: theme.AppSpace.sm),
+                        actions,
+                      ],
                     ],
                   ),
                 ),
@@ -1409,32 +1409,8 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
                   const SizedBox(height: theme.AppSpace.md),
 
                   // ── أزرار الإجراءات ─────────────────────────────────
-                  // A deposit confirmed by what reached the bank (ADR-100).
-                  if (pm != null && pm['deposit_confirmation_required'] == true) ...[
-                    OutlinedButton.icon(
-                      key: Key('deposit-confirm-open-${sb.id}'),
-                      onPressed: () async {
-                        final done = await showDepositConfirmDialog(context, api: _api, method: pm);
-                        if (done == true) _loadData();
-                      },
-                      icon: const Icon(Icons.fact_check_outlined, size: 18),
-                      label: const Text('تأكيد إيداع بما وصل البنك'),
-                    ),
-                    const SizedBox(height: theme.AppSpace.sm),
-                  ],
-                  // Its commissions' monthly tax invoices (ADR-101).
-                  if (pm != null && pm['tax_invoice_from'] != null) ...[
-                    OutlinedButton.icon(
-                      key: Key('tax-invoices-open-${sb.id}'),
-                      onPressed: () async {
-                        await Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => CommissionTaxInvoicesScreen(api: _api, method: pm),
-                        ));
-                        _loadData();
-                      },
-                      icon: const Icon(Icons.receipt_long_outlined, size: 18),
-                      label: const Text('الفواتير الضريبية للعمولات'),
-                    ),
+                  if (_methodActions(sb, pm) case final Widget actions) ...[
+                    actions,
                     const SizedBox(height: theme.AppSpace.sm),
                   ],
                   Row(
@@ -1471,9 +1447,52 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
     );
   }
 
+  /// The method's commission in a word: by its plans when it has them -- it
+  /// has no one rate then, saved 0 (594cb4d05) -- else its rate, kept whole,
+  /// left-to-right: «0.8%», not «%0.8».
+  String _commissionSaid(Map<String, dynamic> pm) {
+    final plans = pm['plans'];
+    if (plans is List && plans.isNotEmpty) return 'عمولة: بالخطط';
+    final rate = (pm['commission_rate'] as num?)?.toDouble() ?? 0.0;
+    return 'عمولة: ${ltrIsolate('$rate%')}';
+  }
+
+  /// What a method asks of its box, on the card and on the wide screen alike:
+  /// a deposit confirmed by what reached the bank (ADR-100), its commissions'
+  /// monthly tax invoices (ADR-101). None when it asks neither.
+  Widget? _methodActions(SafeBoxModel sb, Map<String, dynamic>? pm) {
+    if (pm == null) return null;
+    final confirm = pm['deposit_confirmation_required'] == true;
+    final invoices = pm['tax_invoice_from'] != null;
+    if (!confirm && !invoices) return null;
+    return Wrap(spacing: theme.AppSpace.sm, runSpacing: theme.AppSpace.sm, children: [
+      if (confirm)
+        OutlinedButton.icon(
+          key: Key('deposit-confirm-open-${sb.id}'),
+          onPressed: () async {
+            final done = await showDepositConfirmDialog(context, api: _api, method: pm);
+            if (done == true) _loadData();
+          },
+          icon: const Icon(Icons.fact_check_outlined, size: 18),
+          label: const Text('تأكيد إيداع بما وصل البنك'),
+        ),
+      if (invoices)
+        OutlinedButton.icon(
+          key: Key('tax-invoices-open-${sb.id}'),
+          onPressed: () async {
+            await Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => CommissionTaxInvoicesScreen(api: _api, method: pm),
+            ));
+            _loadData();
+          },
+          icon: const Icon(Icons.receipt_long_outlined, size: 18),
+          label: const Text('الفواتير الضريبية للعمولات'),
+        ),
+    ]);
+  }
+
   Widget _buildPmInfoRow(Map<String, dynamic> pm) {
     final name = pm['name']?.toString() ?? '—';
-    final rate = (pm['commission_rate'] as num?)?.toDouble() ?? 0.0;
     final autoEnabled = pm['auto_settlement_enabled'] == true;
     // The schedule as the server reads it (ADR-037) -- not recomputed here.
     final summary = pm['schedule_summary']?.toString() ?? '';
@@ -1507,8 +1526,7 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
             spacing: theme.AppSpace.sm,
             runSpacing: theme.AppSpace.xs,
             children: [
-              // The rate kept whole, left-to-right: «0.8%», not «%0.8».
-              _infoTag('عمولة: ${ltrIsolate('$rate%')}', _tone.info),
+              _infoTag(_commissionSaid(pm), _tone.info),
               if (autoEnabled)
                 _infoTag('تلقائي: $scheduleLabel', _tone.ready)
               else
